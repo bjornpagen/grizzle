@@ -512,7 +512,7 @@ export class InstallBuilder {
 		}
 		const install = (fn: RowFunction): void => {
 			this.name(fn.named)
-			this.addConstant(fn.named, { ddl: [fn.create, constantRevoke(fn.create)], reasons }, [
+			this.addConstant(fn.named, { ddl: () => [fn.create, constantRevoke(fn.create)], reasons }, [
 				this.schemaNode
 			])
 		}
@@ -611,7 +611,12 @@ export class InstallBuilder {
 		name: Identity<
 			"closedConstant" | "rosterConstant" | "rosterLive" | "libraryFunction" | "rowFunction"
 		>,
-		spec: Omit<ObjectSpec<"setup">, "kind" | "ident" | "phase">,
+		spec: {
+			/** Its statements, built only where the constant is new: one added again builds none, so a constant many
+			 * objects read, a closed side many containments read among them, is built once. */
+			readonly ddl: () => ReadonlyArray<SqlStatement>
+			readonly reasons: ReadonlyArray<PhysicalReason>
+		},
 		after: ReadonlyArray<Node<"setup">>
 	): Node<"setup"> {
 		const known = this.#constants.get(name.identifier)
@@ -619,17 +624,18 @@ export class InstallBuilder {
 			this.graph.addReasons(known.node, spec.reasons)
 			return known.node
 		}
+		const ddl = spec.ddl()
 		const node = this.add(
 			{
 				kind: "constant",
 				ident: this.qualified("function", name),
-				ddl: spec.ddl,
+				ddl,
 				reasons: spec.reasons,
 				phase: "setup"
 			},
 			after
 		)
-		this.#constants.set(name.identifier, { named: name, node, args: constantArgs(spec.ddl) })
+		this.#constants.set(name.identifier, { named: name, node, args: constantArgs(ddl) })
 		return node
 	}
 

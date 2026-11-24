@@ -197,10 +197,10 @@ const withBody = (h: FunctionHeader, body: PlBlock): PlFunction => {
 	return { ...h, returns: h.returns, params: h.params, body }
 }
 
-/** A constant's header, a literal pack's its function's, which takes no parameter and returns its bits. */
+/** A constant's header, a literal pack's its function's, which takes no parameter and returns its codes. */
 export const constantHeader = (c: CreateConstant | PackConstant | StubConstant): ConstantHeader =>
 	c.kind === "packConstant"
-		? { language: "sql", name: c.function, params: [], returns: types.varbit }
+		? { language: "sql", name: c.function, params: [], returns: types.codes }
 		: { language: c.language, name: c.name, params: c.params, returns: c.returns }
 
 /** An installed statement as its snapshot records it: a PL/pgSQL function and a constant by their headers, the

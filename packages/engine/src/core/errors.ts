@@ -175,11 +175,11 @@ const regexSpaceText = (measure: RegexSpaceMeasure): string => {
  *   statementMaxParams);
  * - `numericDigits`: a numeric expression whose value may need `needed` integer digits, past numeric's `limit`
  *   (ir/carriers.ts numericMaxIntegerDigits), where PostgreSQL's numeric arithmetic would raise;
- * - `constantBits`: the constant of the closed relation or side `constant`, whose cells times their width come to
- *   `needed` bits, past PostgreSQL's longest bit string, `limit` (constantMaxBits), refused before it is
+ * - `constantCells`: the constant of the closed relation or side `constant`, whose key space holds `needed` cells, past
+ *   the `limit` a bigint index counts (physical/ddl/constants.ts constantMaxCells), refused before it is packed;
+ * - `payloadCodes`: the constant of the closed relation or side `constant`, whose payload space holds `needed` codes,
+ *   past the `limit` a bigint payload code holds (physical/ddl/constants.ts payloadMaxCodes), refused before it is
  *   packed;
- * - `cellCodes`: the constant of the closed relation or side `constant`, whose payload space holds `needed` codes, past
- *   the `limit` a cell read as an integer holds (cellMaxCodes), refused before it is packed;
  * - `regexInclusion`: whether every value of the language `inner` is a member of the language `outer`, which a cast's
  *   precondition rests on, undecided because comparing their automata passes the text analysis's bounds, `states` DFA
  *   states or `work` NFA-state visits (regexDfaMaxStates, regexDfaMaxWork).
@@ -203,15 +203,15 @@ export type CompileBound =
 	| { readonly kind: "statementParams"; readonly limit: number; readonly needed: number }
 	| { readonly kind: "numericDigits"; readonly limit: number; readonly needed: number }
 	| {
-			readonly kind: "constantBits"
+			readonly kind: "constantCells"
 			readonly constant: string
-			readonly limit: number
+			readonly limit: bigint
 			readonly needed: bigint
 	  }
 	| {
-			readonly kind: "cellCodes"
+			readonly kind: "payloadCodes"
 			readonly constant: string
-			readonly limit: number
+			readonly limit: bigint
 			readonly needed: bigint
 	  }
 	| {
@@ -240,10 +240,10 @@ const boundText = (bound: CompileBound): string => {
 			return `a statement of at most ${bound.limit} placeholders, what a PostgreSQL Bind message counts (needed ${bound.needed})`
 		case "numericDigits":
 			return `a numeric value of at most ${bound.limit} integer digits, numeric's limit (this expression's may need ${bound.needed})`
-		case "constantBits":
-			return `the constant of ${bound.constant} in at most ${bound.limit} bits, PostgreSQL's longest bit string, VARBITMAXLEN (needed ${bound.needed})`
-		case "cellCodes":
-			return `the payload of ${bound.constant} in at most ${bound.limit} codes, what one cell read as an integer holds (needed ${bound.needed}); split its payload fields into closed relations of their own`
+		case "constantCells":
+			return `the key space of ${bound.constant} in at most ${bound.limit} cells, what a bigint index counts (needed ${bound.needed}); key it by fewer closed ids, or split it into closed relations of their own`
+		case "payloadCodes":
+			return `the payload of ${bound.constant} in at most ${bound.limit} codes, what one bigint payload code holds (needed ${bound.needed}); split its payload fields into closed relations of their own`
 		case "regexInclusion":
 			return `a decision whether every value of ${bound.inner} is a member of ${bound.outer}, which comparing their automata cannot reach within grizzle's text analysis bounds of ${bound.states} DFA states and ${bound.work} NFA-state visits; write the operand's pattern with fewer counted repetitions, or guard the cast with Logic.when(Text.matches(x, <the target's pattern>), (x) => Type.cast(x, <target>), <your value>)`
 	}

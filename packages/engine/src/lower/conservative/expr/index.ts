@@ -275,7 +275,11 @@ export const lowerScalar = (expr: ScalarExpr, site: ScalarSite): Expr => {
 				expr.kind === "closedAt"
 					? { kind: "at", field: expr.field }
 					: expr.kind === "closedRow"
-						? { kind: "row" }
+						? {
+								kind: "row",
+								run: site.names.library("closedRow"),
+								empty: lowerLiteral(site.names, { kind: "handles", handles: [] }, expr.type)
+							}
 						: { kind: "has" }
 			)
 		case "call":
@@ -347,7 +351,7 @@ const membershipOf = (expr: ExprOf<"op">): Membership | undefined => {
  * A membership test as the one bit it reads, never a set built and compared (a singleton's set_bit, a complement, an
  * AND and a bit_count).
  *
- * - Over a closed relation's row of a prefix, C.row(k…), it is the relation's key set's bit at the completed key,
+ * - Over a closed relation's row of a prefix, C.row(k…), it is the relation's membership at the completed key,
  *   C.has(k…, c) (sql/constants.ts closedRead), which is bit c of the row. c is a code of the row's roster, or a slot
  *   code that the read guards below its owner's count, so the completed key's cell is the row's c-th; a prefix the
  *   relation completes nowhere, and a slot code past its owner's count, read absent, so false.

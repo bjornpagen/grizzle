@@ -5,7 +5,8 @@
  * - smallint, integer and bigint are the two's-complement integers Int16Array, Int32Array and BigInt64Array hold, so
  *   their published ranges and typlens are read off Node's typed arrays, and rosterMaxCodes counts the non-negative
  *   integers Int16Array holds, at every code within eight of its first and of its last;
- * - constantMaxBits is the longest bit length whose rounding up to whole bytes still fits an Int32Array slot;
+ * - constantMaxCells and payloadMaxCodes are the most cells a key space's bigint index and the most payload codes a
+ *   bigint payload code count, exactly as a BigInt64Array slot holds them;
  * - heapTupleMaxBytes is the largest tuple PageAddItem's fit test admits on an empty heap page, at every size within
  *   sixteen bytes of it, and alignUp is TYPEALIGN's bit arithmetic.
  *
@@ -13,7 +14,7 @@
  * maxIdentifierBytes are their sources' arithmetic alone, and a test of them could only restate it, so none is written.
  *
  * Each space is small and exhausted. Features: each integer carrier; a code below, among, at the last of and past a
- * roster's codes; a length below, at and past constantMaxBits; a size already aligned, rounded up, and at byte
+ * roster's codes; cells and payload codes below, at and past their bounds; a size already aligned, rounded up, and at byte
  * alignment; a tuple below, at and past heapTupleMaxBytes.
  */
 
@@ -27,7 +28,7 @@ import { blockSize, itemIdBytes, pageHeaderBytes } from "#compiler/core/page.ts"
 import { integerRanges } from "#compiler/ir/carriers.ts"
 import type { IntegerCarrier } from "#compiler/ir/scalar.ts"
 import { heapTupleMaxBytes } from "#compiler/laws/model/model.ts"
-import { constantMaxBits } from "#compiler/physical/ddl/constants.ts"
+import { constantMaxCells, payloadMaxCodes } from "#compiler/physical/ddl/constants.ts"
 import { alignUp, maxAlign, rosterMaxCodes, typlens } from "#compiler/schema/representability.ts"
 import { integerCarriers } from "#test/unit/core/limits.dictionary.ts"
 import {
@@ -134,41 +135,57 @@ export const postgreSQLsIntegersNumberARostersCodesByEveryNonNegativeSmallintOnc
 		}
 	)
 
-/** A constant's length rounds up to whole bytes inside an int32 exactly up to constantMaxBits. */
-export const aConstantsLengthRoundsUpToWholeBytesInsideAnInt32ExactlyUpToConstantMaxBits =
-	property.exhaust(finite(int(constantMaxBits - 8, constantMaxBits + 8)), {
-		box: "every bit length within a byte of constantMaxBits",
+/** A constant's index and its payload codes fit a bigint exactly up to constantMaxCells and payloadMaxCodes. */
+export const aConstantsIndexAndPayloadCodesFitABigintExactlyUpToTheirBounds = property.exhaust(
+	finite((source) => [source.draw(int(-8, 8)), source.draw(int(-8, 8))] as const),
+	{
+		box: "every count of cells within eight of constantMaxCells, against every count of payload codes within eight of payloadMaxCodes",
 		needs: {},
 		situations: ["at the bound", "below the bound", "past the bound"] satisfies ReadonlyArray<
 			Reached<Length>
 		>,
-		check: (_, c: Case<Length>) => (length) =>
-			Effect.sync(() => {
-				const rounded = length + 8 - 1
-				assert.equal(
-					Int32Array.of(rounded)[0] === rounded,
-					length <= constantMaxBits,
-					`a length of ${length} bits`
-				)
-				c.note(
-					length === constantMaxBits
-						? "at the bound"
-						: length < constantMaxBits
-							? "below the bound"
-							: "past the bound"
-				)
-			}),
-		oracle: { kind: "second-implementation", name: "Node's Int32Array" },
+		check:
+			(_, c: Case<Length>) =>
+			([cellsOffset, pointsOffset]) =>
+				Effect.sync(() => {
+					const cells = constantMaxCells + BigInt(cellsOffset)
+					const points = payloadMaxCodes + BigInt(pointsOffset)
+					assert.equal(
+						BigInt64Array.of(BigInt.asIntN(64, cells))[0] === cells,
+						cells <= constantMaxCells,
+						`the index ${cells}, the first past a key space of ${cells} cells`
+					)
+					assert.equal(
+						BigInt64Array.of(BigInt.asIntN(64, points - 1n))[0] === points - 1n,
+						points <= payloadMaxCodes,
+						`the greatest payload code of ${points} codes`
+					)
+					c.note(
+						cellsOffset === 0 || pointsOffset === 0
+							? "at the bound"
+							: cellsOffset < 0 && pointsOffset < 0
+								? "below the bound"
+								: "past the bound"
+					)
+				}),
+		oracle: { kind: "second-implementation", name: "Node's BigInt64Array" },
 		kept: [],
 		kills: [
 			{
 				file: "packages/engine/src/physical/ddl/constants.ts",
-				original: "constantMaxBits = int4Max - bitsPerByte + 1",
-				replacement: "constantMaxBits = int4Max - bitsPerByte + 2",
-				why: "constantMaxBits one bit past the longest length that rounds up into an int32; the constant property fails."
+				original: "export const constantMaxCells = int8Max\n",
+				replacement: "export const constantMaxCells = int8Max + 1n\n",
+				why: "constantMaxCells one cell past the greatest bigint index; the constant property fails."
+			},
+			{
+				file: "packages/engine/src/physical/ddl/constants.ts",
+				original: "export const payloadMaxCodes = int8Max + 1n\n",
+				replacement: "export const payloadMaxCodes = int8Max + 2n\n",
+				why: "payloadMaxCodes one code past the greatest bigint payload code; the constant property fails."
 			}
 		]
-	})
+	}
+)
 
 /** A heap page rounds a size up as TYPEALIGN does. */
 export const aHeapPageRoundsASizeUpAsTYPEALIGNDoes = property.exhaust(finite(roundings), {

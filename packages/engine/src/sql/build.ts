@@ -157,8 +157,16 @@ export const types = {
 		length,
 		array: false
 	}),
-	/** bit varying: a constant's string of cells. */
+	/** bit varying: a roster's live codes, and a closed relation's row of a prefix (physical/ddl/library.ts closedRow). */
 	varbit: builtinType("bit varying"),
+	/** bigint[]: a closed relation's constant, its codes after the sentinel -1 (ir/cells.ts Constant). */
+	codes: {
+		kind: "builtin",
+		name: "bigint",
+		precision: undefined,
+		scale: undefined,
+		array: true
+	} satisfies TypeRef,
 	/** name, or name[]: a roster's names constant's element, or the constant. */
 	name: (array: boolean): TypeRef => ({
 		kind: "builtin",

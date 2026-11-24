@@ -15,23 +15,28 @@ import {
 	weighted
 } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Option, Order, String as Str } from "effect"
+import { Array as Arr, Effect, Option, Order } from "effect"
 import { maxStringLength } from "#compiler/core/canonical.ts"
 import {
 	type BlockCoordinate,
 	type CellLayout,
-	cellWidth,
 	type CodeSlot,
 	type Constant,
-	constantDigestOf,
+	cellsDigestOf,
+	cellsLiteralOf,
+	cellsOfLiteral,
 	dependentSpace,
 	constantOf as encodedOf,
 	finDigit,
 	finSize,
 	finSpace,
+	holdsPayloads,
 	keyCells,
 	type KeyCollision,
 	keyIndex,
+	payloadsDigestOf,
+	payloadsLiteralOf,
+	payloadsOfLiteral,
 	rosterCodes,
 	type RosterCodes,
 	rowMajorIndex,
@@ -41,7 +46,12 @@ import {
 } from "#compiler/ir/cells.ts"
 import { type RosterOrder, rosterOrders } from "#compiler/ir/scalar.ts"
 import { failed, succeeded } from "#test/support/assert.ts"
-import { bitText } from "#test/support/closed/bit-text.ts"
+import {
+	oracleLiteral,
+	oracleCells,
+	oraclePayloads,
+	payloadAt
+} from "#test/support/closed/codes.ts"
 
 /** A product layout, which most of these rules are stated over: each key coordinate's and payload coordinate's codes. */
 interface Product {
@@ -84,43 +94,30 @@ const replaced = (
 ): ReadonlyArray<number> => Arr.map(digits, (d, j) => (j === at ? digit : d))
 
 /**
- * PostgreSQL's substring(bits FROM start FOR length) on a bit string: 1-based, and total, the bits of the range that lie
- * inside the string, the empty string for a range wholly outside it.
+ * The naive decoder: every cell of a constant read as PostgreSQL's reads find it, by scanning its cells for an element
+ * equal to it (test/support/closed/codes.ts payloadAt), each held cell's index mapped back to its key by the odometer of
+ * the key space and its payload code c to the payload at position c of the payload space's odometer. Its tuples come in
+ * index order.
  */
-const substring = (bits: string, start: number, length: number): string => {
-	const from = Math.max(start, 1)
-	const to = Math.min(start + length, bits.length + 1)
-	return from >= to ? "" : Str.slice(from - 1, to - 1)(bits)
-}
-
-/** A cell as a domain reads it, substring(R FROM index * w + 1 FOR w)::int4, the empty string's value being 0. */
-const readCell = (bits: string, width: number, index: number): bigint => {
-	const cell = substring(bits, index * width + 1, width)
-	return cell === "" ? 0n : BigInt(`0b${cell}`)
-}
-
-/**
- * The naive decoder: every cell of a constant's text read as PostgreSQL reads it, each present cell's index mapped back
- * to its key by the odometer of the key space and its value 1 + c to the payload at position c of the payload space's
- * odometer. Its tuples come in index order.
- */
-const decoded = (layout: Product, text: string, width: number): ReadonlyArray<Tuple> => {
+const decoded = (layout: Product, constant: Constant): ReadonlyArray<Tuple> => {
 	const payloads = odometer(layout.payload)
+	const cells = oracleCells(constant)
+	const codes = oraclePayloads(constant)
 	return Arr.flatMap(odometer(layout.key), (key, index): ReadonlyArray<Tuple> => {
-		const cell = readCell(text, width, index)
-		return cell === 0n
+		const payload = payloadAt(cells, codes, BigInt(index))
+		return payload === undefined
 			? []
 			: [
 					{
 						key,
-						payload: defined(payloads[Number(cell) - 1], `cell ${index} holds 1 + a payload code`)
+						payload: defined(payloads[Number(payload)], `cell ${index} holds a payload code`)
 					}
 				]
 	})
 }
 
-/** The bits that hold the largest cell value of a payload space of `points` codes, 1 + (points - 1): its binary length. */
-const bitsToHold = (points: bigint): number => (points === 0n ? 0 : points.toString(2).length)
+/** The payload codes a constant over a payload space of `points` points states: the points, or 1 for a space of none. */
+const statedPoints = (points: number): bigint => (points === 0 ? 1n : BigInt(points))
 
 /**
  * A key's code spaces: one to three coordinates whose sizes multiply to at most `cap`, a coordinate of no code among
@@ -397,12 +394,15 @@ export const theorem = (space: Space, c: Case<Dependent>) =>
 		const encoded = succeeded(
 			encodedOf({ key: keySpace, payload: [Math.max(1, points.length)] }, rows)
 		)
-		const text = succeeded(bitText(encoded, maxStringLength))
+		const cells = oracleCells(encoded)
+		const codes = oraclePayloads(encoded)
 		const read = Arr.flatMap(
 			Array.from({ length: points.length }, (_, at) => at),
 			(at): ReadonlyArray<Tuple> => {
-				const cell = readCell(text, encoded.width, at)
-				return cell === 0n ? [] : [{ key: defined(points[at]), payload: [Number(cell) - 1] }]
+				const payload = payloadAt(cells, codes, BigInt(at))
+				return payload === undefined
+					? []
+					: [{ key: defined(points[at]), payload: [Number(payload)] }]
 			}
 		)
 		assert.deepEqual(read, rows, "decode ∘ encode = id over the dependent space")
@@ -439,47 +439,88 @@ export type Relation =
 
 /**
  * The box: every closed relation over a key of one to three coordinates whose sizes multiply to at most 4 (a
- * coordinate of no code among them), and a payload of none (a set, w = 1), one coordinate of 0, 1, 2 or 3 codes
- * (w = 0, 1, 2, 2) or two of 2 (w = 3): 11,915 relations.
+ * coordinate of no code among them), and a payload of none (a set, P = 1), one coordinate of 0, 1, 2 or 3 codes
+ * (P = 1, 1, 2, 3) or two of 2 (P = 4): 11,915 relations.
  */
 export const box = relationIn(4, [[], [0], [1], [2], [3], [2, 2]])
 
 /**
- * decode ∘ encode = id: the naive decoder reads back exactly the relation's tuples from its text, which is exactly
- * cells · w bits, w the fewest bits that hold 1 + the largest payload code; a read past either end is absent; and the
- * text is refused one bit short of its length. Oracle: the naive tuple-set model and PostgreSQL's substring.
+ * decode ∘ encode = id: the constant states its key space's cells and its payload space's points (1 for a space of
+ * none); its cells' literal, and its payloads' where its payload space holds more than one code, are the oracle's
+ * spelling of its arrays, exactly, and read back to its indexes and payload codes; the naive decoder reads back exactly
+ * the relation's tuples from those arrays, and a read past the last cell is absent; and each literal, O(rows) whatever
+ * the key space, is refused one character short of its length. Oracle: the naive tuple-set model and a scan of every
+ * cell.
  */
 export const roundTrip = ({ layout, rows }: Boxed, c: Case<Relation>) =>
 	Effect.sync(() => {
 		const encoded = succeeded(constantOf(layout, rows))
 		const cells = odometer(layout.key).length
-		const width = bitsToHold(BigInt(odometer(layout.payload).length))
+		const points = statedPoints(odometer(layout.payload).length)
 		assert.equal(encoded.cells, BigInt(cells))
-		assert.equal(encoded.width, width, "the fewest bits that hold 1 + the largest payload code")
-		const bits = cells * width
-		const text = succeeded(bitText(encoded, bits))
-		assert.equal(text.length, bits)
-		if (bits > 0) {
-			assert.deepEqual(failed(bitText(encoded, bits - 1)), {
-				kind: "stringLength",
-				limit: bits - 1,
-				needed: bits
-			})
+		assert.equal(encoded.points, points, "the payload space's points, 1 for a space of none")
+		const cellsText = succeeded(cellsLiteralOf(encoded, maxStringLength))
+		assert.equal(
+			cellsText,
+			oracleLiteral(oracleCells(encoded)),
+			"the cells' literal is the oracle's"
+		)
+		const position = new Map(
+			Arr.map(odometer(layout.key), (point, at) => [pointKey(point), BigInt(at)] as const)
+		)
+		assert.deepEqual(
+			succeeded(cellsOfLiteral(cellsText, encoded.cells)),
+			Arr.map(rows, (row) => defined(position.get(pointKey(row.key)), "a row's key is a point")),
+			"the cells' literal reads back to the held indexes"
+		)
+		assert.ok(
+			cellsText.length <= 5 + rows.length * (1 + BigInt(cells).toString().length),
+			`the cells' literal of ${rows.length} rows, ${cellsText.length} characters, is O(rows)`
+		)
+		assert.equal(succeeded(cellsLiteralOf(encoded, cellsText.length)), cellsText)
+		assert.deepEqual(failed(cellsLiteralOf(encoded, cellsText.length - 1)), cellsText.length)
+		const payloads = oraclePayloads(encoded)
+		assert.equal(
+			payloads !== undefined,
+			points > 1n,
+			"payloads exactly where the payload space holds two codes"
+		)
+		assert.equal(holdsPayloads(encoded), points > 1n, "the engine installs payloads exactly there")
+		if (payloads !== undefined) {
+			const payloadsText = succeeded(payloadsLiteralOf(encoded, maxStringLength))
+			assert.equal(payloadsText, oracleLiteral(payloads), "the payloads' literal is the oracle's")
+			assert.deepEqual(
+				succeeded(payloadsOfLiteral(payloadsText, encoded.points)),
+				payloads,
+				"the payloads' literal reads back to the payload codes"
+			)
+			assert.ok(
+				payloadsText.length <= 2 + rows.length * (1 + points.toString().length),
+				`the payloads' literal of ${rows.length} rows, ${payloadsText.length} characters, is O(rows)`
+			)
+			assert.deepEqual(
+				failed(payloadsLiteralOf(encoded, payloadsText.length - 1)),
+				payloadsText.length
+			)
 		}
-		assert.deepEqual(decoded(layout, text, width), rows, "decode ∘ encode = id")
-		for (const outside of [-2, -1, cells, cells + 1]) {
-			assert.equal(readCell(text, width, outside), 0n, `the cell at ${outside}`)
+		assert.deepEqual(decoded(layout, encoded), rows, "decode ∘ encode = id")
+		for (const outside of [cells, cells + 1]) {
+			assert.equal(
+				payloadAt(oracleCells(encoded), payloads, BigInt(outside)),
+				undefined,
+				`the cell at ${outside}`
+			)
 		}
 		if (layout.payload.length === 0) {
 			c.note("a set")
 		}
-		if (width >= 2) {
+		if (points >= 2n) {
 			c.note("a function")
 		}
 		if (cells === 0) {
 			c.note("an empty key space")
 		}
-		if (width === 0) {
+		if (odometer(layout.payload).length === 0) {
 			c.note("an empty payload space")
 		}
 		if (cells > 0 && rows.length === cells) {
@@ -580,9 +621,7 @@ export const setOfRows = ({ layout, relation, stated }: Statement, c: Case<State
 			return
 		}
 		assert.deepEqual(succeeded(encoded), succeeded(constantOf(layout, relation)))
-		const width = succeeded(encoded).width
-		const text = succeeded(bitText(succeeded(encoded), Number(succeeded(encoded).cells) * width))
-		assert.deepEqual(decoded(layout, text, width), relation)
+		assert.deepEqual(decoded(layout, succeeded(encoded)), relation)
 		c.note(layout.payload.length === 0 ? "a set" : "a function")
 		const position = new Map(
 			Arr.map(odometer(layout.key), (point, at) => [pointKey(point), at] as const)
@@ -616,13 +655,15 @@ export const widePayloadSizes: Gen<ReadonlyArray<number>> = array(int(1, 32_768)
 })
 
 /**
- * Past the box, at payload spaces of up to six coordinates of up to 32,768 codes (a roster's whole code space), the
- * width is the binary length of the largest cell value, exact past 2^53. Oracle: bigint's own binary numeral.
+ * Past the box, at payload spaces of up to six coordinates of up to 32,768 codes (a roster's whole code space), a
+ * constant states its payload space's points exactly, past 2^53, and 1 for a space of no point, which holds no row.
+ * Oracle: bigint's own product.
  */
 export const exact = (sizes: ReadonlyArray<number>, c: Case<Payload>) =>
 	Effect.sync(() => {
 		const points = Arr.reduce(sizes, 1n, (product, n) => product * BigInt(n))
-		assert.equal(cellWidth(points), bitsToHold(points))
+		const encoded = succeeded(constantOf({ key: [1], payload: sizes }, []))
+		assert.equal(encoded.points, points === 0n ? 1n : points)
 		if (sizes.length === 0) {
 			c.note("a set")
 		}
@@ -705,10 +746,14 @@ export const holePattern = ({ codes, live, appended }: Pattern, c: Case<Holes>) 
 				)
 			)
 		)
-		const text = succeeded(bitText(liveCodes, next.length))
-		for (let code = -2; code < next.length + 2; code += 1) {
+		const held = oracleCells(liveCodes)
+		for (let code = 0; code < next.length + 2; code += 1) {
 			const slot = next[code]
-			assert.equal(readCell(text, 1, code), slot?.kind === "live" ? 1n : 0n, `code ${code}`)
+			assert.equal(
+				payloadAt(held, undefined, BigInt(code)),
+				slot?.kind === "live" ? 0n : undefined,
+				`code ${code}`
+			)
 		}
 		const holes = Arr.filter(
 			Array.from({ length: codes }, (_, code) => code),
@@ -1031,7 +1076,7 @@ export const keying = ({ fields, keys, terms }: Heading, c: Case<Keyed>) =>
 			)
 		)
 		if (contained.length === 0) {
-			assert.equal(encoded.width, 1, "a side keyed by all its fields is a set")
+			assert.equal(encoded.points, 1n, "a side keyed by all its fields is a set")
 			c.note("keyed by all its fields")
 		} else {
 			c.note("keyed by a declared key")
@@ -1057,6 +1102,7 @@ export type Edited =
 	| "a cell moved"
 	| "two cells swapped"
 	| "the key space grown"
+	| "the payload space grown"
 	| "another layout, the same constant"
 
 /** Every closed relation over a key of at most 3 points and a payload of none, 2 or 3 codes: 858 constants. */
@@ -1066,14 +1112,25 @@ export const small = relationIn(3, [[], [2], [3]])
 const encode = (layout: Product, rows: ReadonlyArray<Tuple>): Constant =>
 	succeeded(constantOf(layout, rows))
 
-/** A constant's digest. */
-const digestOf = (c: Constant): string => constantDigestOf(c)
+/** A constant's digests: its cells', and its payloads' where it installs them. */
+const digestOf = (c: Constant): string =>
+	`${cellsDigestOf(
+		c.cells,
+		Arr.map(c.entries, (e) => e.index)
+	)}/${
+		c.points > 1n
+			? payloadsDigestOf(
+					c.points,
+					Arr.map(c.entries, (e) => e.payload)
+				)
+			: "none"
+	}`
 
 /**
  * Content addressing: the digest is a function of the constant alone (its rows restated in reverse and repeated, or
- * over another layout of the same width, name one function), and every edit of a cell (a cell made present, made
+ * over another layout of the same cells and payload codes, a leading key coordinate of one code, name one function), and every edit of a cell (a cell made present, made
  * absent, or given another payload), every cell moved to an absent key, every two cells of different payloads
- * swapped, and every growth of the key space names another: a digest blind to where a cell lies would name a changed
+ * swapped, and every growth of the key space or of the payload space names another: a digest blind to where a cell lies would name a changed
  * relation's function by its old name. Oracle: the edits enumerated, each against the digest of the unedited
  * constant.
  */
@@ -1142,14 +1199,19 @@ export const addressed = ({ layout, rows }: Boxed, c: Case<Edited>) =>
 			c.note("the key space grown")
 			assert.notEqual(digestOf(encode(grown, rows)), digest, "one more cell")
 		}
-		if (
-			layout.payload.length === 1 &&
-			bitsToHold(BigInt(defined(layout.payload[0]) + 1)) === original.width
-		) {
-			c.note("another layout, the same constant")
+		if (layout.payload.length === 1) {
+			c.note("the payload space grown")
 			const wider: Product = { key: layout.key, payload: [defined(layout.payload[0]) + 1] }
+			assert.notEqual(digestOf(encode(wider, rows)), digest, "one more payload code")
+			c.note("another layout, the same constant")
+			const led: Product = { key: [1, ...layout.key], payload: layout.payload }
 			assert.equal(
-				digestOf(encode(wider, rows)),
+				digestOf(
+					encode(
+						led,
+						Arr.map(rows, (row) => ({ key: [0, ...row.key], payload: row.payload }))
+					)
+				),
 				digest,
 				"a constant names its function, not its layout"
 			)

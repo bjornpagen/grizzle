@@ -1,24 +1,16 @@
 /**
- * The test oracles of a bit string's text: a closed relation's installed constant, a set over a roster, and the hex
- * spelling grizzle writes either in.
+ * The test oracles of a bit string's text: a set over a roster, and the hex spelling grizzle writes it and a roster's
+ * live codes in.
  *
- * PostgreSQL installs a constant from the hex literal the host's encoder states (ir/cells.ts literalOf), and stores a set
- * in its roster's bits domain. These are the host's second implementations, written cell by cell and position by
+ * PostgreSQL stores a set in its roster's bits domain. These are the host's second implementations, written position by
  * position, sharing no code with the engine's hex encoder (core/hex.ts), that a suite compares PostgreSQL's value, the
- * encoder's literal, or a set's wire text against (testing doctrine, rule 3). Each rounds by its own arithmetic: a
- * constant up to whole hex digits, four bits a digit, and a set up to whole bytes, eight bits a byte, the bits past the
- * last cell or code 0.
+ * encoder's literal, or a set's wire text against (testing doctrine, rule 3). A set rounds up to whole bytes, eight bits
+ * a byte, the bits past the last code 0. A closed relation's constant is codes, not bits: test/support/closed/codes.ts.
  */
-import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { Array as Arr, String as Str } from "effect"
-import type { CompileBound } from "#compiler/core/errors.ts"
-import type { Constant } from "#compiler/ir/cells.ts"
 
 /** The bits one hex digit spells, as the oracle counts them. */
 const nibble = 4
-
-/** `bits` rounded up to whole hex digits: the length of every bit string grizzle writes of `bits` bits. */
-export const wholeDigits = (bits: number): number => Math.ceil(bits / nibble) * nibble
 
 /** The bits one byte holds, as the oracle counts them: PostgreSQL stores a bit string in whole bytes. */
 const octet = 8
@@ -26,43 +18,6 @@ const octet = 8
 /** The width of a set over a roster of `size` codes, its bits domain's bit(n): its codes, one at least, rounded up to
  * whole bytes, so whole hex digits too. */
 export const setWidth = (size: number): number => Math.ceil(Math.max(size, 1) / octet) * octet
-
-/**
- * The constant's cells as bit-string text: each cell's bits, most significant first, from cell 0, where an absent cell
- * is `width` zeros and a held one is 1 + its payload's code in binary, exactly cells · width characters.
- * ResourceBound (stringLength) when the text would be longer than `limit` characters, measured before it is built.
- */
-export const bitText = (constant: Constant, limit: number): Result.Result<string, CompileBound> => {
-	const bits = constant.cells * BigInt(constant.width)
-	if (bits > BigInt(limit)) {
-		return Result.err({ kind: "stringLength", limit, needed: Number(bits) })
-	}
-	const width = constant.width
-	const parts: Array<string> = []
-	let written = 0
-	for (const entry of constant.entries) {
-		const start = Number(entry.index) * width
-		parts.push(
-			Str.repeat(start - written)("0"),
-			Str.padStart(width, "0")((1n + entry.payload).toString(2))
-		)
-		written = start + width
-	}
-	parts.push(Str.repeat(Number(bits) - written)("0"))
-	return Result.ok(Arr.join(parts, ""))
-}
-
-/** A bit string's text padded with 0s on the right to whole hex digits. */
-const padded = (text: string): string => Str.padEnd(wholeDigits(text.length), "0")(text)
-
-/**
- * The constant as PostgreSQL holds it once installed, its cells' bits (bitText) padded with 0s to whole hex digits, as
- * its one hex literal states it. ResourceBound as bitText.
- */
-export const installedText = (
-	constant: Constant,
-	limit: number
-): Result.Result<string, CompileBound> => Result.map(bitText(constant, limit), padded)
 
 /**
  * A set over a roster of `size` codes as its bits domain's text, bit(n) with n the codes rounded up to whole bytes:

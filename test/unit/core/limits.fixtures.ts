@@ -28,7 +28,7 @@ export const typedArrays: {
 /** Where a code falls among a roster's: below its first, among them, its last, or past it. */
 export type Code = "below the codes" | "a code" | "the last code" | "past the codes"
 
-/** Where a bit length falls against constantMaxBits. */
+/** Where a constant's cells and payload codes fall against their bounds: either at its bound, both below, or one past. */
 export type Length = "at the bound" | "below the bound" | "past the bound"
 
 /** TYPEALIGN(a, n) for a power-of-two alignment: the bits below the alignment cleared after adding a - 1. */

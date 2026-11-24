@@ -569,18 +569,25 @@ const checkSchema = Effect.fn("checkSchema")(function* (
 	}
 })
 
-/** What a literal's layout fault is, in words: a character no hex digit, a count of digits, or a padding bit set. */
+/**
+ * What a literal's layout fault is, in words: no array of its layout, an element spelled otherwise, indexes out of
+ * order, or an index or a payload code past what its comment states.
+ */
 const layoutFaultText = (
 	fn: string,
 	fault: Extract<PackFault, { readonly kind: "layout" }>["fault"]
 ): string => {
 	switch (fault.kind) {
-		case "digit":
-			return `the literal of ${fn} holds a character that is no hex digit at ${fault.at}`
-		case "length":
-			return `the literal of ${fn} holds ${fault.digits} hex digits where the cells and width its comment states take ${fault.expected}`
-		case "padding":
-			return `the literal of ${fn} sets bit ${fault.at}, which pads it past its last cell`
+		case "array":
+			return `the literal of ${fn} is no array of its elements in braces, each after a comma, a cells literal's led by the sentinel -1`
+		case "element":
+			return `the literal of ${fn} holds an element at entry ${fault.at} that is no decimal numeral of no sign and no leading 0`
+		case "order":
+			return `the literal of ${fn} holds an index at entry ${fault.at} no greater than the index before it`
+		case "cell":
+			return `the literal of ${fn} holds the index ${fault.cell} at entry ${fault.at}, past the cells its comment states`
+		case "code":
+			return `the literal of ${fn} holds the payload code ${fault.code} at entry ${fault.at}, past the payload codes its comment states`
 	}
 }
 

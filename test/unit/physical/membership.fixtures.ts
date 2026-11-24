@@ -7,6 +7,7 @@ import { Array as Arr } from "effect"
 import { identity } from "#compiler/core/identity.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
+import { libraryIdentity } from "#compiler/physical/ddl/library.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { Logic } from "#compiler/public/compute.ts"
 import { Bits, bits, closedId, natural, pg, slot } from "#compiler/public/fields.ts"
@@ -143,14 +144,17 @@ const checkOf = (asked: Asked) =>
 export interface Work {
 	readonly calls: ReadonlyMap<string, number>
 	readonly complements: number
-	/** Each substring of a constant's bits, by the constant's function name: the length it reads, a literal's or none. */
-	readonly reads: ReadonlyMap<string, ReadonlyArray<bigint | undefined>>
+	/** The binary searches (width_bucket) of each constant's cells, by their function's name. */
+	readonly searches: ReadonlyMap<string, number>
+	/** The calls of the library's closedRow, each a closed row read whole (physical/ddl/library.ts). */
+	readonly rows: number
 }
 
 const workOf = (predicate: Expr, rowBodies: ReadonlyMap<string, Expr>): Work => {
 	const calls = new Map<string, number>()
-	const reads = new Map<string, Array<bigint | undefined>>()
+	const searches = new Map<string, number>()
 	let complements = 0
+	let rows = 0
 	const walk = (e: Expr): void => {
 		transformExpr(e, {
 			...identityHooks,
@@ -163,22 +167,19 @@ const workOf = (predicate: Expr, rowBodies: ReadonlyMap<string, Expr>): Work => 
 					if (body !== undefined) {
 						walk(body)
 					}
+					if (node.fn.name === libraryIdentity("closedRow").identifier) {
+						rows += 1
+					}
 				}
 				if (node.kind === "call" && node.fn.kind === "builtin") {
 					calls.set(node.fn.name, (calls.get(node.fn.name) ?? 0) + 1)
-					const [string, , length] = node.args
+					const [, codes] = node.args
 					if (
-						node.fn.name === "substring" &&
-						string?.kind === "call" &&
-						string.fn.kind === "qualified"
+						node.fn.name === "width_bucket" &&
+						codes?.kind === "call" &&
+						codes.fn.kind === "qualified"
 					) {
-						const read = reads.get(string.fn.name) ?? []
-						read.push(
-							length?.kind === "literal" && length.value.kind === "int"
-								? length.value.value
-								: undefined
-						)
-						reads.set(string.fn.name, read)
+						searches.set(codes.fn.name, (searches.get(codes.fn.name) ?? 0) + 1)
 					}
 				}
 				return node
@@ -186,13 +187,13 @@ const workOf = (predicate: Expr, rowBodies: ReadonlyMap<string, Expr>): Work => 
 		})
 	}
 	walk(predicate)
-	return { calls, complements, reads }
+	return { calls, complements, searches, rows }
 }
 
-/** A case's installation: its CHECK's work, and the name of the key set's function of the relation its set rows. */
+/** A case's installation: its CHECK's work, and the name of the constant's function of the relation its set rows. */
 export const installedWork = (
 	asked: Asked
-): { readonly work: Work; readonly keys: string | undefined } => {
+): { readonly work: Work; readonly codes: string | undefined } => {
 	const S = schema(
 		"Membership",
 		[Kind, Flag, Position, Allowed, Pick, Model, Slotted, T],
@@ -243,6 +244,6 @@ export const installedWork = (
 			defined(predicates.length === 1 ? predicate : undefined, "the one CHECK asked"),
 			rowBodies
 		),
-		keys: rowed === undefined ? undefined : installation.names.closed(rowed).keys.name
+		codes: rowed === undefined ? undefined : installation.names.closed(rowed).constant.cells.name
 	}
 }

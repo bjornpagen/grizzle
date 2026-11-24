@@ -116,7 +116,7 @@ import {
 	tableConstraints,
 	type TableConstraint
 } from "#compiler/sql/ast.ts"
-import type { OwnerFunction } from "#compiler/sql/constants.ts"
+import type { ConstantFunctions } from "#compiler/sql/constants.ts"
 import { suffixedColumnOf } from "#compiler/sql/suffix.ts"
 
 /** Entries in the code-unit order of their keys. */
@@ -1300,16 +1300,17 @@ const accessForm = (a: ProgramAccess): SnapshotForm => ({
 	}))
 })
 
-/** The JSON form of an owner function of a dependent key: its function's identifier and its width. */
-const ownerFunctionForm = (f: OwnerFunction<Identifier<"closedConstant">>): SnapshotForm => ({
-	function: f.function,
-	width: f.width
+/** The JSON form of a constant's functions (sql/constants.ts ConstantFunctions): its cells', and its payloads' or none. */
+const functionsForm = (f: ConstantFunctions<Identifier<"closedConstant">>): SnapshotForm => ({
+	cells: f.cells,
+	payloads:
+		f.payloads.kind === "codes" ? { kind: "codes", function: f.payloads.function } : { kind: "one" }
 })
 
 /** The JSON form of a closed relation's constants as readers address them (NamedClosed), a payload field of no
  * dictionary or ARE dictionary stating none. */
 const closedForm = (c: NamedClosed): SnapshotForm => ({
-	function: c.function,
+	constant: functionsForm(c.constant),
 	key:
 		c.key.kind === "product"
 			? {
@@ -1327,18 +1328,16 @@ const closedForm = (c: NamedClosed): SnapshotForm => ({
 							? { kind: b.kind, field: b.field, radix: b.radix }
 							: { kind: b.kind, field: b.field, count: b.count }
 					),
-					bases: ownerFunctionForm(c.key.bases),
-					counts: c.key.counts.map(ownerFunctionForm),
+					bases: functionsForm(c.key.bases),
+					counts: c.key.counts.map(functionsForm),
 					cells: c.key.cells
 				},
-	width: c.width,
 	payload: c.payload.map((p): SnapshotForm => ({
 		field: p.field,
 		radix: p.radix,
 		...(p.dictionary === undefined ? {} : { dictionary: p.dictionary }),
 		...(p.are === undefined ? {} : { are: p.are })
 	})),
-	keys: c.keys,
 	functions: c.functions
 })
 

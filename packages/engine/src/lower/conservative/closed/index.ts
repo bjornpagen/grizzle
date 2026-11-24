@@ -86,11 +86,9 @@ const placeholderValue = (cx: LowerContext, type: ScalarType): Expr => {
  * smallint, and a contract payload is typed by its base, because a declared fact was checked against its contract at
  * compile time and a VALUES source is never a refined write. The rows are the node's own, which the optimizer may have
  * narrowed from a declared closed relation's (simplify/rules.ts finiteFold), so no installed constant need stand for
- * them. A membership of a declared relation's every fact is no source at all: the optimizer's R07 reads it as one bit
- * of the relation's installed key set (lower/optimize/closed). What stays a source is enumerated from its facts, never
- * from the installed constant by generate_series over the key space filtered by its cells: the key space is the
- * product of the key fields' radices, holes included, and a sparse relation fills little of it, as qti-pie's
- * ChildGrammar fills 77,734 of its 819,200 cells. VALUES needs at least one row, so a closed relation without facts is
+ * them. A membership of a declared relation's every fact is no source at all: the optimizer's R07 reads it as one
+ * binary search of the relation's installed codes (lower/optimize/closed). What stays a source is enumerated from its
+ * facts, a VALUES list the planner sees, never unnested from the installed constant. VALUES needs at least one row, so a closed relation without facts is
  * the empty relation `SELECT ... WHERE false` over placeholder rows of its column types; no NULL ever stands for a
  * value.
  *

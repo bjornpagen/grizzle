@@ -47,8 +47,9 @@ export interface SelectionKey {
 /**
  * grizzle's library: the SQL functions of its own that a scalar operation's SQL or a split's calls, each a constant of
  * parameters (sql/ast.ts CreateConstant) named by its definition's digest (physical/ddl/library.ts), which an
- * installation installs where its schema's persistent expressions call it: cutBefore and cutFrom, a text cut at the
- * first of a set of characters (scalar/compute/registry.ts textCut); decodedPath, the path a percent-encoded URI path
+ * installation installs where its schema's persistent expressions call it: closedRow, a closed relation's row of a
+ * prefix, read off its cells (sql/constants.ts completions), wherever the schema declares a closed relation
+ * (physical/install/plan.ts closedLibrary); cutBefore and cutFrom, a text cut at the first of a set of characters (scalar/compute/registry.ts textCut); decodedPath, the path a percent-encoded URI path
  * spells, as an array of it or of none, which a decoded path's split reads (splitLibrary); isXsdPattern, whether a
  * text is an XML Schema 1.0 pattern (textIsXsdPattern); resolveReference, RFC 3986's resolution of a reference
  * against a base (textResolveReference); resolvedWithin, the same resolution as an array of its target where no `..`
@@ -57,6 +58,7 @@ export interface SelectionKey {
  * calls it.
  */
 export const libraryFns = [
+	"closedRow",
 	"cutBefore",
 	"cutFrom",
 	"decodedPath",

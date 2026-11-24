@@ -2407,20 +2407,27 @@ export const stubBody: PlBlock = {
 }
 
 /**
- * A closed relation's constant as the migration states it, `cells` cells of `width` bits: CREATE FUNCTION … RETURN
- * X'<hex>'::bit varying, its body the string of cells itself as one hex literal, under a comment of its row count and
- * its content's digest (ir/cells.ts constantDigestOf), which `grizzle check` decodes the literal and holds it to.
+ * Which array of a closed relation's constant a pack states (ir/cells.ts Constant): its cells, over a key space of
+ * `cells` cells, the sentinel -1 then every held index ascending; or its payloads, over a payload space of `points`
+ * codes, every held cell's payload code in the cells' order.
+ */
+export type PackLayout =
+	| { readonly kind: "cells"; readonly cells: bigint }
+	| { readonly kind: "payloads"; readonly points: bigint }
+
+/**
+ * One array of a closed relation's constant as the migration states it (PackLayout): CREATE FUNCTION … RETURN
+ * '{…}'::bigint[], its body the array itself as one literal, under a comment of its layout, its row count and its
+ * content's digest (ir/cells.ts cellsDigestOf, payloadsDigestOf), which `grizzle check` decodes the literal and holds it
+ * to.
  */
 export interface PackConstant {
 	readonly kind: "packConstant"
 	readonly function: ObjectName
-	/** The count of cells: the points of the key's space, a product's or a dependent sum's (ir/cells.ts keyCells). */
-	readonly cells: bigint
-	/** w, a cell's bits: 1 for a set. */
-	readonly width: number
-	/** The cells' bits as whole hex digits, the bits past the last cell 0 (ir/cells.ts literalOf). */
-	readonly hex: string
-	/** The cells it holds, one per row of its relation or side. */
+	readonly layout: PackLayout
+	/** The array's literal (ir/cells.ts cellsLiteralOf, payloadsLiteralOf). */
+	readonly text: string
+	/** The rows it holds, one element per row past any sentinel. */
 	readonly rows: number
 	readonly digest: string
 }

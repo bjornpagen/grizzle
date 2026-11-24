@@ -24,9 +24,11 @@ import { patternGen } from "#test/unit/text/xsd.fixtures.ts"
  * PostgreSQL's tzdata, which the host does not hold (scalar/compute/registry.ts zoneWall), whose NULLs
  * test/pg/compute/wall.test.ts holds to the reference evaluator, and decodedPath and resolvedWithin, which no term
  * calls, only a decoded path's split and a target within a base's, whose arguments are stored texts, never NULL
- * (test/pg/compute/decoded-path.test.ts, test/pg/compute/resolved-within.test.ts).
+ * (test/pg/compute/decoded-path.test.ts, test/pg/compute/resolved-within.test.ts), and closedRow, a closed relation's
+ * row of a prefix, which no scalar operation calls (sql/constants.ts completions), whose NULLs
+ * test/pg/closed/sparse.test.ts holds to its model.
  */
-type HostLibraryFn = Exclude<LibraryFn, "wall" | "decodedPath" | "resolvedWithin">
+type HostLibraryFn = Exclude<LibraryFn, "wall" | "closedRow" | "decodedPath" | "resolvedWithin">
 
 /** Which of a call's arguments a row holds NULL: none, one of them by its place, or every one. */
 type Nulls = "no argument" | "argument 1" | "argument 2" | "every argument"
@@ -124,7 +126,7 @@ export const uncalledNodes: ReadonlyArray<string> = Arr.flatMap(nativeOps, (op) 
 	const held = Arr.some(calls, (c) =>
 		Arr.some(exprClosure([c.term]), (x) => x.kind === "op" && x.op === op.id)
 	)
-	return fn === undefined || fn === "wall" || held ? [] : [`${op.fn} (${fn})`]
+	return fn === undefined || fn === "wall" || fn === "closedRow" || held ? [] : [`${op.fn} (${fn})`]
 })
 
 /** A text an argument holds where it is no NULL: an XML Schema pattern, a reference or a base, or any short text. */

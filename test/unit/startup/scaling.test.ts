@@ -7,8 +7,15 @@
  * every statement for the families that cascade into it (CheckedSchema #inPlace), and physical/statistics/statistics.ts,
  * whose shape of a relation read every native, key, index and containment of the installation (Grouped); and the
  * schema's builders make no more than 2.1 times the calls in public/fields.ts, whose closed id over a roster copied the
- * roster's handles it holds for each field, though it restricted none (closedId). A scan of the schema for each relation
- * grows with the square of the schema, four times the calls at twice it. And the families that
+ * roster's handles it holds for each field, though it restricted none (closedId); and the installation makes no more than
+ * 2.1 times the calls in ir/cells.ts and core/hex.ts, which encode its closed relations' constants: a constant once
+ * held a cell for every point of its key space, the product of its key's rosters, so its encoding wrote and its hex
+ * spelled every cell (ir/cells.ts literalOf, core/hex.ts setBit), where it now holds its rows alone. Those two are held
+ * from the base scale up: below it the containments read fewer of the closed relations' sides than there are closed
+ * relations, so the rows the constants encode grow faster than the schema to the base (the sides are encoded once a
+ * side, physical/ddl/constants.ts planSides, and packed once a constant, physical/ddl/context.ts addConstant). A scan of
+ * the schema for each relation grows with the square of the schema, four times the calls at twice it, and so does a key
+ * space of two rosters. And the families that
  * cascade into a relation are read once a checked schema (analysis/schema.ts cascadedMembers), as many times at every
  * scale.
  *
@@ -38,7 +45,9 @@ type ScaleFeature = "the base scale" | "twice the base"
 const counted = {
 	fields: "packages/engine/src/public/fields.ts",
 	schema: "packages/engine/src/analysis/schema.ts",
-	statistics: "packages/engine/src/physical/statistics/statistics.ts"
+	statistics: "packages/engine/src/physical/statistics/statistics.ts",
+	cells: "packages/engine/src/ir/cells.ts",
+	hex: "packages/engine/src/core/hex.ts"
 } as const
 
 /**
@@ -76,7 +85,11 @@ const callsAt = (scale: Scale) =>
 					"the generated schema compiles"
 				)
 			),
-			(file) => file === counted.schema || file === counted.statistics
+			(file) =>
+				file === counted.schema ||
+				file === counted.statistics ||
+				file === counted.cells ||
+				file === counted.hex
 		)
 		const callsIn = (file: string): number =>
 			Arr.reduce(
@@ -88,6 +101,8 @@ const callsAt = (scale: Scale) =>
 			fields: Arr.reduce([...fields.values()], 0, (n, k) => n + k),
 			schema: callsIn(counted.schema),
 			statistics: callsIn(counted.statistics),
+			cells: callsIn(counted.cells),
+			hex: callsIn(counted.hex),
 			cascaded: Arr.reduce(
 				Arr.filter([...counts], ([key]) => Str.endsWith(" cascadedMembers")(key)),
 				0,
@@ -121,6 +136,13 @@ export const theInstallationsCompileDoesPerRelationWorkLinearInTheSchema = prope
 						`${counted[module]}'s calls at half, one and twice the scale: ${at(half)}, ${at(once)}, ${at(twice)}`
 					)
 				}
+				for (const module of ["cells", "hex"] as const) {
+					const at = (calls: typeof once) => defined(calls, "a scale's calls")[module]
+					assert.ok(
+						at(twice) <= 2.1 * at(once),
+						`${counted[module]}'s calls at one and twice the scale: ${at(once)}, ${at(twice)}`
+					)
+				}
 			}),
 		oracle: {
 			kind: "specification",
@@ -128,6 +150,13 @@ export const theInstallationsCompileDoesPerRelationWorkLinearInTheSchema = prope
 		},
 		kept: [],
 		kills: [
+			{
+				file: "packages/engine/src/ir/cells.ts",
+				original: "\tliteralWithin([sentinel, ...indexesOf(constant)], limit)",
+				replacement:
+					"\tliteralWithin([sentinel, ...Array.from({ length: Number(constant.cells) }, (_, i) => BigInt(i)).filter((i) => constant.entries.some((entry) => entry.index === i))], limit)",
+				why: "A constant's cells are written by a scan of every point of its key space, the product of its key's rosters: ir/cells.ts's calls grow with the square of the schema, and the property fails."
+			},
 			{
 				file: "packages/engine/src/public/fields.ts",
 				original:

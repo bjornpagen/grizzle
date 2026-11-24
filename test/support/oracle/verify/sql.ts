@@ -102,6 +102,9 @@ interface SqlViolation {
 /** A bit-string literal's digits: hex alone, in 0-9 and A-F, the one spelling grizzle writes. */
 const hexDigits = regex("^[0-9A-F]*$")
 
+/** A closed constant's array's literal: decimal elements, the sentinel -1 among them, each after a comma, in braces. */
+const packArray = regex("^\\{((-1|[0-9]+)(,[0-9]+)*)?\\}$")
+
 /** Rules whose violation is SQL the discipline forbids rather than a malformed statement. */
 const disciplineRules: ReadonlySet<AuditRule> = new Set<AuditRule>([
 	"function",
@@ -2874,21 +2877,39 @@ class StatementAuditor {
 				return
 			case "packConstant": {
 				this.objectName(statement.function, "function", "function")
-				const { cells, width } = statement
-				if (cells < 0n) {
-					this.report("literal", "a pack's cells are a count, never below zero")
+				const layout = statement.layout
+				if (layout.kind === "cells" ? layout.cells < 0n : layout.points < 1n) {
+					this.report(
+						"literal",
+						"a pack's cells are a count, never below zero, and its payload space holds one code at least"
+					)
 				}
-				if (!Number.isSafeInteger(width) || width < 1) {
-					this.report("literal", "a pack's cells are one bit wide at least")
-				}
-				this.at("hex", () => {
-					if (
-						BigInt(statement.hex.length * 4) !== ((cells * BigInt(width) + 3n) / 4n) * 4n ||
-						!hexDigits.test(statement.hex)
-					) {
+				this.at("text", () => {
+					const elements = packArray.test(statement.text)
+						? statement.text === "{}"
+							? []
+							: Str.split(",")(Str.slice(1, -1)(statement.text))
+						: undefined
+					const canonical = (e: string): boolean => e === "0" || !Str.startsWith("0")(e)
+					const holds =
+						elements !== undefined &&
+						(layout.kind === "cells"
+							? elements[0] === "-1" &&
+								Arr.every(
+									Arr.drop(elements, 1),
+									(e, i) =>
+										canonical(e) &&
+										BigInt(e) < layout.cells &&
+										BigInt(e) > BigInt(elements[i] ?? "-1")
+								)
+							: Arr.every(
+									elements,
+									(e) => canonical(e) && !Str.startsWith("-")(e) && BigInt(e) < layout.points
+								))
+					if (!holds) {
 						this.report(
 							"literal",
-							"a pack's hex digits are exactly the whole digits its cells' bits take, in 0-9 and A-F"
+							"a pack's literal is its elements in braces, canonical decimal numerals, a cells literal's the sentinel -1 then strictly ascending indexes below its cells, a payloads literal's codes below its payload codes"
 						)
 					}
 				})

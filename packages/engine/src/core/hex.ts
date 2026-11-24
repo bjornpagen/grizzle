@@ -1,13 +1,11 @@
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
-import * as Result from "@bjornpagen/grizzle-text/base/result"
-import { isAsciiDigit } from "@bjornpagen/grizzle-text/text"
 
 /**
- * Hex, the one spelling of every bit string grizzle writes: a set's literal and its parameter text, a roster's live
- * codes and a closed relation's constant. A string is whole hex digits, four bits a digit, most significant first, in
- * the digits 0-9 and A-F. Every bit string grizzle writes is a whole number of digits long: a set's width is rounded up
- * to whole bytes, two digits a byte, and a constant's length to whole digits, and the bits past the last code or cell,
- * the padding, are 0, so no string has a binary tail and none is ever joined from parts.
+ * Hex, the one spelling of every bit string grizzle writes: a set's literal and its parameter text, and a roster's live
+ * codes. A string is whole hex digits, four bits a digit, most significant first, in the digits 0-9 and A-F. Every bit
+ * string grizzle writes is a whole number of digits long: a set's width is rounded up to whole bytes, two digits a
+ * byte, and the bits past the last code, the padding, are 0, so no string has a binary tail and none is ever joined from
+ * parts.
  */
 
 /**
@@ -15,7 +13,7 @@ import { isAsciiDigit } from "@bjornpagen/grizzle-text/text"
  *
  * @formatConstant a hex digit: 4 bits
  */
-export const hexDigitBits = 4
+const hexDigitBits = 4
 
 /** Hex's sixteen digits, in their values' order. */
 const alphabet = "0123456789ABCDEF"
@@ -36,7 +34,7 @@ const bitInputPrefix = "X"
 export const bitInputText = (hex: string): string => `${bitInputPrefix}${hex}`
 
 /** The whole hex digits that hold `bits` bits. */
-export const hexDigitsFor = (bits: number): number => Math.ceil(bits / hexDigitBits)
+const hexDigitsFor = (bits: number): number => Math.ceil(bits / hexDigitBits)
 
 /**
  * The bits one byte holds: PostgreSQL stores a bit string's bits in whole bytes (utils/varbit.h VARBITBYTES), its
@@ -64,21 +62,6 @@ export const setBit = (digits: Uint8Array, position: number): void => {
 		(firstBit >> (position % hexDigitBits))
 }
 
-/** Whether bit `bit` of one digit's value, 0 its most significant, is 1. */
-const digitHolds = (value: number, bit: number): boolean => (value & (firstBit >> bit)) !== 0
-
-/** Bit `position` of `digits`, a position within them: 0 or 1. */
-export const bitAt = (digits: Uint8Array, position: number): number =>
-	digitHolds(
-		defined(
-			digits[Math.floor(position / hexDigitBits)],
-			"a bit position within its string's digits"
-		),
-		position % hexDigitBits
-	)
-		? 1
-		: 0
-
 /** The hex text of `digits`: one character of 0-9 or A-F per digit, in order, each its value's in the alphabet. */
 export const hexText = (digits: Uint8Array): string => {
 	let text = ""
@@ -100,31 +83,4 @@ export const hexOfBitText = (text: string): string => {
 		}
 	}
 	return hexText(digits)
-}
-
-/**
- * The value of one hex digit's character, by its UTF-16 code unit: 0-9 and A-F alone, the one spelling grizzle writes,
- * so a lowercase digit, which PostgreSQL would read as the same bits, is none.
- */
-const digitValue = (code: number): number | undefined => {
-	if (isAsciiDigit(code)) {
-		return code - 0x30
-	}
-	if (code >= 0x41 && code <= 0x46) {
-		return code - 0x41 + 10
-	}
-	return undefined
-}
-
-/** The digits a hex text spells, or the position of its first character that is no digit (digitValue). */
-export const hexDigitsOf = (text: string): Result.Result<Uint8Array, number> => {
-	const digits = new Uint8Array(text.length)
-	for (let i = 0; i < text.length; i += 1) {
-		const value = digitValue(text.charCodeAt(i))
-		if (value === undefined) {
-			return Result.err(i)
-		}
-		digits[i] = value
-	}
-	return Result.ok(digits)
 }

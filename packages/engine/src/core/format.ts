@@ -512,6 +512,16 @@
  * or a take over heading groups ordered again that would compare one, is refused (UnsupportedOperation), as format 8
  * refused both. A rule's violation and a ChangeSet's bound relation parameter are checked as relations, sets no caller
  * reads in an order (check/index.ts checkRelation).
+ * A closed relation's constant, and each side's and each dependent key's owner function's, is two parallel arrays
+ * (ir/cells.ts Constant): its cells, `'{-1,k1,…}'::bigint[]`, every row's key index ascending after the sentinel -1,
+ * and, where its payload space holds more than one code, its payloads, `'{c1,…}'::bigint[]`, every row's payload code
+ * in the cells' order, each a literal pack of its own named by its own content, O(rows) whatever the key space; a
+ * membership and an application search the cells by width_bucket, O(log n), the key's index computed in bigint
+ * (sql/constants.ts held, applied), and C.row reads them by the library function closedRow (physical/ddl/library.ts),
+ * where format 8 stated each as a bit string of every cell of its key space, X'…'::bit varying, read by substring,
+ * beside a key set of its own. So every literal pack, its comment and its function's name move, every read of a closed
+ * relation a CHECK, a generated column or a statement makes moves, and snapshot.json's closed constants record their
+ * cells' and payloads' functions, no width and no key set.
  */
 export const artifactFormat = 8
 
@@ -539,7 +549,7 @@ export type FormattedFile = (typeof formattedFiles)[number]
  * @formatConstant each file's shape: the digest of its type, by test/support/record-shape.ts
  */
 export const recordShapes: { readonly [F in FormattedFile]: string } = {
-	snapshot: "f04542fc38339644d16f53854b927985c91457f360ab0d21143c0db21f995ce3",
+	snapshot: "c51b61cc81346e64977c206e9e5a99c5c0ab2fc9d5ecb4fd7178126fcacf7711",
 	served: "4cda9675378d4041d60b3ecda1b44e32ef16a830490c22b6d68c9792c623e85d"
 }
 

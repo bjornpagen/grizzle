@@ -16,9 +16,9 @@
  *   key's first fields, a slot inside the owner prefix, two owner prefixes, a slot in the payload or in an ordinary
  *   relation, a fin over an ordinary relation, a family over a closed relation's fin, and a count relation outside the
  *   schema. Oracle: the planted fault, each with the site its rule names.
- * - **A cell read as an integer:** a payload space of n codes is refused exactly when n is past 2^31 - 1, the greatest
- *   integer a cell is read as (cellCodesBound), the refusal naming the constant, the bound and n; and a declared
- *   relation over three drawn payload rosters is planned exactly when the product of their sizes is within it.
+ * - **A payload code a bigint:** a payload space of n codes is refused exactly when n is past 2^63, whose greatest code,
+ *   n - 1, is bigint's greatest value (payloadCodesBound), the refusal naming the constant, the bound and n; and a
+ *   declared relation over five drawn payload rosters is planned exactly when the product of their sizes is within it.
  *
  * Features: each count an owner holds and each slotted shape; each planted fault; a payload within the bound planned
  * and one past it refused.
@@ -28,8 +28,8 @@ import { assert, assertVariant, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Effect } from "effect"
-import { cellMaxCodes, cellCodesBound } from "#compiler/physical/ddl/constants.ts"
+import { Array as Arr, Effect, Record as Rec } from "effect"
+import { payloadCodesBound, payloadMaxCodes } from "#compiler/physical/ddl/constants.ts"
 import { closedId } from "#compiler/public/fields.ts"
 import { closed, schema } from "#compiler/public/schema.ts"
 import { refusalLoc, refused, succeeded, throwsRefused } from "#test/support/assert.ts"
@@ -118,8 +118,8 @@ export const aFaultPlantedInAValidSlottedDeclarationAdmitsAValidDeclarationAndRe
 		]
 	})
 
-/** A cell read as an integer refuses a payload space exactly when its codes are past the greatest integer, naming the constant, the bound and the codes. Its budget is its suite's before it was a property (test/unit/physical/fin.test.ts at 4ca3036a): 200 runs and 100 steered cases. */
-export const aCellReadAsAnIntegerRefusesAPayloadSpaceExactlyWhenItsCodesArePastTheGreatestIntegerNamingTheConstantTheBoundAndTheCodes =
+/** A bigint payload code refuses a payload space exactly when its greatest code is past bigint's greatest value, naming the constant, the bound and the codes. Its budget is its suite's before it was a property (test/unit/physical/fin.test.ts at 4ca3036a): 200 runs and 100 steered cases. */
+export const aBigintPayloadCodeRefusesAPayloadSpaceExactlyWhenItsGreatestCodeIsPastBigintsGreatestValueNamingTheConstantTheBoundAndTheCodes =
 	property.explore(codesGen, {
 		needs: {},
 		budget: { runs: 200, steered: 100 },
@@ -131,40 +131,40 @@ export const aCellReadAsAnIntegerRefusesAPayloadSpaceExactlyWhenItsCodesArePastT
 		] satisfies ReadonlyArray<Reached<Bounded>>,
 		check: (_, k: Case<Bounded>) => (codes) =>
 			Effect.sync(() => {
-				assert.equal(BigInt(cellMaxCodes), greatest)
-				const refusal = cellCodesBound(codes, "the constant")
+				assert.equal(payloadMaxCodes, greatest)
+				const refusal = payloadCodesBound(codes, "the constant")
 				if (codes <= greatest) {
-					assert.equal(refusal, undefined, `${codes} codes fit a cell`)
+					assert.equal(refusal, undefined, `${codes} codes fit a bigint payload code`)
 					k.note(codes === greatest ? "at the bound" : "within the bound")
 					return
 				}
-				const reason = defined(refusal, `${codes} codes are past a cell`).reason
+				const reason = defined(refusal, `${codes} codes are past an integer's`).reason
 				assertVariant(reason, "_tag", "ResourceBound")
 				assert.deepEqual(reason.bound, {
-					kind: "cellCodes",
+					kind: "payloadCodes",
 					constant: "the constant",
-					limit: cellMaxCodes,
+					limit: payloadMaxCodes,
 					needed: codes
 				})
 				k.note(codes === greatest + 1n ? "one past the bound" : "past the bound")
 			}),
 		oracle: {
 			kind: "specification",
-			name: "a cell is read as an integer: at most 2^31 - 1 codes"
+			name: "a payload code is a bigint: at most 2^63 codes, the greatest 2^63 - 1"
 		},
 		kept: [],
 		kills: [
 			{
 				file: "packages/engine/src/physical/ddl/constants.ts",
-				original: "\tcodes > BigInt(cellMaxCodes)",
-				replacement: "\tcodes >= BigInt(cellMaxCodes)",
-				why: "A payload space of exactly 2^31 - 1 codes is refused."
+				original: "\tcodes > payloadMaxCodes",
+				replacement: "\tcodes >= payloadMaxCodes",
+				why: "A payload space of exactly 2^63 codes is refused, whose greatest code is bigint's greatest value."
 			}
 		]
 	})
 
-/** A cell read as an integer plans a declared relation exactly when the product of its payload rosters' sizes fits a cell. Its budget is its suite's before it was a property (test/unit/physical/fin.test.ts at 4ca3036a): 12 runs and 16 steered cases. */
-export const aCellReadAsAnIntegerPlansADeclaredRelationExactlyWhenTheProductOfItsPayloadRostersSizesFitsACell =
+/** A bigint payload code plans a declared relation exactly when the product of its payload rosters' sizes is within the bound. Its budget is its suite's before it was a property (test/unit/physical/fin.test.ts at 4ca3036a): 12 runs and 16 steered cases. */
+export const aBigintPayloadCodePlansADeclaredRelationExactlyWhenTheProductOfItsPayloadRostersSizesIsWithinTheBound =
 	property.explore(sizesGen, {
 		needs: {},
 		budget: { runs: 12, steered: 16 },
@@ -172,40 +172,44 @@ export const aCellReadAsAnIntegerPlansADeclaredRelationExactlyWhenTheProductOfIt
 			"a payload within the bound planned",
 			"a payload past the bound refused"
 		] satisfies ReadonlyArray<Reached<Declared>>,
-		check:
-			(_, k: Case<Declared>) =>
-			([a, b, c]) =>
-				Effect.sync(() => {
-					const Key = closed.ordered("Key", ["k"])
-					const A = rosterOf("A", a)
-					const B = rosterOf("B", b)
-					const C = rosterOf("C", c)
-					const Wide = closed.relation(
-						"Wide",
-						{ key: closedId(Key), a: closedId(A), b: closedId(B), c: closedId(C) },
-						["key"],
-						[{ key: "k", a: "h0", b: "h0", c: "h0" }]
-					)
-					const installation = compiled(schema("Wide", [Key, A, B, C, Wide], []))
-					const codes = BigInt(a) * BigInt(b) * BigInt(c)
-					if (codes <= greatest) {
-						succeeded(installation, `${a} × ${b} × ${c} payload codes`)
-						k.note("a payload within the bound planned")
-						return
-					}
-					const reason = refused(installation, "ResourceBound").reason
-					assertVariant(reason, "_tag", "ResourceBound")
-					assert.deepEqual(reason.bound, {
-						kind: "cellCodes",
-						constant: "closed relation Wide",
-						limit: cellMaxCodes,
-						needed: codes
-					})
-					k.note("a payload past the bound refused")
-				}),
+		check: (_, k: Case<Declared>) => (sizes) =>
+			Effect.sync(() => {
+				const Key = closed.ordered("Key", ["k"])
+				const rosters = Arr.map(sizes, (size, i) => rosterOf(`R${i}`, size))
+				const Wide = closed.relation(
+					"Wide",
+					{
+						key: closedId(Key),
+						...Rec.fromEntries(Arr.map(rosters, (r, i) => [`p${i}`, closedId(r)] as const))
+					},
+					["key"],
+					[
+						{
+							key: "k",
+							...Rec.fromEntries(Arr.map(rosters, (_, i) => [`p${i}`, "h0"] as const))
+						}
+					]
+				)
+				const installation = compiled(schema("Wide", [Key, ...rosters, Wide], []))
+				const codes = Arr.reduce(sizes, 1n, (product, size) => product * BigInt(size))
+				if (codes <= greatest) {
+					succeeded(installation, `${Arr.join(Arr.map(sizes, String), " × ")} payload codes`)
+					k.note("a payload within the bound planned")
+					return
+				}
+				const reason = refused(installation, "ResourceBound").reason
+				assertVariant(reason, "_tag", "ResourceBound")
+				assert.deepEqual(reason.bound, {
+					kind: "payloadCodes",
+					constant: "closed relation Wide",
+					limit: payloadMaxCodes,
+					needed: codes
+				})
+				k.note("a payload past the bound refused")
+			}),
 		oracle: {
 			kind: "specification",
-			name: "a payload space holds the product of its rosters' sizes, at most 2^31 - 1"
+			name: "a payload space holds the product of its rosters' sizes, at most 2^63"
 		},
 		kept: [],
 		kills: [

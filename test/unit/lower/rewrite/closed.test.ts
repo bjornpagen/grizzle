@@ -1,10 +1,10 @@
 /**
  * R07 over a closed relation's installed constants (lower/optimize/closed): which occurrences of a declared closed
- * relation become a membership test of its installed key set, and the simplifier's invariant that a Closed node holding
+ * relation become a membership test of its installed cells, and the simplifier's invariant that a Closed node holding
  * fewer facts than its relation carries no declared name. The oracle is the rule's specification as a checker
  * (membershipOf's doc comment): an occurrence is rewritten exactly when every key field is read as a variable another
  * occurrence binds, a literal or a parameter, and no payload field is read. A rewritten occurrence of a sparse relation is
- * read from its installed key set, one of a roster is the tautology its domain makes it and reads nothing, and a kept one
+ * read by a binary search of its installed cells, one of a roster is the tautology its domain makes it and reads nothing, and a kept one
  * is read from its facts. A roster's occurrence whose source another occurrence reads
  * laterally, through a constant, stays in its region, its reader's reference in scope; one read by no other occurrence,
  * or beside a lateral read of another source, is its membership test. A Closed node the simplifier narrows holds the
@@ -86,9 +86,9 @@ export const r07OverClosedConstantsRewritesAnOccurrenceExactlyWhenItReadsEveryKe
 					`a rewritten occurrence is read from no VALUES, a kept one from its facts: ${Formatter.format(o)}`
 				)
 				assert.equal(
-					Arr.some(shapes, (shape) => has(shape, "call substring")),
+					Arr.some(shapes, (shape) => has(shape, "call width_bucket")),
 					rewritten && o.kind === "Grid",
-					`a rewritten Grid is read from its key set, a rewritten roster through no constant: ${Formatter.format(o)}`
+					`a rewritten Grid is read by a search of its cells, a rewritten roster through no constant: ${Formatter.format(o)}`
 				)
 			}),
 		oracle: {

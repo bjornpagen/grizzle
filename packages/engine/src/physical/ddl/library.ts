@@ -1655,6 +1655,67 @@ const wallDefinition = (): LibraryBody => {
 }
 
 /**
+ * closedRow(bigint[], bigint, bigint, bit varying): a closed relation's row of a prefix (sql/constants.ts completions),
+ * the run of `count` cells from cell `first` of the constant's cells `cells` (ir/cells.ts Constant), as the set `empty`,
+ * the empty set of the row's roster at its width, with the bit of each cell of the run the cells hold set. The run's
+ * cells are the elements in [first, first + count): those after the elements at or below first - 1 and up to the last at
+ * or below first + count - 1, the counts width_bucket gives, so two binary searches over the sorted cells, O(log n), find
+ * them, and only they are read, each setting its bit, `set_bit(empty, cell - first, 1)`, OR'd by bit_or; a run of no
+ * held cell, or of no cell, is `empty` itself. Every index the searches ask for is at or above -1, the sentinel, so each
+ * count is at least 1. No bit string is built from text: every bit is set on the hex literal its caller passes. STRICT,
+ * so a NULL code of the prefix reads NULL; it reads its arguments alone, so a table's CHECK holds it where it refuses a
+ * subquery of its own (pantry's `Enters.row(n.kind)`).
+ */
+const closedRowDefinition = (): LibraryBody => {
+	const names = new NameSupply(freshNames)
+	const cells = param(1, types.codes)
+	const first = param(2, types.bigint)
+	const count = param(3, types.bigint)
+	const empty = param(4, types.varbit)
+	const one = lit.int(1, types.bigint)
+	const atOrBelow = (cell: Expr): Expr => call("width_bucket", [cell, cells])
+	const places = relationOf(names, "row places", ["i"])
+	const run: FromSource = {
+		kind: "function",
+		call: call("generate_series", [
+			binary("+", atOrBelow(binary("-", first, one)), integer(1)),
+			atOrBelow(binary("-", binary("+", first, count), one))
+		]),
+		alias: places.alias,
+		columns: { kind: "named", names: places.columns, ordinality: false },
+		lateral: false
+	}
+	const offset = binary("-", subscript(cells, places.read("i")), first)
+	return {
+		params: [
+			{ name: "cells", type: types.codes },
+			{ name: "first", type: types.bigint },
+			{ name: "count", type: types.bigint },
+			{ name: "empty", type: types.varbit }
+		],
+		returns: types.varbit,
+		body: {
+			kind: "subquery",
+			query: operandSelect(
+				core(
+					[
+						targetAs(
+							firstNonNull([
+								call("bit_or", [call("set_bit", [empty, cast(offset, types.integer), integer(1)])]),
+								empty
+							]),
+							names.column(internal("row"))
+						)
+					],
+					[run],
+					undefined
+				)
+			)
+		}
+	}
+}
+
+/**
  * Whether the library function `fn` is STRICT: exactly where every native node that calls it (registry.ts libraryOf)
  * meets a NULL operand by the strict rule (registry.ts nullRules), which the host evaluator applies to it, so a call of
  * a NULL argument is NULL in PostgreSQL, which returns it without running the body, as it is on the host. One that is
@@ -1671,6 +1732,7 @@ const definedAs = (fn: LibraryFn, body: LibraryBody): LibraryDefinition => ({
 
 /** Each library function's definition, made once. */
 const definitions: { readonly [F in LibraryFn]: LibraryDefinition } = {
+	closedRow: definedAs("closedRow", closedRowDefinition()),
 	cutBefore: definedAs("cutBefore", cutDefinition("cutBefore")),
 	cutFrom: definedAs("cutFrom", cutDefinition("cutFrom")),
 	decodedPath: definedAs("decodedPath", decodedPathDefinition()),
@@ -1683,6 +1745,10 @@ const definitions: { readonly [F in LibraryFn]: LibraryDefinition } = {
 
 /** Each library function's identity, by its name and its definition's digest, minted once. */
 const identities: { readonly [F in LibraryFn]: Identity<"libraryFunction"> } = {
+	closedRow: identity.libraryFunction(
+		"closedRow",
+		constantDigest("library-function", definitions.closedRow, everyProperty)
+	),
 	cutBefore: identity.libraryFunction(
 		"cutBefore",
 		constantDigest("library-function", definitions.cutBefore, everyProperty)
@@ -1813,7 +1879,7 @@ export const addLibrary = (b: InstallBuilder): void => {
 		b.addConstant(
 			named,
 			{
-				ddl: [create, constantRevoke(create)],
+				ddl: () => [create, constantRevoke(create)],
 				reasons: [enforcement(`the library function ${fn}`)]
 			},
 			[b.schemaNode]

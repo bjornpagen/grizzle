@@ -74,7 +74,7 @@ const valueType = (value: KeyValue): ScalarType =>
  *
  * - its source is a Closed node that carries a declared closed relation's name, with that relation's heading and its
  *   count of facts: it holds every fact the relation declares, since the simplifier names each relation it narrows
- *   otherwise (simplify/rules.ts narrowedClosedName), and so does the relation's installed key set;
+ *   otherwise (simplify/rules.ts narrowedClosedName), and so do the relation's installed codes;
  * - it reads every key column, each as one variable another occurrence of the region binds that is no correlated
  *   source (one whose subtree reads outside itself may read the very variable it binds, so it cannot stand in for the
  *   closed occurrence, whose removal would leave that source waiting on itself), or as one constant that reads no
@@ -144,7 +144,7 @@ const varRef = (ed: DagEditor, region: Cell, v: VarDecl): ScalarExpr =>
 /**
  * The predicate a membership stands for, over the region's own columns: none for a roster, whose domain types every
  * value of its closed id (ir/evidence.ts ClosedEvidence), so every key a column of its type holds is one of its facts;
- * the closed relation's membership test of the key otherwise, one bit of its installed key set (closedHas).
+ * the closed relation's membership test of the key otherwise, one binary search of its installed codes (closedHas).
  */
 const predicateOf = (ed: DagEditor, region: Cell, m: Membership): ScalarExpr | undefined => {
 	if (m.evidence.kind === "roster") {
@@ -270,18 +270,16 @@ const membershipPotential: Potential = (cx) => {
  *
  * - a roster's occurrence is a tautology, since the domain that types the variable's column holds only the roster's
  *   live codes, and it disappears;
- * - a closed relation's occurrence is the membership test of its key, closedHas, which lowers to one bit of the
- *   relation's installed key set at the key's mixed-radix index (lower/conservative/expr closedRead): a cell read,
- *   O(1) per row, with no join, whatever the relation's size.
+ * - a closed relation's occurrence is the membership test of its key, closedHas, which lowers to one binary search of
+ *   the relation's installed codes at the key's mixed-radix index (lower/conservative/expr closedRead): O(log n) per
+ *   row in the relation's facts, with no join.
  *
  * The predicate reads the bound variables as columns of the remaining region; a variable the region does not deliver
  * (a join variable outside its heading) widens it under the filter, and a projection restores its heading.
  *
- * Only a membership is a cell read. An occurrence that reads a payload column, leaves a key column free, or reads a
- * relation the simplifier narrowed keeps its VALUES source of the facts it reads (lower/conservative/closed). The facts
- * are never enumerated from the constant by generate_series over the key space filtered by its cells: the key space
- * is a product of radices, holes included, and a sparse relation fills little of it. qti-pie's ChildGrammar is 819,200
- * cells for 77,734 facts, so a scan of its key space reads ten cells for every fact a VALUES list holds.
+ * Only a membership is a search. An occurrence that reads a payload column, leaves a key column free, or reads a
+ * relation the simplifier narrowed keeps its VALUES source of the facts it reads (lower/conservative/closed), which the
+ * planner sees, never unnested from the installed constant.
  *
  * The facts are the schema's, compiled into the installation as the constants the lowering reads, and the same at
  * every statement: the rewrite's evidence is the Closed node's facts alone, in the immediate context.

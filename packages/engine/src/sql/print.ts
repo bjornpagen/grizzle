@@ -74,6 +74,7 @@ import {
 	type OnConflict,
 	type OrderItem,
 	type PackConstant,
+	type PackLayout,
 	type PerformQuery,
 	type PlBlock,
 	type PlDeclaration,
@@ -2814,48 +2815,67 @@ const constantClauses = sqlConstantClauses(false)
 /** A PL/pgSQL constant's clauses (sql/ast.ts ConstantLanguage): planned once per backend, under the closed path. */
 const plannedConstantClauses = `LANGUAGE plpgsql IMMUTABLE PARALLEL SAFE SET search_path = ${printedSearchPath}`
 
-/** The line a literal pack's comment begins with (writePack), which `grizzle check` finds it by. */
-const literalPackComment = "-- closed constant: "
+/** What every literal pack's comment begins with (writePack), which `grizzle check` finds it by. */
+const literalPackLead = "-- closed "
+
+/** The line a literal pack's comment begins with, by its layout (writePack). */
+const literalPackComment = {
+	cells: `${literalPackLead}cells: `,
+	payloads: `${literalPackLead}payloads: `
+} as const
 
 /** What separates a literal pack's function from its body: the head every constant has after its name. */
-const literalPackBody = `() RETURNS ${printType(types.varbit)} ${constantClauses} RETURN `
+const literalPackBody = `() RETURNS ${printType(types.codes)} ${constantClauses} RETURN `
 
 /** The cast that ends a literal pack's body. */
-const literalPackEnd = `'::${printType(types.varbit)}`
+const literalPackEnd = `'::${printType(types.codes)}`
+
+/** A literal pack's comment past its lead, by its layout: what it holds and over what. */
+const layoutText = (layout: PackLayout, rows: number | bigint): string =>
+	layout.kind === "cells"
+		? `${rows} rows in ${layout.cells} cells`
+		: `${rows} rows of ${layout.points} payload codes`
 
 /**
- * A closed relation's constant (sql/ast.ts PackConstant), one statement whose body is the constant itself as one hex
- * literal:
+ * One array of a closed relation's constant (sql/ast.ts PackConstant), one statement whose body is the array itself as
+ * one literal:
  *
- *   -- closed constant: <rows> rows in <cells> cells of <width> bits, content <digest>
- *   CREATE FUNCTION <function>() RETURNS bit varying LANGUAGE sql IMMUTABLE PARALLEL SAFE RETURN X'<hex>'::bit varying
+ *   -- closed cells: <rows> rows in <cells> cells, content <digest>
+ *   -- closed payloads: <rows> rows of <points> payload codes, content <digest>
+ *   CREATE FUNCTION <function>() RETURNS bigint[] LANGUAGE sql IMMUTABLE PARALLEL SAFE RETURN '{…}'::bigint[]
  *
- * the statement on one line, and X'' for a constant of no bit. The comment states what `grizzle check` holds the
- * literal to (readLiteralPack): its rows, its layout, and its content's digest, which the function's name digests in
- * turn.
+ * the statement on one line. The comment states what `grizzle check` holds the literal to (readLiteralPack): its rows,
+ * its layout, and its content's digest, which the function's name digests in turn. The literal holds digits, a minus
+ * sign, commas and braces alone (ir/cells.ts cellsLiteralOf, payloadsLiteralOf), so it is quoted as it stands.
  */
 const writePack = (out: Lines, pack: PackConstant): void => {
 	out.line(
-		`${literalPackComment}${pack.rows} rows in ${pack.cells} cells of ${pack.width} bits, content ${pack.digest}`
+		`${literalPackComment[pack.layout.kind]}${layoutText(pack.layout, pack.rows)}, content ${pack.digest}`
 	)
 	out.line(
-		`CREATE FUNCTION ${printObjectName(pack.function)}${literalPackBody}${hexConstant(pack.hex)}::${printType(types.varbit)}`
+		`CREATE FUNCTION ${printObjectName(pack.function)}${literalPackBody}'${pack.text}${literalPackEnd}`
 	)
 }
 
-/** A literal pack as its printed statement states it (readLiteralPack): its function's printed name and its digits. */
+/** A literal pack as its printed statement states it (readLiteralPack): its function's printed name and its literal. */
 export interface LiteralPackText {
 	readonly function: string
 	readonly rows: bigint
-	readonly cells: bigint
-	readonly width: bigint
+	/** The layout the comment states, a payloads' of one payload code at least: a comment stating none is no pack's. */
+	readonly layout: PackLayout
 	readonly digest: string
-	readonly hex: string
+	readonly text: string
 }
 
 /** A text of decimal digits as the whole number it spells, none for any other text. */
 const wholeNumber = (text: string): bigint | undefined =>
 	text !== "" && isAsciiDigits(text, 0, text.length) ? BigInt(text) : undefined
+
+/** A text of decimal digits as the whole number it spells where it is at least 1, none for any other text. */
+const positiveNumber = (text: string): bigint | undefined => {
+	const n = wholeNumber(text)
+	return n === undefined || n === 0n ? undefined : n
+}
 
 /** The text between `before` at the start of `text` and the first `after` past it, and what follows, or none. */
 const between = (
@@ -2872,10 +2892,34 @@ const between = (
 		: { inner: text.slice(before.length, end), rest: text.slice(end + after.length) }
 }
 
-/** A literal pack's body, its one hex constant to the end of the statement; none for any other text. */
-const literalDigits = (body: string): string | undefined => {
-	const hex = between(body, "X'", literalPackEnd)
-	return hex?.rest === "" ? hex.inner : undefined
+/** A literal pack's body, its one quoted array literal to the end of the statement; none for any other text. */
+const packedLiteral = (body: string): string | undefined => {
+	const literal = between(body, "'", literalPackEnd)
+	return literal?.rest === "" ? literal.inner : undefined
+}
+
+/** A literal pack's comment past its layout's lead, read as its rows and layout: none for any other text. */
+const readLayout = (
+	kind: PackLayout["kind"],
+	text: string
+): { readonly rows: bigint; readonly layout: PackLayout; readonly rest: string } | undefined => {
+	const rows = between(text, "", kind === "cells" ? " rows in " : " rows of ")
+	const size =
+		rows === undefined
+			? undefined
+			: between(rows.rest, "", kind === "cells" ? " cells, content " : " payload codes, content ")
+	const count = rows === undefined ? undefined : wholeNumber(rows.inner)
+	if (size === undefined || count === undefined) {
+		return undefined
+	}
+	const measure = kind === "cells" ? wholeNumber(size.inner) : positiveNumber(size.inner)
+	return measure === undefined
+		? undefined
+		: {
+				rows: count,
+				layout: kind === "cells" ? { kind, cells: measure } : { kind, points: measure },
+				rest: size.rest
+			}
 }
 
 /**
@@ -2885,43 +2929,28 @@ const literalDigits = (body: string): string | undefined => {
  * its form is no pack a reader trusts, which `grizzle check` refuses as it refuses a changed one (cli/check.ts).
  */
 export const readLiteralPack = (statement: string): LiteralPackText | undefined => {
-	const comment = between(statement.trimStart(), literalPackComment, "\n")
-	const rows = comment === undefined ? undefined : between(comment.inner, "", " rows in ")
-	const cells = rows === undefined ? undefined : between(rows.rest, "", " cells of ")
-	const width = cells === undefined ? undefined : between(cells.rest, "", " bits, content ")
+	const trimmed = statement.trimStart()
+	const kind: PackLayout["kind"] | undefined = trimmed.startsWith(literalPackComment.cells)
+		? "cells"
+		: trimmed.startsWith(literalPackComment.payloads)
+			? "payloads"
+			: undefined
+	const comment = kind === undefined ? undefined : between(trimmed, literalPackComment[kind], "\n")
+	const read =
+		kind === undefined || comment === undefined ? undefined : readLayout(kind, comment.inner)
 	const head =
 		comment === undefined
 			? undefined
 			: between(comment.rest.trim(), "CREATE FUNCTION ", literalPackBody)
-	const hex = head === undefined ? undefined : literalDigits(head.rest)
-	const counted = {
-		rows: rows === undefined ? undefined : wholeNumber(rows.inner),
-		cells: cells === undefined ? undefined : wholeNumber(cells.inner),
-		width: width === undefined ? undefined : wholeNumber(width.inner)
-	}
-	if (
-		width === undefined ||
-		head === undefined ||
-		hex === undefined ||
-		counted.rows === undefined ||
-		counted.cells === undefined ||
-		counted.width === undefined
-	) {
-		return undefined
-	}
-	return {
-		function: head.inner,
-		rows: counted.rows,
-		cells: counted.cells,
-		width: counted.width,
-		digest: width.rest,
-		hex
-	}
+	const text = head === undefined ? undefined : packedLiteral(head.rest)
+	return read === undefined || head === undefined || text === undefined
+		? undefined
+		: { function: head.inner, rows: read.rows, layout: read.layout, digest: read.rest, text }
 }
 
 /** Whether a statement of a migration file begins as a literal pack does: what `grizzle check` holds to the form. */
 export const looksLikeLiteralPack = (statement: string): boolean =>
-	statement.trimStart().startsWith(literalPackComment)
+	statement.trimStart().startsWith(literalPackLead)
 
 /** What a COMMENT names, as it prints after COMMENT ON, and as `grizzle names` lists it. */
 export const printCommentTarget = (on: CommentTarget): string => {

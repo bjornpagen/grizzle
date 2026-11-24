@@ -1,33 +1,29 @@
 /**
- * The cells encoder: the one encoding of a closed relation as a string of cells, which every constant, domain and
- * lookup of a closed relation reads.
+ * The cells encoder: the one encoding of a closed relation as its entries over a space of cells, which every constant,
+ * domain and lookup of a closed relation reads.
  *
- * A closed relation has no extent in the database. Its rows erase to one bit string, read `width` bits at a time:
+ * A closed relation has no extent in the database. Its rows erase to one sorted array of codes:
  * - every field has a code space: a closed id's is its roster's codes, holes included, and an open-typed field's is its
  *   active domain in the relation, in sorted order;
- * - the key's codes index the string in mixed radix, row-major in the key's declared order, so the string holds one
- *   cell per point of the key's space; a key whose fields after an owner prefix hold slots of `fin(O, n)`, O a closed
- *   relation over that prefix, is a dependent sum instead, each owner's block of the mixed radix at its own counts
- *   after every earlier owner's (KeySpace), so a dependent coordinate stays dense;
- * - a cell is 0 where the relation holds no row and 1 + c where it does, c the payload's mixed-radix code, and its width
- *   is ⌈log₂(1 + |payload space|)⌉, so a relation with no payload, a set, has cells of one bit.
+ * - the key's codes index a space of cells in mixed radix, row-major in the key's declared order, one cell per point of
+ *   the key's space; a key whose fields after an owner prefix hold slots of `fin(O, n)`, O a closed relation over that
+ *   prefix, is a dependent sum instead, each owner's block of the mixed radix at its own counts after every earlier
+ *   owner's (KeySpace), so a dependent coordinate stays dense;
+ * - a row is the entry at its key's cell with its payload's mixed-radix code c, and its code is index · P + c, P the
+ *   payload space's codes (1 for a set, which has no payload), so the codes ascend with the cells they index and each
+ *   names one cell and one payload.
  *
- * Sizes, indexes and payload codes are bigints, exact over any space. A bound on them is the caller's.
+ * A constant is its entries, O(rows) whatever the size of its key space, and a read finds a key's entry by binary search
+ * over the codes (sql/constants.ts). Sizes, indexes and payload codes are bigints, exact over any space. A bound on them
+ * is the caller's.
  */
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { type ReadonlyTupleMap, TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
+import { isAsciiDigits } from "@bjornpagen/grizzle-text/text"
 import { everyProperty } from "#compiler/core/canonical.ts"
 import { type ConstantDigest, constantDigest } from "#compiler/core/fingerprint.ts"
-import {
-	bitAt,
-	hexDigitBits,
-	hexDigitsOf,
-	hexText,
-	setBit,
-	zeroDigits
-} from "#compiler/core/hex.ts"
 import { type Comparator, compareStrings } from "#compiler/core/order.ts"
 import { compareQuotedTuples } from "#compiler/core/text.ts"
 import type { RosterHandles, RosterOrder } from "#compiler/ir/scalar.ts"
@@ -209,18 +205,6 @@ export const rowMajorIndex = (
 }
 
 /**
- * The bits of a cell over a payload space of `points` codes: the fewest that hold 0 for absent and 1 + c for every
- * payload code c, ⌈log₂(1 + points)⌉. A set's payload space has one point, so its cells are one bit.
- */
-export const cellWidth = (points: bigint): number => {
-	let width = 0
-	while (1n << BigInt(width) <= points) {
-		width += 1
-	}
-	return width
-}
-
-/**
  * A coordinate of a dependent key's block, after its owner prefix: a closed id's codes, `size` of them, or the slots of
  * a fin coordinate, as many as count `count` of the key's owner states.
  */
@@ -343,22 +327,34 @@ export interface Split<V> {
 /** A row as the encoder reads it: its key's codes and its payload's codes, one per coordinate. */
 export type Tuple = Split<number>
 
-/** A cell the relation holds: its key's index, and its payload's code c. The cell holds 1 + c. */
+/** A cell the relation holds: its key's index, and its payload's code c. */
 export interface Entry {
 	readonly index: bigint
 	readonly payload: bigint
 }
 
 /**
- * A closed relation as its string of cells: `cells` cells of `width` bits, each 0 but the entries', which are ascending
- * by index and one per index. Its installed string is those `cells · width` bits padded with 0s to whole hex digits
- * (literalOf), so a read at an index past the last cell reads padding or nothing, which PostgreSQL's substring answers
- * with 0 bits or the empty string, whose value is 0: absent.
+ * A closed relation as its entries: a key space of `cells` cells, a payload space of `points` codes, and the cells it
+ * holds, ascending by index and one per index, each with a payload code below `points`. `points` is at least 1: a set's
+ * payload space, of no coordinate, has one point, and a payload space of no point holds no row, so 1 states it as well.
+ * It is installed as two parallel arrays (sql/constants.ts ConstantFunctions): its cells, every entry's index ascending
+ * after the sentinel -1 (cellsLiteralOf), and, where its payload space holds more than one code, its payloads, every
+ * entry's payload code in the same order (payloadsLiteralOf); a payload space of one code holds no information past its
+ * cells.
  */
 export interface Constant {
 	readonly cells: bigint
-	readonly width: number
+	readonly points: bigint
 	readonly entries: ReadonlyArray<Entry>
+}
+
+/**
+ * The payload codes a constant over `payload` states, `points` (Constant): the payload space's, or 1 for a space of no
+ * point, which holds no row.
+ */
+const payloadPoints = (payload: ReadonlyArray<number>): bigint => {
+	const points = spaceSize(payload)
+	return points === 0n ? 1n : points
 }
 
 /** Two rows at one key with different payloads, by their positions in the input: the relation's key does not hold. */
@@ -367,14 +363,11 @@ export interface KeyCollision {
 	readonly second: number
 }
 
-/** Index order. */
-const compareIndexes: Comparator<Entry> = (a, b) =>
-	a.index === b.index ? 0 : a.index < b.index ? -1 : 1
-
 /**
- * The string of cells of a relation's tuples, whose codes lie in its layout's coordinates. A relation is a set of rows,
+ * The constant of a relation's tuples, whose codes lie in its layout's coordinates. A relation is a set of rows,
  * so a tuple stated twice is one cell; two tuples at one key with different payloads have no single cell, and are
- * refused as the key's collision.
+ * refused as the key's collision. Its entries are ordered by a native sort of their indexes, each below 2^64 as every
+ * key space a constant is planned over is (physical/ddl/constants.ts constantMaxCells), the caller's bound.
  */
 export const constantOf = (
 	layout: CellLayout,
@@ -399,93 +392,158 @@ export const constantOf = (
 	}
 	return Result.ok({
 		cells: keyCells(layout.key),
-		width: cellWidth(spaceSize(layout.payload)),
-		entries: Array.from(held, ([index, { payload }]): Entry => ({ index, payload })).toSorted(
-			compareIndexes
-		)
+		points: payloadPoints(layout.payload),
+		entries: Array.from(BigUint64Array.from(held.keys()).toSorted(), (index): Entry => ({
+			index,
+			payload: defined(held.get(index), "a sorted index is a held one").payload
+		}))
 	})
 }
 
 /**
- * The digest a constant's function is named by: SHA-256 over the constant's canonical content (its cells, its width and
- * its entries) under the fingerprint domain "closed-constant", so equal constants share one function and a changed one
- * is a new function.
+ * The digest a constant's cells are named by: SHA-256 over their canonical content (the key space's cells and the
+ * entries' indexes) under the fingerprint domain "closed-constant", so equal cells share one function, a relation's and
+ * a side's alike, and changed ones are a new function.
  */
-export const constantDigestOf = (constant: Constant): ConstantDigest<"closed-constant"> =>
-	constantDigest(
-		"closed-constant",
-		{
-			cells: constant.cells,
-			width: constant.width,
-			entries: constant.entries.map((entry) => [entry.index, entry.payload])
-		},
-		everyProperty
-	)
+export const cellsDigestOf = (
+	cells: bigint,
+	indexes: ReadonlyArray<bigint>
+): ConstantDigest<"closed-constant"> =>
+	constantDigest("closed-constant", { cells, indexes }, everyProperty)
 
 /**
- * A constant's bits as its hex literal: every cell's bits, from cell 0, then the zero bits that pad the string to whole
- * digits (core/hex.ts), each entry's cell holding 1 + its payload code and every other cell 0. The constant's digits
- * are at most what one string the host builds holds; the caller bounds them before.
+ * The digest a constant's payloads are named by: SHA-256 over their canonical content (the payload space's codes and the
+ * entries' payload codes in index order) under the fingerprint domain "closed-constant", which no cells' content states.
  */
-export const literalOf = (constant: Constant): string => {
-	const digits = zeroDigits(Number(constant.cells * BigInt(constant.width)))
-	for (const entry of constant.entries) {
-		const value = 1n + entry.payload
-		const at = Number(entry.index) * constant.width
-		for (let bit = 0; bit < constant.width; bit += 1) {
-			if (((value >> BigInt(constant.width - 1 - bit)) & 1n) === 1n) {
-				setBit(digits, at + bit)
-			}
+export const payloadsDigestOf = (
+	points: bigint,
+	payloads: ReadonlyArray<bigint>
+): ConstantDigest<"closed-constant"> =>
+	constantDigest("closed-constant", { points, payloads }, everyProperty)
+
+/** A constant's entries' indexes, ascending: its cells. */
+export const indexesOf = (constant: Constant): ReadonlyArray<bigint> =>
+	constant.entries.map((entry) => entry.index)
+
+/** A constant's entries' payload codes, in index order: its payloads. */
+export const payloadsOf = (constant: Constant): ReadonlyArray<bigint> =>
+	constant.entries.map((entry) => entry.payload)
+
+/** Whether a constant's payloads are installed: where its payload space holds more than one code (Constant). */
+export const holdsPayloads = (constant: Constant): boolean => constant.points > 1n
+
+/** The sentinel a cells literal states first, below every index, so a binary search for any index lands on an element. */
+const sentinel = -1n
+
+/**
+ * An array's literal, the text of the bigint[] PostgreSQL holds it as: its elements in decimal, of no sign but the
+ * sentinel's and no leading 0, comma-separated in braces. Refused with the length it needs when it is longer than `limit`
+ * characters, measured before it is joined.
+ */
+const literalWithin = (
+	elements: ReadonlyArray<bigint>,
+	limit: number
+): Result.Result<string, number> => {
+	const texts = elements.map((element) => element.toString())
+	const length =
+		texts.reduce((sum, text) => sum + text.length, 0) + Math.max(texts.length - 1, 0) + 2
+	return length > limit ? Result.err(length) : Result.ok(`{${texts.join(",")}}`)
+}
+
+/** A constant's cells as their literal, `{-1,i1,i2,…}`: the sentinel, then every entry's index, ascending (literalWithin). */
+export const cellsLiteralOf = (constant: Constant, limit: number): Result.Result<string, number> =>
+	literalWithin([sentinel, ...indexesOf(constant)], limit)
+
+/** A constant's payloads as their literal, `{c1,c2,…}`: every entry's payload code, in index order (literalWithin). */
+export const payloadsLiteralOf = (
+	constant: Constant,
+	limit: number
+): Result.Result<string, number> => literalWithin(payloadsOf(constant), limit)
+
+/**
+ * A literal that is no array of its stated layout: no braces around elements each after a comma, or a cells literal not
+ * led by the sentinel -1 (`array`); an element, entry `at` counted from 1 past any sentinel, that is no decimal numeral of
+ * no sign and no leading 0 (`element`); an index no greater than the one before it (`order`); an index at or past the
+ * stated cells (`cell`); or a payload code at or past the stated payload codes (`code`).
+ */
+export type LiteralFault =
+	| { readonly kind: "array" }
+	| { readonly kind: "element"; readonly at: number }
+	| { readonly kind: "order"; readonly at: number }
+	| { readonly kind: "cell"; readonly at: number; readonly cell: bigint }
+	| { readonly kind: "code"; readonly at: number; readonly code: bigint }
+
+/** Whether an element's text is a decimal numeral of no sign and no leading 0, the one spelling a literal writes. */
+const canonicalNumeral = (text: string): boolean =>
+	text !== "" && isAsciiDigits(text, 0, text.length) && (text === "0" || !text.startsWith("0"))
+
+/** A literal's elements, its text between its braces split at commas, none for `{}`; undefined for a text unbraced. */
+const elementsOf = (text: string): ReadonlyArray<string> | undefined =>
+	text.length < 2 || !text.startsWith("{") || !text.endsWith("}")
+		? undefined
+		: text === "{}"
+			? []
+			: text.slice(1, -1).split(",")
+
+/**
+ * The numerals of a literal's elements, each read by `admit` with its entry, counted from 1, and the value before it:
+ * refused at the first element no canonical numeral, or the first `admit` refuses.
+ */
+const numeralsOf = (
+	elements: ReadonlyArray<string>,
+	admit: (value: bigint, at: number, before: bigint) => LiteralFault | undefined
+): Result.Result<ReadonlyArray<bigint>, LiteralFault> => {
+	const values: Array<bigint> = []
+	let before = sentinel
+	for (const [position, element] of elements.entries()) {
+		const at = position + 1
+		if (!canonicalNumeral(element)) {
+			return Result.err({ kind: "element", at })
 		}
+		const value = BigInt(element)
+		const fault = admit(value, at, before)
+		if (fault !== undefined) {
+			return Result.err(fault)
+		}
+		values.push(value)
+		before = value
 	}
-	return hexText(digits)
+	return Result.ok(values)
 }
 
 /**
- * A hex literal that is no constant of its stated layout: a character no digit of 0-9 and A-F, a count of digits other
- * than its cells' bits rounded up to whole digits, or a 1 among the bits that pad it past its last cell.
+ * The indexes a cells literal states over `cells` cells: its elements after the sentinel, strictly ascending, each below
+ * `cells`. Refused otherwise (LiteralFault), so every literal is the one spelling of its cells.
  */
-export type LiteralFault =
-	| { readonly kind: "digit"; readonly at: number }
-	| { readonly kind: "length"; readonly digits: bigint; readonly expected: bigint }
-	| { readonly kind: "padding"; readonly at: number }
+export const cellsOfLiteral = (
+	text: string,
+	cells: bigint
+): Result.Result<ReadonlyArray<bigint>, LiteralFault> => {
+	const elements = elementsOf(text)
+	if (elements === undefined || elements[0] !== sentinel.toString()) {
+		return Result.err({ kind: "array" })
+	}
+	return numeralsOf(elements.slice(1), (index, at, before) =>
+		index <= before
+			? { kind: "order", at }
+			: index >= cells
+				? { kind: "cell", at, cell: index }
+				: undefined
+	)
+}
 
 /**
- * The constant a hex literal states, read as `cells` cells of `width` bits: each cell of value v > 0 an entry of payload
- * code v - 1. Refused when a character is no digit, when the literal is not exactly the digits that hold cells times
- * width bits, or when a bit past the last cell is 1, so every literal is the one spelling of its constant.
+ * The payload codes a payloads literal states over `points` payload codes: its elements, each below `points`. Refused
+ * otherwise (LiteralFault), so every literal is the one spelling of its payloads.
  */
-export const constantOfLiteral = (
-	hex: string,
-	cells: bigint,
-	width: number
-): Result.Result<Constant, LiteralFault> => {
-	const bits = cells * BigInt(width)
-	const expected = (bits + BigInt(hexDigitBits) - 1n) / BigInt(hexDigitBits)
-	if (BigInt(hex.length) !== expected) {
-		return Result.err({ kind: "length", digits: BigInt(hex.length), expected })
-	}
-	const digits = hexDigitsOf(hex)
-	if (!digits.ok) {
-		return Result.err({ kind: "digit", at: digits.error })
-	}
-	for (let position = Number(bits); position < hex.length * hexDigitBits; position += 1) {
-		if (bitAt(digits.value, position) === 1) {
-			return Result.err({ kind: "padding", at: position })
-		}
-	}
-	const entries: Array<Entry> = []
-	for (let index = 0n; index < cells; index += 1n) {
-		let value = 0n
-		const start = Number(index) * width
-		for (let bit = 0; bit < width; bit += 1) {
-			value = (value << 1n) | BigInt(bitAt(digits.value, start + bit))
-		}
-		if (value > 0n) {
-			entries.push({ index, payload: value - 1n })
-		}
-	}
-	return Result.ok({ cells, width, entries })
+export const payloadsOfLiteral = (
+	text: string,
+	points: bigint
+): Result.Result<ReadonlyArray<bigint>, LiteralFault> => {
+	const elements = elementsOf(text)
+	return elements === undefined
+		? Result.err({ kind: "array" })
+		: numeralsOf(elements, (code, at) => (code >= points ? { kind: "code", at, code } : undefined))
 }
 
 /** A relation's heading as a side reads it: its fields in declared order, and its declared keys. */

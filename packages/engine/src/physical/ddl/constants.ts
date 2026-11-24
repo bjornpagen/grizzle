@@ -8,10 +8,8 @@ import {
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import { maxStringLength, unwrap } from "#compiler/core/canonical.ts"
 import { everyProperty, Refusal } from "#compiler/core/canonical.ts"
-import { int4Max } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription, resourceBound } from "#compiler/core/errors.ts"
 import { type ConstantDigest, constantDigest } from "#compiler/core/fingerprint.ts"
-import { hexDigitsFor } from "#compiler/core/hex.ts"
 import {
 	type DeclaredName,
 	identifierOf,
@@ -21,21 +19,27 @@ import {
 import type { Identifier } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
+import { int8Max } from "#compiler/ir/carriers.ts"
 import {
 	type BlockCoordinate,
 	blockRadices,
 	type CellLayout,
 	type CellSide,
-	cellWidth,
+	cellsDigestOf,
+	cellsLiteralOf,
 	type Constant,
-	constantDigestOf,
 	constantOf,
 	type DependentSpace,
 	dependentSpace,
+	type Entry,
 	keyCells,
+	holdsPayloads,
+	indexesOf,
 	keyIndex,
 	type KeySpace,
-	literalOf,
+	payloadsDigestOf,
+	payloadsLiteralOf,
+	payloadsOf,
 	rowMajorIndex,
 	spaceSize,
 	type Split,
@@ -67,13 +71,13 @@ import { persistentText } from "#compiler/physical/ddl/expr.ts"
 import { enforcement, lawReasons, type Node } from "#compiler/physical/obligations/graph.ts"
 import { matchAre } from "#compiler/scalar/regex/admit.ts"
 import type { Owned } from "#compiler/schema/own.ts"
-import { bitsPerByte } from "#compiler/schema/representability.ts"
 import type {
 	CreateConstant,
 	CreateDomain,
 	Expr,
 	ObjectName,
 	PackConstant,
+	PackLayout,
 	SqlStatement
 } from "#compiler/sql/ast.ts"
 import { and, arrayOf, binary, call, cast, eq, ge, lit, lt, types } from "#compiler/sql/build.ts"
@@ -81,10 +85,11 @@ import {
 	cellOfKey,
 	type ClosedConstant,
 	type ClosedKey,
+	type ConstantFunctions,
 	constantValue,
-	inSet,
-	type OwnerFunction,
+	held,
 	pack,
+	type Payloads,
 	pairIn,
 	payloadCode,
 	payloadDigit
@@ -92,41 +97,39 @@ import {
 import { printObjectName, textArrayLiteral } from "#compiler/sql/print.ts"
 
 /**
- * The longest bit string PostgreSQL holds, VARBITMAXLEN, and so the most bits of one constant: the bit varying a
- * closed side compiles to, which its IMMUTABLE function returns. A longer string is refused as it is built, "bit string
- * length exceeds the maximum allowed (%d)" (src/backend/utils/adt/varbit.c). The int32 length every bit string
- * carries (VarBit's bit_len) holds INT_MAX at most, and the length stops BITS_PER_BYTE - 1 bits short of it so that
- * rounding it up to whole bytes, the largest addition PostgreSQL makes to a length (VARBITTOTALLEN), cannot overflow.
- * It is a whole number of bytes, so a constant within it is within it padded to whole hex digits too.
+ * The most cells one closed relation's key space holds: a read computes a key's cell index in bigint arithmetic, the
+ * mixed radix of its codes (sql/constants.ts cellOfKey), and its cells' array holds each index as a bigint, so every
+ * index, the first past the key space a dependent key's guard reads among them, is at most bigint's greatest value, and
+ * a larger one is "bigint out of range". A key space of more cells is refused when its constant is planned.
  *
  * @limitKind derived
  * @owner PostgreSQL 19.0
- * @unit bits
- * @scope one bit varying value: a closed side's constant, as its function returns it
- * @derivation varbit.h's VARBITMAXLEN, "#define VARBITMAXLEN (INT_MAX - BITS_PER_BYTE + 1)"
- *   (https://github.com/postgres/postgres/blob/REL_19_0/src/include/utils/varbit.h#L83, verified 2026-11-20),
- *   INT_MAX being the greatest integer
- * @from {@link int4Max}, {@link bitsPerByte}
+ * @unit cells
+ * @scope the key space of one closed relation or side: the index a read computes from its key's codes
+ * @derivation int8pl and int8mul refuse a result past the int8 range: "if (unlikely(pg_mul_s64_overflow(arg1, arg2,
+ *   &result)))" then "errmsg("bigint out of range")"
+ *   (https://github.com/postgres/postgres/blob/REL_19_0/src/backend/utils/adt/int8.c#L497, verified 2026-11-24); the
+ *   greatest index, the key space's cells, is at most bigint's greatest value
+ * @from {@link int8Max}
  */
-export const constantMaxBits = int4Max - bitsPerByte + 1
+export const constantMaxCells = int8Max
 
 /**
- * The most payload codes one cell of a closed relation's constant holds, its cells read as integers: a cell holds 0 for
- * absent and 1 + c for payload code c, and a read casts its bits to integer, which reads them as an unsigned 32-bit
- * number returned as a signed int4, so a value past the greatest integer reads negative and a cell of more than 32 bits
- * is "integer out of range". A payload space of more codes is refused when its constant is planned.
+ * The most payload codes one closed relation's constant holds: its payloads' array holds each payload code as a bigint,
+ * and a read computes with it in bigint arithmetic (sql/constants.ts applied, payloadDigit), so the greatest code,
+ * codes - 1, is at most bigint's greatest value, and a larger one is "out of range for type bigint". A payload space of
+ * more codes is refused when its constant is planned.
  *
  * @limitKind derived
  * @owner PostgreSQL 19.0
  * @unit codes
- * @scope the payload space of one closed relation or side: the codes 1 + c its cells hold, each read as an integer
- * @derivation bittoint4 reads a cell's bits as uint32 and returns it as int32, refusing more than 32 bits: "if
- *   (VARBITLEN(arg) > sizeof(result) * BITS_PER_BYTE)" and "PG_RETURN_INT32(result)"
- *   (https://github.com/postgres/postgres/blob/REL_19_0/src/backend/utils/adt/varbit.c#L1593, verified 2026-11-20);
- *   the greatest cell, 1 + (codes - 1), is at most the greatest integer
- * @from {@link int4Max}
+ * @scope the payload space of one closed relation or side: its codes, each a bigint
+ * @derivation pg_strtoint64_safe, which bigint's input reads an element by, refuses a value past the int8 range:
+ *   "errmsg("value \"%s\" is out of range for type %s"" (https://github.com/postgres/postgres/blob/REL_19_0/src/backend/utils/adt/numutils.c#L649,
+ *   verified 2026-11-24); the greatest payload code, codes - 1, is at most bigint's greatest value
+ * @from {@link int8Max}
  */
-export const cellMaxCodes = int4Max
+export const payloadMaxCodes = int8Max + 1n
 
 /**
  * The installation's constants: the functions a closed fact is read from, each an IMMUTABLE SQL function of no argument
@@ -139,18 +142,20 @@ export const cellMaxCodes = int4Max
  *   installs its live-codes constant, the hex literal of its live codes' bits, and the bits domain over bit(n), n every
  *   code it has minted rounded up to whole hex digits, whose CHECK admits only live codes' bits, so a hole's bit and
  *   every padding bit are 0 in every stored set.
- * - A closed relation installs its string of cells, read at the index its key gives its key fields' codes, its key
- *   set, one bit per point of its key space, and a dictionary per open-typed payload field, the field's values in code
- *   order. A relation whose cells are one bit wide is its own key set, one function. A key is the mixed radix of its
- *   closed ids, or, where its slots count over an owner prefix, a dependent sum, each owner's block after the blocks
- *   before it: such a key also installs two kinds of owner function over the prefix, each owner's block's first cell
- *   and each count its slots read, which its readers index by (sql/constants.ts cellOfKey).
- * - A containment into a closed relation's side installs the side's string of cells, as a closed relation of its own,
- *   which the table CHECK that holds the containment reads (`closedMembership`).
+ * - A closed relation installs its constant's arrays (ir/cells.ts Constant): its cells, each row at the index its key
+ *   gives its key fields' codes, ascending after a sentinel, which a membership and an application search alike, and,
+ *   where its payload space holds more than one code, its payloads, each row's payload code in the cells' order; and a
+ *   dictionary per open-typed payload field, the field's values in code order. A key is the mixed radix of its closed ids, or, where
+ *   its slots count over an owner prefix, a dependent sum, each owner's block after the blocks before it: such a key
+ *   also installs two kinds of owner function over the prefix, each owner's block's first cell and each count its slots
+ *   read, which its readers index by (sql/constants.ts cellOfKey).
+ * - A containment into a closed relation's side installs the side's arrays, as a closed relation of its own, which the
+ *   table CHECK that holds the containment reads (`closedMembership`).
  *
- * Every string of cells is stated as one hex literal (sql/ast.ts PackConstant), the host's encoding of its cells padded
- * with 0 bits to whole digits, under a comment of its row count and content digest, which `grizzle check` decodes and
- * holds to the digest. A role is granted EXECUTE on every constant a statement it runs calls (physical/ddl/roles.ts).
+ * Every array is stated as one bigint[] literal (sql/ast.ts PackConstant), the host's encoding of its entries, O(rows)
+ * whatever the key space, under a comment of its layout, its row count and its content's digest, which `grizzle check`
+ * decodes and holds to the digest. Equal arrays are one function: relations of one key set share their cells. A role is granted EXECUTE on every constant a statement it runs calls
+ * (physical/ddl/roles.ts).
  */
 
 /** The code space of one payload coordinate of a closed relation's cells: a closed id's roster, or an open field's
@@ -168,8 +173,7 @@ type CodeSpace =
 
 /**
  * The codes a coordinate holds: a roster's every minted code, holes included, or a dictionary's values, at least one: a
- * relation that holds no fact has an empty dictionary, whose cells still take one bit, since PostgreSQL has no bit(0)
- * and no code of it is ever read.
+ * relation that holds no fact has an empty dictionary, whose one code no entry holds and no read reaches.
  */
 const radixOf = (space: CodeSpace): number =>
 	space.kind === "roster" ? space.codec.size : Math.max(1, space.values.length)
@@ -228,13 +232,21 @@ const payloadColumn = (
 	}
 }
 
-/** A string of cells planned: its function's identity and its content. */
-interface PlannedCells {
-	readonly kind: "cells"
+/** One array of a constant planned: its function's identity, its layout and its constant. */
+interface PlannedArray {
+	readonly kind: "array"
 	readonly named: Identity<"closedConstant">
-	/** The constant's content digest, which `named` mints from and its literal's comment states. */
+	/** The array's content digest, which `named` mints from and its literal's comment states. */
 	readonly digest: ConstantDigest<"closed-constant">
+	readonly layout: PackLayout
 	readonly constant: Constant
+}
+
+/** A constant planned: its entries, and the arrays it installs, its cells and its payloads (sql/constants.ts Payloads). */
+interface PlannedCells {
+	readonly constant: Constant
+	readonly cells: PlannedArray
+	readonly payloads: Payloads<PlannedArray>
 }
 
 /** A dictionary planned: its function's identity, its field, and its values in code order. */
@@ -245,56 +257,95 @@ interface PlannedDictionary {
 	readonly values: ReadonlyArray<TypedLiteral>
 }
 
-type PlannedConstant = PlannedCells | PlannedDictionary
+type PlannedConstant = PlannedArray | PlannedDictionary
+
+/** The arrays of `constant` planned, each named by its content's digest. */
+const plannedOf = (constant: Constant): PlannedCells => {
+	const array = (layout: PackLayout, digest: ConstantDigest<"closed-constant">): PlannedArray => ({
+		kind: "array",
+		named: identity.closedConstant(digest),
+		digest,
+		layout,
+		constant
+	})
+	return {
+		constant,
+		cells: array(
+			{ kind: "cells", cells: constant.cells },
+			cellsDigestOf(constant.cells, indexesOf(constant))
+		),
+		payloads: holdsPayloads(constant)
+			? {
+					kind: "codes",
+					function: array(
+						{ kind: "payloads", points: constant.points },
+						payloadsDigestOf(constant.points, payloadsOf(constant))
+					)
+				}
+			: { kind: "one" }
+	}
+}
+
+/** The arrays a planned constant installs: its cells, then its payloads where it holds them. */
+const arraysOf = (planned: PlannedCells): ReadonlyArray<PlannedArray> =>
+	planned.payloads.kind === "codes" ? [planned.cells, planned.payloads.function] : [planned.cells]
 
 /**
- * The string of cells of `tuples` over `layout`, refused as ResourceBound when its payload space holds more codes than
- * a cell read as an integer can, or it is longer than PostgreSQL's longest bit string, each measured before it is built
- * (`what` names it). Tuples that repeat are one cell; two at one key with different payloads are a key the declaration
- * held, so their meeting is a defect. Every tuple's key is a point of the layout's key space: the caller refuses one
- * that is not.
+ * The refusal of a constant whose payload space holds `codes` codes and whose key space holds `cells` cells, `what`
+ * naming it: past the payload codes a bigint holds (payloadMaxCodes) or the cells a bigint index counts
+ * (constantMaxCells); none when both fit.
+ */
+const constantBound = (codes: bigint, cells: bigint, what: string): CompileError | undefined =>
+	payloadCodesBound(codes, what) ?? constantCellsBound(cells, what)
+
+/**
+ * The constant of `tuples` over `layout`, refused as ResourceBound when its payload space holds more codes than a bigint
+ * payload code can (payloadMaxCodes), or its key space more cells than a bigint index can (constantMaxCells), each
+ * measured before it is built (`what` names it). Tuples that repeat are one entry; two at one key with different
+ * payloads are a key the declaration held, so their meeting is a defect. Every tuple's key is a point of the layout's key
+ * space: the caller refuses one that is not.
  */
 const plannedCells = (
 	layout: CellLayout,
 	tuples: ReadonlyArray<Tuple>,
 	what: string
 ): PlannedCells => {
-	const loc = SourceLoc(what, [])
-	const codes = spaceSize(layout.payload)
-	const tooWide = cellCodesBound(codes, what)
-	if (tooWide !== undefined) {
-		throw new Refusal(tooWide)
-	}
-	const bits = keyCells(layout.key) * BigInt(cellWidth(codes))
-	if (bits > BigInt(constantMaxBits)) {
-		throw new Refusal(
-			resourceBound(loc, {
-				kind: "constantBits",
-				constant: what,
-				limit: constantMaxBits,
-				needed: bits
-			})
-		)
+	const refusal = constantBound(spaceSize(layout.payload), keyCells(layout.key), what)
+	if (refusal !== undefined) {
+		throw new Refusal(refusal)
 	}
 	const encoded = constantOf(layout, tuples)
 	if (!encoded.ok) {
 		throw defect(`the declared key of ${what} holds its rows apart`)
 	}
-	const digest = constantDigestOf(encoded.value)
-	return { kind: "cells", named: identity.closedConstant(digest), digest, constant: encoded.value }
+	return plannedOf(encoded.value)
 }
 
 /**
- * The refusal of a constant whose payload space holds `codes` codes, `what` naming it, when its greatest cell, 1 +
- * (codes - 1), is past the greatest integer a cell is read as (cellMaxCodes); none when it fits.
+ * The refusal of a constant whose payload space holds `codes` codes, `what` naming it, when its greatest payload code,
+ * codes - 1, is past bigint's greatest value (payloadMaxCodes); none when it fits.
  */
-export const cellCodesBound = (codes: bigint, what: string): CompileError | undefined =>
-	codes > BigInt(cellMaxCodes)
+export const payloadCodesBound = (codes: bigint, what: string): CompileError | undefined =>
+	codes > payloadMaxCodes
 		? resourceBound(SourceLoc(what, []), {
-				kind: "cellCodes",
+				kind: "payloadCodes",
 				constant: what,
-				limit: cellMaxCodes,
+				limit: payloadMaxCodes,
 				needed: codes
+			})
+		: undefined
+
+/**
+ * The refusal of a constant whose key space holds `cells` cells, `what` naming it, when its cells are more than a bigint
+ * index counts (constantMaxCells); none when they fit.
+ */
+const constantCellsBound = (cells: bigint, what: string): CompileError | undefined =>
+	cells > constantMaxCells
+		? resourceBound(SourceLoc(what, []), {
+				kind: "constantCells",
+				constant: what,
+				limit: constantMaxCells,
+				needed: cells
 			})
 		: undefined
 
@@ -374,26 +425,13 @@ const keyFieldsOf = (key: PlannedKey): NonEmptyReadonlyArray<KeyField> =>
 const codeName = (codec: RosterCodec, code: number): string =>
 	defined(codec.names[code], "a code below its roster's size")
 
-/** The digits of `index` in the mixed-radix space of `sizes`, the first most significant. */
-const digitsOf = (
-	sizes: NonEmptyReadonlyArray<number>,
-	index: bigint
-): NonEmptyReadonlyArray<number> => {
-	let rest = index
-	const out: Array<number> = []
-	for (const size of sizes.toReversed()) {
-		out.unshift(Number(rest % BigInt(size)))
-		rest /= BigInt(size)
-	}
-	return mapNonEmpty(sizes, (_, i) => defined(out[i], "a digit per coordinate"))
-}
-
 /**
  * A function of every owner of `owner`'s prefix, `value(o)` at the owner of index o, planned as a closed relation over
- * the prefix whose payload holds `codes` values: each owner a row, holes included, so a read at any code the prefix's
+ * the prefix whose payload holds `codes` values: each owner an entry, holes included, so a read at any code the prefix's
  * domains admit finds its value. `value` is called once per owner, in index order, so a running sum may be its value.
- * Refused as ResourceBound before its rows are built when the prefix's product is longer than PostgreSQL's longest bit
- * string can hold one cell of each.
+ * Refused as ResourceBound before its entries are built when its payload codes or its owners are past a bigint's
+ * (constantBound), or when its literal, a character and a comma at least an owner, is longer than one string the host
+ * builds holds.
  */
 const ownerFunction = (
 	owner: NonEmptyReadonlyArray<KeyField>,
@@ -401,24 +439,26 @@ const ownerFunction = (
 	value: (index: bigint) => bigint,
 	what: string
 ): PlannedCells => {
-	const sizes = mapNonEmpty(owner, (f) => f.codec.size)
-	const points = spaceSize(sizes)
-	const bits = points * BigInt(cellWidth(codes))
-	if (bits > BigInt(constantMaxBits)) {
+	const points = spaceSize(mapNonEmpty(owner, (f) => f.codec.size))
+	const refusal = constantBound(codes, points, what)
+	if (refusal !== undefined) {
+		throw new Refusal(refusal)
+	}
+	const shortest = 2n * points + 2n
+	if (shortest > BigInt(maxStringLength)) {
 		throw new Refusal(
 			resourceBound(SourceLoc(what, []), {
-				kind: "constantBits",
-				constant: what,
-				limit: constantMaxBits,
-				needed: bits
+				kind: "stringLengthAtLeast",
+				limit: maxStringLength,
+				atLeast: Number(shortest)
 			})
 		)
 	}
-	const tuples: Array<Tuple> = []
+	const entries: Array<Entry> = []
 	for (let index = 0n; index < points; index += 1n) {
-		tuples.push({ key: digitsOf(sizes, index), payload: [Number(value(index))] })
+		entries.push({ index, payload: value(index) })
 	}
-	return plannedCells({ key: { kind: "product", sizes }, payload: [Number(codes)] }, tuples, what)
+	return plannedOf({ cells: points, points: codes, entries })
 }
 
 /** One of a dependent key's counts: the fin it reads, and each owner's count by the owner's index. */
@@ -568,7 +608,7 @@ const nonEmptyFins = (fins: ReadonlyArray<PlannedCount>): NonEmptyReadonlyArray<
 	return fins
 }
 
-/** A closed relation's or side's constants as planned: its key, the string of cells and the dictionaries. */
+/** A closed relation's or side's constants as planned: its key, its codes and the dictionaries. */
 interface PlannedSide {
 	readonly key: PlannedKey
 	readonly cells: PlannedCells
@@ -576,11 +616,9 @@ interface PlannedSide {
 	readonly dictionaries: ReadonlyArray<PlannedDictionary>
 }
 
-/** A closed relation's constants as planned: its side's over its whole heading; its key set, which a read of it
- * tests membership in (sql/constants.ts closedRead); and each str.pattern payload field's ARE dictionary
- * (plannedAre). */
+/** A closed relation's constants as planned: its side's over its whole heading, and each str.pattern payload field's
+ * ARE dictionary (plannedAre). */
 interface PlannedRelation extends PlannedSide {
-	readonly keys: PlannedCells
 	readonly ares: ReadonlyArray<PlannedDictionary>
 }
 
@@ -665,24 +703,6 @@ const plannedSide = (
 	}
 }
 
-/**
- * The key set of a string of cells: one bit per cell, set where the cells hold a row. Cells one bit wide hold every row's
- * payload code 0, a set's or a payload of one code, so they are their own key set; wider cells' key set holds each of
- * their entries at its index with payload code 0, a constant of its own, named by its own digest.
- */
-const keySetOf = (cells: PlannedCells): PlannedCells => {
-	if (cells.constant.width === 1) {
-		return cells
-	}
-	const constant: Constant = {
-		cells: cells.constant.cells,
-		width: 1,
-		entries: cells.constant.entries.map((entry) => ({ index: entry.index, payload: 0n }))
-	}
-	const digest = constantDigestOf(constant)
-	return { kind: "cells", named: identity.closedConstant(digest), digest, constant }
-}
-
 /** A field of a closed relation by name: every name a side or key reads is one of its fields. */
 const fieldNamed = (relation: ClosedTheoryRelation, name: string): LawField =>
 	defined(
@@ -720,7 +740,6 @@ export const planClosed = (
 		const side = plannedSide(codes, r, key, payload, rows, `closed relation ${r.name}`)
 		out.set(r.name, {
 			...side,
-			keys: keySetOf(side.cells),
 			ares: side.payload.flatMap((space) =>
 				space.kind === "dictionary" && textOf(space.field.type) === "pattern"
 					? [plannedAre(space)]
@@ -762,17 +781,20 @@ const namedKeyOf = (key: PlannedKey): ClosedKey<Identifier<"closedConstant">> =>
 						? { kind: "codes", field: b.field.name, radix: b.codec.size }
 						: { kind: "slots", field: b.field.name, count: b.slot }
 				),
-				bases: namedOwnerFunction(key.bases),
-				counts: mapNonEmpty(key.counts, namedOwnerFunction),
-				cells: Number(keyCells(key.space))
+				bases: namedFunctions(key.bases),
+				counts: mapNonEmpty(key.counts, namedFunctions),
+				cells: keyCells(key.space)
 			}
 
-/** An owner function as its readers address it: its function's identifier and its cells' width. */
-const namedOwnerFunction = (
+/** A planned constant's functions as its readers address them (sql/constants.ts ConstantFunctions), by identifier. */
+const namedFunctions = (
 	planned: PlannedCells
-): OwnerFunction<Identifier<"closedConstant">> => ({
-	function: identifierOf(planned.named),
-	width: planned.constant.width
+): ConstantFunctions<Identifier<"closedConstant">> => ({
+	cells: identifierOf(planned.cells.named),
+	payloads:
+		planned.payloads.kind === "codes"
+			? { kind: "codes", function: identifierOf(planned.payloads.function.named) }
+			: { kind: "one" }
 })
 
 /** The owner functions a planned key reads: none for a product, a dependent sum's bases and counts. */
@@ -783,14 +805,18 @@ const layoutOf = (key: PlannedKey): ReadonlyArray<PlannedCells> =>
 const namedClosedOf = (plan: PlannedRelation): NamedClosed => {
 	const dictionaries = new Map(plan.dictionaries.map((d) => [d.field.name, d] as const))
 	const ares = new Map(plan.ares.map((d) => [d.field.name, d] as const))
-	const cells = identifierOf(plan.cells.named)
-	const others = [plan.keys, ...layoutOf(plan.key), ...plan.dictionaries, ...plan.ares]
+	const constant = namedFunctions(plan.cells)
+	const others = [
+		...arraysOf(plan.cells).slice(1),
+		...layoutOf(plan.key).flatMap(arraysOf),
+		...plan.dictionaries,
+		...plan.ares
+	]
 		.map((planned) => identifierOf(planned.named))
-		.filter((fn, i, all) => fn !== cells && all.indexOf(fn) === i)
+		.filter((fn, i, all) => fn !== constant.cells && all.indexOf(fn) === i)
 	return {
-		function: cells,
+		constant,
 		key: namedKeyOf(plan.key),
-		width: plan.cells.constant.width,
 		payload: plan.payload.map((space) => {
 			const dictionary = dictionaries.get(space.field.name)
 			const are = ares.get(space.field.name)
@@ -801,8 +827,7 @@ const namedClosedOf = (plan: PlannedRelation): NamedClosed => {
 				are: are === undefined ? undefined : identifierOf(are.named)
 			}
 		}),
-		keys: identifierOf(plan.keys.named),
-		functions: [cells, ...others]
+		functions: [constant.cells, ...others]
 	}
 }
 
@@ -810,17 +835,27 @@ const namedClosedOf = (plan: PlannedRelation): NamedClosed => {
 export const closedNames = (plan: ClosedPlan): ClosedNames =>
 	new Map([...plan.relations].map(([name, r]) => [name, namedClosedOf(r)] as const))
 
+/** A constant's functions as readers address them in the installed schema `schema` (qualifiedClosed). */
+const qualifiedFunctions = (
+	schema: string,
+	f: ConstantFunctions<Identifier<"closedConstant">>
+): ConstantFunctions => ({
+	cells: { schema, name: f.cells },
+	payloads:
+		f.payloads.kind === "codes"
+			? { kind: "codes", function: { schema, name: f.payloads.function } }
+			: { kind: "one" }
+})
+
 /** A key as readers address it in the installed schema `schema`: a dependent key's owner functions qualified there. */
-const qualifiedKey = (schema: string, key: ClosedKey<Identifier<"closedConstant">>): ClosedKey => {
-	if (key.kind === "product") {
-		return key
-	}
-	const owner = (f: OwnerFunction<Identifier<"closedConstant">>): OwnerFunction => ({
-		function: { schema, name: f.function },
-		width: f.width
-	})
-	return { ...key, bases: owner(key.bases), counts: mapNonEmpty(key.counts, owner) }
-}
+const qualifiedKey = (schema: string, key: ClosedKey<Identifier<"closedConstant">>): ClosedKey =>
+	key.kind === "product"
+		? key
+		: {
+				...key,
+				bases: qualifiedFunctions(schema, key.bases),
+				counts: mapNonEmpty(key.counts, (c) => qualifiedFunctions(schema, c))
+			}
 
 /** Each closed relation's constants in the installed schema `schema`, as a read calls them (PhysicalNames.closed). */
 export const qualifiedClosed = (
@@ -832,16 +867,14 @@ export const qualifiedClosed = (
 		[...names].map(([relation, c]): readonly [string, ClosedConstant] => [
 			relation,
 			{
-				function: qualified(c.function),
+				constant: qualifiedFunctions(schema, c.constant),
 				key: qualifiedKey(schema, c.key),
-				width: c.width,
 				payload: c.payload.map((p) => ({
 					field: p.field,
 					radix: p.radix,
 					dictionary: p.dictionary === undefined ? undefined : qualified(p.dictionary),
 					are: p.are === undefined ? undefined : qualified(p.are)
 				})),
-				keys: qualified(c.keys),
 				functions: mapNonEmpty(c.functions, qualified)
 			}
 		])
@@ -857,26 +890,31 @@ const revokeFromPublic = (fn: ObjectName): SqlStatement => ({
 })
 
 /**
- * A string of cells as the migration states it, under its function (sql/ast.ts PackConstant): its hex literal, the
- * host's encoding (ir/cells.ts literalOf), with its row count and its content's digest, the one its function's name
- * digests, which `grizzle check` decodes the literal back to. A literal of more digits than one string the host builds
- * holds is refused as ResourceBound before it is built.
+ * One array of a constant as the migration states it, under its function (sql/ast.ts PackConstant): its literal, the
+ * host's encoding (ir/cells.ts cellsLiteralOf, payloadsLiteralOf), with its layout, its row count and its content's
+ * digest, the one its function's name digests, which `grizzle check` decodes the literal back to. A literal longer than
+ * one string the host builds holds is refused as ResourceBound before it is joined. That bound is PostgreSQL's too: a
+ * cells literal within it holds at most 60,886,888 indexes, which are distinct, the most being 0 to 60,886,887, each a
+ * comma and its digits, and its payloads literal as many codes, so each array is under 500 MB, within the allocation
+ * that reads it (MaxAllocSize), and each statement within a protocol message (core/wire.ts messageMaxBytes).
  */
-const packOf = (schema: string, planned: PlannedCells): PackConstant => {
+const packOf = (schema: string, planned: PlannedArray): PackConstant => {
 	const fn = functionOf(schema, planned.named)
-	const { cells, width } = planned.constant
-	const digits = hexDigitsFor(Number(cells * BigInt(width)))
-	if (digits > maxStringLength) {
+	const text =
+		planned.layout.kind === "cells"
+			? cellsLiteralOf(planned.constant, maxStringLength)
+			: payloadsLiteralOf(planned.constant, maxStringLength)
+	if (!text.ok) {
 		throw new Refusal(
 			resourceBound(SourceLoc(printObjectName(fn), []), {
 				kind: "stringLength",
 				limit: maxStringLength,
-				needed: digits
+				needed: text.error
 			})
 		)
 	}
-	return pack(fn, cells, width, {
-		hex: literalOf(planned.constant),
+	return pack(fn, planned.layout, {
+		text: text.value,
 		rows: planned.constant.entries.length,
 		digest: planned.digest
 	})
@@ -916,8 +954,8 @@ const addPlanned = (
 	return b.addConstant(
 		planned.named,
 		{
-			ddl: [
-				planned.kind === "cells" ? packOf(b.schema, planned) : dictionaryOf(b, planned),
+			ddl: () => [
+				planned.kind === "array" ? packOf(b.schema, planned) : dictionaryOf(b, planned),
 				revokeFromPublic(fn)
 			],
 			reasons
@@ -926,12 +964,11 @@ const addPlanned = (
 	)
 }
 
-/** A planned relation's constants: its cells, its key set (the cells themselves when they are one bit wide), its
- * dependent key's owner functions, each dictionary and each ARE dictionary. */
+/** A planned relation's constants: its codes, its dependent key's owner functions, each dictionary and each ARE
+ * dictionary. */
 const constantsOf = (r: PlannedRelation): ReadonlyArray<PlannedConstant> => [
-	r.cells,
-	r.keys,
-	...layoutOf(r.key),
+	...arraysOf(r.cells),
+	...layoutOf(r.key).flatMap(arraysOf),
 	...r.dictionaries,
 	...r.ares
 ]
@@ -1107,7 +1144,7 @@ export const addRosters = (b: InstallBuilder): ReadonlyArray<RosterObjects> => {
 			const namesNode = b.addConstant(
 				namesNamed,
 				{
-					ddl: [
+					ddl: () => [
 						{
 							kind: "createConstant",
 							language: "sql",
@@ -1183,7 +1220,7 @@ const addLive = (
 	const node = b.addConstant(
 		liveNamed,
 		{
-			ddl: [
+			ddl: () => [
 				{
 					kind: "createConstant",
 					language: "sql",
@@ -1279,7 +1316,7 @@ export const planSides = (b: InstallBuilder): SidePlans => {
 
 /**
  * A containment into a closed relation's side as the table CHECK that holds it, after its constants, which it adds:
- * the side's string of cells as a closed relation of its own, with its key's owner functions where its key is a
+ * the side's codes as a closed relation of its own, with its key's owner functions where its key is a
  * dependent sum, read at the index its key gives the row's key columns (sql/constants.ts cellOfKey), `NOT (guard) IS
  * TRUE OR member`, the guard the source side's selection, each conjunct lowered over the row by `lower`. A row is on
  * the side only where its selection is true: one the selection leaves unknown, by a closed read at an absent key, is
@@ -1290,11 +1327,11 @@ export const planSides = (b: InstallBuilder): SidePlans => {
  * literal is typed by its base and never cast to a domain, whose later tightening would refuse every later insert;
  * only a probe's query, which runs once per statement, lowers a guard through write/probe.ts withinRow.
  *
- * A side of no payload is a set, `substring(S(), i + 1, 1)::integer = 1`. A side whose payload fields are closed ids
- * compares its one cell, `substring(S(), i · w + 1, w)::integer = 1 + p`, p the mixed-radix code of the row's payload
- * columns. A side with an open-typed payload field compares each payload coordinate on its own, a closed id's code
- * with its column and an open value through its dictionary, `(D())[c + 1] = column`. An absent key reads NULL, which
- * the CHECK's IS TRUE refuses. Every key column is typed by its key field's roster domain (ir/law.ts ClosedCheck), so
+ * A side of no payload is a set, held where its cells hold the row's cell, `S()[width_bucket(i, S())] = i` (sql/constants.ts
+ * held). A side whose payload fields are closed ids holds the row's cell with its payloads holding p there, p the
+ * mixed-radix code of the row's payload columns (pairIn). A side with an open-typed payload field compares each payload coordinate
+ * on its own, a closed id's code with its column and an open value through its dictionary, `(D())[c + 1] = column`. An
+ * absent key reads false or NULL, which the CHECK's IS TRUE refuses. Every key column is typed by its key field's roster domain (ir/law.ts ClosedCheck), so
  * every digit is below its roster's size, and a slot's below its owner's count reads its own cell while one at or past
  * it reads absent: no index aliases a neighbour's.
  */
@@ -1310,9 +1347,11 @@ export const closedMembership = (
 		"every ClosedCheck's side is planned (planSides)"
 	)
 	const why = lawReasons(check.lawIds)
-	const constants = [plan.cells, ...layoutOf(plan.key), ...plan.dictionaries].map((planned) =>
-		addPlanned(b, planned, why)
-	)
+	const constants = [
+		...arraysOf(plan.cells),
+		...layoutOf(plan.key).flatMap(arraysOf),
+		...plan.dictionaries
+	].map((planned) => addPlanned(b, planned, why))
 	const sourceOf = (field: string): Expr =>
 		column(
 			defined(
@@ -1324,16 +1363,14 @@ export const closedMembership = (
 		qualifiedKey(b.schema, namedKeyOf(plan.key)),
 		mapNonEmpty(keyFieldsOf(plan.key), (f) => sourceOf(f.field.name))
 	)
-	const cells = functionOf(b.schema, plan.cells.named)
-	const width = plan.cells.constant.width
+	const functions = qualifiedFunctions(b.schema, namedFunctions(plan.cells))
 	const radices = plan.payload.map(radixOf)
 	const member = !isNonEmpty(plan.payload)
-		? inSet(cells, index)
+		? held(functions.cells, index)
 		: plan.payload.every((space) => space.kind === "roster")
 			? pairIn(
-					cells,
+					functions,
 					index,
-					width,
 					payloadCode(
 						mapNonEmpty(plan.payload, (space) => ({
 							digit: sourceOf(space.field.name),
@@ -1343,7 +1380,7 @@ export const closedMembership = (
 				)
 			: and(
 					mapNonEmpty(plan.payload, (space, position) => {
-						const code = payloadDigit(cells, index, width, radices, position)
+						const code = payloadDigit(functions, index, radices, position)
 						const dictionary = plan.dictionaries.find((d) => d.field === space.field)
 						return eq(
 							dictionary === undefined

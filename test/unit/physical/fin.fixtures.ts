@@ -7,7 +7,7 @@ import type { Case } from "@bjornpagen/testing/property"
 import { bigint } from "@bjornpagen/testing/values"
 import { Array as Arr, Effect, Record as Rec } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { constantOfLiteral, type Entry } from "#compiler/ir/cells.ts"
+import { cellsOfLiteral, payloadsOfLiteral } from "#compiler/ir/cells.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { closedId, drawn as drawnField, natural, slot } from "#compiler/public/fields.ts"
 import {
@@ -31,6 +31,7 @@ import {
 	orderedBuilder
 } from "#compiler/schema/statements.ts"
 import type { PackConstant, SqlStatement } from "#compiler/sql/ast.ts"
+import type { ConstantFunctions } from "#compiler/sql/constants.ts"
 import { succeeded } from "#test/support/assert.ts"
 import type { FixtureSchema } from "#test/support/compile.ts"
 import { Id } from "#test/support/ids.ts"
@@ -207,9 +208,22 @@ export const schemaOf = (d: Declaration) => {
 export const compiled = (value: FixtureSchema) =>
 	Result.flatMap(ownedInput(value), (owned) => compileInstallation(owned, installOptions(owned)))
 
-/** A pack's held cells, each its index and payload code, read back from its hex literal. */
-const rowsOf = (p: PackConstant): ReadonlyArray<Entry> =>
-	succeeded(constantOfLiteral(p.hex, p.cells, p.width)).entries
+/** A pack's elements, an index or a payload code each, read back from its literal over its layout. */
+const elementsOf = (p: PackConstant): ReadonlyArray<bigint> =>
+	succeeded(
+		p.layout.kind === "cells"
+			? cellsOfLiteral(p.text, p.layout.cells)
+			: payloadsOfLiteral(p.text, p.layout.points)
+	)
+
+/** The payload codes a constant's functions hold, in its cells' order: its payloads', or 0 for each cell of one code. */
+const payloadsOf = (
+	statements: ReadonlyArray<SqlStatement>,
+	f: ConstantFunctions
+): ReadonlyArray<bigint> =>
+	f.payloads.kind === "codes"
+		? elementsOf(packOf(statements, f.payloads.function.name))
+		: Arr.map(elementsOf(packOf(statements, f.cells.name)), () => 0n)
 
 /** The pack of the function named `name` among an installation's statements. */
 const packOf = (statements: ReadonlyArray<SqlStatement>, name: string): PackConstant =>
@@ -229,9 +243,9 @@ export type Planned =
 	| "two slots"
 
 /**
- * The pack holds Σ over owners of its block, each held row at its point's position in the dependent sum, and the
- * owner functions hold 1 + each owner's base, its count of the blocks before it, and 1 + its count, one count
- * function for Model's fin however many slots it counts. Oracle: the enumeration (pointsOf) under the first
+ * The cells hold Σ over owners of its block, each held row at its point's position in the dependent sum, and the
+ * owner functions hold each owner's base, its count of the blocks before it, and its count, one count function for
+ * Model's fin however many slots it counts. Oracle: the enumeration (pointsOf) under the first
  * installation's codes, each handle's code its declared position.
  */
 export const planned = (d: Declaration, c: Case<Planned>) =>
@@ -244,17 +258,17 @@ export const planned = (d: Declaration, c: Case<Planned>) =>
 			"dependent",
 			"a key over a count relation's prefix is a dependent sum"
 		)
-		const cellsPack = packOf(installation.statements, constant.function.name)
-		assert.equal(
-			cellsPack.cells,
-			BigInt(points.length),
-			"the string holds every owner's block and no more"
+		const cellsPack = packOf(installation.statements, constant.constant.cells.name)
+		assert.deepEqual(
+			cellsPack.layout,
+			{ kind: "cells", cells: BigInt(points.length) },
+			"the key space holds every owner's block and no more"
 		)
 		const position = new Map(
 			Arr.map(points, (p, at) => [Arr.join(Arr.map(p, String), ","), at] as const)
 		)
 		assert.deepEqual(
-			Arr.map(rowsOf(cellsPack), (r) => r.index),
+			elementsOf(cellsPack),
 			Arr.map(heldPoints(d), (p) =>
 				BigInt(defined(position.get(Arr.join(Arr.map(p, String), ","))))
 			),
@@ -266,18 +280,16 @@ export const planned = (d: Declaration, c: Case<Planned>) =>
 				1,
 				"every slot counts by Model's one fin, whose counts one function holds"
 			)
-			const counts = packOf(installation.statements, constant.key.counts[0].function.name)
 			assert.deepEqual(
-				Arr.map(rowsOf(counts), (r) => r.payload),
+				payloadsOf(installation.statements, constant.key.counts[0]),
 				Arr.map(d.held, (h) => BigInt(countOf(h))),
 				"each owner's count, every owner listed"
 			)
-			const bases = packOf(installation.statements, constant.key.bases.function.name)
 			const blocks = Arr.map(d.held, (h) =>
 				Arr.reduce(radicesOf(d.shape, countOf(h)), 1, (a, b) => a * b)
 			)
 			assert.deepEqual(
-				Arr.map(rowsOf(bases), (r) => r.payload),
+				payloadsOf(installation.statements, constant.key.bases),
 				Arr.map(blocks, (_, owner) =>
 					BigInt(Arr.reduce(blocks.slice(0, owner), 0, (a, b) => a + b))
 				),
@@ -622,15 +634,15 @@ export const plant = ({ declaration: d, fault }: Faulted): Planted => {
 	}
 }
 
-/** The greatest integer a cell is read as: PostgreSQL's integer's greatest value. */
-export const greatest = 2n ** 31n - 1n
+/** The most payload codes a constant holds: its greatest payload code, one less, is PostgreSQL's bigint's greatest value. */
+export const greatest = 2n ** 63n
 
 export type Bounded = "at the bound" | "one past the bound" | "within the bound" | "past the bound"
 
-/** A payload space's code count: the bound and its neighbours, or any count either side of it up to 2^40. */
+/** A payload space's code count: the bound and its neighbours, or any count either side of it up to 2^72. */
 export const codesGen: Gen<bigint> = weighted([
 	[1, element([greatest - 1n, greatest, greatest + 1n, greatest + 2n])],
-	[3, bigint(0n, 2n ** 40n)]
+	[3, bigint(0n, 2n ** 72n)]
 ])
 
 /** A roster of `size` handles, h0 to h<size - 1>. */
@@ -638,10 +650,10 @@ export const rosterOf = (name: string, size: number) =>
 	closedBuilder(name, nonEmpty(Array.from({ length: size }, (_, i) => `h${i}`)), "ordered", [])
 
 /**
- * Three payload rosters whose sizes multiply to between 2^29 and 2^32, so a drawn declaration falls either side of
- * the bound.
+ * Five payload rosters whose sizes multiply to between 2^60 and 2^65, so a drawn declaration falls either side of the
+ * bound, 2^63.
  */
-export const sizesGen: Gen<readonly [number, number, number]> = (s) =>
-	[s.draw(int(1024, 2048)), s.draw(int(1024, 2048)), s.draw(int(512, 1024))] as const
+export const sizesGen: Gen<ReadonlyArray<number>> = (s) =>
+	Array.from({ length: 5 }, () => s.draw(int(4096, 8192)))
 
 export type Declared = "a payload within the bound planned" | "a payload past the bound refused"

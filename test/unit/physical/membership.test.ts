@@ -7,8 +7,9 @@
  * value, a union computed in the row), a handle in a set value left out since the CHECK folds whole, and the control, a
  * subset test of a closed row in a stored set. Each case installs one CHECK of T and counts what its predicate's SQL
  * calls, the body of the row function it calls read in its place (physical/ddl/row-functions.ts). The oracle is the work a membership needs, stated here: no singleton's set_bit, no complement, no bit_count;
- * over a closed row, one read of one bit of the row's relation's key set and no get_bit, the key completed by the code
- * (C.has's read, sql/constants.ts closedRead); over any other set, one get_bit. The control still reads two whole sets, the row as a run of its key set.
+ * over a closed row, one binary search of the row's relation's cells, no row read whole and no get_bit, the key completed
+ * by the code (C.has's read, sql/constants.ts closedRead); over any other set, one get_bit. The control still reads two
+ * whole sets, the row by the library's closedRow and no search of the relation's cells beside it.
  * What the bit means is held on PostgreSQL by test/pg/closed/absent's member arm, its NULLs and absent rows included,
  * and by its kill of the completed key's order.
  *
@@ -29,8 +30,8 @@ import {
 
 type Feature = `code ${CodeSource}` | `set ${SetSource}` | "a subset test of two sets"
 
-/** A membership test reads one bit, of its set or of its closed row's key set, and builds and compares no set. */
-export const aMembershipTestReadsOneBitOfItsSetOrOfItsClosedRowsKeySetAndBuildsAndComparesNoSet =
+/** A membership test reads one bit of its set, or searches its closed row's cells once, and builds and compares no set. */
+export const aMembershipTestReadsOneBitOfItsSetOrSearchesItsClosedRowsCellsOnceAndBuildsAndComparesNoSet =
 	property.exhaust(finite(box), {
 		needs: {},
 		situations: [
@@ -46,18 +47,15 @@ export const aMembershipTestReadsOneBitOfItsSetOrOfItsClosedRowsKeySetAndBuildsA
 		] satisfies ReadonlyArray<Reached<Feature>>,
 		check: (_, c: Case<Feature>) => (asked: Asked) =>
 			Effect.sync(() => {
-				const { work, keys } = installedWork(asked)
+				const { work, codes } = installedWork(asked)
 				const calls = (name: string): number => work.calls.get(name) ?? 0
-				const keyReads = keys === undefined ? [] : (work.reads.get(keys) ?? [])
+				const searches = codes === undefined ? 0 : (work.searches.get(codes) ?? 0)
 				if (asked.kind === "subset") {
 					c.note("a subset test of two sets")
 					assert.equal(calls("bit_count"), 1, "a subset test of two sets counts what one leaves")
 					assert.equal(work.complements, 1, "of the other's complement")
-					assert.deepEqual(
-						keyReads,
-						[5n],
-						"and reads the row whole, a run of its key set, a bit per code of Flag"
-					)
+					assert.equal(work.rows, 1, "and reads the row whole, by the library's closedRow")
+					assert.equal(searches, 0, "searching none of the relation's codes beside it")
 					return
 				}
 				c.note(`code ${asked.code}`)
@@ -66,17 +64,17 @@ export const aMembershipTestReadsOneBitOfItsSetOrOfItsClosedRowsKeySetAndBuildsA
 				assert.equal(work.complements, 0, "takes no complement")
 				assert.equal(calls("bit_count"), 0, "and counts no set")
 				if (asked.set === "row" || asked.set === "slotted row") {
-					assert.deepEqual(
-						keyReads,
-						[1n],
-						"over a closed row it reads one bit of the row's key set"
-					)
+					assert.equal(searches, 1, "over a closed row it searches the row's relation's cells once")
+					assert.equal(work.rows, 0, "reads no row whole")
 					assert.equal(calls("get_bit"), 0, "and no set of the row")
 					return
 				}
 				assert.equal(calls("get_bit"), 1, "over any other set it reads one bit of it")
 			}),
-		oracle: { kind: "specification", name: "the work a membership test needs: one bit" },
+		oracle: {
+			kind: "specification",
+			name: "the work a membership test needs: one bit, or one search of a closed relation's cells"
+		},
 		box: "every code source against every set source, a handle in a set value left out, and the control",
 		kept: [],
 		kills: [
@@ -90,7 +88,15 @@ export const aMembershipTestReadsOneBitOfItsSetOrOfItsClosedRowsKeySetAndBuildsA
 				file: "packages/engine/src/lower/conservative/expr/index.ts",
 				original: '\tset.kind === "closedRow" && site.whole(set) === undefined\n',
 				replacement: "\tfalse\n",
-				why: "A membership in a closed row reads the row whole and tests its bit with get_bit; the row cases read a run of the key set, not one bit."
+				why: "A membership in a closed row reads the row whole and tests its bit with get_bit; the row cases call closedRow, not one search of the cells."
+			},
+			{
+				file: "packages/engine/src/sql/constants.ts",
+				original:
+					'\teq({ kind: "subscript", array: constantValue(cells), index: positionOf(cells, index) }, index)',
+				replacement:
+					'\t({ kind: "equalsAny", expr: index, array: constantValue(cells), schema: undefined })',
+				why: "A membership scans every cell, `index = ANY(cells)`, O(n) in the relation's rows where the binary search is O(log n): the row cases search the cells no time, not once."
 			}
 		]
 	})

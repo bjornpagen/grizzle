@@ -2,17 +2,17 @@ import * as EngineResult from "@bjornpagen/grizzle-text/base/result"
 import { Array as Arr, Order, String as Str } from "effect"
 import { nominal } from "#compiler/core/brand.ts"
 import { maxStringLength } from "#compiler/core/canonical.ts"
-import type { CompileBound } from "#compiler/core/errors.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import {
-	cellWidth,
+	cellsDigestOf,
+	cellsLiteralOf,
 	type Constant,
-	constantDigestOf,
 	constantOf,
 	type KeyCollision,
 	type CellLayout,
 	keyCells,
-	literalOf,
+	payloadsDigestOf,
+	payloadsLiteralOf,
 	spaceSize
 } from "#compiler/ir/cells.ts"
 import type {
@@ -25,13 +25,13 @@ import type {
 	TypeRef,
 	TypeSchema
 } from "#compiler/sql/ast.ts"
-import { binary, col, gt, lit, ne, tableCol, types } from "#compiler/sql/build.ts"
+import { binary, call, cast, col, eq, lit, ne, tableCol, types } from "#compiler/sql/build.ts"
 import {
 	applied,
-	cellCode,
 	cellOfKey,
+	type ConstantFunctions,
 	constantValue,
-	inSet,
+	held,
 	pack
 } from "#compiler/sql/constants.ts"
 import {
@@ -42,15 +42,12 @@ import {
 } from "#compiler/sql/naming.ts"
 import { printExpr, printObjectName, printStatement, printType } from "#compiler/sql/print.ts"
 import { type AstHooks, Transform } from "#compiler/sql/transform.ts"
-import { hexOfText, installedText } from "#test/support/closed/bit-text.ts"
+import { hexOfText } from "#test/support/closed/bit-text.ts"
+import { oracleLiteral, oracleCells, oraclePayloads } from "#test/support/closed/codes.ts"
 
 /** A query that may stand only as an operand, rebuilt by `hooks` (sql/transform.ts). */
 export const transformOperand = (s: OperandSelect, hooks: AstHooks): OperandSelect =>
 	new Transform(hooks).select(s)
-
-/** A key is present in a function's constant: its cell is not 0 (sql/constants.ts cellCode). */
-const keyIn = (constant: ObjectName, index: Expr, width: number): Expr =>
-	gt(cellCode(constant, index, width), lit.int(0, types.integer))
 
 /** The declaration of the unit relation's carrier: no column and no key. */
 const unitCarrier: CarrierDeclaration = { columns: [], primaryKey: undefined }
@@ -87,8 +84,8 @@ export interface CodeColumn<C extends string> {
  * A closed relation built by hand in a scratch schema: the law-cost bench's own fixture, never grizzle's lowering of a
  * declared relation. Its constant, the statements that pack, read and drop it, the tables' CHECKs and generated
  * columns, and the foreign key are the engine's (sql/constants.ts builders, sql/print.ts printStatement); only the bare
- * table of codes is written by hand (`tableOfCodes`), since the engine's table has a primary key. The host's string of
- * its members is the test oracle's (test/support/closed/bit-text.ts bitText, R8).
+ * table of codes is written by hand (`tableOfCodes`), since the engine's table has a primary key. The host's literals of
+ * its members are the test oracle's (test/support/closed/codes.ts oracleLiteral, R8).
  *
  * - Its key columns index its cells row-major in their order, and `payload` holds the code spaces of its payload
  *   coordinates, none for a set, as a layout's (ir/cells.ts CellLayout) do.
@@ -118,13 +115,11 @@ const layoutOf = (relation: HandClosed<string>): CellLayout => ({
 export const cellCount = (relation: HandClosed<string>): number =>
 	Number(keyCells(layoutOf(relation).key))
 
-/** The bits of one of a relation's cells, as the cells encoder sizes it. */
-export const widthOf = (relation: HandClosed<string>): number =>
-	cellWidth(spaceSize(relation.payload))
-
-/** The bits of a relation's constant. */
-export const constantBits = (relation: HandClosed<string>): number =>
-	cellCount(relation) * widthOf(relation)
+/** The payload codes of a relation's constant, as the cells encoder states them: 1 for a set or a space of none. */
+export const pointsOf = (relation: HandClosed<string>): number => {
+	const points = spaceSize(relation.payload)
+	return Number(points === 0n ? 1n : points)
+}
 
 /**
  * Digit `i` of `index` in the space whose coordinates hold `sizes` codes each, the first most significant, `size` being
@@ -183,17 +178,38 @@ const hostConstant = (relation: HandClosed<string>): EngineResult.Result<Constan
 	)
 
 /**
- * A relation's constant as the host builds it from its members, in PostgreSQL's bit-string text once installed
- * (ir/cells.ts constantOf's entries, written by the test oracle installedText, padded to whole hex digits): what the
- * constant PostgreSQL holds must equal. Its members lie at distinct cells, so the key holds, and the text is far below
- * the longest string V8 builds.
+ * A relation's constant as the host builds it from its members, its arrays in PostgreSQL's bigint[] text once installed
+ * (ir/cells.ts constantOf's entries, written by the test oracle oracleLiteral): its cells, and its payloads where it holds
+ * them, what the arrays PostgreSQL holds must equal. Its members lie at distinct cells, so the key holds.
  */
-export const hostBits = (
+export const hostTexts = (
 	relation: HandClosed<string>
-): EngineResult.Result<string, KeyCollision | CompileBound> =>
-	EngineResult.flatMap(hostConstant(relation), (constant) =>
-		installedText(constant, maxStringLength)
-	)
+): EngineResult.Result<
+	{ readonly cells: string; readonly payloads: string | undefined },
+	KeyCollision
+> =>
+	EngineResult.map(hostConstant(relation), (constant) => {
+		const payloads = oraclePayloads(constant)
+		return {
+			cells: oracleLiteral(oracleCells(constant)),
+			payloads: payloads === undefined ? undefined : oracleLiteral(payloads)
+		}
+	})
+
+/**
+ * The functions of a relation's constant whose cells' function is `cells`: its payloads' beside it in its schema,
+ * `<cells>_p`, where its payload space holds more than one code (sql/constants.ts ConstantFunctions).
+ */
+export const functionsOf = (
+	cells: ObjectName,
+	relation: HandClosed<string>
+): ConstantFunctions => ({
+	cells,
+	payloads:
+		pointsOf(relation) > 1
+			? { kind: "codes", function: { schema: cells.schema, name: `${cells.name}_p` } }
+			: { kind: "one" }
+})
 
 /** A member's columns in its relation's members table, beside its key: its rank and its payload code. */
 export const memberColumns = { rank: "rank", code: "code" } as const
@@ -284,42 +300,85 @@ const rowIndex = (relation: HandClosed<string>): Expr =>
 /** A row's code column under `alias`, as a statement over the members table reads it. */
 export const codeAt = (alias: string, column: string): string => printExpr(col(alias, column))
 
-/**
- * The law that the cell at `index` is present in the constant `constant`: a set's one-bit cell equal to '1'::bit(1), or
- * a function's cell above 0 (sql/constants.ts inSet, keyIn).
- */
-const present = (constant: ObjectName, relation: HandClosed<string>, index: Expr): Expr =>
-	relation.payload.length === 0 ? inSet(constant, index) : keyIn(constant, index, widthOf(relation))
-
-/** The law over a row's codes, a closed law as a table CHECK reads it (U3): its cell is present in the constant. */
-export const rowLaw = (constant: ObjectName, relation: HandClosed<string>): Expr =>
-	present(constant, relation, rowIndex(relation))
+/** The law over a row's codes, a closed law as a table CHECK reads it (U3): the cells `cells` hold its cell. */
+export const rowLaw = (cells: ObjectName, relation: HandClosed<string>): Expr =>
+	held(cells, rowIndex(relation))
 
 /** A derived column's expression: the payload code at the row's cell, NULL where it is absent (sql/constants.ts applied). */
-export const derivedExpr = (constant: ObjectName, relation: HandClosed<string>): Expr =>
-	applied(constant, rowIndex(relation), widthOf(relation))
+export const derivedExpr = (cells: ObjectName, relation: HandClosed<string>): Expr =>
+	applied(functionsOf(cells, relation), rowIndex(relation))
 
 /**
- * The migration's statement of a relation's constant as the IMMUTABLE function `constant` (sql/constants.ts pack): its
- * hex literal, the host's encoding of its members (ir/cells.ts literalOf), under its row count and content digest. Its
- * members lie at distinct cells, so the host's encoder never refuses them.
+ * The migration's statements of a relation's constant as IMMUTABLE functions (sql/constants.ts pack): its cells' as
+ * `cells`, and its payloads' beside it where it holds them (functionsOf), each literal the host's encoding of its
+ * members (ir/cells.ts cellsLiteralOf, payloadsLiteralOf), under its layout, its row count and its content digest. Its
+ * members lie at distinct cells, so the host's encoder never refuses them, and their literals are far below the longest
+ * string V8 builds.
  */
-export const packSql = (constant: ObjectName, relation: HandClosed<string>): string => {
+export const packSql = (cells: ObjectName, relation: HandClosed<string>): ReadonlyArray<string> => {
 	const encoded = hostConstant(relation)
 	if (!encoded.ok) {
 		throw new Error(`the members of ${relation.name} lie at distinct cells`)
 	}
-	return printStatement(
-		pack(constant, encoded.value.cells, encoded.value.width, {
-			hex: literalOf(encoded.value),
-			rows: encoded.value.entries.length,
-			digest: constantDigestOf(encoded.value)
-		})
-	)
+	const constant = encoded.value
+	const literal = (text: EngineResult.Result<string, number>): string => {
+		if (!text.ok) {
+			throw new Error(`the literal of ${relation.name} is one V8 builds`)
+		}
+		return text.value
+	}
+	const rows = constant.entries.length
+	const functions = functionsOf(cells, relation)
+	return [
+		printStatement(
+			pack(
+				cells,
+				{ kind: "cells", cells: constant.cells },
+				{
+					text: literal(cellsLiteralOf(constant, maxStringLength)),
+					rows,
+					digest: cellsDigestOf(
+						constant.cells,
+						Arr.map(constant.entries, (e) => e.index)
+					)
+				}
+			)
+		),
+		...(functions.payloads.kind === "codes"
+			? [
+					printStatement(
+						pack(
+							functions.payloads.function,
+							{ kind: "payloads", points: constant.points },
+							{
+								text: literal(payloadsLiteralOf(constant, maxStringLength)),
+								rows,
+								digest: payloadsDigestOf(
+									constant.points,
+									Arr.map(constant.entries, (e) => e.payload)
+								)
+							}
+						)
+					)
+				]
+			: [])
+	]
+}
+
+/** The drops of a relation's constant's functions whose cells' function is `cells` (functionsOf), RESTRICT. */
+export const dropConstantsSql = (
+	cells: ObjectName,
+	relation: HandClosed<string>
+): ReadonlyArray<string> => {
+	const functions = functionsOf(cells, relation)
+	return [
+		dropConstantSql(cells),
+		...(functions.payloads.kind === "codes" ? [dropConstantSql(functions.payloads.function)] : [])
+	]
 }
 
 /** The drop of a zero-argument constant's function, RESTRICT: it fails while a domain, CHECK or column still reads it. */
-export const dropConstantSql = (constant: ObjectName): string =>
+const dropConstantSql = (constant: ObjectName): string =>
 	printStatement({ kind: "dropFunction", name: { ...constant, args: [] }, ifExists: false })
 
 /** One ALTER TABLE of one action. */
@@ -454,7 +513,8 @@ const valuePosition: Expr = binary("+", { kind: "domainValue" }, lit.int(1, type
 /**
  * A roster domain over smallint, the engine's CreateDomain with its one CHECK, read off `check`: under OPEN-2 (b) a
  * code is live when its name is not the hole's, `((names())[VALUE + 1] <> ''::pg_catalog.name) IS TRUE`; under (a)
- * when its bit of the live constant is set, `(substring(live(), VALUE + 1, 1)::integer = 1) IS TRUE`.
+ * when its bit of the live constant is set, `(substring(live(), VALUE + 1, 1)::integer = 1) IS TRUE`, a code past the
+ * constant reading the empty string, whose value is 0.
  */
 export const rosterDomainSql = (
 	domain: ObjectName,
@@ -474,7 +534,17 @@ export const rosterDomainSql = (
 								{ kind: "subscript", array: constantValue(check.constant), index: valuePosition },
 								lit.text("", types.name(false))
 							)
-						: inSet(check.constant, { kind: "domainValue" })
+						: eq(
+								cast(
+									call("substring", [
+										constantValue(check.constant),
+										valuePosition,
+										lit.int(1, types.integer)
+									]),
+									types.integer
+								),
+								lit.int(1, types.integer)
+							)
 			}
 		]
 	})

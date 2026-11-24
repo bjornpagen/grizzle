@@ -6,14 +6,14 @@ import { array, boolean, element, type Gen, int, subarray, weighted } from "@bjo
 import { bigint } from "@bjornpagen/testing/values"
 import { regex } from "arkregex"
 import { Array as Arr, Option, Predicate, Record as Rec, String as Str } from "effect"
-import type { Constant, Entry } from "#compiler/ir/cells.ts"
+import type { Constant, Entry, LiteralFault } from "#compiler/ir/cells.ts"
 import type { ExprDesc, LiteralDesc } from "#compiler/ir/desc.ts"
 import { closedId, natural, slot } from "#compiler/public/fields.ts"
 import { closed, fin, schema } from "#compiler/public/schema.ts"
 import { admitClosedRelation, closedBuilder, relationDescOf } from "#compiler/schema/relation.ts"
+import type { PackLayout } from "#compiler/sql/ast.ts"
 import type { Token } from "#compiler/sql/lexer.ts"
 import { lex } from "#compiler/sql/lexer.ts"
-import { textOfHex, wholeDigits } from "#test/support/closed/bit-text.ts"
 import {
 	check,
 	contained,
@@ -50,62 +50,120 @@ const handlesOf = (size: number): NonEmptyReadonlyArray<string> => [
 	...Array.from({ length: size - 1 }, (_, code) => handleOf(code + 1))
 ]
 
-/** `text` with the character at `at` replaced by `character`. */
-export const replacedAt = (text: string, at: number, character: string): string =>
-	`${Str.slice(0, at)(text)}${character}${Str.slice(at + 1)(text)}`
+/** An array's literal as the oracle reads it: its elements, or the fault a reader refuses it for. */
+export type OracleRead =
+	| { readonly kind: "elements"; readonly elements: ReadonlyArray<bigint> }
+	| { readonly kind: "fault"; readonly fault: LiteralFault }
 
-/** The hex digit of a value from 0 to 15, as grizzle writes it. */
-const digitOf = (value: number): string => Str.toUpperCase(value.toString(16))
-
-/** The value of a hex digit. */
-export const valueOf = (digit: string): number => Number.parseInt(digit, 16)
+/** An element of a literal as grizzle spells an index or a code: decimal digits, no sign, no leading 0. */
+const canonicalCode = regex("^(0|[1-9][0-9]*)$")
 
 /**
- * The cells of a bit text of `width`-bit cells, `cells` of them, each its value: the oracle's decoder, a cell past the
- * text reading 0.
+ * A literal read over its layout by the oracle, element by element: refused where it is unbraced, or a cells literal not
+ * led by the sentinel -1 (`array`); at the first element past any sentinel no canonical numeral (`element`), an index no
+ * greater than the one before (`order`) or at or past the cells (`cell`), or a payload code at or past the payload codes
+ * (`code`); otherwise its elements past any sentinel.
  */
-const cellsOfText = (text: string, cells: bigint, width: number): ReadonlyArray<bigint> =>
-	Array.from({ length: Number(cells) }, (_, index) => {
-		const run = Str.slice(index * width, (index + 1) * width)(text)
-		return run === "" ? 0n : BigInt(`0b${run}`)
-	})
-
-/** What a changed literal states: a 1 among the bits that pad it, or otherwise other cells, first at a cell. */
-type Changed = { readonly kind: "padding" } | { readonly kind: "cell"; readonly cell: bigint }
-
-/**
- * What `after` states that `before`, whose padding is 0, does not, read as `cells` cells of `width` bits: a padding
- * bit set, which a reader refuses before it reads a cell, or the first cell whose bits differ.
- */
-export const changedAt = (before: string, after: string, cells: bigint, width: number): Changed => {
-	const text = textOfHex(after)
-	if (Str.includes("1")(Str.slice(Number(cells) * width)(text))) {
-		return { kind: "padding" }
+export const oracleRead = (text: string, layout: PackLayout): OracleRead => {
+	if (!Str.startsWith("{")(text) || !Str.endsWith("}")(text) || text.length < 2) {
+		return { kind: "fault", fault: { kind: "array" } }
 	}
-	const was = cellsOfText(textOfHex(before), cells, width)
-	const now = cellsOfText(text, cells, width)
-	const first = Arr.findFirstIndex(was, (value, i) => now[i] !== value)
-	return Option.isSome(first) ? { kind: "cell", cell: BigInt(first.value) } : { kind: "padding" }
+	const all = text === "{}" ? [] : Str.split(",")(Str.slice(1, -1)(text))
+	if (layout.kind === "cells" && all[0] !== "-1") {
+		return { kind: "fault", fault: { kind: "array" } }
+	}
+	const elements = layout.kind === "cells" ? Arr.drop(all, 1) : all
+	const read: Array<bigint> = []
+	for (const [i, element] of elements.entries()) {
+		const at = i + 1
+		if (!canonicalCode.test(element)) {
+			return { kind: "fault", fault: { kind: "element", at } }
+		}
+		const value = BigInt(element)
+		if (layout.kind === "cells" && value <= (read.at(-1) ?? -1n)) {
+			return { kind: "fault", fault: { kind: "order", at } }
+		}
+		if (layout.kind === "cells" && value >= layout.cells) {
+			return { kind: "fault", fault: { kind: "cell", at, cell: value } }
+		}
+		if (layout.kind === "payloads" && value >= layout.points) {
+			return { kind: "fault", fault: { kind: "code", at, code: value } }
+		}
+		read.push(value)
+	}
+	return { kind: "elements", elements: read }
+}
+
+/** The least index of two cells literals' elements one holds and the other does not; none where they agree. */
+export const firstCellApart = (
+	a: ReadonlyArray<bigint>,
+	b: ReadonlyArray<bigint>
+): bigint | undefined => {
+	const inA = new Set(a)
+	const inB = new Set(b)
+	return Arr.reduce(
+		Arr.filter([...a, ...b], (x) => !inA.has(x) || !inB.has(x)),
+		undefined,
+		(least: bigint | undefined, x) => (least === undefined || x < least ? x : least)
+	)
+}
+
+/** The first place two payloads literals' elements part, one holding none or another there; none where they agree. */
+export const firstPlaceApart = (
+	a: ReadonlyArray<bigint>,
+	b: ReadonlyArray<bigint>
+): number | undefined =>
+	Option.getOrUndefined(
+		Arr.findFirstIndex(
+			Array.from({ length: Math.max(a.length, b.length) }, (_, i) => i),
+			(i) => a[i] !== b[i]
+		)
+	)
+
+/** An edit of a literal: the edited text, and what the edit did, in words. */
+export interface Edit {
+	readonly text: string
+	readonly what: string
 }
 
 /**
- * Every literal a digit changed to another makes: each digit to the value one to fifteen past its own (the offset the
- * digit's position gives), and the last digit, where the padding lies, to every other value.
+ * Every edit of a literal a reader must refuse: each element one up and one down, dropped, written twice and written with
+ * a leading 0, an element past every other added, and a cells literal's sentinel dropped.
  */
-export const flips = (hex: string): ReadonlyArray<string> =>
-	Arr.flatMap(
-		Array.from({ length: hex.length }, (_, at) => at),
-		(at) => {
-			const own = valueOf(defined(hex[at], "a digit"))
-			const offsets =
-				at === hex.length - 1 ? Array.from({ length: 15 }, (_, k) => k + 1) : [1 + (at % 15)]
-			return Arr.map(offsets, (offset) => replacedAt(hex, at, digitOf((own + offset) % 16)))
-		}
-	)
+export const editsOf = (text: string, layout: PackLayout): ReadonlyArray<Edit> => {
+	const all = text === "{}" ? [] : Str.split(",")(Str.slice(1, -1)(text))
+	const lead = layout.kind === "cells" ? Arr.take(all, 1) : []
+	const elements = Arr.drop(all, lead.length)
+	const literal = (es: ReadonlyArray<string>): string => `{${Arr.join([...lead, ...es], ",")}}`
+	const replaced = (at: number, element: ReadonlyArray<string>): string =>
+		literal([...elements.slice(0, at), ...element, ...elements.slice(at + 1)])
+	const last = Arr.reduce(elements, -1n, (most, e) => (BigInt(e) > most ? BigInt(e) : most))
+	return [
+		...Arr.flatMap(elements, (element, at) => {
+			const value = BigInt(element)
+			return [
+				{ text: replaced(at, [(value + 1n).toString()]), what: `entry ${at + 1} one up` },
+				...(value > 0n
+					? [{ text: replaced(at, [(value - 1n).toString()]), what: `entry ${at + 1} one down` }]
+					: []),
+				{ text: replaced(at, []), what: `entry ${at + 1} dropped` },
+				{ text: replaced(at, [element, element]), what: `entry ${at + 1} written twice` },
+				{ text: replaced(at, [`0${element}`]), what: `entry ${at + 1} with a leading 0` }
+			]
+		}),
+		{
+			text: literal([...elements, (last + 1n).toString()]),
+			what: "an element past every other added"
+		},
+		...(layout.kind === "cells"
+			? [{ text: `{${Arr.join(elements, ",")}}`, what: "the sentinel dropped" }]
+			: [])
+	]
+}
 
-/** A printed pack with its literal replaced by `hex`. */
-export const restated = (printed: string, from: string, hex: string): string =>
-	Str.replace(`X'${from}'`, `X'${hex}'`)(printed)
+/** A printed pack with its literal replaced by `text`. */
+export const restated = (printed: string, from: string, text: string): string =>
+	Str.replace(`'${from}'::`, `'${text}'::`)(printed)
 
 type Payload = "no payload" | "a closed-id payload" | "an open payload"
 
@@ -113,8 +171,7 @@ export type DraftFeature =
 	| Payload
 	| "a padded set"
 	| "a whole-digit set"
-	| "a padded constant"
-	| "a whole-digit constant"
+	| "a constant of payload codes"
 	| "a constant of no row"
 	| "a containment's side"
 	| "an or fold"
@@ -383,8 +440,8 @@ const objectAt = (
 /**
  * What the snapshot's statements break of the one spelling, read off its AST: a text literal of a bit type, a bit
  * literal off hex digits or, typed by a bits domain, not of its width, a bits domain of another width, a live
- * constant other than its roster's live codes, and a pack whose literal is not the whole digits of its cells, sets
- * a padding bit or counts other rows.
+ * constant other than its roster's live codes, and a pack whose literal the oracle refuses over its cells and payload
+ * codes, or counts other rows than it holds.
  */
 export const snapshotViolations = (
 	snapshot: unknown,
@@ -433,58 +490,64 @@ export const snapshotViolations = (
 				: ["a live constant other than its live codes"]
 		}
 		if (kind === "packConstant") {
-			const hex = textAt(node, "hex") ?? ""
-			const cells = node["cells"]
-			const width = node["width"]
+			const text = textAt(node, "text") ?? ""
+			const layout = objectAt(node, "layout")
 			const rows = node["rows"]
-			if (typeof cells !== "bigint" || typeof width !== "number" || typeof rows !== "number") {
+			const cells = layout?.["cells"]
+			const points = layout?.["points"]
+			const read: PackLayout | undefined =
+				textAt(layout ?? {}, "kind") === "cells" && typeof cells === "bigint"
+					? { kind: "cells", cells }
+					: textAt(layout ?? {}, "kind") === "payloads" && typeof points === "bigint"
+						? { kind: "payloads", points }
+						: undefined
+			if (read === undefined || typeof rows !== "number") {
 				return ["a pack of no layout"]
 			}
-			const bits = Number(cells) * width
-			const text = textOfHex(hex)
-			const held = Arr.filter(cellsOfText(text, cells, width), (cell) => cell !== 0n).length
-			return [
-				...(hexDigits.test(hex) ? [] : ["a pack off hex digits"]),
-				...(text.length === wholeDigits(bits)
+			const held = oracleRead(text, read)
+			return held.kind === "fault"
+				? [`a pack whose literal ${text} the oracle refuses: ${held.fault.kind}`]
+				: held.elements.length === rows
 					? []
-					: [`a pack of ${hex.length} digits for ${bits} bits`]),
-				...(Str.includes("1")(Str.slice(bits)(text)) ? ["a pack setting a padding bit"] : []),
-				...(held === rows ? [] : [`a pack counting ${rows} rows where it holds ${held}`])
-			]
+					: [`a pack counting ${rows} rows where it holds ${held.elements.length}`]
 		}
 		return []
 	})
 
 export type LiteralFeature =
-	| "a padded literal"
-	| "a whole-digit literal"
-	| "a literal of no digit"
-	| "a 32-bit cell"
+	| "a set"
+	| "a function"
+	| "a payload space at the most codes"
+	| "a literal of no code"
 	| "no cell held"
 	| "every cell held"
-	| "a change in the padding alone"
-	| "a change in a cell"
+	| "an edit out of order or range"
+	| "an edit of another constant"
 
-/** A drawn string of cells: its count, its cells' width, and each held cell's payload code. */
-export interface CellString {
+/** A drawn constant: its cells, its payload codes, and each cell's payload code where it holds one. */
+export interface CodeString {
 	readonly cells: number
-	readonly width: number
+	readonly points: bigint
 	readonly held: ReadonlyArray<bigint | undefined>
 }
 
-export const strings: Gen<CellString> = (s) => {
+/** The most payload codes a constant holds (physical/ddl/constants.ts payloadMaxCodes), the oracle's count. */
+export const mostPoints = 2n ** 63n
+
+export const strings: Gen<CodeString> = (s) => {
 	const cells = s.draw(int(0, 40))
-	const width = s.draw(
+	const points = s.draw(
 		weighted([
-			[6, int(1, 9)],
-			[1, element([31, 32])]
+			[2, element([1n])],
+			[5, bigint(2n, 9n)],
+			[1, element([mostPoints - 1n, mostPoints])]
 		])
 	)
 	const density = s.draw(int(0, 4))
-	const payload = bigint(0n, (1n << BigInt(width)) - 2n)
+	const payload = bigint(0n, points - 1n)
 	return {
 		cells,
-		width,
+		points,
 		held: Array.from({ length: cells }, () =>
 			s.draw(int(1, 4)) <= density ? s.draw(payload) : undefined
 		)
@@ -492,9 +555,9 @@ export const strings: Gen<CellString> = (s) => {
 }
 
 /** The constant a draw states. */
-export const cellConstantOf = (d: CellString): Constant => ({
+export const codeConstantOf = (d: CodeString): Constant => ({
 	cells: BigInt(d.cells),
-	width: d.width,
+	points: d.points,
 	entries: Arr.flatMap(d.held, (payload, index): ReadonlyArray<Entry> =>
 		payload === undefined ? [] : [{ index: BigInt(index), payload }]
 	)
@@ -512,8 +575,8 @@ type Shape = "a set" | "a function" | "a dependent key"
 
 export type InstalledFeature =
 	| Shape
-	| "a change in the padding alone"
-	| "a change in a cell"
+	| "an edit out of order or range"
+	| "an edit of another constant"
 	| "an owner function"
 
 /** The owners of the dependent key, version-major. */

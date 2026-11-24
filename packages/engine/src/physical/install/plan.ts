@@ -269,6 +269,7 @@ const artifactObjects = (model: LawModel): ArtifactObjects => {
 			...held.flatMap((h) => h.contracts)
 		],
 		library: distinctLibrary([
+			...closedLibrary(owned),
 			...libraryCalls(model),
 			...held.flatMap((h) => h.library),
 			...dagObjects(lawsLoc, [], violations.dag.roots).library
@@ -277,6 +278,14 @@ const artifactObjects = (model: LawModel): ArtifactObjects => {
 	modelObjects.set(model, own)
 	return own
 }
+
+/**
+ * The library functions an installation's closed relations need: closedRow, the reader of a closed relation's row of a
+ * prefix (physical/ddl/library.ts, sql/constants.ts completions), wherever the schema declares a closed relation, so
+ * every C.row any expression, artifact or served program, reads finds it installed beside the constants it reads.
+ */
+const closedLibrary = (owned: Owned): ReadonlyArray<LibraryFn> =>
+	Object.values(owned.relations).some((r) => r.kind === "closedRelation") ? ["closedRow"] : []
 
 /** Library functions `fns`, each once, in name order: the order an installation installs and records them in. */
 const distinctLibrary = (fns: ReadonlyArray<LibraryFn>): ReadonlyArray<LibraryFn> =>

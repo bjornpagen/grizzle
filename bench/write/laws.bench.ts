@@ -25,13 +25,13 @@ import {
 	cellCount,
 	checkConstraint,
 	codeAt,
-	constantBits,
 	derivedExpr,
 	digitsAt,
-	dropConstantSql,
+	dropConstantsSql,
+	functionsOf,
 	foreignKeySql,
 	generatedColumn,
-	hostBits,
+	hostTexts,
 	liveConstantSql,
 	memberColumns,
 	membersOf,
@@ -43,8 +43,8 @@ import {
 	rowLaw,
 	setExpressionSql,
 	tableOfCodes,
-	testTypeSchema,
-	widthOf
+	pointsOf,
+	testTypeSchema
 } from "#test/support/sql.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
@@ -54,13 +54,13 @@ import { upTo } from "#test/support/up-to.ts"
  * law-cost: what each placement of a law over a closed relation costs a one-row INSERT, by the size of the constant it
  * reads, and what a roster domain costs by the constant its CHECK reads (OPEN-2's measurement).
  *
- * A closed relation compiles to a constant, one bit string of cells behind an IMMUTABLE SQL function, and every closed
- * law is a table CHECK (U3). In a scratch schema, at constants of 363 bits (a roster of 363 live codes), 263,538 bits (a
- * set of 17,661 of 2 · 363 · 363 cells) and 1,054,152 bits (the same cells, each one of eight ranks in 4 bits), every
- * placement gets a table of three int2 codes:
+ * A closed relation compiles to a constant, its rows' codes as one sorted bigint[] behind an IMMUTABLE SQL function
+ * (ir/cells.ts Constant), and every closed law is a table CHECK (U3). In a scratch schema, at constants of 363 rows (a
+ * roster of 363 live codes), 17,661 rows (a set of 17,661 of 2 · 363 · 363 cells) and 17,661 rows of eight payload codes
+ * (the same cells, each one of eight ranks), every placement gets a table of three int2 codes:
  *
  * - an FK into the set's seeded members table, the placement erasure replaces;
- * - a CHECK calling the constant at the codes' cell;
+ * - a CHECK searching the constant for the codes' cell;
  * - a derived column, the payload code at the codes' cell, STORED and, as every column grizzle emits but a partial
  *   projection, NOT NULL, so a row whose codes name no member reads NULL there and is refused.
  *
@@ -79,13 +79,13 @@ import { upTo } from "#test/support/up-to.ts"
  * same table with a plain smallint column. A case is held to its ceiling, a Limit measured by a full run of this gate
  * on the build it runs on, once such a run has measured it; until then its cost is recorded and gates nothing.
  *
- * The verdict holds that every constant PostgreSQL packs is the test oracle's string of its members
- * (test/support/closed/bit-text.ts installedText, R8), and the live-code constant the oracle's set of the live codes
+ * The verdict holds that every constant PostgreSQL packs is the test oracle's literal of its members
+ * (test/support/closed/codes.ts codesText, R8), and the live-code constant the oracle's set of the live codes
  * (setText); that every law, every derived column and both roster domains refuse the row one past their constant's end,
  * which reads as absent, with its SQLSTATE; that every derived column reads its relation's payload code on every stored
  * row; and that a derived column re-derived by SET EXPRESSION stores the code of a member the grown set adds, and a
  * rewrite back to a set that drops it is refused. Recorded beside it: each constant's statement, the migration's CREATE
- * FUNCTION of its hex literal; the first INSERT through each roster domain in a fresh backend, beyond the plain
+ * FUNCTION of its literal; the first INSERT through each roster domain in a fresh backend, beyond the plain
  * column's; and a change of the set over `rows` rows, its CHECK re-pointed at a grown set and VALIDATEd, its derived
  * column rewritten by SET EXPRESSION, and a VALIDATE against a constant that drops a stored member refused.
  */
@@ -129,13 +129,13 @@ const origin: Row = { version: 0, parent: 0, child: 0 }
  */
 const stride = 7919
 
-/** Every one of 363 codes live: 363 bits, the codes of the roster whose domain the domain cases measure. */
+/** Every one of 363 codes live: 363 rows, the codes of the roster whose domain the domain cases measure. */
 const roster: Relation = { name: "roster", key: [child], payload: [], members: 363, stride }
 
-/** 17,661 members of 263,538 cells: a set over three codes, one bit a cell. */
+/** 17,661 members of 263,538 cells: a set over three codes, one payload code. */
 const triples: Relation = { name: "triples", key: codes, payload: [], members: 17661, stride }
 
-/** The set's members, each one of eight ranks: a function, 4 bits a cell. */
+/** The set's members, each one of eight ranks: a function of eight payload codes. */
 const ranks: Relation = { name: "ranks", key: codes, payload: [8], members: 17661, stride }
 
 /** The set grown by the member of next rank: a change that every stored row still meets. */
@@ -214,7 +214,7 @@ interface LawSpec {
 }
 
 const sized = (relation: Relation): string =>
-	`the ${constantBits(relation)}-bit ${relation.name} constant`
+	`the ${relation.members}-row ${relation.name} constant`
 
 /** The name of the CHECK a placement adds, which a change re-points. */
 const lawName = "member"
@@ -521,7 +521,7 @@ const allHold = (
 })
 
 const schemaState =
-	"a scratch schema: each constant created by the engine's CREATE FUNCTION of its hex literal, each CHECK, generated column and roster domain the engine's over its constant, the members tables and the foreign key the engine's, every table empty at the start of each round (TRUNCATE, then CHECKPOINT)"
+	"a scratch schema: each constant created by the engine's CREATE FUNCTION of its literal, each CHECK, generated column and roster domain the engine's over its constant, the members tables and the foreign key the engine's, every table empty at the start of each round (TRUNCATE, then CHECKPOINT)"
 
 const data = `the set's ${triples.members} members of ${cellCount(triples)} cells, scattered by the stride ${stride}, taken in rank order`
 
@@ -534,8 +534,8 @@ export default defineGate({
 	gates: ["law-cost"],
 	title: "Each law placement's cost per one-row INSERT, by the size of its constant",
 	scope:
-		"An FK into a seeded table, a CHECK calling a constant and a derived column at constants of 363, 263,538 and " +
-		"1,054,152 bits, and a roster domain reading its names or its live codes, one-row INSERTs interleaved in rounds, " +
+		"An FK into a seeded table, a CHECK searching a constant and a derived column at constants of 363, 17,661 and " +
+		"17,661 rows of eight payload codes, and a roster domain reading its names or its live codes, one-row INSERTs interleaved in rounds, " +
 		"every constant statement the engine's print; each constant's pack, the first INSERT through each roster domain per " +
 		"backend, and VALIDATE and SET EXPRESSION over a change's rows, recorded.",
 	phases: [
@@ -583,27 +583,27 @@ export default defineGate({
 			const packCases: Array<CaseRecord<"law-cost">> = []
 			for (const relation of sides) {
 				const pack = packSql(at.constant(relation), relation)
-				const drop = dropConstantSql(at.constant(relation))
+				const drop = dropConstantsSql(at.constant(relation), relation)
 				const packs: Array<number> = []
 				for (let k = 0; k < options.packs; k++) {
-					const packed = yield* timed(exec(pack))
+					const packed = yield* timed(Effect.forEach(pack, exec))
 					packs.push(packed.ms)
-					yield* exec(drop)
+					yield* Effect.forEach(drop, exec)
 				}
-				yield* exec(pack)
+				yield* Effect.forEach(pack, exec)
 				const sizes = yield* session.values(
 					`SELECT pg_catalog.pg_column_size(p.prosqlbody)::text, pg_catalog.pg_column_size(${printObjectName(at.constant(relation))}())::text FROM pg_catalog.pg_proc AS p JOIN pg_catalog.pg_namespace AS n ON n.oid = p.pronamespace WHERE n.nspname = $1::text AND p.proname = $2::text`,
 					[schemaName, at.constant(relation).name]
 				)
 				const [storedBytes, constantBytes] = pairOf(oneRow(sizes))
 				packCases.push({
-					name: `the pack of ${sized(relation)}: ${cellCount(relation)} cells of ${widthOf(relation)} bits`,
+					name: `the pack of ${sized(relation)}: ${cellCount(relation)} cells of ${pointsOf(relation)} payload codes`,
 					gates: ["law-cost"],
 					conditions: conditions({
-						workload: `the engine's CREATE FUNCTION of the constant's hex literal, its ${relation.members} members over ${cellCount(relation)} cells`,
+						workload: `the engine's CREATE FUNCTION of the constant's literal, its ${relation.members} members over ${cellCount(relation)} cells`,
 						parameters: { cells: cellCount(relation), members: relation.members },
 						resultSemantics:
-							"the function returns the constant: its cells at their width, its members present",
+							"the function returns the constant: its members' codes, ascending after the sentinel",
 						cacheState: "each sample a fresh function, dropped after it is timed"
 					}),
 					phases: { packMs: summarize(packs) },
@@ -613,14 +613,14 @@ export default defineGate({
 					loads: {},
 					measures: {
 						cells: cellCount(relation),
-						constantBits: constantBits(relation),
+						rows: relation.members,
 						storedBytes,
 						constantBytes
 					}
 				})
 			}
 			for (const relation of [grown, shrunk]) {
-				yield* exec(packSql(at.constant(relation), relation))
+				yield* Effect.forEach(packSql(at.constant(relation), relation), exec)
 			}
 
 			/** The roster's names and live-code constants, and a roster domain over each. */
@@ -647,20 +647,29 @@ export default defineGate({
 				detail: `roster_live: ${livePacked.length} bits of ${roster.members}, ${livePacked === setText(roster.members, rosterCodes) ? "the oracle's" : "not the oracle's"}`
 			}
 
-			/** Each constant PostgreSQL packed, against the test oracle's string of its members. */
+			/** Each constant PostgreSQL packed, against the test oracle's literals of its members. */
 			const shapes = yield* Effect.forEach([...sides, grown, shrunk], (relation) =>
 				Effect.gen(function* () {
-					const expected = hostBits(relation)
+					const expected = hostTexts(relation)
 					if (!expected.ok) {
 						return yield* new GateSetupError({
 							what: `the host cannot encode ${relation.name}: ${Formatter.format(expected.error)}`
 						})
 					}
-					const read = yield* exec(`SELECT ${printObjectName(at.constant(relation))}()::text`)
-					const packed = textOf(oneRow(read))
+					const functions = functionsOf(at.constant(relation), relation)
+					const textAt = (fn: ObjectName) =>
+						Effect.map(exec(`SELECT ${printObjectName(fn)}()::text`), (rows) =>
+							textOf(oneRow(rows))
+						)
+					const cells = yield* textAt(functions.cells)
+					const payloads =
+						functions.payloads.kind === "codes"
+							? yield* textAt(functions.payloads.function)
+							: undefined
+					const holds = cells === expected.value.cells && payloads === expected.value.payloads
 					return {
-						holds: packed === expected.value,
-						detail: `${relation.name}: ${packed.length} bits of ${constantBits(relation)}, ${packed === expected.value ? "the host's" : "not the host's"}`
+						holds,
+						detail: `${relation.name}: cells of ${cells.length} characters and ${payloads === undefined ? "no payloads" : `payloads of ${payloads.length}`} for ${relation.members} rows, ${holds ? "the host's" : "not the host's"}`
 					}
 				})
 			)
@@ -772,7 +781,7 @@ export default defineGate({
 				...Arr.map(costs, ({ c, micros }) =>
 					statementCase(c, {
 						microsBeyondBase: micros,
-						constantBits: constantBits(c.relation),
+						rows: c.relation.members,
 						...ceilingOf(c.ceiling)
 					})
 				),

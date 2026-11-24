@@ -2,12 +2,19 @@
 
 import { defined } from "@bjornpagen/testing/assert"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
-import { Array as Arr, DateTime, Option, String as Str } from "effect"
+import { Array as Arr, DateTime } from "effect"
 import { type CheckFinding } from "#cli/check.ts"
 import type { PackFault } from "#compiler/physical/ddl/literal.ts"
 import { closedId } from "#compiler/public/fields.ts"
 import { closed, schema } from "#compiler/public/schema.ts"
-import { textOfHex } from "#test/support/closed/bit-text.ts"
+import type { PackLayout } from "#compiler/sql/ast.ts"
+import {
+	type Edit,
+	editsOf,
+	firstCellApart,
+	firstPlaceApart,
+	oracleRead
+} from "#test/unit/physical/literal.fixtures.ts"
 
 const Row = closed.ordered("Row", ["r0", "r1", "r2"])
 
@@ -22,31 +29,35 @@ const colAt = (code: number): "c0" | "c1" => defined((["c0", "c1"] as const)[cod
 const markAt = (code: number): "low" | "high" | "top" =>
 	defined((["low", "high", "top"] as const)[code])
 
-/** Which of the grid's two constants a change is made to. */
-export type Constant = "cells" | "keys"
+/** Which of the grid's two arrays an edit is made to. */
+export type GridArray = "cells" | "payloads"
 
 export type Feature =
-	| "the cells' literal changed"
-	| "the key set's literal changed"
-	| "a cell changed"
-	| "a padding bit set"
+	| "the cells' literal edited"
+	| "the payloads' literal edited"
+	| "an edit out of order or range"
+	| "an edit of another constant"
 
-/** A drawn grid, each of its six cells holding no row or a mark's code, and the change made to each constant. */
+/** A drawn grid, each of its six cells holding no row or a mark's code, and which edit of each array is made. */
 export interface Drawn {
 	readonly marks: ReadonlyArray<number | undefined>
-	readonly changes: Readonly<Record<Constant, { readonly digit: number; readonly offset: number }>>
+	/** The edit made to each array, by its place among the literal's edits (literal.fixtures.ts editsOf), modulo their count. */
+	readonly edits: Readonly<Record<GridArray, number>>
 }
 
 export const grids: Gen<Drawn> = (s) => ({
 	marks: Array.from({ length: 6 }, () => s.draw(element([undefined, 0, 1, 2]))),
-	changes: {
-		cells: { digit: s.draw(int(0, 2)), offset: s.draw(int(1, 15)) },
-		keys: { digit: s.draw(int(0, 1)), offset: s.draw(int(1, 15)) }
-	}
+	edits: { cells: s.draw(int(0, 999)), payloads: s.draw(int(0, 999)) }
 })
 
+/** The edit of a literal over `layout` a draw makes to `array`: its edit at the draw's place modulo the literal's edits. */
+export const editOf = (d: Drawn, array: GridArray, text: string, layout: PackLayout): Edit => {
+	const edits = editsOf(text, layout)
+	return defined(edits[d.edits[array] % edits.length], "a literal has edits")
+}
+
 /** The schema of a drawn grid. */
-export const schemaOf = (d: Drawn) =>
+export const gridSchemaOf = (d: Drawn) =>
 	schema(
 		"LitGrid",
 		[
@@ -93,40 +104,36 @@ export const foundOf = (f: CheckFinding): Found =>
 		? { kind: f.kind, where: f.where, statement: f.statement, fault: f.fault }
 		: { kind: f.kind, where: f.where }
 
-/** `hex` with its digit at `at` moved `offset` values on, modulo sixteen: another digit. */
-export const changedDigit = (hex: string, at: number, offset: number): string =>
-	`${Str.slice(0, at)(hex)}${Str.toUpperCase(((Number.parseInt(defined(hex[at]), 16) + offset) % 16).toString(16))}${Str.slice(at + 1)(hex)}`
-
 /**
- * The fault of a literal of `fn` changed from `before` to `after`, `cells` cells of `width` bits: the first bit past the
- * last cell it sets, or the first cell whose bits it changes, with that cell's key.
+ * The fault of the grid's array of `fn` over `layout` edited from `before` to `after`, read by the oracle: the layout
+ * fault it makes, or the first cell whose entry it changes, with that cell's key, a payloads literal's cell the one the
+ * grid's cells `cells` hold at the place it changes.
  */
 export const faultOf = (
 	fn: string,
+	layout: PackLayout,
 	before: string,
 	after: string,
-	cells: number,
-	width: number
+	cells: ReadonlyArray<bigint>
 ): PackFault => {
-	const was = textOfHex(before)
-	const now = textOfHex(after)
-	const padding = Str.indexOf("1")(Str.slice(cells * width)(now))
-	if (Option.isSome(padding)) {
-		return {
-			kind: "layout",
-			function: fn,
-			fault: { kind: "padding", at: cells * width + padding.value }
-		}
+	const was = oracleRead(before, layout)
+	const now = oracleRead(after, layout)
+	if (now.kind === "fault") {
+		return { kind: "layout", function: fn, fault: now.fault }
 	}
-	const cell = defined(
-		Option.getOrUndefined(
-			Arr.findFirstIndex(
-				Array.from({ length: cells }, (_, c) => c),
-				(c) =>
-					Str.slice(c * width, (c + 1) * width)(was) !== Str.slice(c * width, (c + 1) * width)(now)
-			)
-		),
-		"a changed cell"
+	if (was.kind === "fault") {
+		throw new Error(`the drafted literal ${before} is one the oracle reads`)
+	}
+	const place = firstPlaceApart(was.elements, now.elements)
+	const cell = Number(
+		defined(
+			layout.kind === "cells"
+				? firstCellApart(was.elements, now.elements)
+				: place === undefined
+					? undefined
+					: cells[place],
+			"an edit changes a cell"
+		)
 	)
 	return {
 		kind: "content",

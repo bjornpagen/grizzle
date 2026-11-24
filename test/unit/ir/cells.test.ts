@@ -2,10 +2,11 @@
  * The cells encoder (ir/cells.ts), every rule against an oracle that shares none of its arithmetic.
  *
  * - The naive tuple-set model: a relation is the list of its tuples in the odometer's order of its key space, and a
- *   constant is decoded by reading every cell of its bit text the way PostgreSQL's substring reads it, each present cell
- *   mapped back to its key and payload by the odometer. decode ∘ encode = id over every closed relation of a box. The
- *   bit text is the test oracle's (test/support/closed/bit-text.ts), each held cell 1 + its payload code; the engine's
- *   own hex literal of a constant (literalOf) is unit/physical/literal.test.ts's.
+ *   constant is decoded by scanning its cells for each cell's element and its payloads at the same place
+ *   (test/support/closed/codes.ts), each held cell mapped back to its key and payload by the odometer. decode ∘ encode =
+ *   id over every closed relation of a box, and the engine's literals (cellsLiteralOf, payloadsLiteralOf) are the
+ *   oracle's spelling of the two arrays, O(rows), which read back to them (cellsOfLiteral, payloadsOfLiteral); a
+ *   literal's refusals are unit/physical/literal.test.ts's.
  * - The odometer: every point of a space counted in row-major order, which the mixed-radix index must number
  *   bijectively, and which no out-of-range digit may reach, the alias (a digit past its radix carrying into its
  *   neighbour, 400 as 37 at PostgreSQL's scale) among them.
@@ -151,8 +152,11 @@ export const aDependentKeySpaceNumbersTheDependentSumBijectivelyInOwnerOrderAndA
 		]
 	})
 
-/** A relation's string of cells decodes back to exactly its tuples, in cells · w bits, reading absent past either end. */
-export const aRelationsStringOfCellsDecodesBackToExactlyItsTuplesInCellsWBitsReadingAbsentPastEitherEnd =
+/**
+ * A relation's arrays decode back to exactly its tuples, each literal is O(rows) and reads back to its array, and a read
+ * past its last cell is absent.
+ */
+export const aRelationsArraysDecodeBackToExactlyItsTuplesInLiteralsOfORowsThatReadBackToThem =
 	property.exhaust(finite(box), {
 		needs: {},
 		situations: [
@@ -166,16 +170,30 @@ export const aRelationsStringOfCellsDecodesBackToExactlyItsTuplesInCellsWBitsRea
 		check: (_, c: Case<Relation>) => (value) => roundTrip(value, c),
 		oracle: {
 			kind: "second-implementation",
-			name: "the naive tuple-set model, its bit text read cell by cell as PostgreSQL's substring reads it"
+			name: "the naive tuple-set model, its arrays spelled by the oracle and each cell read by a scan of every cell"
 		},
 		box: "every closed relation over a key of at most 4 points and a payload of none, one coordinate of 0 to 3 codes, or two of 2",
 		kept: [],
 		kills: [
 			{
 				file: "packages/engine/src/ir/cells.ts",
-				original: "\twhile (1n << BigInt(width) <= points) {",
-				replacement: "\twhile (1n << BigInt(width) < points) {",
-				why: "cellWidth is one bit short when the payload space is a power of two; decode ∘ encode = id fails."
+				original: "\tliteralWithin([sentinel, ...indexesOf(constant)], limit)",
+				replacement: "\tliteralWithin(indexesOf(constant), limit)",
+				why: "cellsLiteralOf drops the sentinel; the cells' literal is not the oracle's and reads back to nothing."
+			},
+			{
+				file: "packages/engine/src/ir/cells.ts",
+				original: "\treturn length > limit ?",
+				replacement: "\treturn length >= limit ?",
+				why: "A literal exactly as long as its limit is refused; the property fails at the literal's own length."
+			},
+			{
+				file: "packages/engine/src/ir/cells.ts",
+				original:
+					"export const holdsPayloads = (constant: Constant): boolean => constant.points > 1n",
+				replacement:
+					"export const holdsPayloads = (constant: Constant): boolean => constant.points > 2n",
+				why: "A constant of two payload codes installs no payloads, so its payload codes are lost: the property fails where a function's payload space holds two codes."
 			}
 		]
 	})
@@ -215,14 +233,13 @@ export const aRelationsStringOfCellsIsTheSameForItsRowsInAnyOrderAndRepeatedAndR
 	})
 
 /**
- * A cell's width is the binary length of 1 + the largest payload code, exactly, past 2^53.
+ * A constant states its payload space's points exactly, past 2^53, and 1 for a space of no point.
  *
  * Budget: 300 runs and 200 steered cases, what its suite stated before it became a property
  * (test/unit/ir/cells.test.ts:790 at 8cad5bce, its runs and its coverage's cases).
  */
-export const aCellsWidthIsTheBinaryLengthOf1TheLargestPayloadCodeExactlyPast253 = property.explore(
-	aimed(payloadSizes, [["a payload space past 2^53 points", widePayloadSizes]]),
-	{
+export const aConstantStatesItsPayloadSpacesPointsExactlyPast253AndOneForASpaceOfNone =
+	property.explore(aimed(payloadSizes, [["a payload space past 2^53 points", widePayloadSizes]]), {
 		needs: {},
 		budget: { runs: 300, steered: 200 },
 		situations: [
@@ -233,19 +250,18 @@ export const aCellsWidthIsTheBinaryLengthOf1TheLargestPayloadCodeExactlyPast253 
 		check: (_, c: Case<Payload>) => (value) => exact(value, c),
 		oracle: {
 			kind: "specification",
-			name: "the binary length of 1 + the largest payload code, in bigint arithmetic"
+			name: "the product of the payload coordinates' codes, in bigint arithmetic, or 1 for a product of 0"
 		},
 		kept: [],
 		kills: [
 			{
 				file: "packages/engine/src/ir/cells.ts",
-				original: "\twhile (1n << BigInt(width) <= points) {",
-				replacement: "\twhile (1n << BigInt(width) > points) {",
-				why: "Operator mutant (comparison) at packages/engine/src/ir/cells.ts:193 in cellWidth: `<=` becomes `>`; the property fails (lane CATCH, grizzle 0baff5d6)."
+				original: "\treturn points === 0n ? 1n : points",
+				replacement: "\treturn points",
+				why: "constantOf states a payload space of no point as 0 payload codes, whose codes name no cell; the property fails on an empty payload space."
 			}
 		]
-	}
-)
+	})
 
 /** A roster's codes leave a hole for each removed handle, never reused, under every hole pattern of up to five codes. */
 export const aRostersCodesLeaveAHoleForEachRemovedHandleNeverReusedUnderEveryHolePatternOfUpToFiveCodes =
@@ -357,6 +373,7 @@ export const aConstantsDigestNamesAConstantByItsContentAloneAndEveryEditOfOneCel
 			"a cell made absent",
 			"a payload changed",
 			"the key space grown",
+			"the payload space grown",
 			"another layout, the same constant",
 			"a cell moved",
 			"two cells swapped"
@@ -366,14 +383,26 @@ export const aConstantsDigestNamesAConstantByItsContentAloneAndEveryEditOfOneCel
 			kind: "universal",
 			name: "a digest of the constant's content alone: equal content one digest, every edit another"
 		},
-		box: "every closed relation over a key of at most 3 points and a payload of none, 2 or 3 codes, under every edit of one cell, a move and a swap of two",
+		box: "every closed relation over a key of at most 3 points and a payload of none, 2 or 3 codes, under every edit of one cell, a move and a swap of two, a grown key space and payload space, and a leading key coordinate of one code",
 		kept: [],
 		kills: [
 			{
 				file: "packages/engine/src/ir/cells.ts",
-				original: "\t\t\tentries: constant.entries.map((entry) => [entry.index, entry.payload])",
-				replacement: "\t\t\tentries: constant.entries.map((entry) => [entry.index])",
-				why: "constantDigestOf is blind to payloads; the digest's property fails on a cell given another payload."
+				original: '\tconstantDigest("closed-constant", { points, payloads }, everyProperty)',
+				replacement: '\tconstantDigest("closed-constant", { points }, everyProperty)',
+				why: "payloadsDigestOf is blind to the payload codes; the digest's property fails on a cell given another payload."
+			},
+			{
+				file: "packages/engine/src/ir/cells.ts",
+				original: '\tconstantDigest("closed-constant", { points, payloads }, everyProperty)',
+				replacement: '\tconstantDigest("closed-constant", { payloads }, everyProperty)',
+				why: "payloadsDigestOf is blind to the payload space's codes; a relation over a grown payload space names the old payloads' function, and the digest's property fails."
+			},
+			{
+				file: "packages/engine/src/ir/cells.ts",
+				original: '\tconstantDigest("closed-constant", { cells, indexes }, everyProperty)',
+				replacement: '\tconstantDigest("closed-constant", { indexes }, everyProperty)',
+				why: "cellsDigestOf is blind to the key space's cells; a relation over a grown key space names the old cells' function, and the digest's property fails."
 			}
 		]
 	})

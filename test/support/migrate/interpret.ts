@@ -1,6 +1,7 @@
 import { Array as Arr, Data, Option, Order, Result, String as Str } from "effect"
 import type { Action } from "#compiler/deploy/diff/plan.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
+import { libraryIdentity } from "#compiler/physical/ddl/library.ts"
 import {
 	type ColumnDef,
 	type Expr,
@@ -76,8 +77,10 @@ import { upTo } from "#test/support/up-to.ts"
  *   (23514); a column converted by an expression the model does not know needs the reviewer's value. A closed id is
  *   stored as its code, an int cell, and a set as its bit string, a text cell of 0s and 1s.
  * - Constants and domains. A constant (CREATE FUNCTION … IMMUTABLE RETURN) holds a value the model computes: a names
- *   constant's name[], a live-codes constant's and a closed constant's bit string, each one hex literal's digits read
- *   four bits a digit (the test oracle textOfHex). A domain's CHECK added without NOT VALID, or VALIDATEd, is evaluated over every stored value of
+ *   constant's name[], a live-codes constant's bit string, its hex literal's digits read four bits a digit (the test
+ *   oracle textOfHex), and a closed constant's cells and payloads, each its bigint[] literal's elements; a closed read's
+ *   width_bucket is the count of elements at or below its operand, and a call of grizzle's library closedRow the run of
+ *   cells its cells hold, each computed by the model's own arithmetic. A domain's CHECK added without NOT VALID, or VALIDATEd, is evaluated over every stored value of
  *   the domain, as PostgreSQL validates it, and a value it does not admit is refused (23514) naming the table and the
  *   column; so a removed handle's code, or a set holding its bit, fails the VALIDATE of the re-pointed CHECK. A CHECK
  *   outside the fragment the model evaluates (a contract's predicate) is taken to hold, a limit of the model.
@@ -235,14 +238,14 @@ export interface Domain {
 
 /**
  * A function of the schema: the schema's functions its body calls, which pin them, and what it returns when it is a
- * constant the model computes: a constant's RETURN expression, or a pack's bit string. A PL/pgSQL function (a refusal,
+ * constant the model computes: a constant's RETURN expression, or a pack's codes. A PL/pgSQL function (a refusal,
  * advance or isolation function) is opaque.
  */
 export interface Function {
 	readonly body:
 		| { readonly kind: "opaque" }
 		| { readonly kind: "constant"; readonly expr: Expr }
-		| { readonly kind: "packed"; readonly bits: string }
+		| { readonly kind: "packed"; readonly codes: ReadonlyArray<bigint> }
 	readonly calls: ReadonlyArray<string>
 }
 
@@ -513,6 +516,7 @@ type SqlValue =
 	| { readonly kind: "bool"; readonly value: boolean }
 	| { readonly kind: "bits"; readonly value: string }
 	| { readonly kind: "names"; readonly value: ReadonlyArray<string> }
+	| { readonly kind: "codes"; readonly value: ReadonlyArray<bigint> }
 	| undefined
 
 /** An expression outside the fragment the model evaluates: a constant or a CHECK it cannot compute. */
@@ -572,7 +576,9 @@ const valueOf = (value: string, type: TypeRef): SqlValue => {
 	if (type.array) {
 		return type.name === "name" || type.name === "text"
 			? { kind: "names", value: arrayElements(value) }
-			: unevaluable(`an array of ${type.name}`)
+			: type.name === "bigint"
+				? { kind: "codes", value: Arr.map(arrayElements(value), (e) => BigInt(e)) }
+				: unevaluable(`an array of ${type.name}`)
 	}
 	switch (type.name) {
 		case "bit":
@@ -612,11 +618,45 @@ const valueOf = (value: string, type: TypeRef): SqlValue => {
 	}
 }
 
+/** The elements a closed constant's array's statement installs: its bigint[] literal's, a cells' sentinel first. */
+const packedCodes = (s: PackConstant): ReadonlyArray<bigint> =>
+	Arr.map(arrayElements(s.text), (e) => BigInt(e))
+
+/** The name of grizzle's library closedRow, as every installation calls it (physical/ddl/library.ts libraryRef). */
+const closedRowName = libraryIdentity("closedRow").identifier
+
 /**
- * The bit string a closed constant's statement installs: its hex literal's digits, four bits each, its cells' bits then
- * the 0s that pad them to whole digits (test/support/closed/bit-text.ts textOfHex).
+ * grizzle's library closedRow (physical/ddl/library.ts) as the model computes it: the set `empty` with a 1 at each of
+ * the `count` cells from cell `first` the cells `cells` hold, read cell by cell; NULL where any argument is, as a STRICT
+ * function is.
  */
-const packedBits = (s: PackConstant): string => textOfHex(s.hex)
+const closedRowOf = (args: ReadonlyArray<SqlValue>): SqlValue => {
+	const [cells, first, count, empty] = args
+	if (cells === undefined || first === undefined || count === undefined || empty === undefined) {
+		return undefined
+	}
+	if (
+		cells.kind !== "codes" ||
+		first.kind !== "int" ||
+		count.kind !== "int" ||
+		empty.kind !== "bits"
+	) {
+		return unevaluable("closedRow of other than cells, two integers and a bit string")
+	}
+	const held = new Set(
+		Arr.flatMap(cells.value, (cell) => {
+			const at = cell - first.value
+			return cell >= 0n && at >= 0n && at < count.value ? [Number(at)] : []
+		})
+	)
+	return {
+		kind: "bits",
+		value: Arr.join(
+			upTo(empty.value.length, (i) => (held.has(i) ? "1" : (empty.value[i] ?? "0"))),
+			""
+		)
+	}
+}
 
 /** A bit string cast to bit(n): padded with zeros on the right, or truncated, as PostgreSQL's bit(n) cast does. */
 const toLength = (bits: string, length: number): string =>
@@ -701,6 +741,11 @@ const sameImage = (a: SqlValue, b: SqlValue): boolean => {
 			return b.kind === "bool" && a.value === b.value
 		case "names":
 			return b.kind === "names" && Arr.makeEquivalence(Str.Equivalence)(a.value, b.value)
+		case "codes":
+			return (
+				b.kind === "codes" &&
+				Arr.makeEquivalence((x: bigint, y: bigint) => x === y)(a.value, b.value)
+			)
 	}
 }
 
@@ -751,6 +796,9 @@ const castTo = (v: SqlValue, t: TypeRef, scope: Scope): SqlValue => {
 		if (t.name === "numeric" && v.kind === "int") {
 			return v
 		}
+		if (t.name === "integer" && v.kind === "bool") {
+			return { kind: "int", value: v.value ? 1n : 0n }
+		}
 		if (t.name === "integer" && v.kind === "bits" && v.value.length <= 32) {
 			return { kind: "int", value: v.value === "" ? 0n : BigInt(`0b${v.value}`) }
 		}
@@ -763,7 +811,13 @@ const equal = (a: SqlValue, b: SqlValue): SqlValue => {
 	if (a === undefined || b === undefined) {
 		return undefined
 	}
-	if (a.kind !== b.kind || a.kind === "names" || b.kind === "names") {
+	if (
+		a.kind !== b.kind ||
+		a.kind === "names" ||
+		b.kind === "names" ||
+		a.kind === "codes" ||
+		b.kind === "codes"
+	) {
 		return unevaluable(`a comparison of ${a.kind} with ${b.kind}`)
 	}
 	return { kind: "bool", value: a.value === b.value }
@@ -896,11 +950,20 @@ const evaluate = (e: Expr, scope: Scope): SqlValue => {
 			if (array === undefined || index === undefined) {
 				return undefined
 			}
+			if (array.kind === "codes") {
+				const code = index >= 1n ? array.value[Number(index) - 1] : undefined
+				return code === undefined ? undefined : { kind: "int", value: code }
+			}
 			if (array.kind !== "names") {
 				return unevaluable(`a subscript of ${array.kind}`)
 			}
 			const element = index >= 1n ? array.value[Number(index) - 1] : undefined
 			return element === undefined ? undefined : { kind: "text", value: element }
+		}
+		case "nullif": {
+			const value = evaluate(e.expr, scope)
+			const same = equal(value, evaluate(e.absent, scope))
+			return same?.kind === "bool" && same.value ? undefined : value
 		}
 		case "case": {
 			if (e.operand !== undefined) {
@@ -929,7 +992,25 @@ const evaluate = (e: Expr, scope: Scope): SqlValue => {
 				return unevaluable("count(*)")
 			}
 			if (e.fn.kind === "qualified") {
-				return e.args.length === 0 ? scope.constant(e.fn.name) : unevaluable(`${e.fn.name}(…)`)
+				return e.args.length === 0
+					? scope.constant(e.fn.name)
+					: e.fn.name === closedRowName
+						? closedRowOf(Arr.map(e.args, (a) => evaluate(a, scope)))
+						: unevaluable(`${e.fn.name}(…)`)
+			}
+			if (e.fn.name === "width_bucket" && e.args.length === 2) {
+				const [operand, thresholds] = Arr.map(e.args, (a) => evaluate(a, scope))
+				const at = intOf(operand, "width_bucket's operand")
+				if (at === undefined || thresholds === undefined) {
+					return undefined
+				}
+				if (thresholds.kind !== "codes") {
+					return unevaluable(`width_bucket over ${thresholds.kind}`)
+				}
+				return {
+					kind: "int",
+					value: BigInt(Arr.filter(thresholds.value, (code) => code <= at).length)
+				}
 			}
 			if (e.fn.name === "substring" && e.args.length === 3) {
 				const [bits, from, length] = Arr.map(e.args, (a) => evaluate(a, scope))
@@ -1011,7 +1092,6 @@ const evaluate = (e: Expr, scope: Scope): SqlValue => {
 		case "equalsAny":
 		case "least":
 		case "mergeAction":
-		case "nullif":
 		case "param":
 		case "plSpecial":
 		case "plVar":
@@ -2252,7 +2332,7 @@ class Model {
 			case "opaque":
 				return unevaluable(`the function ${name}, which is no constant`)
 			case "packed":
-				return { kind: "bits", value: f.body.bits }
+				return { kind: "codes", value: f.body.codes }
 			case "constant": {
 				const inner = new Set([...seen, name])
 				return evaluate(f.body.expr, {
@@ -2780,6 +2860,7 @@ class Model {
 			case "text":
 				return { kind: "value", value: { kind: "text", value: value.value } }
 			case "names":
+			case "codes":
 			case undefined:
 				return unevaluable(`a value of ${printType(column.type)}`)
 		}
@@ -3895,7 +3976,10 @@ class Model {
 				})
 				return
 			case "packConstant":
-				this.#addFunction(s.function, { body: { kind: "packed", bits: packedBits(s) }, calls: [] })
+				this.#addFunction(s.function, {
+					body: { kind: "packed", codes: packedCodes(s) },
+					calls: []
+				})
 				return
 			case "dropFunction": {
 				if (this.#ours(s.name)) {

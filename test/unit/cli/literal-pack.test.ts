@@ -1,22 +1,23 @@
 /**
- * A closed relation's constants through the command line, over drawn grids: `grizzle generate` drafts each constant as
- * its one hex literal, the installation's own, and `grizzle check` holds every literal to its content
- * (physical/ddl/literal.ts literalPackFault).
+ * A closed relation's constant through the command line, over drawn grids: `grizzle generate` drafts the constant as its
+ * two arrays, its cells and its payloads, each one literal, the installation's own, and `grizzle check` holds every
+ * literal to its content (physical/ddl/literal.ts literalPackFault).
  *
  * - **A drafted folder passes:** check finds nothing in what generate drafted.
- * - **A changed digit is one finding at its file, by its fault:** one hex digit of either constant, its cells' or its
- *   key set's, changed to another is check's one finding, a literal pack at the file that holds it, at the statement
- *   that states it, counted from 1, with its fault (cli/check.ts CheckFinding): the content the oracle reads off the
- *   two literals, the closed relation, the first cell where the literal parts from the declared rows and that cell's
- *   key, or, where the change sets a bit past the last cell, a layout fault at that padding bit.
+ * - **An edit is one finding at its file, by its fault:** an edit of either literal (an element one up or down, dropped,
+ *   written twice or with a leading 0, an element added past the last, the cells' sentinel dropped) is check's one
+ *   finding, a literal pack at the file that holds it, at the statement that states it, counted from 1, with its fault
+ *   (cli/check.ts CheckFinding): the layout fault the oracle reads where the edit breaks the literal's spelling, order or
+ *   range, and otherwise the content, the closed relation, the first cell where the literal parts from the declared
+ *   rows and that cell's key, a payloads literal's the cell its cells hold at the place it changes.
  *
- * The grid: Row (3 codes) by Col (2), row-major, each cell holding no row or a row of a Mark (3 codes), so its cells
- * take 2 bits, 12 in all, three whole digits, and its key set 6 bits, padded with 2 to two digits.
+ * The grid: Row (3 codes) by Col (2), row-major, each cell holding no row or a row of a Mark (3 codes), so its cells are
+ * its held indexes, 0 to 5, and its payloads their marks.
  *
- * Oracle: a second implementation of the fault, the grid's cells row-major read off the test oracle's bits of each
- * literal (test/support/closed/bit-text.ts), sharing no code with the engine's decoder.
+ * Oracle: a second implementation of the fault, the grid's literal read element by element by the oracle
+ * (unit/physical/literal.fixtures.ts oracleRead), sharing no code with the engine's decoder.
  *
- * Features: either constant changed; a cell changed or a padding bit set.
+ * Features: either array edited; an edit out of order or range, and one of another constant.
  */
 
 import { headNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
@@ -28,6 +29,7 @@ import { check } from "#cli/check.ts"
 import { silentPhases } from "#compiler/core/phase.ts"
 import { metaFileName } from "#compiler/deploy/render/folder.ts"
 import { splitStatements } from "#compiler/deploy/render/markers.ts"
+import { cellsOfLiteral } from "#compiler/ir/cells.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import type { PackConstant } from "#compiler/sql/ast.ts"
 import { printObjectName, printStatement } from "#compiler/sql/print.ts"
@@ -43,38 +45,38 @@ import { succeeded } from "#test/support/assert.ts"
 import { migrationFolders } from "#test/support/migrate/kit.ts"
 import { owning } from "#test/support/policy.ts"
 import {
-	changedDigit,
-	type Constant,
 	type Drawn,
+	editOf,
 	faultOf,
+	type GridArray,
 	type Feature,
 	foundOf,
 	grids,
 	now,
-	schemaOf
+	gridSchemaOf
 } from "#test/unit/cli/literal-pack.fixtures.ts"
 
 /**
- * Grizzle check over a closed relation's hex literals passes a drafted literal, and refuses any changed digit at its
- * file and statement, naming what it changes.
+ * Grizzle check over a closed relation's literal passes a drafted literal, and refuses any edit at its file and
+ * statement, naming what it changes.
  *
  * Budget: its suite's count before the conversion (unit/cli/literal-pack: 2 independent cases and 12 steered, Vitest
  * at grizzle 4ca3036a).
  */
-export const grizzleCheckOverAClosedRelationsHexLiteralsPassesADraftedLiteralAndRefusesAnyChangedDigitAtItsFileAndStatementNamingWhatItChanges =
+export const grizzleCheckOverAClosedRelationsLiteralPassesADraftedLiteralAndRefusesAnyEditAtItsFileAndStatementNamingWhatItChanges =
 	property.explore(grids, {
 		needs: {},
 		situations: [
-			"the cells' literal changed",
-			"the key set's literal changed",
-			"a cell changed",
-			"a padding bit set"
+			"the cells' literal edited",
+			"the payloads' literal edited",
+			"an edit out of order or range",
+			"an edit of another constant"
 		] satisfies ReadonlyArray<Reached<Feature>>,
 		check: (_, c: Case<Feature>) => (d: Drawn) =>
 			Effect.scoped(
 				Effect.gen(function* () {
 					const fs = yield* FileSystem.FileSystem
-					const gridSchema = schemaOf(d)
+					const gridSchema = gridSchemaOf(d)
 					const config = defineConfig({
 						schemas: [gridSchema],
 						logins: [],
@@ -92,10 +94,14 @@ export const grizzleCheckOverAClosedRelationsHexLiteralsPassesADraftedLiteralAnd
 							)[0],
 							`the pack of ${name}`
 						)
-					const packs: Readonly<Record<Constant, PackConstant>> = {
-						cells: packOf(grid.function.name),
-						keys: packOf(grid.keys.name)
+					if (grid.constant.payloads.kind !== "codes") {
+						return assert.fail("a grid of three marks installs its payloads")
 					}
+					const packs: Readonly<Record<GridArray, PackConstant>> = {
+						cells: packOf(grid.constant.cells.name),
+						payloads: packOf(grid.constant.payloads.function.name)
+					}
+					const cells = succeeded(cellsOfLiteral(packs.cells.text, 6n))
 					const ws = yield* workspace("literal-pack")
 					const drafted = yield* cliOver(
 						ws,
@@ -130,51 +136,46 @@ export const grizzleCheckOverAClosedRelationsHexLiteralsPassesADraftedLiteralAnd
 					assert.equal(held.code, 0, held.stderr)
 					const drafts = yield* findings
 					assert.deepEqual(drafts, [], "the drafted folder holds every literal")
-					for (const constant of ["cells", "keys"] as const) {
-						const p = packs[constant]
+					for (const array of ["cells", "payloads"] as const) {
+						const p = packs[array]
 						const literalText = printStatement(p)
 						const file = defined(
 							Option.getOrUndefined(Arr.findFirst(texts, (t) => Str.includes(literalText)(t.text))),
-							`the file generate drafted the ${constant} literal into`
+							`the file generate drafted the ${array}' literal into`
 						)
 						const statement =
 							defined(
 								Option.getOrUndefined(
 									Arr.findFirstIndex(splitStatements(file.text), (s) =>
-										Str.includes(`X'${p.hex}'`)(s)
+										Str.includes(`'${p.text}'::`)(s)
 									)
 								),
 								"the literal is one of the file's statements"
 							) + 1
-						const change = d.changes[constant]
-						const after = changedDigit(p.hex, change.digit, change.offset)
+						const edit = editOf(d, array, p.text, p.layout)
 						const path = `${ws}/${folder}/${file.name}`
-						const tamper = Str.replace(`X'${p.hex}'`, `X'${after}'`)
+						const tamper = Str.replace(`'${p.text}'::`, `'${edit.text}'::`)
 						yield* fs.writeFileString(path, tamper(file.text))
 						const tampered = yield* cliOver(ws, config, ["check", configName], now(2))
 						const found = yield* findings
 						yield* fs.writeFileString(path, file.text)
-						assert.equal(tampered.code, 1, `X'${after}' for X'${p.hex}' is refused`)
-						const fault = faultOf(
-							printObjectName(p.function),
-							p.hex,
-							after,
-							Number(p.cells),
-							p.width
-						)
+						assert.equal(tampered.code, 1, `${edit.what}, ${edit.text} for ${p.text}, is refused`)
+						const fault = faultOf(printObjectName(p.function), p.layout, p.text, edit.text, cells)
 						assert.deepEqual(found, [
 							{ kind: "literalPack", where: `${folder}/${file.name}`, statement, fault }
 						])
+						c.note(array === "cells" ? "the cells' literal edited" : "the payloads' literal edited")
 						c.note(
-							constant === "cells" ? "the cells' literal changed" : "the key set's literal changed"
+							fault.kind === "layout"
+								? "an edit out of order or range"
+								: "an edit of another constant"
 						)
-						c.note(fault.kind === "layout" ? "a padding bit set" : "a cell changed")
 					}
 				})
 			),
 		oracle: {
 			kind: "second-implementation",
-			name: "the grid's cells row-major, read off the oracle's bits of each literal"
+			name: "the grid's cells row-major, read off the oracle's reading of each literal"
 		},
 		budget: { runs: 2, steered: 12 },
 		kept: [],
@@ -184,12 +185,6 @@ export const grizzleCheckOverAClosedRelationsHexLiteralsPassesADraftedLiteralAnd
 				original: "\t\t\t\t\tpacks.push({ where, statement, ordinal: i + 1 })",
 				replacement: "\t\t\t\t\tpacks.push({ where, statement, ordinal: i })",
 				why: "A finding counts its file's statements from 0."
-			},
-			{
-				file: "packages/engine/src/physical/ddl/literal.ts",
-				original: "\t\t\treturn x.index < y.index ? x.index : y.index",
-				replacement: "\t\t\treturn x.index < y.index ? y.index : x.index",
-				why: "Where two literals hold different cells first, the later is named."
 			},
 			{
 				file: "packages/grizzle/src/cli/check.ts",

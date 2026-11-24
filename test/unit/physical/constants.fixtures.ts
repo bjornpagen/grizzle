@@ -15,6 +15,7 @@ import {
 	type SchemaDesc
 } from "#compiler/ir/desc.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
+import { libraryIdentity } from "#compiler/physical/ddl/library.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import { installationsOf } from "#compiler/schema/own.ts"
 import { fullRoleDesc, type Owned, ownLogin } from "#compiler/schema/own.ts"
@@ -631,12 +632,16 @@ export const requiredExecutes = (i: Installation, w: World, g: RoleGrants): Read
 	return closure(constants, schema, callsIn(schema, statements))
 }
 
-/** Every closed relation's constants, which a role's queries may read. */
+/**
+ * Every closed relation's constants, which a role's queries may read, and the library's reader of a closed relation's
+ * row, closedRow, which an installation declaring a closed relation installs for them (physical/install/plan.ts).
+ */
 export const closedConstants = (i: Installation): ReadonlySet<string> => {
 	const c = i.names.closed("Grade")
 	return new Set([
-		c.function.name,
-		c.keys.name,
+		libraryIdentity("closedRow").identifier,
+		c.constant.cells.name,
+		...(c.constant.payloads.kind === "codes" ? [c.constant.payloads.function.name] : []),
 		...Arr.flatMap(c.payload, (p) => (p.dictionary === undefined ? [] : [p.dictionary.name]))
 	])
 }
