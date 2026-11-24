@@ -119,7 +119,11 @@ const int = (value: number): Expr => lit.int(value, types.integer)
 const big = (value: bigint | number): Expr => lit.int(value, types.bigint)
 
 /** A constant's value: a call of its function with no arguments, F(). */
-export const constantValue = (fn: ObjectName): Expr => qualifiedCall(fn.schema, fn.name, [])
+export const constantValue = (fn: ObjectName): Expr =>
+	qualifiedCall(
+		{ kind: "qualified", schema: fn.schema, name: fn.name, volatility: "IMMUTABLE" },
+		[]
+	)
 
 const plus = (left: Expr, right: Expr): Expr => binary("+", left, right)
 
@@ -274,7 +278,7 @@ const completions = (
 		throw defect("a closed row's prefix is every key field but the last")
 	}
 	const rowOf = (first: Expr, count: Expr): Expr =>
-		qualifiedCall(row.run.schema, row.run.name, [constantValue(cells), first, count, row.empty])
+		qualifiedCall(row.run, [constantValue(cells), first, count, row.empty])
 	if (key.kind === "product") {
 		const last = defined(key.coordinates[prefix.length], "a prefix leaves one key field open")
 		const coordinates = prefix.map((digit, i) => ({

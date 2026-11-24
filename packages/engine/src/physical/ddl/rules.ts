@@ -1246,7 +1246,15 @@ const performed = (fn: ObjectName, args: ReadonlyArray<Expr>): PlStatement => ({
 	kind: "perform",
 	query: {
 		body: core(
-			[{ expr: qualifiedCall(fn.schema, fn.name, args), alias: undefined }],
+			[
+				{
+					expr: qualifiedCall(
+						{ kind: "qualified", schema: fn.schema, name: fn.name, volatility: "VOLATILE" },
+						args
+					),
+					alias: undefined
+				}
+			],
 			[],
 			undefined
 		),

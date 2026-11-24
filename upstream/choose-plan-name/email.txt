@@ -1,0 +1,114 @@
+To: Robert Haas <robertmhaas@gmail.com>
+Cc: Manu <address as in the thread>,
+ Tom Lane <tgl@sss.pgh.pa.us>,
+ Andres Freund <andres@anarazel.de>,
+ Ayoub Kazar <address as in the thread>,
+ Andreas <address as in the thread>,
+ pgsql-hackers@lists.postgresql.org
+Subject: Re: O(N^3) planning time in choose_plan_name() since 8c49a484e8e
+In-Reply-To: <CA+Tgmob=v0QHEnE9gXC4WTs34U3boy5VoN9TFLyT6ahqs2oUsw@mail.gmail.com>
+References: <179161574267.1707709.13345376006450096249@gmail.com>
+ <CA+TgmoZ6GiKx_tFoT3RDR3TBFt3cPeOjonTB9mi29Sj1ZpK_7Q@mail.gmail.com>
+ <179382931036.1743405.1568941311065599844@gmail.com>
+ <vZ3uW4SZVgqthfirPubPlILzxK3A57MbHBMcsElQU7ReNXXFbS7eCIH70bBZuzi7c08na3K6v1b2yHAF14s9oDWwwGNVJlPjoULy9UfRsd0=@pm.me>
+ <CA+Tgmob=v0QHEnE9gXC4WTs34U3boy5VoN9TFLyT6ahqs2oUsw@mail.gmail.com>
+Attach: choose-plan-name-no-threshold-master.patch.txt
+ (= master/v1-0001-Choose-subplan-names-in-constant-time.patch)
+Attach: choose-plan-name-no-threshold-REL_19_STABLE.patch.txt
+ (= REL_19_STABLE/v1-0001-Choose-subplan-names-in-constant-time.patch)
+
+Hi,
+
+Robert Haas <robertmhaas@gmail.com> writes:
+> I would normally be somewhat reluctant to back-patch anything here,
+> but if people are hitting this on real workloads within days of
+> release, I think we should.
+
+Another real workload, then.  We generate write statements of up to
+2.3 MB; the largest has 747 CTEs, 327 EXISTS and 99 ARRAY sublinks and
+206 unnamed subqueries.  On 19.0, choose_plan_name() was 40-65% of the
+planning CPU time of the large ones in a sampled profile.  I had
+written a fix before finding this thread, the design you proposed on
+11-03 without the threshold: a used flag and a next suffix per name in
+a cstring-keyed hash table.  Backend CPU time to plan, warm, 19.0
+against 19.0 with that fix:
+
+  statement A   2347 ms -> 813 ms
+  statement B   2164 ms -> 807 ms
+  statement C   1036 ms -> 405 ms
+  statement D    807 ms -> 376 ms
+  statement E    637 ms -> 346 ms
+  a read with few sublinks   618 ms -> 613 ms
+
+with the same plans.  Above 32 names v6 does the same work, so it
+should give these numbers too.
+
+I also tested v6 itself, on master (4931dab89d).  Backend CPU time to
+plan SELECT ARRAY[EXISTS (SELECT 1), EXISTS (SELECT 2), ...] with n
+sublinks:
+
+      n     master       v6     no threshold
+    500     88.9 ms    12.9 ms     13.6 ms
+   1000    618.0 ms    36.9 ms     39.4 ms
+   2000   5318.7 ms   110.1 ms    110.3 ms
+   4000  47543.1 ms   598.4 ms    434.6 ms
+
+(the box was loaded, so take the last two columns as equal).  It
+chooses the same names as master: a new test of ours (numbered names
+next to CTE names and FROM-clause aliases at several query levels, and
+200 sublinks of two kinds) and v6's own new test give byte-identical
+output on master, v6 and our patch.
+
+Two comments on v6.
+
+1. For REL_19_STABLE, v6 adds subplanNameHash right after
+subplanNames, which moves every later field of PlannerGlobal.
+Extensions get a PlannerGlobal pointer from planner_setup_hook and
+planner_shutdown_hook, and GetPlannerGlobalExtensionState() in
+optimizer/extendplan.h is a static inline that reads
+glob->extension_state and glob->extension_state_allocated, so an
+extension built against 19.0 would read the wrong offsets under a
+19.x that has v6 as is.  The back-patched field should go at the end
+of the struct, as 52cb12240cd did for JoinPathExtraData in
+REL_18_STABLE; PlannerGlobal is allocated only by makeNode() in
+planner.c.  Master can keep it where v6 has it.
+
+2. The threshold.  I measured what the table costs for few names:
+SELECT ARRAY[EXISTS (SELECT $1), ...] with k sublinks, executed under
+plan_cache_mode = force_custom_plan so each execution plans it again,
+backend CPU per execution (median of three rounds) and planner memory
+from EXPLAIN (MEMORY):
+
+     k      master            v6        no threshold
+     1    47 us  17 kB    42 us  17 kB    42 us  17 kB
+     4    54 us  36 kB    52 us  36 kB    58 us  36 kB
+    16   108 us 120 kB    99 us 120 kB   106 us 120 kB
+    31   231 us 231 kB   207 us 231 kB   156 us 232 kB
+    33   233 us 249 kB   259 us 251 kB   172 us 249 kB
+    64   611 us 509 kB   374 us 513 kB   334 us 511 kB
+
+Up to 16 names the three are equal within the noise, in memory to the
+kB: with 16-byte entries and a first size of 16 buckets the table
+costs a few hundred bytes.  Just below 32, the list still costs the
+k-th exists_k k scans of k names, and planning takes about 1.3 times
+as long as with the table.  So I don't think the threshold buys
+anything, and without it there is one code path and no list to keep
+in step with the table.  The attached does that, for master and,
+keeping the list and putting the table last, for REL_19_STABLE.
+They are named .txt so that cfbot keeps testing v6; I'm not trying to
+take this over, and I'd be happy with v6 going in, with the field
+moved for 19.  Either way, our test cases may be worth having beside
+v6's; they are in the attached subselect.sql changes.
+
+Tested: meson test, every suite but TAP, with assertions, on master
+and REL_19_STABLE with the attached, and the new test on unpatched
+master and REL_19_STABLE, with the same output.
+
+The planner's memory still grows about n^1.9 in the first test above,
+363 MB at n = 4000 in all three builds, and planning time 3 to 4.5
+times per doubling with the fix, so something else is quadratic in
+planning many subplans of one query level.  That is a separate matter
+from this thread; I haven't looked for it yet.
+
+Thanks,
+Bjorn

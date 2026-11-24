@@ -29,6 +29,7 @@ import {
 import type { RegexRef, ScalarType } from "#compiler/ir/scalar.ts"
 import type { NamedNative } from "#compiler/laws/model/model.ts"
 import { rosterConstants } from "#compiler/physical/ddl/constants.ts"
+import { volatilityClause } from "#compiler/physical/ddl/functions.ts"
 import { libraryRef } from "#compiler/physical/ddl/library.ts"
 import { closedIndexOf, type ClosedTable } from "#compiler/runtime/write/fill.ts"
 import {
@@ -43,6 +44,7 @@ import type { ClosedConstant } from "#compiler/sql/constants.ts"
 import { storedColumns } from "#compiler/sql/stored.ts"
 import { installationTypes, vectorTypes } from "#compiler/sql/type-schemas.ts"
 import { type OutsideProbe, probeIdentity } from "#compiler/write/insert/unique.ts"
+import { refusalRef } from "#compiler/write/refusal.ts"
 
 export interface InstallNames extends PhysicalNames {
 	/**
@@ -539,12 +541,17 @@ export const installNames = (input: NamesInput): InstallNames => {
 		levelOf,
 		vectorSchema: vectorTypes(input.vectorSchema),
 		installed: new Set(levels.map(identifierOf)),
-		refusal: { kind: "qualified", schema, name: identifierOf(identity.refusal()) },
+		refusal: refusalRef(schema),
 		declaredFunction: (name) => {
 			const fn = owned.functions[name] ?? missing(`physical: no declared function ${name}`)
 			const level = levels[fn.level] ?? missing(`physical: no installed level for function ${name}`)
 			return {
-				ref: { kind: "qualified", schema: identifierOf(level), name: identifierOf(fn.named) },
+				ref: {
+					kind: "qualified",
+					schema: identifierOf(level),
+					name: identifierOf(fn.named),
+					volatility: volatilityClause[fn.desc.volatility]
+				},
 				types: installationTypes(level)
 			}
 		},
@@ -575,6 +582,7 @@ export const installNames = (input: NamesInput): InstallNames => {
 		rosterNames: (roster) => ({
 			kind: "qualified",
 			schema,
+			volatility: "IMMUTABLE",
 			name: identifierOf(
 				rosterConstants(
 					codes.rosters.get(roster) ?? missing(`physical: no codes for roster ${roster}`)

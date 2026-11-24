@@ -627,7 +627,10 @@ const recordProofs = (schema: string): Insert => {
 
 /** The guard of the fingerprint at `$1`. */
 const guardCall = (schema: string): Expr =>
-	qualifiedCall(schema, snapshotGuardName, [param(1, types.text)])
+	qualifiedCall(
+		{ kind: "qualified", schema: schema, name: snapshotGuardName, volatility: "VOLATILE" },
+		[param(1, types.text)]
+	)
 
 /** A setting local to the transaction, `set_config('<name>', $n, true)`. */
 const localSetting = (name: string, index: number): Expr =>

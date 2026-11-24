@@ -259,7 +259,7 @@
 			{
 				"name": "dsl-sql",
 				"patterns": [
-					"packages/engine/src/sql/{ast,build,catalog,escape,generation,lexer,print,transform}.ts"
+					"packages/engine/src/sql/{ast,build,catalog,escape,generation,lexer,print,print-once,transform}.ts"
 				]
 			},
 			{

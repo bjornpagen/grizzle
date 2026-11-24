@@ -283,11 +283,14 @@ const plannerSelect = (p: Perturbation): EmittedText => {
 			Arr.map(p.settings, (setting) => {
 				const [name, ...value] = Str.split(setting, " = ")
 				return target(
-					qualifiedCall("pg_catalog", "set_config", [
-						lit.text(name, types.text),
-						lit.text(Arr.join(value, " = "), types.text),
-						lit.bool(true)
-					])
+					qualifiedCall(
+						{ kind: "qualified", schema: "pg_catalog", name: "set_config", volatility: "VOLATILE" },
+						[
+							lit.text(name, types.text),
+							lit.text(Arr.join(value, " = "), types.text),
+							lit.bool(true)
+						]
+					)
 				)
 			}),
 			[],

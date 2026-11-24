@@ -454,11 +454,19 @@ export const directSql = (
 						"oneRow",
 						[
 							target(
-								qualifiedCall("pg_catalog", "set_config", [
-									lit.text("grizzle.claims", types.text),
-									lit.text(text, types.text),
-									lit.bool(setting.scope === "transaction")
-								])
+								qualifiedCall(
+									{
+										kind: "qualified",
+										schema: "pg_catalog",
+										name: "set_config",
+										volatility: "VOLATILE"
+									},
+									[
+										lit.text("grizzle.claims", types.text),
+										lit.text(text, types.text),
+										lit.bool(setting.scope === "transaction")
+									]
+								)
 							)
 						],
 						[],

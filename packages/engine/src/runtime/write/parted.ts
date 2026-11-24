@@ -20,8 +20,10 @@
  * the text of a call that sends every unit is the whole statement's byte for byte, and each unit's text is the whole's
  * in every call. Each arm keeps its tag, the part's index among all the statement's parts, and the whole statement's
  * width, so a call's rows read as the whole statement's do (steps.ts writeRows), a part not sent having none. A unit's
- * placeholders are its own and number after the placeholders of the units the call sends before it (CutText). A call
- * that sends no part and no riding read-back sends no statement (`sentUnits`).
+ * placeholders are its own, read by its CTEs and its arms alike (a CTE its arm reads once is printed in the arm,
+ * sql/print-once.ts), and number after the placeholders of the units the call sends before it (CutText); a unit whose
+ * CTEs are all printed in its arms holds no CTE text, and adds none to the WITH. A call that sends no part and no riding
+ * read-back sends no statement (`sentUnits`).
  */
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
@@ -48,14 +50,14 @@ export type PartedUnit<Slot> =
 	| {
 			readonly kind: "always"
 			readonly ctes: CutText
-			readonly arms: ReadonlyArray<string>
+			readonly arms: ReadonlyArray<CutText>
 			readonly params: ReadonlyArray<Slot>
 	  }
 	| {
 			readonly kind: "part"
 			readonly needs: Needs
 			readonly ctes: CutText
-			readonly arm: string
+			readonly arm: CutText
 			readonly params: ReadonlyArray<Slot>
 	  }
 
@@ -122,13 +124,16 @@ export const assembled = <Slot>(
 	const arms: Array<string> = []
 	const params: Array<Slot> = []
 	for (const unit of units) {
-		ctes.push(placed(unit.ctes, params.length))
-		appendAll(params, unit.params)
-		if (unit.kind === "part") {
-			arms.push(unit.arm)
-		} else {
-			appendAll(arms, unit.arms)
+		const before = params.length
+		const text = placed(unit.ctes, before)
+		if (text !== "") {
+			ctes.push(text)
 		}
+		for (const arm of unit.kind === "part" ? [unit.arm] : unit.arms) {
+			arms.push(placed(arm, before))
+		}
+		appendAll(params, unit.params)
 	}
-	return { text: mint(`WITH ${ctes.join(",\n")}\n${arms.join("\nUNION ALL\n")}`), params }
+	const head = ctes.length === 0 ? "" : `WITH ${ctes.join(",\n")}\n`
+	return { text: mint(`${head}${arms.join("\nUNION ALL\n")}`), params }
 }

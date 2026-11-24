@@ -1,0 +1,405 @@
+From a67a219509b253dfe06383b112ceab2fa7d41c6c Mon Sep 17 00:00:00 2001
+From: Bjorn Pagen <11238136+bjornpagen@users.noreply.github.com>
+Date: Tue, 24 Nov 2026 16:58:21 -0600
+Subject: [PATCH REL_19 v1] Choose subplan names in constant time
+
+choose_plan_name(), added by 8c49a484e8e, checks a name against those
+already assigned by scanning the list glob->subplanNames, and finds a
+numeric suffix by trying 1, 2, 3, ... with a scan of the list for each.
+So the k-th subplan of a kind (exists_k, expr_k, setop_k,
+unnamed_subquery_k and so on) costs about k scans of a list of every
+name assigned so far, and a statement with N of them O(N^3) string
+comparisons.  A SELECT of 4000 uncorrelated EXISTS sublinks takes 47.5 s
+of backend CPU time to plan, and in the statements an application of
+ours generates, with a few hundred sublinks, unnamed subqueries and
+CTEs each, choose_plan_name() takes 40-65% of planning time.
+
+Keep the names in a hash table instead, keyed by the C string, so that
+names of any length work.  Each entry records whether the name itself
+has been assigned and, for a name that has been the prefix of a
+numbered name, the suffix to try next: every smaller suffix was found
+to be in use, and names are never given up, so none of them can have
+become free.  Choosing a name then takes constant time on average, and
+the 4000 EXISTS sublinks plan in 0.43 s.  The table is created on the
+first call, in the current memory context, as the list was.
+
+The names chosen are the same as before: the name as given if it is not
+in use and numbering is not required, else the name with the smallest
+numeric suffix not in use.  The new regression test, which shows
+numbered names next to CTE names and FROM-clause aliases at several
+query levels and 200 sublinks of two kinds, gives the same output
+without this change.
+
+This is the design Robert Haas proposed in the discussion, without a
+threshold below which the list is kept.
+
+In this branch, glob->subplanNames stays a list, maintained as before
+for any extension that reads it, and the hash table is a new field,
+subplanNamesHash, at the end of PlannerGlobal, so that no existing
+field moves: extensions reach PlannerGlobal through hooks, and
+GetPlannerGlobalExtensionState() reads its extension_state fields
+inline.  PlannerGlobal is allocated only by planner.c, with makeNode().
+
+Reported-by: Manuel Reyes Bravo
+Suggested-by: Robert Haas <robertmhaas@gmail.com>
+Discussion: https://postgr.es/m/179161574267.1707709.13345376006450096249@gmail.com
+Backpatch-through: 19
+---
+ src/backend/optimizer/plan/planner.c    | 107 ++++++++++++++++--------
+ src/include/nodes/pathnodes.h           |   3 +
+ src/test/regress/expected/subselect.out |  90 ++++++++++++++++++++
+ src/test/regress/sql/subselect.sql      |  54 ++++++++++++
+ src/tools/pgindent/typedefs.list        |   2 +
+ 5 files changed, 220 insertions(+), 36 deletions(-)
+
+diff --git a/src/backend/optimizer/plan/planner.c b/src/backend/optimizer/plan/planner.c
+index 83f8f93b7c..f1600a4a0b 100644
+--- a/src/backend/optimizer/plan/planner.c
++++ b/src/backend/optimizer/plan/planner.c
+@@ -26,6 +26,7 @@
+ #include "catalog/pg_inherits.h"
+ #include "catalog/pg_proc.h"
+ #include "catalog/pg_type.h"
++#include "common/hashfn_unstable.h"
+ #include "executor/executor.h"
+ #include "foreign/fdwapi.h"
+ #include "jit/jit.h"
+@@ -152,6 +153,30 @@ typedef struct
+ 	int			sublevels_up;
+ } preprocess_subquery_phvs_context;
+ 
++/*
++ * Entry in PlannerGlobal's table of subplan names (see choose_plan_name).
++ * The key is a name that has either been assigned to a subroot or been used
++ * as the prefix of a numbered name, or both.
++ */
++typedef struct SubplanNameEntry
++{
++	const char *name;			/* hash key */
++	char		status;			/* hash status */
++	bool		used;			/* name has been assigned to a subroot */
++	unsigned	next_suffix;	/* name_N is in use for every N < this */
++} SubplanNameEntry;
++
++#define SH_PREFIX		subplan_names
++#define SH_ELEMENT_TYPE	SubplanNameEntry
++#define SH_KEY_TYPE		const char *
++#define SH_KEY			name
++#define SH_HASH_KEY(tb, key)	hash_string(key)
++#define SH_EQUAL(tb, a, b)		(strcmp(a, b) == 0)
++#define SH_SCOPE		static inline
++#define SH_DECLARE
++#define SH_DEFINE
++#include "lib/simplehash.h"
++
+ /* Local functions */
+ static Node *preprocess_expression(PlannerInfo *root, Node *expr, int kind);
+ static void preprocess_qual_conditions(PlannerInfo *root, Node *jtnode);
+@@ -9271,62 +9296,72 @@ create_partial_unique_paths(PlannerInfo *root, RelOptInfo *input_rel,
+ /*
+  * Choose a unique name for some subroot.
+  *
+- * Modifies glob->subplanNames to track names already used.
++ * If always_number is false and no subroot has been given this name yet, use
++ * it as is.  Otherwise, append the smallest positive integer suffix that
++ * produces a name not yet used.
++ *
++ * glob->subplanNames lists the names already used, and glob->subplanNamesHash
++ * holds them for lookup.  For each name that has been numbered, the hash
++ * table also remembers the suffix to try next: every smaller one was found to
++ * be in use, and names are never given up, so they need not be tried again.
++ * Choosing a name thus takes constant time on average, however many names
++ * have been chosen before it.
+  */
+ char *
+ choose_plan_name(PlannerGlobal *glob, const char *name, bool always_number)
+ {
++	SubplanNameEntry *entry;
++	bool		found;
+ 	unsigned	n;
+ 
++	if (glob->subplanNamesHash == NULL)
++		glob->subplanNamesHash = subplan_names_create(CurrentMemoryContext, 8,
++													  NULL);
++
++	entry = subplan_names_insert(glob->subplanNamesHash, name, &found);
++	if (!found)
++	{
++		/* the caller's string need not live as long as the table */
++		entry->name = pstrdup(name);
++		entry->used = false;
++		entry->next_suffix = 1;
++	}
++
+ 	/*
+-	 * If a numeric suffix is not required, then search the list of
+-	 * previously-assigned names for a match. If none is found, then we can
+-	 * use the provided name without modification.
++	 * If a numeric suffix is not required and the name is not in use, then we
++	 * can use the provided name without modification.
+ 	 */
+-	if (!always_number)
++	if (!always_number && !entry->used)
+ 	{
+-		bool		found = false;
++		/* pstrdup here is just to avoid cast-away-const */
++		char	   *chosen_name = pstrdup(name);
+ 
+-		foreach_ptr(char, subplan_name, glob->subplanNames)
+-		{
+-			if (strcmp(subplan_name, name) == 0)
+-			{
+-				found = true;
+-				break;
+-			}
+-		}
+-
+-		if (!found)
+-		{
+-			/* pstrdup here is just to avoid cast-away-const */
+-			char	   *chosen_name = pstrdup(name);
+-
+-			glob->subplanNames = lappend(glob->subplanNames, chosen_name);
+-			return chosen_name;
+-		}
++		entry->used = true;
++		glob->subplanNames = lappend(glob->subplanNames, chosen_name);
++		return chosen_name;
+ 	}
+ 
+ 	/*
+ 	 * If a numeric suffix is required or if the un-suffixed name is already
+ 	 * in use, then loop until we find a positive integer that produces a
+-	 * novel name.
++	 * novel name, starting where the last search for this prefix left off.
+ 	 */
+-	for (n = 1; true; ++n)
++	for (n = entry->next_suffix; true; ++n)
+ 	{
+ 		char	   *proposed_name = psprintf("%s_%u", name, n);
+-		bool		found = false;
++		SubplanNameEntry *proposed;
+ 
+-		foreach_ptr(char, subplan_name, glob->subplanNames)
+-		{
+-			if (strcmp(subplan_name, proposed_name) == 0)
+-			{
+-				found = true;
+-				break;
+-			}
+-		}
+-
+-		if (!found)
++		proposed = subplan_names_lookup(glob->subplanNamesHash, proposed_name);
++		if (proposed == NULL || !proposed->used)
+ 		{
++			/* do this first, as inserting may move entry */
++			entry->next_suffix = n + 1;
++
++			proposed = subplan_names_insert(glob->subplanNamesHash,
++											proposed_name, &found);
++			if (!found)
++				proposed->next_suffix = 1;
++			proposed->used = true;
+ 			glob->subplanNames = lappend(glob->subplanNames, proposed_name);
+ 			return proposed_name;
+ 		}
+diff --git a/src/include/nodes/pathnodes.h b/src/include/nodes/pathnodes.h
+index b3c531e7b4..e47beeeb4d 100644
+--- a/src/include/nodes/pathnodes.h
++++ b/src/include/nodes/pathnodes.h
+@@ -271,6 +271,9 @@ typedef struct PlannerGlobal
+ 	/* extension state */
+ 	void	  **extension_state pg_node_attr(read_write_ignore);
+ 	int			extension_state_allocated;
++
++	/* subplanNames as a hash table (see choose_plan_name) */
++	struct subplan_names_hash *subplanNamesHash pg_node_attr(read_write_ignore);
+ } PlannerGlobal;
+ 
+ /* macro for fetching the Plan associated with a SubPlan node */
+diff --git a/src/test/regress/expected/subselect.out b/src/test/regress/expected/subselect.out
+index 0c4a40fa93..b8cfcc5974 100644
+--- a/src/test/regress/expected/subselect.out
++++ b/src/test/regress/expected/subselect.out
+@@ -4157,3 +4157,93 @@ WHERE t NOT IN (SELECT id FROM not_null_tab);
+ (4 rows)
+ 
+ ROLLBACK;
++--
++-- Subplan names are unique within a statement.  A name used as given (a CTE
++-- name or a FROM-clause alias) is numbered if already taken, and a numbered
++-- name takes the smallest suffix not yet in use, by any kind of name.  Here
++-- the CTE exists_3 and the alias array_3 are taken before those names would
++-- be generated, so they are skipped; the CTEs exists_1 and cte (the second)
++-- come after those names are taken, so they become exists_1_1 and cte_1; and
++-- the CTE "exists" keeps its name, which was only ever a prefix before.
++--
++explain (costs off)
++with exists_3 as materialized (select 1 as x),
++     cte as materialized (select 2 as y)
++select exists(select 1 from exists_3) as e1,
++       exists(with exists_1 as materialized (select 3 as z)
++              select 1 from exists_1) as e2,
++       array(select y from cte) as a1,
++       exists(with "exists" as materialized (select 4 as w)
++              select 1 from "exists") as e4,
++       exists(with cte as materialized (select 5 as v)
++              select 1 from cte) as e5,
++       array(select 6) as a2,
++       s.*
++from (select 7 as u offset 0) as array_3,
++     (select array(select 8) as a3, array(select 9) as a4,
++             exists(select 10) as e6 offset 0) as s;
++          QUERY PLAN           
++-------------------------------
++ Nested Loop
++   CTE exists_3
++     ->  Result
++   CTE cte
++     ->  Result
++   InitPlan exists_1
++     ->  CTE Scan on exists_3
++   InitPlan exists_2
++     ->  CTE Scan on exists_1
++           CTE exists_1_1
++             ->  Result
++   InitPlan array_1
++     ->  CTE Scan on cte
++   InitPlan exists_4
++     ->  CTE Scan on "exists"
++           CTE exists
++             ->  Result
++   InitPlan exists_5
++     ->  CTE Scan on cte cte_1
++           CTE cte_1
++             ->  Result
++   InitPlan array_2
++     ->  Result
++   ->  Result
++   ->  Result
++         InitPlan array_4
++           ->  Result
++         InitPlan array_5
++           ->  Result
++         InitPlan exists_6
++           ->  Result
++(31 rows)
++
++-- many sublinks of the same kinds are named exists_1 to exists_100 and
++-- array_1 to array_100
++create function subplan_names(query text) returns setof text
++language plpgsql as
++$$
++declare
++  ln text;
++begin
++  for ln in execute 'explain (costs off) ' || query loop
++    if ln ~ '^\s*(InitPlan|SubPlan|CTE) ' then
++      return next trim(ln);
++    end if;
++  end loop;
++end;
++$$;
++select count(*) as subplans,
++       count(distinct name) as distinct_names,
++       count(*) filter (where name in
++         (select format('InitPlan %s_%s', kind, i)
++          from unnest(array['exists', 'array']) as kind,
++               generate_series(1, 100) as i)) as expected_names
++from subplan_names((select 'select ' || string_agg(format(
++         'exists(select %s), array(select %s)', i, i), ', ')
++       from generate_series(1, 100) as i)) as name;
++ subplans | distinct_names | expected_names 
++----------+----------------+----------------
++      200 |            200 |            200
++(1 row)
++
++drop function subplan_names(text);
+diff --git a/src/test/regress/sql/subselect.sql b/src/test/regress/sql/subselect.sql
+index ba3f7dc8f0..342ce8d98e 100644
+--- a/src/test/regress/sql/subselect.sql
++++ b/src/test/regress/sql/subselect.sql
+@@ -1832,3 +1832,57 @@ SELECT * FROM not_null_text_tab
+ WHERE t NOT IN (SELECT id FROM not_null_tab);
+ 
+ ROLLBACK;
++
++--
++-- Subplan names are unique within a statement.  A name used as given (a CTE
++-- name or a FROM-clause alias) is numbered if already taken, and a numbered
++-- name takes the smallest suffix not yet in use, by any kind of name.  Here
++-- the CTE exists_3 and the alias array_3 are taken before those names would
++-- be generated, so they are skipped; the CTEs exists_1 and cte (the second)
++-- come after those names are taken, so they become exists_1_1 and cte_1; and
++-- the CTE "exists" keeps its name, which was only ever a prefix before.
++--
++explain (costs off)
++with exists_3 as materialized (select 1 as x),
++     cte as materialized (select 2 as y)
++select exists(select 1 from exists_3) as e1,
++       exists(with exists_1 as materialized (select 3 as z)
++              select 1 from exists_1) as e2,
++       array(select y from cte) as a1,
++       exists(with "exists" as materialized (select 4 as w)
++              select 1 from "exists") as e4,
++       exists(with cte as materialized (select 5 as v)
++              select 1 from cte) as e5,
++       array(select 6) as a2,
++       s.*
++from (select 7 as u offset 0) as array_3,
++     (select array(select 8) as a3, array(select 9) as a4,
++             exists(select 10) as e6 offset 0) as s;
++
++-- many sublinks of the same kinds are named exists_1 to exists_100 and
++-- array_1 to array_100
++create function subplan_names(query text) returns setof text
++language plpgsql as
++$$
++declare
++  ln text;
++begin
++  for ln in execute 'explain (costs off) ' || query loop
++    if ln ~ '^\s*(InitPlan|SubPlan|CTE) ' then
++      return next trim(ln);
++    end if;
++  end loop;
++end;
++$$;
++
++select count(*) as subplans,
++       count(distinct name) as distinct_names,
++       count(*) filter (where name in
++         (select format('InitPlan %s_%s', kind, i)
++          from unnest(array['exists', 'array']) as kind,
++               generate_series(1, 100) as i)) as expected_names
++from subplan_names((select 'select ' || string_agg(format(
++         'exists(select %s), array(select %s)', i, i), ', ')
++       from generate_series(1, 100) as i)) as name;
++
++drop function subplan_names(text);
+diff --git a/src/tools/pgindent/typedefs.list b/src/tools/pgindent/typedefs.list
+index 712ed77385..c6481840d7 100644
+--- a/src/tools/pgindent/typedefs.list
++++ b/src/tools/pgindent/typedefs.list
+@@ -3010,6 +3010,7 @@ SubXactCallback
+ SubXactCallbackItem
+ SubXactEvent
+ SubXactInfo
++SubplanNameEntry
+ SubqueryScan
+ SubqueryScanPath
+ SubqueryScanState
+@@ -4320,6 +4321,7 @@ storeInfo
+ storeRes_func
+ stream_stop_callback
+ string
++subplan_names_hash
+ substitute_actual_parameters_context
+ substitute_actual_parameters_in_from_context
+ substitute_grouped_columns_context
+
+base-commit: 4c1329da8f36aa92867dc1c20b7c6dff44f19e00
+-- 
+2.53.0
+

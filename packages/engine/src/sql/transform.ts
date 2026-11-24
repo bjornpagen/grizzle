@@ -2558,6 +2558,24 @@ export const visitSelect = (query: OperandSelect, visitor: AstVisitor): undefine
 	new Visit(visitor).select(query)
 }
 
+/** Every expression, FROM item, WITH clause and set operation of a data-modifying statement, outermost first. */
+export const visitDml = (
+	statement: Exclude<Dml, { readonly kind: "select" }>,
+	visitor: AstVisitor
+): undefined => {
+	const visit = new Visit(visitor)
+	switch (statement.kind) {
+		case "insert":
+			return visit.insert(statement)
+		case "update":
+			return visit.update(statement)
+		case "delete":
+			return visit.delete(statement)
+		case "merge":
+			return visit.merge(statement)
+	}
+}
+
 /** Every expression, FROM item, WITH clause and set operation of an expression, the queries it holds among them, outermost first. */
 export const visitExpr = (e: Expr, visitor: AstVisitor): undefined => {
 	new Visit(visitor).expr(e)

@@ -1,0 +1,69 @@
+CHECKLIST: PostgreSQL contribution policy, applied to choose_plan_name()'s O(N^3) naming of subplans
+
+Outcome: a reply in the existing pgsql-hackers thread, with our workload's numbers, a review of v6 and our variant
+attached for comparison (README.txt 2). Nothing has been sent.
+
+A. GATES BEFORE REPORTING
+  [x] Check whether the problem is already known (https://www.postgresql.org/docs/current/bug-reporting.html 5.1).
+      It is, and has a patch under review. Searched 2026-11-24: the web for "choose_plan_name" with "quadratic",
+      "performance", "pgsql-hackers"; the pgsql-hackers archive; the open commitfests PG20-2, PG20-3, PG20-4 and
+      PG20-Drafts (their titles read in full; the commitfest search itself needs a login).
+      - Thread "O(N^3) planning time in choose_plan_name() since 8c49a484e8e", pgsql-hackers, started 2026-10-10 by
+        Manuel Reyes Bravo ("Manu"), https://postgr.es/m/179161574267.1707709.13345376006450096249@gmail.com,
+        21 messages to 2026-11-20:
+        - v1 (10-10): a hash table plus a next suffix per base name; same names. Ayoub Kazar (10-28) reviewed it and
+          found that its dynahash keys truncated names longer than NAMEDATALEN-1.
+        - Andres Freund (10-28): "Are there halfway realistic cases where this is a problem?" and "Creating hash
+          tables ain't free memory-usage-wise"; proposed list_length() as the suffix. Tom Lane: "Or just do it that
+          way always." Manu (10-28): that renumbers names that pg_plan_advice strings refer to.
+        - v2 to v5 (10-28 to 11-01): per-base counters without a hash table. Tom Lane (10-31): "complicated and not
+          clearly correct"; proposed one list of (base, taken, next_suffix) structs.
+        - Robert Haas (11-03), the author of 8c49a484e8e: build a cstring-keyed hash table "only ... when there are
+          unusually many subplans", with "a Boolean indicating whether the exact value has been used as a name, and
+          an unsigned value indicating the lowest value of n for which choose_plan_name's numeric suffix look could
+          possibly succeed". Our patch is that design without the threshold.
+        - v6 (11-04, 179382931036.1743405.1568941311065599844@gmail.com): Robert's design with a threshold of 32
+          names; below it the list is searched as before. Not yet reviewed on the list.
+        - Andreas (11-20): a real workload, about 250 expr_N sublinks, 100 same-alias subqueries, 170 CTEs, a 100-arm
+          UNION ALL; planning 78 ms on 19.0 against 40 ms on 18.7.
+        - Robert Haas (11-20, CA+Tgmob=v0QHEnE9gXC4WTs34U3boy5VoN9TFLyT6ahqs2oUsw@mail.gmail.com), the last message:
+          asks Andreas to test v6, and "if people are hitting this on real workloads within days of release, I think
+          we should [back-patch]".
+      - Commitfest entry 7454, "Avoid O(N^3) planning time in choose_plan_name()", PG20-3, Needs review, Bugfix and
+        Performance, author Manuel Reyes Bravo, reviewer Ayoub Kazar, no committer, cfbot green on v6
+        (https://commitfest.postgresql.org/patch/7454/).
+      - A read-only GitHub mirror of the thread (MisterRaindrop/postgresql-github-mirror PR #895) holds v5; nothing
+        else turned up.
+      - Neither master (4931dab89d, 2026-11-24) nor REL_19_STABLE (4c1329da8f) has a fix: choose_plan_name() is still
+        8c49a484e8e's.
+  [x] Don't duplicate a discussion (https://wiki.postgresql.org/wiki/Guide_to_reporting_problems): a reply in the
+      thread, no new thread and no new commitfest entry.
+  [x] Check the current development branch (bug-reporting.html 5.2): master 4931dab89d built, tested and measured;
+      REL_19_STABLE 4c1329da8f built and tested.
+  [x] A released version is affected: 19.0 (2026-11-19). 18 and older are not (the function is new in 19).
+
+B. REPORT CONTENT
+  [x] Workload numbers (the owner's measurements, EVIDENCE.txt 1) and a reproduction runnable with psql -X
+      (repro.sql; email.txt inlines its core).
+  [x] Observed and expected behaviour, versions, platform: EVIDENCE.txt.
+  [x] Plain text, bottom-posted, quoting what it answers, no confidentiality footer.
+
+C. PATCH
+  [x] On current master (4931dab89d) and REL_19_STABLE (4c1329da8f), one commit each, git format-patch.
+  [x] The names chosen are unchanged: the new regression test gives the same output on unpatched master and
+      REL_19_STABLE, and on v6; v6's own new test gives the same output with ours; the whole regress suite, which
+      prints hundreds of subplan names, passes on both branches; pg_plan_advice's suite, whose advice strings name
+      subplans, passes (EVIDENCE.txt 3).
+  [x] Commit message in the project's style: summary, cause, fix, unchanged names, test, Reported-by,
+      Suggested-by, Discussion (the existing thread), Backpatch-through: 19.
+  [x] Builds with assertions without warnings; meson test, every suite without TAP, passes on master and
+      REL_19_STABLE (EVIDENCE.txt 3).
+  [x] pgindent (in-tree pg_bsd_indent) leaves planner.c and pathnodes.h unchanged; typedefs.list updated;
+      git diff --check clean.
+  [x] REL_19_STABLE keeps PlannerGlobal's layout: the list stays and is maintained, the hash table is a new last
+      field (README.txt 1, ABI).
+  [x] Attachments named .txt, so that cfbot keeps testing v6, the entry's patch (README.txt 2).
+  [ ] TAP suites (-Dtap_tests=enabled): not run. The change is planner-internal and cfbot runs them for v6, which
+      chooses the same names.
+  [ ] The author line: the owner sets his sending address before sending (README.txt 2).
+  [ ] Optionally, the owner adds himself as a reviewer of CF 7454 once the reply is in the archive.

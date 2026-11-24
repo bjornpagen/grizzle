@@ -13,7 +13,15 @@ import { always, type Needs } from "#compiler/ir/needs.ts"
 import type { WriteParamSlot } from "#compiler/lower/conservative/types.ts"
 import { shiftedPart, taggedArms } from "#compiler/lower/parts.ts"
 import type { CutText, Parted, PartedUnit } from "#compiler/runtime/write/parted.ts"
-import type { Cte, EmittedSql, Select, SetArm, SqlStatement, Target } from "#compiler/sql/ast.ts"
+import type {
+	Cte,
+	EmittedSql,
+	OperandBody,
+	Select,
+	SetArm,
+	SqlStatement,
+	Target
+} from "#compiler/sql/ast.ts"
 import {
 	col,
 	cteRef,
@@ -27,7 +35,9 @@ import {
 import { emitText } from "#compiler/sql/emit.ts"
 import { lexemesOf } from "#compiler/sql/lexer.ts"
 import { type NameMap, NameSupply, type NameSupplyStart, namesPast } from "#compiler/sql/naming.ts"
+import { inPlaceSites, printedOnce } from "#compiler/sql/print-once.ts"
 import { printArmBlock, printCteBlock } from "#compiler/sql/print.ts"
+import { inertVisitor, visitSelect } from "#compiler/sql/transform.ts"
 import type { FamilyWriteSql } from "#compiler/write/family/written.ts"
 import {
 	type DeleteResult,
@@ -258,6 +268,77 @@ export const singleStatement = (
 }
 
 /**
+ * A single statement as it is printed (sql/print-once.ts printedOnce), every CTE PostgreSQL would inline printed in
+ * place, and its units with the CTEs each still prints: a CTE printed in place leaves its unit's CTEs, and its text goes
+ * where its one reference stands, which is in its own unit, since a part reads only its own CTEs and the shared ones,
+ * which are MATERIALIZED, and a riding read-back reads only its own and the writes' RETURNING, which write.
+ */
+const printedUnits = (
+	ast: Select,
+	units: NonEmptyReadonlyArray<UnitShape>
+): { readonly printed: SqlStatement; readonly units: NonEmptyReadonlyArray<UnitShape> } => {
+	const ctes = ast.with?.ctes ?? []
+	const unitOfCte: Array<number> = []
+	const unitOfArm: Array<number> = []
+	units.forEach((unit, at) => {
+		for (let i = 0; i < unit.ctes; i += 1) {
+			unitOfCte.push(at)
+		}
+		for (let i = 0; i < (unit.kind === "part" ? 1 : unit.arms); i += 1) {
+			unitOfArm.push(at)
+		}
+	})
+	const sites = inPlaceSites(ast)
+	const arms = ast.body.kind === "setOp" ? ast.body.arms : [ast.body]
+	for (const [name, site] of sites) {
+		const at = ctes.findIndex((c) => c.name === name)
+		const reader =
+			site.kind === "cte"
+				? unitOfCte[site.at]
+				: unitOfArm[arms.findIndex((arm) => readsCte(arm, name))]
+		if (reader !== unitOfCte[at]) {
+			throw defect(`a single statement's CTE ${name}, printed in place, is read in another unit`)
+		}
+	}
+	const printed = printedOnce(ast)
+	const kept = new Set(
+		(printed.kind === "select" ? printed.with?.ctes : undefined)?.map((c) => c.name)
+	)
+	const counts = units.map(
+		(_, unit) => ctes.filter((c, at) => kept.has(c.name) && unitOfCte[at] === unit).length
+	)
+	return {
+		printed,
+		units: mapNonEmpty(units, (unit, at) => ({
+			...unit,
+			ctes: defined(counts[at], "a unit's count")
+		}))
+	}
+}
+
+/** Whether a single statement's arm reads the CTE `name`. */
+const readsCte = (arm: OperandBody, name: string): boolean => {
+	let reads = false
+	visitSelect(
+		{
+			kind: "select",
+			with: undefined,
+			body: arm,
+			orderBy: [],
+			limit: undefined,
+			offset: undefined
+		},
+		{
+			...inertVisitor,
+			fromItem: (item) => {
+				reads ||= item.kind === "cte" && item.name === name
+			}
+		}
+	)
+	return reads
+}
+
+/**
  * A single statement's text by its units (runtime/write/parted.ts Parted), read off its `ast` as the statement holds it,
  * placeholders `params` and all, after every rewrite of its forms (write/program/slot-carriers.ts): each unit's CTEs and
  * arms as the printer prints them in the whole (sql/print.ts printCteBlock, printArmBlock), its placeholders cut out as
@@ -274,48 +355,69 @@ export const partedOf = <Slot>(
 	if (ast.kind !== "select" || ast.with === undefined) {
 		throw defect("a single statement is a SELECT under a WITH")
 	}
-	const ctes = ast.with.ctes
-	const body = ast.body
+	const { printed, units: own } = printedUnits(ast, units)
+	if (printed.kind !== "select" || printed.with === undefined) {
+		throw defect(
+			"a single statement printed once is a SELECT under a WITH: its units' arms read CTEs"
+		)
+	}
+	const ctes = printed.with.ctes
+	const body = printed.body
 	const arms = body.kind === "setOp" ? body.arms : [body]
 	let cte = 0
 	let arm = 0
 	let placed = 0
-	const unitText = (
-		count: number
-	): { readonly cut: CutText; readonly params: ReadonlyArray<Slot> } => {
-		const text = ctes
-			.slice(cte, cte + count)
+	/**
+	 * A unit's CTEs' text and its arms' texts, `armCount` of them, each with its placeholders cut out: they are one block
+	 * of the statement's, after the blocks of the units before it, read by its CTEs and its arms alike, since a CTE a
+	 * part reads once is printed in its arm (sql/print-once.ts).
+	 */
+	const unitTexts = (
+		cteCount: number,
+		armCount: number
+	): {
+		readonly ctes: CutText
+		readonly arms: ReadonlyArray<CutText>
+		readonly params: ReadonlyArray<Slot>
+	} => {
+		const cteText = ctes
+			.slice(cte, cte + cteCount)
 			.map(printCteBlock)
 			.join(",\n")
-		cte += count
-		const from = placed
-		const cut = cutText(text, from)
-		placed = from + cut.count
-		return { cut: cut.text, params: params.slice(from, placed) }
-	}
-	const armTexts = (count: number): ReadonlyArray<string> => {
-		const texts = arms.slice(arm, arm + count).map((a) => {
+		cte += cteCount
+		const armTexts = arms.slice(arm, arm + armCount).map((a) => {
 			if (a.kind !== "core") {
 				throw defect("a single statement's arm is a core")
 			}
 			return printArmBlock(a)
 		})
-		arm += count
-		return texts
+		arm += armCount
+		const from = placed
+		const cut = cutTexts([cteText, ...armTexts], from)
+		placed = from + cut.count
+		const [cteCut, ...armCuts] = cut.texts
+		return {
+			ctes: defined(cteCut, "a unit's CTEs' text"),
+			arms: armCuts,
+			params: params.slice(from, placed)
+		}
 	}
-	const parted = mapNonEmpty(units, (unit): PartedUnit<Slot> => {
-		const own = unitText(unit.ctes)
+	const parted = mapNonEmpty(own, (unit): PartedUnit<Slot> => {
 		switch (unit.kind) {
-			case "always":
-				return { kind: "always", ctes: own.cut, arms: armTexts(unit.arms), params: own.params }
-			case "part":
+			case "always": {
+				const texts = unitTexts(unit.ctes, unit.arms)
+				return { kind: "always", ctes: texts.ctes, arms: texts.arms, params: texts.params }
+			}
+			case "part": {
+				const texts = unitTexts(unit.ctes, 1)
 				return {
 					kind: "part",
 					needs: unit.needs,
-					ctes: own.cut,
-					arm: defined(armTexts(1)[0], "a part's one arm"),
-					params: own.params
+					ctes: texts.ctes,
+					arm: defined(texts.arms[0], "a part's one arm"),
+					params: texts.params
 				}
+			}
 		}
 	})
 	if (cte !== ctes.length || arm !== arms.length || placed !== params.length) {
@@ -325,33 +427,39 @@ export const partedOf = <Slot>(
 }
 
 /**
- * The text of a unit whose placeholders follow the statement's first `from`, with those cut out (CutText): each hole
- * its placeholder's index among the unit's, and how many the unit holds, its placeholders being the next block of the
- * statement's.
+ * The texts of a unit, its CTEs' and its arms', whose placeholders follow the statement's first `from`, with those cut
+ * out (CutText): each hole its placeholder's index among the unit's, and how many the unit holds, its placeholders, read
+ * by any of its texts, being the next block of the statement's.
  */
-const cutText = (
-	text: string,
+const cutTexts = (
+	texts: ReadonlyArray<string>,
 	from: number
-): { readonly text: CutText; readonly count: number } => {
-	const holes: Array<{ readonly hole: number; readonly after: string }> = []
+): { readonly texts: ReadonlyArray<CutText>; readonly count: number } => {
 	const numbers = new Set<number>()
-	let end = text.length
-	for (const l of lexemesOf(text).lexemes.toReversed()) {
-		if (l.kind !== "param") {
-			continue
+	const cut = texts.map((text): CutText => {
+		const holes: Array<{ readonly hole: number; readonly after: string }> = []
+		let end = text.length
+		for (const l of lexemesOf(text).lexemes.toReversed()) {
+			if (l.kind !== "param") {
+				continue
+			}
+			if (l.index <= from) {
+				throw defect(`a placeholder $${l.index} of a single statement's unit after $${from}`)
+			}
+			numbers.add(l.index)
+			holes.push({
+				hole: l.index - from - 1,
+				after: text.slice(l.start + `$${l.index}`.length, end)
+			})
+			end = l.start
 		}
-		if (l.index <= from) {
-			throw defect(`a placeholder $${l.index} of a single statement's unit after $${from}`)
-		}
-		numbers.add(l.index)
-		holes.push({ hole: l.index - from - 1, after: text.slice(l.start + `$${l.index}`.length, end) })
-		end = l.start
-	}
+		return { head: text.slice(0, end), holes: holes.toReversed() }
+	})
 	const count = maxOf([...numbers], from) - from
 	if (numbers.size !== count) {
 		throw defect(`the placeholders of a single statement's unit after $${from} are a block`)
 	}
-	return { text: { head: text.slice(0, end), holes: holes.toReversed() }, count }
+	return { texts: cut, count }
 }
 
 /**

@@ -828,7 +828,10 @@ export const headed = (statement: OperandSelect, reads: DeltaReads): OperandSele
 		const reader = reads.reader(read)
 		return {
 			kind: "function",
-			call: qualifiedCall(reader.schema, reader.name, []),
+			call: qualifiedCall(
+				{ kind: "qualified", schema: reader.schema, name: reader.name, volatility: "VOLATILE" },
+				[]
+			),
 			alias,
 			columns: {
 				kind: "defined",

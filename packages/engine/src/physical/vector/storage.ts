@@ -15,7 +15,15 @@ export const isVectorType = (t: ScalarType): boolean => baseOf(t).carrier === "v
 /** The predicate of the cosine-domain CHECK over the unqualified column `column`, as a row CHECK spells it. */
 const normPredicate = (vectorSchema: string, column: Expr): Expr => ({
 	kind: "between",
-	expr: qualifiedCall(vectorSchema, vectorFunctions.norm, [column]),
+	expr: qualifiedCall(
+		{
+			kind: "qualified",
+			schema: vectorSchema,
+			name: vectorFunctions.norm,
+			volatility: "IMMUTABLE"
+		},
+		[column]
+	),
 	low: lit.float(cosineNormMin, types.double),
 	high: lit.float(cosineNormMax, types.double),
 	not: false

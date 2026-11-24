@@ -6,6 +6,7 @@ import {
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import { type DecimalParts, partsText } from "#compiler/core/decimal.ts"
 import type {
+	QualifiedFunctionRef,
 	ArrayCheck,
 	ArraysSource,
 	BinaryOperator,
@@ -353,8 +354,9 @@ const plainCall = (fn: FunctionRef, args: ReadonlyArray<Expr>): Call => ({
 export const call = (name: BuiltinFunctionName, args: ReadonlyArray<Expr>): Call =>
 	plainCall({ kind: "builtin", name }, args)
 
-export const qualifiedCall = (schema: string, name: string, args: ReadonlyArray<Expr>): Call =>
-	plainCall({ kind: "qualified", schema, name }, args)
+/** A call of a function of a named schema, its reference stating the volatility its declaration gives it. */
+export const qualifiedCall = (fn: QualifiedFunctionRef, args: ReadonlyArray<Expr>): Call =>
+	plainCall(fn, args)
 
 /** count(*) without FILTER or OVER. */
 export const countStar = (): CountStar => ({
@@ -908,7 +910,15 @@ export const provedSelect = (
 export const calledAlone = (fn: ObjectName): Select =>
 	provedSelect(
 		"oneRow",
-		[{ expr: qualifiedCall(fn.schema, fn.name, []), alias: undefined }],
+		[
+			{
+				expr: qualifiedCall(
+					{ kind: "qualified", schema: fn.schema, name: fn.name, volatility: "VOLATILE" },
+					[]
+				),
+				alias: undefined
+			}
+		],
 		[],
 		undefined
 	)

@@ -522,6 +522,13 @@
  * beside a key set of its own. So every literal pack, its comment and its function's name move, every read of a closed
  * relation a CHECK, a generated column or a statement makes moves, and snapshot.json's closed constants record their
  * cells' and payloads' functions, no width and no key set.
+ * Every statement is printed once (sql/print-once.ts): a CTE its query reads once, that is not MATERIALIZED, not a
+ * recursive WITH's, writes nothing and calls no VOLATILE function, is printed in place as the derived table PostgreSQL's
+ * inlining makes of it, where format 8 printed it as a CTE that PostgreSQL inlined by a walk of the whole statement for
+ * each. So a function reference states its declared volatility (sql/ast.ts QualifiedFunctionRef `volatility`), which a
+ * snapshot's and a served file's statements hold; and a single statement's arm is a cut text, its placeholders cut out
+ * as its unit's CTEs' are (runtime/write/parted.ts PartedUnit `arm`, `arms`), a part's own CTE being printed in its arm,
+ * where format 8 held an arm's text whole. Every statement with such a CTE, and every served single statement, moves.
  */
 export const artifactFormat = 8
 
@@ -549,8 +556,8 @@ export type FormattedFile = (typeof formattedFiles)[number]
  * @formatConstant each file's shape: the digest of its type, by test/support/record-shape.ts
  */
 export const recordShapes: { readonly [F in FormattedFile]: string } = {
-	snapshot: "c51b61cc81346e64977c206e9e5a99c5c0ab2fc9d5ecb4fd7178126fcacf7711",
-	served: "4cda9675378d4041d60b3ecda1b44e32ef16a830490c22b6d68c9792c623e85d"
+	snapshot: "74fce2c900121e3fca91721977dbc7b33e932a6c4aeaf063c8d85208431e8b54",
+	served: "d9e562fc2ad6eefe4d5f20dc2113117787e6f66e6fdf6cfdd1a6b3b565b8f007"
 }
 
 /**

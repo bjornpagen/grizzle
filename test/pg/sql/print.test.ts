@@ -574,7 +574,7 @@ export const printedSQLOnPostgreSQL19RaisesEveryGeneratedRAISEWithTheSQLSTATEMes
 							targetAs(
 								{
 									kind: "call",
-									fn: { kind: "qualified", schema, name },
+									fn: { kind: "qualified", schema, name, volatility: "VOLATILE" },
 									args: [],
 									star: false,
 									distinct: false,

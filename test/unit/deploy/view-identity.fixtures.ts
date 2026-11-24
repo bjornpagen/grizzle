@@ -127,7 +127,7 @@ const offsetOf = (relowering: Relowering, schema: string): Expr => {
 		case "gone":
 			return {
 				kind: "call",
-				fn: { kind: "qualified", schema, name: "earlier_helper" },
+				fn: { kind: "qualified", schema, name: "earlier_helper", volatility: "IMMUTABLE" },
 				args: [],
 				star: false,
 				distinct: false,

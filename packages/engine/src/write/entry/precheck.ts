@@ -137,8 +137,7 @@ const membershipOf = (
 		fields.map((f) => w.cx.baseTypeRef(rowType(f)))
 	)
 	return qualifiedCall(
-		fn.schema,
-		fn.name,
+		{ kind: "qualified", schema: fn.schema, name: fn.name, volatility: "STABLE" },
 		fields.map((f) => cast(value(f), w.cx.baseTypeRef(rowType(f))))
 	)
 }
@@ -264,7 +263,13 @@ export const buildEntryCheck = (
 					targetAs(membershipOf(w, check, typed), inside),
 					...held.map(({ call, column }) => {
 						const fn = call.fn(call.args.map(baseType))
-						return targetAs(qualifiedCall(fn.schema, fn.name, call.args.map(typed)), column)
+						return targetAs(
+							qualifiedCall(
+								{ kind: "qualified", schema: fn.schema, name: fn.name, volatility: "STABLE" },
+								call.args.map(typed)
+							),
+							column
+						)
 					})
 				],
 				[from],

@@ -115,7 +115,10 @@ export const borrowQuery = (
 		[
 			targetAs(
 				cast(
-					qualifiedCall(schema, borrowFunctionName, [ordered(id), ordered(exclusive)]),
+					qualifiedCall(
+						{ kind: "qualified", schema, name: borrowFunctionName, volatility: "VOLATILE" },
+						[ordered(id), ordered(exclusive)]
+					),
 					types.text
 				),
 				names.column(internal("borrowed"))

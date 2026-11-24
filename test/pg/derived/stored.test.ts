@@ -198,8 +198,8 @@ export const aStoredRelationsUpkeepCallsAFunctionOncePerDistinctArgumentTupleOfT
 			},
 			{
 				file: "packages/engine/src/write/refusal.ts",
-				original: '\t\t\tvolatility: "VOLATILE",\n',
-				replacement: '\t\t\tvolatility: "STABLE",\n',
+				original: 'const refusalVolatility = "VOLATILE"\n',
+				replacement: 'const refusalVolatility = "STABLE"\n',
 				why: "The refusal function a call's NULL value is refused by is STABLE, so the compiles are a simple subquery, which PostgreSQL pulls up into the step that joins them back to the linked places, evaluating the call where that step reads the program: once per linked place, and never for a value no linked place holds."
 			}
 		]

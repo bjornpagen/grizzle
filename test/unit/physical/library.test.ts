@@ -141,7 +141,7 @@ export const aLibraryFunctionIsInstalledExactlyWhereAPersistentExpressionCallsIt
 					)
 					assert.deepEqual(
 						named.ok ? named.value : assert.fail(named.error.message),
-						{ kind: "qualified", schema: schemaName, name },
+						{ kind: "qualified", schema: schemaName, name, volatility: "IMMUTABLE" },
 						"the names name the installed function"
 					)
 					assert.ok(

@@ -1843,7 +1843,8 @@ export const libraryIdentity = (fn: LibraryFn): Identity<"libraryFunction"> => i
 export const libraryRef = (schema: string, fn: LibraryFn): QualifiedFunctionRef => ({
 	kind: "qualified",
 	schema,
-	name: libraryIdentity(fn).identifier
+	name: libraryIdentity(fn).identifier,
+	volatility: "IMMUTABLE"
 })
 
 /**

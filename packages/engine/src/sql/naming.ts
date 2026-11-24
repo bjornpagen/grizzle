@@ -99,7 +99,15 @@ export const carrierReaderScan = (
 	alias: string
 ): FromSource => ({
 	kind: "function",
-	call: qualifiedCall(temporarySchema, carrierReaderName(carrier), []),
+	call: qualifiedCall(
+		{
+			kind: "qualified",
+			schema: temporarySchema,
+			name: carrierReaderName(carrier),
+			volatility: "VOLATILE"
+		},
+		[]
+	),
 	alias,
 	columns: { kind: "named", names: columns, ordinality: false },
 	lateral: false

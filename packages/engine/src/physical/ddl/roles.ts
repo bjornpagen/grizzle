@@ -220,9 +220,10 @@ const vectorLibraryLoad = (vectorSchema: TypeSchema): Select =>
 		"oneRow",
 		[
 			target(
-				qualifiedCall(vectorSchema, "vector_dims", [
-					lit.text("[1]", namedType(vectorSchema, "vector", []))
-				])
+				qualifiedCall(
+					{ kind: "qualified", schema: vectorSchema, name: "vector_dims", volatility: "IMMUTABLE" },
+					[lit.text("[1]", namedType(vectorSchema, "vector", []))]
+				)
 			)
 		],
 		[],
@@ -710,8 +711,7 @@ export const entryMembership = (
 	const over = (row: (field: LawField) => Expr): Expr =>
 		filterReadsOther(writable)
 			? qualifiedCall(
-					names.schema,
-					fn,
+					{ kind: "qualified", schema: names.schema, name: fn, volatility: "STABLE" },
 					reads.map((f) => row(f))
 				)
 			: unwrap(

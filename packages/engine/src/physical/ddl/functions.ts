@@ -63,7 +63,8 @@ export interface InstalledFunction {
 	readonly name: FunctionName
 }
 
-const volatilityClause: { readonly [V in FunctionVolatility]: DeclaredVolatility } = {
+/** A declared function's volatility as its CREATE FUNCTION spells it, and as a call's reference states it (names.ts). */
+export const volatilityClause: { readonly [V in FunctionVolatility]: DeclaredVolatility } = {
 	immutable: "IMMUTABLE",
 	stable: "STABLE",
 	volatile: "VOLATILE"

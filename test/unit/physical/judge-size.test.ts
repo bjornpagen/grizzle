@@ -261,7 +261,7 @@ export const aWholeRulesStatementsReadEveryDeltaThroughItsReader = property.exha
 			{
 				file: "packages/engine/src/physical/ddl/deltas.ts",
 				original:
-					'\t\t\tkind: "function",\n\t\t\tcall: qualifiedCall(reader.schema, reader.name, []),\n\t\t\talias,',
+					'\t\t\tkind: "function",\n\t\t\tcall: qualifiedCall(\n\t\t\t\t{ kind: "qualified", schema: reader.schema, name: reader.name, volatility: "VOLATILE" },\n\t\t\t\t[]\n\t\t\t),\n\t\t\talias,',
 				replacement:
 					'\t\t\tkind: "table",\n\t\t\ttable: sessionTable(read.delta.name),\n\t\t\talias,',
 				why: "The judge's statements read the session's delta table, as before, so the TRUNCATE that empties it invalidates every plan that reads it, made again at the next COMMIT."

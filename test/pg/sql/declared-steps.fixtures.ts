@@ -31,7 +31,18 @@ const temporarySchema: Expr = {
 		body: core(
 			[{ expr: { kind: "cast", expr: col("n", "nspname"), type: types.text }, alias: undefined }],
 			[{ kind: "table", table: { schema: "pg_catalog", name: "pg_namespace" }, alias: "n" }],
-			eq(col("n", "oid"), qualifiedCall("pg_catalog", "pg_my_temp_schema", []))
+			eq(
+				col("n", "oid"),
+				qualifiedCall(
+					{
+						kind: "qualified",
+						schema: "pg_catalog",
+						name: "pg_my_temp_schema",
+						volatility: "STABLE"
+					},
+					[]
+				)
+			)
 		),
 		orderBy: [],
 		limit: undefined,

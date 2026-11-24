@@ -1460,7 +1460,7 @@ const fromSource = (
 								judged: types.integer
 							}
 						],
-						refusal: { kind: "qualified", schema: "app", name: NO_TABLE },
+						refusal: { kind: "qualified", schema: "app", name: NO_TABLE, volatility: "VOLATILE" },
 						alias: p.alias
 					}
 			}
@@ -1530,7 +1530,15 @@ const filterExpr = (
 		case "not":
 			return not(filterExpr(f.inner, `${path}n`, scope, env, column))
 		case "call":
-			return qualifiedCall("app", f.fn === "noTable" ? NO_TABLE : READS_TABLES, [column])
+			return qualifiedCall(
+				{
+					kind: "qualified",
+					schema: "app",
+					name: f.fn === "noTable" ? NO_TABLE : READS_TABLES,
+					volatility: "VOLATILE"
+				},
+				[column]
+			)
 	}
 }
 

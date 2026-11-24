@@ -308,7 +308,10 @@ const termExpr = (term: Term, column: (at: number) => Expr, placeholder: () => E
 		case "abs":
 			return call("abs", [column(term.at)])
 		case "random":
-			return qualifiedCall("pg_catalog", "random", [])
+			return qualifiedCall(
+				{ kind: "qualified", schema: "pg_catalog", name: "random", volatility: "VOLATILE" },
+				[]
+			)
 		case "series":
 			return call("generate_series", [lit.int(1, types.integer), lit.int(2, types.integer)])
 	}
@@ -336,7 +339,14 @@ const seeded = sql(
 	select(
 		provedCore(
 			"oneRow",
-			[target(qualifiedCall("pg_catalog", "setseed", [lit.float(0.5, types.double)]))],
+			[
+				target(
+					qualifiedCall(
+						{ kind: "qualified", schema: "pg_catalog", name: "setseed", volatility: "VOLATILE" },
+						[lit.float(0.5, types.double)]
+					)
+				)
+			],
 			[],
 			undefined
 		)

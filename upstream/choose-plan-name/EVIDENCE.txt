@@ -1,0 +1,146 @@
+EVIDENCE: choose_plan_name() makes naming N subplans O(N^3); with a hash table and a next suffix per name it is
+constant time per name, and the names are unchanged
+
+Run 2026-11-24 on aarch64-linux (Ubuntu 26.04, gcc 15.2.0, meson 1.10.1, ninja 1.13.2), 64 cores that other work
+kept at load 265-320: wall-clock times are inflated 3 to 5 times and noisy, so every time below is the backend's own
+CPU time, read from /proc/<pid>/schedstat around the statement. Builds from a shallow clone of
+https://github.com/postgres/postgres.git, meson, -Dllvm=disabled -Dicu=disabled -Ddocs=disabled -Dtap_tests=disabled;
+the timed builds -Dbuildtype=debugoptimized -Dcassert=false, the tested builds the same with -Dcassert=true. Each
+measurement in a throwaway cluster (initdb, Unix socket only, fsync=off, jit=off), psql -X as the bootstrap superuser.
+  master          4931dab89d (2026-11-24)            PostgreSQL 20devel
+  REL_19_STABLE   4c1329da8f (2026-11-24, 19.0+)     PostgreSQL 19.0
+  ours            master/v1-0001-..., REL_19_STABLE/v1-0001-...
+  v6              Manu's v6-0001-Avoid-O-N-3-planning-time-in-choose_plan_name.patch from the thread (2026-11-04,
+                  https://www.postgresql.org/message-id/attachment/208272/v6-0001-Avoid-O-N-3-planning-time-in-choose_plan_name.patch),
+                  git am on master 4931dab89d without conflict
+
+1. THE WORKLOAD (the owner's measurements, lane PLANSIZE, on 19.0 with a measurement-only version of the same
+   algorithm: a hash table of used names plus a next suffix per prefix, chosen names identical)
+   - grizzle's generated statements; the largest, 2.28 MB, has 747 CTEs, 327 EXISTS sublinks, 99 ARRAY sublinks and
+     206 unnamed subqueries.
+   - In a sampled profile of planning, choose_plan_name() was 40-65% of the planning CPU time of the large write
+     statements.
+   - Planning CPU time, warm, backend CPU ms, statement by statement, 19.0 against 19.0 with the fix:
+         decideTest       2347 ->  813
+         decideStage      2164 ->  807
+         recordAttempt    1036 ->  405
+         grader            807 ->  376
+         endTest           637 ->  346
+         endTest (close)   407 ->  303
+         sittingItem       618 ->  613     a read with few sublinks
+     Plan node counts unchanged.
+
+2. CUBIC TO LINEAR (repro.sql's statements; the measuring driver EXPLAINs each with SUMMARY and MEMORY, three times in
+   one session, drops the first, which pays the cold caches, and keeps the smaller; the unpatched 2000 and 4000 cases
+   once each)
+   exists:  SELECT ARRAY[EXISTS (SELECT 1), EXISTS (SELECT 2), ...]
+            n InitPlans, exists_1 to exists_n
+   unnamed: SELECT ARRAY[EXISTS (SELECT FROM (SELECT 1 OFFSET 0)), ...]
+            the same, and n subqueries named unnamed_subquery, unnamed_subquery_1, ...
+   (One ARRAY[], as a target list holds at most 1664 entries.)
+
+   Backend CPU ms to plan, master 4931dab89d:
+      shape      n   unpatched   x per 2n      ours   x per 2n        v6   planner memory (all three)
+      exists   500        88.9                 13.6                12.9       8 MB
+      exists  1000       618.0     7.0         39.4     2.9        36.9      27 MB
+      exists  2000      5318.7     8.6        110.3     2.8       110.1      96 MB
+      exists  4000     47543.1     8.9        434.6     3.9       598.4     363 MB
+      unnamed  500       334.7                 15.3                25.6      15 MB
+      unnamed 1000      2815.7     8.4         60.1     3.9        82.2      46 MB
+      unnamed 2000     26032.6     9.2        209.2     3.5       185.8     156 MB
+      unnamed 4000    253915.9     9.8        948.5     4.5       943.8     567 MB
+   - Unpatched, each doubling of n multiplies the time by 7 to 10: n^3, from choose_plan_name(). With either fix it
+     is 3 to 4.5: what remains is the rest of the planner, and it is superlinear too (the planner's memory, the same
+     in all three builds to within 0.1%, grows about n^1.9). That is not choose_plan_name() and not this patch.
+   - Ours and v6 are the same within this machine's noise; above 32 names they run the same algorithm.
+   - EXPLAIN's own wall-clock "Planning Time" for the same runs, unpatched exists 4000: 206649 ms; ours 1850 ms.
+   - repro.sql, run unchanged against ours (psql -X, wall-clock Planning Time on the loaded machine): 17.8, 59.8,
+     210.6 and 1431.7 ms at 500, 1000, 2000 and 4000.
+
+3. THE NAMES ARE UNCHANGED
+   a. The new regression test (the block at the end of subselect.sql), run with psql -X -a -q against unpatched
+      master, ours and v6: the three outputs are byte-identical (md5 b714f408b00de5207f9e745bf54c9cfc), and equal to
+      the new expected file. Its plan:
+          Nested Loop
+            CTE exists_3                      the CTE, named first
+              ->  Result
+            CTE cte
+              ->  Result
+            InitPlan exists_1
+              ->  CTE Scan on exists_3
+            InitPlan exists_2
+              ->  CTE Scan on exists_1
+                    CTE exists_1_1            the nested CTE exists_1 comes after exists_1 was generated
+                      ->  Result
+            InitPlan array_1
+              ->  CTE Scan on cte
+            InitPlan exists_4                 exists_3 skipped: the CTE has it
+              ->  CTE Scan on "exists"
+                    CTE exists                only ever a prefix before, so used as given
+                      ->  Result
+            InitPlan exists_5
+              ->  CTE Scan on cte cte_1
+                    CTE cte_1                 the outer CTE cte has the name
+                      ->  Result
+            InitPlan array_2
+              ->  Result
+            ->  Result                        the subquery aliased array_3, planned after the outer sublinks
+            ->  Result
+                  InitPlan array_4            array_3 skipped: the alias has it
+                    ->  Result
+                  InitPlan array_5
+                    ->  Result
+                  InitPlan exists_6
+                    ->  Result
+          (31 rows)
+      and for 100 EXISTS and 100 ARRAY sublinks in one target list (the table grows past its first size four times):
+           subplans | distinct_names | expected_names
+          ----------+----------------+----------------
+                200 |            200 |            200
+   b. On REL_19_STABLE the same: meson test --suite regress on unpatched REL_19_STABLE with the new test files passes
+      (243 of 243), and its results/subselect.out is byte-identical to the patched build's.
+   c. v6's own new test block (expr_1 as a CTE before and after, expr_5 given by the user, 40 CTEs past its threshold)
+      run against unpatched master, ours and v6: byte-identical (md5 5d8ea6cf2d62706f3fcf858dd388e84e), and equal to
+      v6's expected output.
+   d. The whole regress suite prints hundreds of subplan names in EXPLAIN output, and pg_plan_advice's suite names
+      subplans in its advice strings: both pass with ours, on master and REL_19_STABLE (5).
+
+4. A FEW NAMES: WHAT THE TABLE COSTS (SELECT ARRAY[EXISTS (SELECT $1), ...] with k sublinks, prepared, executed 2000
+   times under plan_cache_mode = force_custom_plan, so each execution plans it again without parsing; backend CPU per
+   execution, median of three rounds alternating the builds; planner memory of one planning, EXPLAIN (MEMORY), kB)
+         k   unpatched         ours             v6
+         1     47 us  17 kB     42 us  17 kB     42 us  17 kB
+         2     55 us  24 kB     53 us  24 kB     49 us  24 kB
+         4     54 us  36 kB     58 us  36 kB     52 us  36 kB
+         8     70 us  64 kB     63 us  64 kB     78 us  64 kB
+        16    108 us 120 kB    106 us 120 kB     99 us 120 kB
+        31    231 us 231 kB    156 us 232 kB    207 us 231 kB
+        32    244 us 239 kB    166 us 239 kB    226 us 239 kB
+        33    233 us 249 kB    172 us 249 kB    259 us 251 kB
+        64    611 us 509 kB    334 us 511 kB    374 us 513 kB
+   - Up to 16 names the three are the same within the noise (about 10% on this machine), in time and, to the kB,
+     in memory: our table starts at 16 buckets of 16 bytes.
+   - At 31 and 32 names, below v6's threshold, v6 still scans the list, k tries of a list of k names for the k-th
+     exists_k, and the whole planning takes about 1.3x ours. Past the threshold v6 and ours do the same work.
+   - Ours never takes more than 2 kB more than unpatched here; v6 takes up to 4 kB more past its threshold, where it
+     keeps the list as well as the table.
+
+5. BUILDS AND TESTS
+   - master + ours, -Dcassert=true: meson test, every suite (TAP disabled): 97 passed, 0 failed, 323 skipped (TAP);
+     regress 243 of 243, isolation 140 of 140, pg_plan_advice, pg_overexplain, postgres_fdw among them.
+   - REL_19_STABLE + ours, -Dcassert=true: meson test, every suite: 95 passed, 0 failed, 295 skipped; regress 243 of
+     243, isolation 140 of 140.
+   - Unpatched REL_19_STABLE with the new test files only: meson test --suite regress passes (3b); unpatched master
+     runs the new test block with the same output (3a).
+   - No compiler warnings in planner.c on either branch; pgindent with the in-tree pg_bsd_indent leaves planner.c and
+     pathnodes.h unchanged; git diff --check is clean; both patches git apply --check cleanly on their branch heads.
+   - Not run: TAP suites. cfbot runs them for v6 (green), which chooses the same names.
+
+6. THE CAUSE, IN THE SOURCE (master 4931dab89d, src/backend/optimizer/plan/planner.c)
+   - choose_plan_name(), line 9283: without always_number, the name is searched for in glob->subplanNames with
+     foreach_ptr/strcmp (9296); if found, or with always_number, "for (n = 1; true; ++n)" (9320) psprintf()s
+     "%s_%u" and scans the whole list again (9325) for each n.
+   - Callers: subselect.c make_subplan() (sublink kinds "exists", "array", "expr", "any", ... with always_number,
+     and "exists_to_any"), SS_process_ctes() (CTE names), allpaths.c set_subquery_pathlist() (FROM-clause aliases,
+     "unnamed_subquery" for those without one), prepunion.c ("setop", always numbered), planagg.c ("minmax").
+   - glob->subplanNames (pathnodes.h line 187) is read by nothing else in core or contrib.

@@ -168,8 +168,8 @@ export const aSingleStatementSendsExactlyThePartsItsCallsInputsMayGiveRowsAssemb
 			},
 			{
 				file: "packages/engine/src/runtime/write/parted.ts",
-				original: `\treturn { text: mint(\`WITH \${ctes.join(",\\n")}\\n\${arms.join("\\nUNION ALL\\n")}\`), params }`,
-				replacement: `\treturn { text: mint(\`WITH \${ctes.join(", ")}\\n\${arms.join("\\nUNION ALL\\n")}\`), params }`,
+				original: `\tconst head = ctes.length === 0 ? "" : \`WITH \${ctes.join(",\\n")}\\n\``,
+				replacement: `\tconst head = ctes.length === 0 ? "" : \`WITH \${ctes.join(", ")}\\n\``,
 				why: "The units joined otherwise than the printer joins a WITH's CTEs, so the whole statement's text and name change."
 			}
 		]

@@ -143,6 +143,7 @@ import {
 } from "#compiler/sql/catalog.ts"
 import { lineFeedsEscaped } from "#compiler/sql/escape.ts"
 import type { CarrierName } from "#compiler/sql/naming.ts"
+import { printedOnce } from "#compiler/sql/print-once.ts"
 import { identityHooks, statementParams, Transform } from "#compiler/sql/transform.ts"
 
 /**
@@ -2020,12 +2021,15 @@ export const declaredStatisticsSteps = (
 				body: operandCore(
 					[
 						{
-							expr: qualifiedCall("pg_catalog", "pg_clear_attribute_stats", [
-								schema,
-								text(d.table.name),
-								text(c.column),
-								lit.bool(false)
-							]),
+							expr: qualifiedCall(
+								{
+									kind: "qualified",
+									schema: "pg_catalog",
+									name: "pg_clear_attribute_stats",
+									volatility: "VOLATILE"
+								},
+								[schema, text(d.table.name), text(c.column), lit.bool(false)]
+							),
 							alias: undefined
 						}
 					],
@@ -2042,22 +2046,30 @@ export const declaredStatisticsSteps = (
 			branches: [
 				{
 					condition: not(
-						qualifiedCall("pg_catalog", "pg_restore_attribute_stats", [
-							text("schemaname"),
-							schema,
-							text("relname"),
-							text(d.table.name),
-							text("attname"),
-							text(c.column),
-							text("inherited"),
-							lit.bool(false),
-							text("n_distinct"),
+						qualifiedCall(
 							{
-								kind: "cast",
-								expr: lit.text(distinctValue(c.distinct), types.text),
-								type: types.real
-							}
-						])
+								kind: "qualified",
+								schema: "pg_catalog",
+								name: "pg_restore_attribute_stats",
+								volatility: "VOLATILE"
+							},
+							[
+								text("schemaname"),
+								schema,
+								text("relname"),
+								text(d.table.name),
+								text("attname"),
+								text(c.column),
+								text("inherited"),
+								lit.bool(false),
+								text("n_distinct"),
+								{
+									kind: "cast",
+									expr: lit.text(distinctValue(c.distinct), types.text),
+									type: types.real
+								}
+							]
+						)
 					),
 					body: [
 						{
@@ -2136,13 +2148,15 @@ const dependencySteps = (
 				body: operandCore(
 					[
 						{
-							expr: qualifiedCall("pg_catalog", "pg_clear_extended_stats", [
-								schema,
-								text(table.name),
-								schema,
-								text(d.name.name),
-								lit.bool(false)
-							]),
+							expr: qualifiedCall(
+								{
+									kind: "qualified",
+									schema: "pg_catalog",
+									name: "pg_clear_extended_stats",
+									volatility: "VOLATILE"
+								},
+								[schema, text(table.name), schema, text(d.name.name), lit.bool(false)]
+							),
 							alias: undefined
 						}
 					],
@@ -2159,29 +2173,45 @@ const dependencySteps = (
 			branches: [
 				{
 					condition: not(
-						qualifiedCall("pg_catalog", "pg_restore_extended_stats", [
-							text("schemaname"),
-							schema,
-							text("relname"),
-							text(table.name),
-							text("statistics_schemaname"),
-							schema,
-							text("statistics_name"),
-							text(d.name.name),
-							text("inherited"),
-							lit.bool(false),
-							text("dependencies"),
-							cast(
-								qualifiedCall("pg_catalog", "format", [
-									text(
-										`[{"attributes": [%s], "dependency": %s, "degree": ${degreeValue(d.exponent)}}]`
+						qualifiedCall(
+							{
+								kind: "qualified",
+								schema: "pg_catalog",
+								name: "pg_restore_extended_stats",
+								volatility: "VOLATILE"
+							},
+							[
+								text("schemaname"),
+								schema,
+								text("relname"),
+								text(table.name),
+								text("statistics_schemaname"),
+								schema,
+								text("statistics_name"),
+								text(d.name.name),
+								text("inherited"),
+								lit.bool(false),
+								text("dependencies"),
+								cast(
+									qualifiedCall(
+										{
+											kind: "qualified",
+											schema: "pg_catalog",
+											name: "format",
+											volatility: "STABLE"
+										},
+										[
+											text(
+												`[{"attributes": [%s], "dependency": %s, "degree": ${degreeValue(d.exponent)}}]`
+											),
+											attributeOf(table, schema, d.determinant),
+											attributeOf(table, schema, d.dependent)
+										]
 									),
-									attributeOf(table, schema, d.determinant),
-									attributeOf(table, schema, d.dependent)
-								]),
-								types.dependencies
-							)
-						])
+									types.dependencies
+								)
+							]
+						)
 					),
 					body: [
 						{
@@ -3266,11 +3296,13 @@ const writeCommand = (out: Lines, statement: SqlStatement): void => {
  * The commands `statement` is (Emitter): a statement that writes a catalog row another installation in the same
  * database writes too is the database lock's command and its own (databaseWide): the database default's block, every
  * ALTER DEFAULT PRIVILEGES, every CREATE EXTENSION, and a GRANT or REVOKE on the database or a schema (grantEmitter).
- * Every other statement is its own command alone. The one source of a statement's commands: a drafted file writes
+ * Every other statement is its own command alone. A statement is printed as print once prints it (sql/print-once.ts
+ * printedOnce): each CTE PostgreSQL would inline printed in place. The one source of a statement's commands: a drafted file writes
  * them (writeStatement, deploy/render/sql.ts), meta.json records them (deploy/render/sql.ts recordFile), and a driver
  * sends them (printCommands), so none of the three can split a statement another way.
  */
-export const commandsOf = (statement: SqlStatement): NonEmptyReadonlyArray<Command> => {
+export const commandsOf = (given: SqlStatement): NonEmptyReadonlyArray<Command> => {
+	const statement = printedOnce(given)
 	const command: Command = (out) => writeCommand(out, statement)
 	switch (statement.kind) {
 		case "resetDatabaseDefault":

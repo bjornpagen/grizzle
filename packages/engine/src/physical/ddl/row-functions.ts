@@ -140,7 +140,13 @@ export const byLanguage = (languageOf: RowScope["languageOf"], e: Expr): Expr =>
 	const language = matchedLanguage({ languageOf }, e)
 	return language === undefined || e.kind !== "binary"
 		? e
-		: { ...e, right: qualifiedCall("", language, []) }
+		: {
+				...e,
+				right: qualifiedCall(
+					{ kind: "qualified", schema: "", name: language, volatility: "IMMUTABLE" },
+					[]
+				)
+			}
 }
 
 /**
@@ -331,8 +337,7 @@ const called = (
 		}
 	})
 	return qualifiedCall(
-		scope.schema,
-		named.identifier,
+		{ kind: "qualified", schema: scope.schema, name: named.identifier, volatility: "IMMUTABLE" },
 		columns.map((column) => ({ kind: "column", table: undefined, column }))
 	)
 }

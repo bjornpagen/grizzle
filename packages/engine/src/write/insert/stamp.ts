@@ -196,10 +196,10 @@ export const headStampsCte = (
 					),
 					{
 						kind: "function",
-						call: qualifiedCall(fn.schema, fn.name, [
-							...aggregated.map((a) => col(arrays, a.column)),
-							...clock
-						]),
+						call: qualifiedCall(
+							{ kind: "qualified", schema: fn.schema, name: fn.name, volatility: "VOLATILE" },
+							[...aggregated.map((a) => col(arrays, a.column)), ...clock]
+						),
 						alias: stamped,
 						columns: { kind: "named", names: [], ordinality: false },
 						lateral: true

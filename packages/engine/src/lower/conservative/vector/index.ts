@@ -109,7 +109,15 @@ export const lowerVectorOp = (
 			if (native.fn !== "cosineDistance" || sql.owner !== "vector") {
 				return refuseAt("UnsupportedOperation", at, `the pgvector function ${sql.name}`)
 			}
-			return qualifiedCall(vectorSchema, vectorFunctions.cosineDistance, operands())
+			return qualifiedCall(
+				{
+					kind: "qualified",
+					schema: vectorSchema,
+					name: vectorFunctions.cosineDistance,
+					volatility: "IMMUTABLE"
+				},
+				operands()
+			)
 		}
 		case "infix":
 			if (sql.owner !== "vector") {

@@ -70,7 +70,7 @@ import {
 	type TextDomain,
 	textDomainIdentity
 } from "#compiler/physical/ddl/domains.ts"
-import { libraryIdentity } from "#compiler/physical/ddl/library.ts"
+import { libraryRef } from "#compiler/physical/ddl/library.ts"
 import { namedRole, roleReadNames, worldNames } from "#compiler/physical/ddl/names.ts"
 import { keyTermText } from "#compiler/physical/indexes/engine.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
@@ -97,6 +97,7 @@ import type { IdentifiedLaw, Law, RecordedLaw } from "#compiler/types/changeset/
 import type { AnyDerived } from "#compiler/types/derived/derived.ts"
 import type { RelationFieldsOf } from "#compiler/types/schema/relation.ts"
 import type { AlternativesBase } from "#compiler/types/schema/statements.ts"
+import { refusalRef } from "#compiler/write/refusal.ts"
 import { allocatedLevels } from "#test/support/compile.ts"
 import type { AuthoredStatementDesc, SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { Id, idDesc } from "#test/support/ids.ts"
@@ -200,7 +201,12 @@ export const productionNames = (
 			if (codec === undefined) {
 				throw new Error(`the test's codebook holds no roster ${roster}, whose names it reads`)
 			}
-			return { kind: "qualified", schema, name: identifierOf(rosterConstants(codec).names) }
+			return {
+				kind: "qualified",
+				schema,
+				name: identifierOf(rosterConstants(codec).names),
+				volatility: "IMMUTABLE"
+			}
 		},
 		contractDomain: (contract) => {
 			const info = knownContracts.get(contract)
@@ -229,14 +235,15 @@ export const productionNames = (
 			ref: {
 				kind: "qualified",
 				schema,
-				name: identifierOf(identity.declaredFunction(parsedName(name)))
+				name: identifierOf(identity.declaredFunction(parsedName(name))),
+				volatility: "VOLATILE"
 			},
 			types
 		}),
 		vectorSchema: vectorTypes(vectorSchema),
 		installed: new Set([schema]),
 		codes,
-		library: (fn) => ({ kind: "qualified", schema, name: identifierOf(libraryIdentity(fn)) }),
+		library: (fn) => libraryRef(schema, fn),
 		closed: (relation) => {
 			throw new Error(
 				`productionNames names no installed constant, so none of closed relation ${relation}: a test that reads one names an installation (installationOf)`
@@ -244,7 +251,7 @@ export const productionNames = (
 		},
 		closedRelations: new Map(),
 		closedIndex: new Map(),
-		refusal: { kind: "qualified", schema, name: identifierOf(identity.refusal()) },
+		refusal: refusalRef(schema),
 		spellings: installedSpellings(codes.spellings, [])
 	}
 	return names

@@ -561,7 +561,8 @@ export interface RenderOptions {
 export const temporaryLibrary: PhysicalNames["library"] = (fn) => ({
 	kind: "qualified",
 	schema: "pg_temp",
-	name: identifierOf(libraryIdentity(fn))
+	name: identifierOf(libraryIdentity(fn)),
+	volatility: "IMMUTABLE"
 })
 
 /** The rendering of an expression over no contract, the vector extension in vector_ext, the library in pg_temp. */

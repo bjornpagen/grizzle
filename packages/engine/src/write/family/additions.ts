@@ -222,7 +222,7 @@ import {
 	probeKey,
 	storedAt
 } from "#compiler/write/probe.ts"
-import { raised, refusalFunctionName, refusalGuard, refusalRank } from "#compiler/write/refusal.ts"
+import { raised, refusalGuard, refusalRank, refusalRef } from "#compiler/write/refusal.ts"
 
 /**
  * Where a member relation's appended rows come from:
@@ -1245,7 +1245,7 @@ const drawnCount = (
 			type: p.owner.type
 		}))
 	})
-	const refuse = qualifiedCall(w.names.schema, refusalFunctionName, [
+	const refuse = qualifiedCall(refusalRef(w.names.schema), [
 		lit.text(refusal.state, types.text),
 		lit.text(law, types.text),
 		refusal.detail

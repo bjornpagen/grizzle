@@ -8,6 +8,7 @@ import type { BreachGuard, DeliveredBreach } from "#compiler/lower/conservative/
 import { changeTag, type ConcurrentChangeTag, keyTag } from "#compiler/runtime/write/refusal.ts"
 import type {
 	CreateFunction,
+	QualifiedFunctionRef,
 	Cte,
 	Expr,
 	FromItem,
@@ -60,6 +61,17 @@ export const refusalFunction = (schema: string): FunctionName => ({
 	args: refusalParams.map((p) => p.type)
 })
 
+/** The refusal function's volatility, its CREATE FUNCTION's and every call's reference's (refusalRef). */
+const refusalVolatility = "VOLATILE"
+
+/** A call's reference to the installation's refusal function in `schema`. */
+export const refusalRef = (schema: string): QualifiedFunctionRef => ({
+	kind: "qualified",
+	schema,
+	name: refusalFunctionName,
+	volatility: refusalVolatility
+})
+
 const arg = (name: string): Expr => ({ kind: "plVar", name })
 
 /** The refusal function's DDL: its CREATE FUNCTION, then the REVOKE EXECUTE ... FROM PUBLIC that follows it at once, so
@@ -73,7 +85,7 @@ export const refusalFunctionDdl = (schema: string): readonly [CreateFunction, Re
 			name: { schema, name: refusalFunctionName },
 			params: refusalParams,
 			returns: "boolean",
-			volatility: "VOLATILE",
+			volatility: refusalVolatility,
 			parallel: "SAFE",
 			security: "DEFINER",
 			body: {
@@ -112,7 +124,7 @@ export const refusalCall = (
 	constraint: string,
 	detail: string
 ): Expr =>
-	qualifiedCall(schema, refusalFunctionName, [
+	qualifiedCall(refusalRef(schema), [
 		lit.text(state, types.text),
 		lit.text(constraint, types.text),
 		lit.text(detail, types.text)
@@ -442,7 +454,7 @@ const sourcedGuard = (
 					orderBy: [asc(tableCol(rank)), asc(tableCol(detail))],
 					limit: lit.int(1, types.integer)
 				}
-	const refuse = qualifiedCall(schema, refusalFunctionName, [
+	const refuse = qualifiedCall(refusalRef(schema), [
 		col(rw, state),
 		col(rw, constraint),
 		col(rw, detail)

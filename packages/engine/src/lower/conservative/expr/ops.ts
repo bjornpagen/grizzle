@@ -363,9 +363,7 @@ const registryForm = (
 			return utf16Units(args)
 		case "library": {
 			const fn = library(sql.fn)
-			return admitsArity(native.operands, args.length)
-				? qualifiedCall(fn.schema, fn.name, args)
-				: undefined
+			return admitsArity(native.operands, args.length) ? qualifiedCall(fn, args) : undefined
 		}
 		case "epochDay":
 			return args.length === 1 && first !== undefined

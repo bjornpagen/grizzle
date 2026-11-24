@@ -103,7 +103,7 @@ const calledItem = (
 	return {
 		item: {
 			kind: "function",
-			call: qualifiedCall(fn.ref.schema, fn.ref.name, args),
+			call: qualifiedCall(fn.ref, args),
 			alias,
 			columns: { kind: "named", names: columns, ordinality: false },
 			lateral: false
@@ -125,7 +125,7 @@ const refusingNull = (
 ): Expr =>
 	or([
 		binary("=", call("num_nonnulls", values), lit.int(values.length, types.integer)),
-		qualifiedCall(cx.names.refusal.schema, cx.names.refusal.name, [
+		qualifiedCall(cx.names.refusal, [
 			lit.text(sqlstates.nullValueNotAllowed, types.text),
 			lit.text(name, types.text),
 			lit.text(`function ${name} returned ${held}`, types.text)
@@ -744,9 +744,7 @@ const lowerDecodedPath = (node: NodeOf<"Call">, cx: LowerContext, env: Env): Ope
 	const { read } = columns
 	const library = cx.names.library("decodedPath")
 	const item = splitItem(
-		call("unnest", [
-			qualifiedCall(library.schema, library.name, [splitArgument(node, "text", cx, env)])
-		]),
+		call("unnest", [qualifiedCall(library, [splitArgument(node, "text", cx, env)])]),
 		columns,
 		false
 	)
@@ -779,7 +777,7 @@ const lowerResolvedWithin = (node: NodeOf<"Call">, cx: LowerContext, env: Env): 
 	const library = cx.names.library("resolvedWithin")
 	const item = splitItem(
 		call("unnest", [
-			qualifiedCall(library.schema, library.name, [
+			qualifiedCall(library, [
 				splitArgument(node, "base", cx, env),
 				splitArgument(node, "reference", cx, env)
 			])

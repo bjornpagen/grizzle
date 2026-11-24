@@ -311,7 +311,7 @@ const zoneCall = (
 	}
 	const names = site.names.rosterNames(roster.closed)
 	const library = site.names.library(fn)
-	return qualifiedCall(library.schema, library.name, [
+	return qualifiedCall(library, [
 		...args.slice(0, zoneAt),
 		nameOf({ schema: names.schema, name: names.name }, zone)
 	])
@@ -504,8 +504,7 @@ const declaredCall = (
 ): Expr => {
 	const fn = site.names.declaredFunction(expr.function.name)
 	const value = qualifiedCall(
-		fn.ref.schema,
-		fn.ref.name,
+		fn.ref,
 		args.map((a, i) => {
 			const param = expr.params[i]
 			if (param === undefined) {
@@ -514,7 +513,7 @@ const declaredCall = (
 			return cast(a, physicalBaseType(site.names, param))
 		})
 	)
-	const refused = qualifiedCall(site.names.refusal.schema, site.names.refusal.name, [
+	const refused = qualifiedCall(site.names.refusal, [
 		lit.text(sqlstates.nullValueNotAllowed, types.text),
 		lit.text(expr.function.name, types.text),
 		lit.text(`function ${expr.function.name} returned NULL`, types.text)
