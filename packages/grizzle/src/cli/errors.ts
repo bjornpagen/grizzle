@@ -642,7 +642,7 @@ export class SnapshotFormat extends Data.TaggedError("SnapshotFormat")<{
 	readonly schema: string
 	readonly directory: string
 	readonly recorded: RecordedFormat
-	readonly expected: number
+	readonly expected: string
 }> {
 	override get message(): string {
 		return `${this.directory}: ${formatRefusal.snapshot.problem}: ${recordedFormatText(this.recorded, this.expected)}`

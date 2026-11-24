@@ -126,7 +126,7 @@ export const snapshotJsonReadsBackAsTheSnapshotWrittenOfTheSameFingerprintWhatev
 		kills: [
 			{
 				file: "packages/engine/src/deploy/snapshot/served.ts",
-				original: "\tif (!isArtifactFormat(json[formatKey])) {",
+				original: '\tif (!isFormatOf("snapshot", json[formatKey])) {',
 				replacement: "\tif (false) {",
 				why: "An application serves a snapshot.json of no format, or of another, as this grizzle's."
 			},

@@ -6,7 +6,7 @@ import {
 	malformedArtifact,
 	within
 } from "#compiler/core/errors.ts"
-import { formatKey, isArtifactFormat } from "#compiler/core/format.ts"
+import { formatKey, isFormatOf } from "#compiler/core/format.ts"
 import type { DeclaredName } from "#compiler/core/identity.ts"
 import type { SchemaFingerprint } from "#compiler/core/ids.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
@@ -133,7 +133,7 @@ export const servedSnapshot = (
 	if (!isRecord(json)) {
 		return Result.err(malformedArtifact("snapshot", [], "a snapshot.json's JSON form, a record"))
 	}
-	if (!isArtifactFormat(json[formatKey])) {
+	if (!isFormatOf("snapshot", json[formatKey])) {
 		return Result.err(formatRefused("snapshot", json[formatKey]))
 	}
 	const served = trusted<ServedJson>(json)

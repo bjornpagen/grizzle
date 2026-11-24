@@ -22,7 +22,7 @@ import {
 import { served } from "#adapter/public/layer.ts"
 import { roleNameOf } from "#adapter/served/served.ts"
 import { type Json, writeCanonicalJson } from "#compiler/core/canonical.ts"
-import { artifactFormat, type RecordedFormat } from "#compiler/core/format.ts"
+import { formatOf, type RecordedFormat } from "#compiler/core/format.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
 import { trusted, trustedJson } from "#compiler/core/trusted.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
@@ -215,7 +215,11 @@ const formatRefusalOf = (
 	json: unknown,
 	what: string,
 	printed: () => string
-): Readonly<{ at: ReadonlyArray<string | number>; recorded: RecordedFormat; expected: number }> => {
+): Readonly<{
+	at: ReadonlyArray<string | number>
+	recorded: RecordedFormat
+	expected: string
+}> => {
 	const reason = failed(servedFile(json), `${what} does not read back\n${printed()}`).reason
 	if (reason._tag !== "ArtifactFormat" || reason.artifact !== "served") {
 		return assert.fail(
@@ -331,7 +335,7 @@ const readsBackWhole = (dir: ScratchDir, file: ServedFile, pick: number, printed
 		const table = isRecord(json) ? json["shared"] : undefined
 		assert.deepEqual(
 			formatRefusalOf(without(json, ["format"]), "the file without its format", printed),
-			{ at: ["format"], recorded: { kind: "none" }, expected: artifactFormat },
+			{ at: ["format"], recorded: { kind: "none" }, expected: formatOf.served },
 			`the file without its format is refused at its format, recording none\n${printed()}`
 		)
 		assert.deepEqual(
@@ -340,7 +344,7 @@ const readsBackWhole = (dir: ScratchDir, file: ServedFile, pick: number, printed
 				"the file of another format",
 				printed
 			),
-			{ at: ["format"], recorded: { kind: "recorded", text: "0" }, expected: artifactFormat },
+			{ at: ["format"], recorded: { kind: "recorded", text: "0" }, expected: formatOf.served },
 			`the file of another format is refused at its format, recording it\n${printed()}`
 		)
 		assert.deepEqual(

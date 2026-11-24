@@ -24,7 +24,7 @@ import {
 	unsupported
 } from "#compiler/core/errors.ts"
 import { digest, ownedDigest } from "#compiler/core/fingerprint.ts"
-import { artifactFormat, formatKey, isArtifactFormat } from "#compiler/core/format.ts"
+import { formatKey, formatOf, isFormatOf } from "#compiler/core/format.ts"
 import { type DeclaredName, declaredAlike, identifierOf } from "#compiler/core/identity.ts"
 import type { Identifier, LawId, SchemaFingerprint } from "#compiler/core/ids.ts"
 import { SchemaFingerprint as toSchemaFingerprint } from "#compiler/core/ids.ts"
@@ -1458,14 +1458,16 @@ const recordForm = <S>(s: DeploySnapshot, units: Units<S>): RecordOf<S> => ({
 
 /**
  * The seal of a committed snapshot's JSON value, both its files joined (joinedSnapshot): the digest of every property
- * of it, in the domain `manifest`, its fingerprint included, over the value JSON gave. manifest.json carries it, since
+ * of it, in the domain `manifest-` and its format, the record's shape among it (core/format.ts formatOf), its
+ * fingerprint included, over the value JSON gave: so a seal holds only over a record written under this grizzle's
+ * shape, and one relabelled with this format is refused as a hand edit is. manifest.json carries it, since
  * no reader can digest its fingerprint again from a record, which holds a PL/pgSQL function's and a constant's body
  * by its digest; it is total over any value, so a read pair is checked by it before anything reads it as a snapshot
  * (the shell's boundary/snapshot.ts), and a file edited, corrupted or merged, or one of another snapshot than the other,
  * is refused.
  */
 export const snapshotSeal = (value: unknown): Result.Result<string, CompileError> =>
-	digest(`manifest-${artifactFormat}`, value, everyProperty)
+	digest(`manifest-${formatOf.snapshot}`, value, everyProperty)
 
 /**
  * The JSON form of a live plan: its kind, and for one that reads, each footprint table's relation and the fields it
@@ -1488,7 +1490,7 @@ const runtimeForm = <S>(
 	derived: SnapshotDerived,
 	units: Units<S>
 ): RecordOf<S> => ({
-	[formatKey]: artifactFormat,
+	[formatKey]: formatOf.snapshot,
 	fingerprint: s.fingerprint,
 	levels: levelsForm(s.levels, units),
 	constraintToLaw: s.constraintToLaw,
@@ -1671,7 +1673,7 @@ export const joinedSnapshot = (
 		return Result.err(unjoined(manifestFileName, [], "holding an object"))
 	}
 	const { [formatKey]: format, rosters, derived, ...served } = runtime
-	if (!isArtifactFormat(format)) {
+	if (!isFormatOf("snapshot", format)) {
 		return Result.err(formatRefused("snapshot", format))
 	}
 	const theory = migration["theory"]

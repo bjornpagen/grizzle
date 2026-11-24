@@ -363,6 +363,10 @@
  * after it keyed by its variables, so every judge statement that reads one reads its steps in another order.
  * Each delta reader declares the rows a call returns, ROWS 10 (sql/print.ts sessionReaderRows), where format 8
  * declared none and PostgreSQL estimated a thousand.
+ * Each file grizzle reads back records its format as `<format>:<shape>`, the format's number and the digest of its
+ * type's shape (recordShapes, formatOf), and a committed snapshot's seal digests its record under it (build.ts
+ * snapshotSeal), where format 8 recorded the number alone and sealed under it, so a file of the pending window's
+ * other shapes passed its format check and reached a reader of another shape.
  * A relation is closed or open: closed, the default, its facts inserted, never changed or deleted, so a role that writes
  * it holds SELECT and INSERT on its table and no UPDATE or DELETE (physical/ddl/roles.ts entryPrivileges), where format
  * 8 granted DELETE on every table a role wrote; open, mutable(R) inside a unit whose heading its primary key leads with,
@@ -433,11 +437,43 @@ export const artifactFormat = 8
 /** The member of a snapshot.json or a served file that records its format (artifactFormat). */
 export const formatKey = "format"
 
-/** Whether a file's recorded format, as read, is this grizzle's (artifactFormat). */
-export const isArtifactFormat = (recorded: unknown): boolean => recorded === artifactFormat
-
 /** The files that record their format: a committed snapshot, by its snapshot.json, and a login's served file. */
-export type FormattedFile = "snapshot" | "served"
+export const formattedFiles = ["snapshot", "served"] as const
+
+/** A file that records its format (formattedFiles). */
+export type FormattedFile = (typeof formattedFiles)[number]
+
+/**
+ * The shape of what each file grizzle reads back holds: the SHA-256 digest of the structure of its type, a committed
+ * snapshot's the record its seal holds (deploy/snapshot/build.ts SealedRecord), a served file's served/forms.ts
+ * ServedFile, every object, member and statement kind it holds resolved, names, comments and order aside
+ * (test/support/record-shape.ts recordShapeOf, which the unit test record-shape.test.ts holds these to). A change of
+ * what a file holds changes its shape in the same change, under this format's number: so a file written under another
+ * shape, as every change of the pending entry below makes one, is refused by its format (formatOf) before any reader
+ * meets a member it has no reading of, where a file of one format's number was read whatever shape it held, and a read
+ * could fail inside grizzle (qti-pie's pantry, drafted at d76a61066 before a declared statistic recorded its
+ * dependencies, failed `grizzle check` at 8b75446f4 reading one: TypeError: Cannot read properties of undefined
+ * (reading 'map')).
+ *
+ * @formatConstant each file's shape: the digest of its type, by test/support/record-shape.ts
+ */
+export const recordShapes: { readonly [F in FormattedFile]: string } = {
+	snapshot: "d5ac3e66297bd1a403fa479868321c1e300610ce15d613c6cc8972026558c3d2",
+	served: "e82e1f7da7c2e57bd69f205a87febe9b90c07dc645884e199976c8eecea84462"
+}
+
+/**
+ * The format each formatted file records: this grizzle's format and its shape (recordShapes), `<format>:<shape>`. A
+ * committed snapshot's seal digests its record under it (build.ts snapshotSeal).
+ */
+export const formatOf: { readonly [F in FormattedFile]: string } = {
+	snapshot: `${artifactFormat}:${recordShapes.snapshot}`,
+	served: `${artifactFormat}:${recordShapes.served}`
+}
+
+/** Whether `file`'s recorded format, as read, is this grizzle's (formatOf). */
+export const isFormatOf = (file: FormattedFile, recorded: unknown): boolean =>
+	recorded === formatOf[file]
 
 /**
  * What a file records of its format, as read and never trusted: none, where it holds no format member, or a value, by
@@ -475,5 +511,5 @@ export const formatRefusal: {
 }
 
 /** What a refused file records of its format, against the format this grizzle reads and writes, in words. */
-export const recordedFormatText = (recorded: RecordedFormat, expected: number): string =>
+export const recordedFormatText = (recorded: RecordedFormat, expected: string): string =>
 	`${recorded.kind === "none" ? "it records none" : `it records format ${recorded.text}`}, where this grizzle reads and writes format ${expected}`

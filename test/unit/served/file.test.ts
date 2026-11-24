@@ -112,7 +112,7 @@ export const aServedFileReadsBackEveryDrawnLoginsFileAsTheRuntimeReadsItAndNoMem
 			kills: [
 				{
 					file: "packages/engine/src/served/json.ts",
-					original: "\tif (!isArtifactFormat(format)) {",
+					original: '\tif (!isFormatOf("served", format)) {',
 					replacement: "\tif (false) {",
 					why: "A served file of no format, or of another, is read as this grizzle's; the format refusals fail."
 				},

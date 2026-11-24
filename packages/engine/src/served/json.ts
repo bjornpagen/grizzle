@@ -21,7 +21,7 @@ import {
 	unsupported
 } from "#compiler/core/errors.ts"
 import type { RosterDigest } from "#compiler/core/fingerprint.ts"
-import { artifactFormat, formatKey, isArtifactFormat } from "#compiler/core/format.ts"
+import { formatKey, formatOf, isFormatOf } from "#compiler/core/format.ts"
 import type { DeclaredName } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
@@ -544,7 +544,7 @@ export const servedText = (file: ServedFile): Result.Result<TextChunks, CompileE
 			const [root] = written.roots
 			return {
 				...membersRecord(defined(root, "a served file's members")),
-				[formatKey]: artifactFormat,
+				[formatKey]: formatOf.served,
 				[rostersKey]: wire,
 				[sharedKey]: written.table.map((entry) => entry.node)
 			}
@@ -769,7 +769,7 @@ const revivedOf = <A, E>(result: Result.Result<A, E>, within: Path, text: string
  * once (fileRosters), then its table, each entry over those before it, then its members, each walked only along the
  * paths it lists to revived values, every other value the JSON value's own. A value whose frame or revived forms are
  * none the writer writes is refused as MalformedArtifact, never read in part: one that is no record, records another
- * format than this grizzle's or none (core/format.ts artifactFormat), holds no table (`shared`, a list) or no rosters'
+ * format than this grizzle's or none (core/format.ts formatOf), holds no table (`shared`, a list) or no rosters'
  * codes, or a form on a path to a revived value that ServedReader refuses. The members' forms beside them are the file's own, trusted.
  */
 export const servedFile = (json: unknown): Result.Result<ServedFile, CompileError> => {
@@ -777,7 +777,7 @@ export const servedFile = (json: unknown): Result.Result<ServedFile, CompileErro
 		return Result.err(malformedArtifact("served", [], "a served file's JSON form, a record"))
 	}
 	const { [formatKey]: format, [sharedKey]: shared, [rostersKey]: rosters, ...members } = json
-	if (!isArtifactFormat(format)) {
+	if (!isFormatOf("served", format)) {
 		return Result.err(formatRefused("served", format))
 	}
 	if (!isList(shared)) {

@@ -33,9 +33,9 @@ import {
 	unwritableRelationText
 } from "#compiler/core/causes.ts"
 import {
-	artifactFormat,
 	type FormattedFile,
 	formatKey,
+	formatOf,
 	formatRefusal,
 	type RecordedFormat,
 	recordedFormat,
@@ -574,7 +574,7 @@ export type CompileReason =
 			readonly artifact: FormattedFile
 			readonly at: Path
 			readonly recorded: RecordedFormat
-			readonly expected: number
+			readonly expected: string
 	  }
 	| { readonly _tag: "UnsupportedOperation"; readonly at: SourceLoc; readonly capability: string }
 	| { readonly _tag: "UndeclaredDrop"; readonly at: SourceLoc; readonly dropped: Named }
@@ -1280,7 +1280,7 @@ export const formatRefused = (file: FormattedFile, value: unknown): CompileError
 		artifact: file,
 		at: [formatKey],
 		recorded: recordedFormat(value),
-		expected: artifactFormat
+		expected: formatOf[file]
 	})
 
 /** A capability the compiler does not have, refused at `at`. */

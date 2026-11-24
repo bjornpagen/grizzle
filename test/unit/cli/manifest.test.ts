@@ -4,26 +4,29 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Order, String as Str } from "effect"
 import { readSnapshot } from "#adapter/boundary/snapshot.ts"
 import { check } from "#cli/check.ts"
-import { artifactFormat } from "#compiler/core/format.ts"
+import { formatOf } from "#compiler/core/format.ts"
 /**
- * A committed snapshot's two files as `grizzle check`, `grizzle generate` and `grizzle names` read them: a snapshot.json
- * of another format than this grizzle's (core/format.ts artifactFormat), one that records none, or the format before
- * this grizzle's or the one after it, is check's snapshotFormat finding alone, carrying the format it records and this
- * grizzle's, its fix the installation drafted afresh, and generate and names refuse it at the stage format, writing
- * nothing (cli/committed.ts SnapshotFormat, the one refusal every command reads); a manifest.json sealed under a domain
- * that names no format, and one edited by hand under its seal, read as no snapshot, check's unreadableSnapshot
- * finding alone, which generate refuses at the stage snapshot; a sealed record that is not the one the schemas
- * compile to is check's manifestRecord finding, which generate writes back as the record, drafting no folder and
- * leaving snapshot.json as it was; and a record of this format holding an object of a kind this grizzle does not
- * install, the database default a grizzle before e1eb4f524 installed or an advanceFunction, reads as no snapshot, as a
- * hand edit does (deploy/snapshot/build.ts recordedSnapshot): a kind's removal is a change of the format, so no record
- * of this one holds it.
+ * A committed snapshot's two files as `grizzle check`, `grizzle generate` and `grizzle names` read them: a
+ * snapshot.json of another format than this grizzle's (core/format.ts formatOf, the format's number and the record's
+ * shape), one that records none, the format before this grizzle's or the one after it, or the number alone, as a draft
+ * of d76a61066 records it, is check's snapshotFormat finding alone, carrying the format it records and this grizzle's,
+ * its fix the installation drafted afresh, and generate and names refuse it at the stage format, writing nothing
+ * (cli/committed.ts SnapshotFormat, the one refusal every command reads); a manifest.json sealed under a domain that
+ * names no format, one edited by hand under its seal, and a record of another shape relabelled with this grizzle's
+ * format, sealed under format 8's number, read as no snapshot, check's unreadableSnapshot finding alone, which generate
+ * refuses at the stage snapshot; a sealed record that is not the one the schemas compile to is check's manifestRecord
+ * finding, which generate writes back as the record, drafting no folder and leaving snapshot.json as it was; and a
+ * record of this format holding an object of a kind this grizzle does not install, the database default a grizzle
+ * before e1eb4f524 installed or an advanceFunction, reads as no snapshot, as a hand edit does (deploy/snapshot/build.ts
+ * recordedSnapshot): a kind's removal is a change of the format, so no record of this one holds it.
  *
  * A case takes the committed directory of one schema's first draft (derived.fixtures.ts baseNeed) and commits one file
- * beside the other: snapshot.json of no format, of the format before this grizzle's or after it; both files as a draft of
- * format 3 left them, its constants recorded with no language, sealed under format 3's domain, which the format check
- * refuses before anything reads its record; manifest.json sealed under the earlier domain `manifest`; the record with an
- * edge left out, an edit no draft reads, sealed again; that edit under the draft's seal; or the record with a former
+ * beside the other: snapshot.json of no format, of the format before this grizzle's or after it; both files as a draft
+ * of format 3 left them, its constants recorded with no language, sealed under format 3's domain, which the format
+ * check refuses before anything reads its record; both files as d76a61066 drafted them, qti-pie's pantry among them,
+ * its declared statistics recording no dependencies, sealed under format 8's domain, snapshot.json recording the number
+ * alone or this grizzle's format; manifest.json sealed under the earlier domain `manifest`; the record with an edge
+ * left out, an edit no draft reads, sealed again; that edit under the draft's seal; or the record with a former
  * database default or an advanceFunction object its first, sealed again.
  *
  * Oracle: the first draft's own snapshot.json and manifest.json, and the format each commit records.
@@ -39,6 +42,7 @@ import { at, baseNeed, config, schemaDir } from "#test/unit/cli/derived.fixtures
 import {
 	type Commit,
 	commitSpace,
+	d76a61066Draft,
 	formatlessSealed,
 	editedManifest,
 	formatCommits,
@@ -50,7 +54,7 @@ import {
 /** A snapshot.json of another format is check's format finding, carrying the formats, which generate and names refuse at the stage format writing nothing; a seal naming no format and a hand edit read as no snapshot; and a record not the compile's is check's finding, which generate writes back drafting no folder. */
 export const aSnapshotOfAnotherFormatIsItsOwnFindingASealNamingNoFormatOrAHandEditReadsAsNoSnapshotAndARecordNotTheCompilesIsWrittenBack =
 	property.exhaust(commitSpace, {
-		box: "snapshot.json of no format, of the format before this grizzle's and of the one after it, a draft of format 3, manifest.json under the earlier seal's domain, a record sealed again over an edit, that edit under the draft's seal, and a record holding a former database default or an object of a removed kind, each sealed again",
+		box: "snapshot.json of no format, of the format before this grizzle's and of the one after it, a draft of format 3, manifest.json under the earlier seal's domain, a record sealed again over an edit, that edit under the draft's seal, a record holding a former database default or an object of a removed kind, each sealed again, and d76a61066's draft, of format 8's number and relabelled with this grizzle's format",
 		needs: { baseNeed },
 		situations: [
 			"format none",
@@ -61,7 +65,9 @@ export const aSnapshotOfAnotherFormatIsItsOwnFindingASealNamingNoFormatOrAHandEd
 			"a record not the compile's",
 			"a hand edit",
 			"a former database default",
-			"a removed kind"
+			"a removed kind",
+			"a d76a61066 draft",
+			"a d76a61066 record under this format"
 		] satisfies ReadonlyArray<Reached<Commit>>,
 		check:
 			({ baseNeed }, c: Case<Commit>) =>
@@ -93,6 +99,10 @@ export const aSnapshotOfAnotherFormatIsItsOwnFindingASealNamingNoFormatOrAHandEd
 								return { snapshot, manifest: recordHolding(snapshot, manifest, "former") }
 							case "a removed kind":
 								return { snapshot, manifest: recordHolding(snapshot, manifest, "removed") }
+							case "a d76a61066 draft":
+								return d76a61066Draft(snapshot, manifest, false)
+							case "a d76a61066 record under this format":
+								return d76a61066Draft(snapshot, manifest, true)
 						}
 					})()
 					yield* fs.writeFileString(snapshotFile, pair.snapshot)
@@ -109,7 +119,8 @@ export const aSnapshotOfAnotherFormatIsItsOwnFindingASealNamingNoFormatOrAHandEd
 						commit === "format none" ||
 						commit === "the format before" ||
 						commit === "the format after" ||
-						commit === "a format 3 draft"
+						commit === "a format 3 draft" ||
+						commit === "a d76a61066 draft"
 					) {
 						const recorded = formatCommits[commit]
 						assert.deepEqual(
@@ -118,7 +129,7 @@ export const aSnapshotOfAnotherFormatIsItsOwnFindingASealNamingNoFormatOrAHandEd
 									? { kind: f.kind, recorded: f.recorded, expected: f.expected }
 									: { kind: f.kind }
 							),
-							[{ kind: "snapshotFormat", recorded, expected: artifactFormat }],
+							[{ kind: "snapshotFormat", recorded, expected: formatOf.snapshot }],
 							`check finds ${commit} as the format it records, against this grizzle's`
 						)
 						for (const command of ["generate", "names"] as const) {
@@ -177,13 +188,13 @@ export const aSnapshotOfAnotherFormatIsItsOwnFindingASealNamingNoFormatOrAHandEd
 			},
 			{
 				file: "packages/engine/src/core/format.ts",
-				original: "export const artifactFormat = 8",
-				replacement: "export const artifactFormat = 3",
-				why: "The format left at 3, which changes of what its files hold rode: a draft of format 3 whose constants record no language passes the format check under its seal and is read as this grizzle's record, which the drift check replayed as a stub of no language and crashed printing (TypeError: name.replaceAll is not a function), as metis met over edullm's reset folder."
+				original: "\trecorded === formatOf[file]",
+				replacement: "\trecorded === formatOf[file] || recorded === artifactFormat",
+				why: "A file recording the format's number alone accepted, as format 8 recorded it: d76a61066's draft, its declared statistics recording no dependencies, passes the format check, so check meets it as an unreadable record, whose fix restores it from git, where it is a format this grizzle drafts afresh."
 			},
 			{
 				file: "packages/engine/src/deploy/snapshot/build.ts",
-				original: "\tif (!isArtifactFormat(format)) {",
+				original: '\tif (!isFormatOf("snapshot", format)) {',
 				replacement: "\tif (false) {",
 				why: "A snapshot.json that records no format, as an earlier grizzle wrote it, or another, is joined as this grizzle's, so check passes it and generate drafts from it."
 			},
@@ -195,9 +206,15 @@ export const aSnapshotOfAnotherFormatIsItsOwnFindingASealNamingNoFormatOrAHandEd
 			},
 			{
 				file: "packages/engine/src/deploy/snapshot/build.ts",
-				original: `\tdigest(\`manifest-\${artifactFormat}\`, value, everyProperty)`,
+				original: `\tdigest(\`manifest-\${formatOf.snapshot}\`, value, everyProperty)`,
 				replacement: '\tdigest("manifest", value, everyProperty)',
 				why: "The seal is digested under a domain that names no format, so a manifest.json sealed so reads as this format's record."
+			},
+			{
+				file: "packages/engine/src/deploy/snapshot/build.ts",
+				original: `\tdigest(\`manifest-\${formatOf.snapshot}\`, value, everyProperty)`,
+				replacement: '\tdigest("manifest-8", value, everyProperty)',
+				why: "The seal ignoring the record's shape: d76a61066's record relabelled with this grizzle's format seals under format 8's number, so check trusts it and fails reading a declared statistic of no dependencies inside grizzle (TypeError: Cannot read properties of undefined (reading 'map'))."
 			},
 			{
 				file: "packages/engine/src/deploy/snapshot/build.ts",

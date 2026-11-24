@@ -83,7 +83,7 @@ type FindingOf =
 	| {
 			readonly kind: "snapshotFormat"
 			readonly recorded: RecordedFormat
-			readonly expected: number
+			readonly expected: string
 	  }
 
 /**

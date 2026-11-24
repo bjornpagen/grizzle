@@ -5,7 +5,7 @@ import { element, finite } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record as Rec } from "effect"
 import { decode, everyProperty, type Json, noRevivers } from "#compiler/core/canonical.ts"
 import { digest } from "#compiler/core/fingerprint.ts"
-import { artifactFormat, formatKey, type RecordedFormat } from "#compiler/core/format.ts"
+import { artifactFormat, formatKey, formatOf, type RecordedFormat } from "#compiler/core/format.ts"
 import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
 import { joinedSnapshot, snapshotSeal } from "#compiler/deploy/snapshot/build.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -17,8 +17,11 @@ import { chunked } from "#test/support/chunked.ts"
  * manifest.json sealed under a domain that names no format (`manifest`); a record sealed again over an edit no draft
  * reads, so it reads but is not the record the schemas compile to; that edit under the draft's seal, a hand edit; the
  * record holding the database default a grizzle before e1eb4f524 installed, its first object, sealed again, as qti-pie's
- * pantry of 2026-11-22 committed it (`a former database default`); or holding an object of a kind no grizzle this one
- * reads installed (`a removed kind`), advanceFunction, which 10a0cd919 removed, sealed again.
+ * pantry of 2026-11-22 committed it (`a former database default`); holding an object of a kind no grizzle this one
+ * reads installed (`a removed kind`), advanceFunction, which 10a0cd919 removed, sealed again; both files as d76a61066
+ * drafted them, qti-pie's pantry among them, its format the number alone and each declared statistic recording no
+ * dependencies, sealed under that format (`a d76a61066 draft`); or that record relabelled with this grizzle's format,
+ * sealed as d76a61066 sealed it (`a d76a61066 record under this format`).
  */
 const commits = [
 	"format none",
@@ -29,7 +32,9 @@ const commits = [
 	"a record not the compile's",
 	"a hand edit",
 	"a former database default",
-	"a removed kind"
+	"a removed kind",
+	"a d76a61066 draft",
+	"a d76a61066 record under this format"
 ] as const
 export type Commit = (typeof commits)[number]
 
@@ -38,7 +43,8 @@ export const formatCommits = {
 	"format none": { kind: "none" },
 	"the format before": { kind: "recorded", text: String(artifactFormat - 1) },
 	"the format after": { kind: "recorded", text: String(artifactFormat + 1) },
-	"a format 3 draft": { kind: "recorded", text: "3" }
+	"a format 3 draft": { kind: "recorded", text: "3" },
+	"a d76a61066 draft": { kind: "recorded", text: String(artifactFormat) }
 } as const satisfies { readonly [C in Commit]?: RecordedFormat }
 
 /** Every case: each commit once. */
@@ -183,28 +189,71 @@ const withoutLanguage = (members: Members): Members => {
 }
 
 /**
- * Both files as a draft of format `format` left them: snapshot.json recording it, and manifest.json's record as that
- * format held it (`shape`), sealed under its domain (`manifest-<format>`, build.ts snapshotSeal) over the content both
- * files hold, which leaves the format out, as a grizzle of that format wrote and sealed it.
+ * Both files as a draft of format `sealed` left them: snapshot.json recording `recorded` as its format, and
+ * manifest.json's record as that format held it (`shape`), sealed under its domain (`manifest-<format>`, build.ts
+ * snapshotSeal) over the content both files hold, which leaves the format out, as a grizzle of that format wrote and
+ * sealed it.
  */
 const formatDraft = (
 	snapshot: string,
 	manifest: string,
-	format: number,
+	recorded: Json,
+	sealed: number,
 	shape: (record: Members) => Members
 ): { readonly snapshot: string; readonly manifest: string } => {
 	const shaped = jsonText(shape(recordOf(manifest)))
 	return {
-		snapshot: formatted(snapshot, { kind: "recorded", text: String(format) }),
+		snapshot: formatted(snapshot, { kind: "recorded", text: jsonText(recorded) }),
 		manifest: jsonText({
 			...recordOf(shaped),
 			seal: succeeded(
-				digest(`manifest-${format}`, joinedContent(snapshot, shaped), everyProperty),
-				`format ${format}'s seal`
+				digest(`manifest-${sealed}`, joinedContent(snapshot, shaped), everyProperty),
+				`format ${sealed}'s seal`
 			)
 		})
 	}
 }
+
+/** A manifest.json record with each declared statistic's dependencies left out (sql/ast.ts DeclareStatistics), as a
+ * draft before 56851404d recorded it. */
+const withoutDependencies = (members: Members): Members => {
+	const manifest = trustedJson<
+		Members & {
+			readonly objects: ReadonlyArray<Members & { readonly ddl: ReadonlyArray<Members> }>
+		}
+	>(jsonText(defined(members["manifest"], "manifest.json's manifest")))
+	return {
+		...members,
+		manifest: {
+			...manifest,
+			objects: Arr.map(manifest.objects, (o) => ({
+				...o,
+				ddl: Arr.map(o.ddl, (s): Members =>
+					s["kind"] === "declareStatistics" ? Rec.remove(s, "dependencies") : s
+				)
+			}))
+		}
+	}
+}
+
+/**
+ * Both files as d76a61066 drafted them, qti-pie's pantry among them, which 8b75446f4's `grizzle check` failed reading
+ * (TypeError: Cannot read properties of undefined (reading 'map')): each declared statistic recording no dependencies,
+ * sealed under format 8's domain, snapshot.json recording the number alone as its format, or, `relabelled`, this
+ * grizzle's format.
+ */
+export const d76a61066Draft = (
+	snapshot: string,
+	manifest: string,
+	relabelled: boolean
+): { readonly snapshot: string; readonly manifest: string } =>
+	formatDraft(
+		snapshot,
+		manifest,
+		relabelled ? formatOf.snapshot : artifactFormat,
+		artifactFormat,
+		withoutDependencies
+	)
 
 /**
  * Both files as a draft of format 3 left them, edullm's reset folder of 2026-11-20 11:54Z among them: each constant
@@ -216,4 +265,4 @@ export const formatThree = (
 	snapshot: string,
 	manifest: string
 ): { readonly snapshot: string; readonly manifest: string } =>
-	formatDraft(snapshot, manifest, 3, withoutLanguage)
+	formatDraft(snapshot, manifest, 3, 3, withoutLanguage)
