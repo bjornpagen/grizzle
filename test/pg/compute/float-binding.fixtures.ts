@@ -473,7 +473,7 @@ export const subplansOf = (
 					const ran: Array<string> = []
 					const text = lowered.value.statement.sql.text
 					const rows = yield* session.queryValues(
-						explainStatementWith(text, { serialize: { kind: "off" }, wal: false }),
+						explainStatementWith(text, { serialize: { kind: "off" }, wal: false, verbose: false }),
 						[]
 					)
 					const explained = yield* Effect.fromResult(parsePlan(rows[0]?.[0]))

@@ -196,7 +196,11 @@ export const costAt = (shape: Shape, size: number) =>
 							"the data step moves every row before the backfill, so no tid is where the rows were loaded"
 						)
 						const rows = yield* pinned.queryValues(
-							explainStatementWith(normalized(s), { serialize: { kind: "off" }, wal: false }),
+							explainStatementWith(normalized(s), {
+								serialize: { kind: "off" },
+								wal: false,
+								verbose: false
+							}),
 							[]
 						)
 						plans.push(succeeded(parsePlan(rows[0]?.[0]), "one EXPLAIN plan").plan)

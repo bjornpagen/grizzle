@@ -22,7 +22,11 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 /** The EXPLAIN options of a plan reading: no WAL, no SERIALIZE. */
-export const planned: ExplainOptions = { wal: false, serialize: { kind: "off" } }
+export const planned: ExplainOptions = {
+	wal: false,
+	serialize: { kind: "off" },
+	verbose: false
+}
 
 /** The planted loads: one tree of 20,000 rows of fan-out up to four, and 200 owners of 100 ordered members each. */
 export const load = { tree: 20_000, fanout: 4, owners: 200, members: 100 } as const

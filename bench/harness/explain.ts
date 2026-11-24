@@ -212,11 +212,13 @@ export interface ExplainOptions {
 		| { readonly kind: "on"; readonly format: SerializeFormat }
 	/** WAL counters on every node. */
 	readonly wal: boolean
+	/** VERBOSE: each node's output columns, and every column its conditions name qualified by its relation's alias. */
+	readonly verbose: boolean
 }
 
 /**
- * The EXPLAIN options of every capture: ANALYZE, BUFFERS, TIMING OFF, SETTINGS and FORMAT JSON, plus WAL and SERIALIZE
- * as the options ask.
+ * The EXPLAIN options of every capture: ANALYZE, BUFFERS, TIMING OFF, SETTINGS and FORMAT JSON, plus WAL, VERBOSE and
+ * SERIALIZE as the options ask.
  */
 const explainOptions = (options: ExplainOptions): string =>
 	Arr.join(
@@ -224,6 +226,7 @@ const explainOptions = (options: ExplainOptions): string =>
 			"ANALYZE",
 			"BUFFERS",
 			...(options.wal ? ["WAL"] : []),
+			...(options.verbose ? ["VERBOSE"] : []),
 			"TIMING OFF",
 			"SETTINGS",
 			...(options.serialize.kind === "on"

@@ -32,7 +32,8 @@ import { requesting } from "#test/unit/physical/fixtures.ts"
  * uuids and bigints in its heading, so only the GiST order puts a column of few values last
  * (physical/indexes/engine.ts withinBlock). Booking: a span key, so a GiST index whose leading room column btree_gist
  * serves by equality. Deposit: the reverse lookup of its reference to Line on line, which its primary key (account,
- * line) cannot serve. */
+ * line) cannot serve. Ledger: a key of two columns, (account, entry), and two columns besides, which a superkey seek
+ * orders by. */
 const Indexed: SchemaDesc = {
 	name: "Indexed",
 	relations: [
@@ -55,7 +56,11 @@ const Indexed: SchemaDesc = {
 			"during"
 		]),
 		relation("Line", { id: f.uuid }, ["id"]),
-		relation("Deposit", { line: f.uuid, account: f.uuid }, ["account", "line"])
+		relation("Deposit", { line: f.uuid, account: f.uuid }, ["account", "line"]),
+		relation("Ledger", { account: f.uuid, entry: f.bigint, amount: f.bigint, posted: f.bigint }, [
+			"account",
+			"entry"
+		])
 	],
 	statements: [contained(on("Deposit", ["line"]), on("Line", ["id"]))],
 	bases: []
@@ -506,3 +511,71 @@ export const restated = (r: IndexRequest): IndexRequest => {
 	}
 	return { ...r, keys: [...Arr.reverse(r.keys.slice(0, r.fixed)), ...r.keys.slice(r.fixed)] }
 }
+
+/** The relations a superkey seek is drawn on: each one's primary key, and its columns a seek may bind or order by
+ * besides. */
+const superkeyRelations = {
+	Event: { key: ["id"], others: ["tenant", "account", "created", "unrelated"] },
+	Ledger: { key: ["account", "entry"], others: ["amount", "posted"] }
+} as const satisfies Readonly<
+	Record<
+		string,
+		{
+			readonly key: Arr.NonEmptyReadonlyArray<string>
+			readonly others: Arr.NonEmptyReadonlyArray<string>
+		}
+	>
+>
+
+/**
+ * A superkey seek: a take or page seek on Event, keyed by id, or Ledger, keyed by (account, entry), whose equalities bind
+ * every column of the key and drawn others, all in a drawn order, then ordering by one or two of the rest, each in a
+ * drawn direction.
+ */
+export interface SuperkeySeek {
+	readonly relation: keyof typeof superkeyRelations
+	readonly fixed: ReadonlyArray<string>
+	readonly ordered: ReadonlyArray<{ readonly column: string; readonly desc: boolean }>
+	readonly use: "take seek" | "page seek"
+}
+
+export const superkeySeekGen: Gen<SuperkeySeek> = (source) => {
+	const relation = source.draw(element(["Event", "Ledger"] as const))
+	const { key, others } = superkeyRelations[relation]
+	const extra = source.draw(shuffled(others, { min: 0, max: others.length - 1 }))
+	const rest = Arr.filter(others, (c) => !extra.includes(c))
+	const ordered = source.draw(shuffled(rest, { min: 1, max: Math.min(2, rest.length) }))
+	const bound = [...key, ...extra]
+	return {
+		relation,
+		fixed: source.draw(shuffled(bound, { min: bound.length, max: bound.length })),
+		ordered: Arr.map(ordered, (column) => ({ column, desc: source.draw(boolean) })),
+		use: source.draw(element(["take seek", "page seek"] as const))
+	}
+}
+
+/** The superkey seek's request: its bound columns by equality, then the columns it orders by (AccessIndexRequest
+ * `fixed`). */
+export const superkeySeekRequest = (seek: SuperkeySeek): IndexRequest => ({
+	relation: seek.relation,
+	keys: [
+		...Arr.map(seek.fixed, (column) => ({
+			expr: column,
+			dir: "asc" as const,
+			opclass: defaultOpclass
+		})),
+		...Arr.map(seek.ordered, ({ column, desc }) => ({
+			expr: column,
+			dir: desc ? ("desc" as const) : ("asc" as const),
+			opclass: defaultOpclass
+		}))
+	],
+	method: "btree",
+	fixed: seek.fixed.length,
+	role: "access",
+	use: seek.use
+})
+
+/** The columns of a superkey seek's relation's key (superkeyRelations). */
+export const superkeyOf = (seek: SuperkeySeek): ReadonlyArray<string> =>
+	superkeyRelations[seek.relation].key

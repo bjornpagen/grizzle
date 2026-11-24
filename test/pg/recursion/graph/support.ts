@@ -358,7 +358,10 @@ export const tableRowsRead = (root: PlanNode, table: string): number =>
 export const executedPlan = (session: PgConnection, sql: string, params: ReadonlyArray<string>) =>
 	Effect.gen(function* () {
 		const result = yield* session
-			.query(explainStatementWith(sql, { serialize: { kind: "off" }, wal: false }), params)
+			.query(
+				explainStatementWith(sql, { serialize: { kind: "off" }, wal: false, verbose: false }),
+				params
+			)
 			.pipe(Effect.mapError((e) => new HarnessFailure({ message: `${String(e)}\n${sql}` })))
 		const explained = parsePlan(Rec.values(defined(result.rows[0], "the EXPLAIN row"))[0])
 		if (explained._tag === "Failure") {

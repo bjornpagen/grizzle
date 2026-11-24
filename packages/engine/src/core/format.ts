@@ -463,7 +463,11 @@
  * serves are the fewest that do, grouped so each group's sets are one chain (physical/indexes/engine.ts chainsOf,
  * indexes/chains.ts fewestSharingGroups), where format 8 let a workload's lookup land on a B-tree led by one of its
  * columns of many values that held the rest anywhere after it, or on a GiST index placed by one, and drafted each index
- * from its first request: so indexes are created, dropped and renamed.
+ * from its first request: so indexes are created, dropped and renamed. A take or page seek whose equalities bind every
+ * key of a unique B-tree lands on that index, and a seek's fixed columns lead its index as one block, in any order and
+ * direction, only the keys it orders by after them directed (engine.ts orderedPlacements), where format 8 created an
+ * index of its own for such a seek and directed its fixed columns as its order, so two seeks that differed only in a
+ * fixed column's direction took two indexes on one column list.
  */
 export const artifactFormat = 8
 

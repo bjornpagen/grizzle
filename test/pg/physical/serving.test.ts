@@ -33,8 +33,11 @@
  *   for a span predicate on (tick0, Bool) another GiST index serves. One more, kept by the token its draw made, the
  *   judge's reading closed: a key lookup on Rel0x0's key (Bool, field0) beside a page seek on (field0, Bool), whose
  *   index leads with the key's columns in the other order, which PostgreSQL reads the lookup through empty as
- *   installed, at most one row by the key, as the plan's index condition shows (serving.ts). The judge's own excuses are
- *   its own (serving.ts):
+ *   installed, at most one row by the key, as the plan's index condition shows (serving.ts). And one more the engine's
+ *   fix closed, killed by its fixed keys directed again: a take seek on Rel2x0 ordered by field0 then its key Bool the
+ *   other way, beside a take seek that binds field0 and orders by Bool, which one index serves, field0 holding one value
+ *   within the second, where directing it put the two apart on two indexes (physical/indexes/engine.ts
+ *   orderedPlacements). The judge's own excuses are its own (serving.ts):
  *   a join key's GiST sweep no plan the engine makes avoids, a span predicate's GiST index needed beside a B-tree that
  *   finds its one row, btree_gist's pricing of multibyte text (README, PostgreSQL known issues), and a skip scan's
  *   descents over closed keys.
@@ -149,9 +152,24 @@ export const everyRequestAGeneratedWorkloadPlansIsServedAndEveryIndexItCreatesIs
 				reason:
 					"a key lookup on Rel0x0's key (Bool, field0) beside a page seek on (field0, Bool), field0 bound and Bool ordered, which needs an index leading with the key's columns in the other order, where the key's index serves the lookup and an equality lookup on Bool: empty as installed, PostgreSQL breaks the tie of the two indexes by the latest, the seek's, and reads the key's one row through it, which the judge held to the key's own index until it read the plan for the run its index condition binds (serving.ts, empty as installed)",
 				since: "2026-11-24"
+			},
+			{
+				token: ReplayToken(
+					"test/pg/physical/serving.test.ts#everyRequestAGeneratedWorkloadPlansIsServedAndEveryIndexItCreatesIsNeeded:-:0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.1.0.0.0.0.0.1.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0"
+				),
+				reason:
+					"a take seek on Rel2x0 ordered by field0 descending, completed by its key Bool ascending, beside a take seek that binds field0 by equality and orders by Bool descending: one index on (field0, Bool) serves both, field0 holding one value within the second seek, so any direction serves it, where the engine directed the second seek's fixed key as its order and put the two seeks apart, creating a second index on (field0, Bool) whose keys run one way, which PostgreSQL did not need",
+				since: "2026-11-24"
 			}
 		],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/physical/indexes/engine.ts",
+				original: "\t\t\tdirected: isNonEmpty(order) ? order : undefined",
+				replacement: "\t\t\tdirected: keys",
+				why: "An ordered request's fixed keys directed as its order, as before: two seeks that differ only in a fixed key's direction are apart, and each takes an index of its own on the same columns, one of which PostgreSQL does not need."
+			}
+		]
 	})
 
 /**

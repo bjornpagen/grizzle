@@ -1049,7 +1049,9 @@ const explainingSession = (
 			const sql = query._tag === "prepared" ? query.text.sql : query.sql
 			return texts.has(sql)
 				? oneShotStatement(
-						testSql(explainStatementWith(sql, { serialize: { kind: "off" }, wal: false })),
+						testSql(
+							explainStatementWith(sql, { serialize: { kind: "off" }, wal: false, verbose: false })
+						),
 						query.params
 					)
 				: query
@@ -1289,7 +1291,7 @@ export const probeScans = Effect.fn("probeScans")(function* <S>(
 		yield* session.values("SET CONSTRAINTS ALL IMMEDIATE", [])
 		const before = yield* transactionScans(session.values, fixture.installed.schema)
 		for (const sql of statements) {
-			yield* explain(session, sql, [], { wal: false, serialize: { kind: "off" } })
+			yield* explain(session, sql, [], { wal: false, serialize: { kind: "off" }, verbose: false })
 		}
 		const after = yield* transactionScans(session.values, fixture.installed.schema)
 		return scanDelta(before, after)

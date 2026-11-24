@@ -295,16 +295,20 @@ const lawBlocks = (r: LawIndexRequest): NonEmptyReadonlyArray<Block> =>
 	)
 
 /**
- * Columns leading an index as blocks, each block's columns in any order among themselves, an ordered request's in its
- * directions or all opposite: a B-tree's, which narrows its scan by its leading columns in order whatever values they
- * hold; the one column of a hash or an HNSW index; or a GiST index's leading columns where its first block holds a column
- * of many values, which places its entries (`gistLed`), so a scan binding that block descends once.
+ * Columns leading an index as blocks, each block's columns in any order among themselves, an ordered request's order
+ * keys in their directions or all opposite: a B-tree's, which narrows its scan by its leading columns in order whatever
+ * values they hold; the one column of a hash or an HNSW index; or a GiST index's leading columns where its first block
+ * holds a column of many values, which places its entries (`gistLed`), so a scan binding that block descends once.
  */
 interface BlocksPlacement {
 	readonly kind: "blocks"
 	readonly method: IndexMethod
 	readonly blocks: NonEmptyReadonlyArray<Block>
-	/** The ordered request's keys, which fix each block's direction up to reversal, when the request is an order. */
+	/**
+	 * An ordered request's order keys, those past the columns it fixes by equality, each a block of its own after them,
+	 * whose directions its index takes up to reversal (`together`); none for any other request, and none for a fixed
+	 * column, which one value holds within the seek, so any direction serves it.
+	 */
 	readonly directed: Keys | undefined
 }
 
@@ -422,16 +426,31 @@ const rangePlacements = (keys: Keys, columns: Columns): Placements => {
 		: bareRangePlacements(bounded, columns)
 }
 
-/** An order, which only a B-tree has. */
-const orderedPlacements = (keys: Keys): Placements => ({
-	own: {
-		kind: "blocks",
-		method: "btree",
-		blocks: mapNonEmpty(keys, (k): Block => [k]),
-		directed: keys
-	},
-	others: []
-})
+/**
+ * An order, which only a B-tree has, its first `fixed` keys bound by equality: a B-tree leading with those keys as one
+ * block, in any order and any direction, since one value holds each within the seek, then each order key after them in
+ * its direction, or each opposite (BlocksPlacement `directed`), so two seeks that differ only in their fixed keys' order
+ * or directions ask for one index; or, a superkey seek, a unique B-tree all of whose keys those equalities bind, which
+ * finds at most one row, in every order, so the seek asks for no index of its own beside the key's.
+ */
+const orderedPlacements = (keys: Keys, fixed: number): Placements => {
+	const bound = keys.slice(0, fixed)
+	const order = keys.slice(fixed)
+	return {
+		own: {
+			kind: "blocks",
+			method: "btree",
+			blocks: isNonEmpty(bound)
+				? extendNonEmpty<Block>(
+						[bound],
+						order.map((k): Block => [k])
+					)
+				: mapNonEmpty(keys, (k): Block => [k]),
+			directed: isNonEmpty(order) ? order : undefined
+		},
+		others: isNonEmpty(bound) ? [{ kind: "keyed", method: "btree", within: bound }] : []
+	}
+}
 
 /** A GiST probe binding every column, a scalar by equality through btree_gist and a span by overlap or equality: a GiST
  * index holding them all, placed by one of theirs of many values, a span's at least, or a unique index all of whose keys
@@ -509,10 +528,12 @@ const btreeNeeds: Readonly<Record<AccessUse, "lookup" | "range" | "order" | "non
 	"network containment": "none"
 }
 
-/** A workload B-tree request's placements, by what its use asks of a B-tree (btreeNeeds). */
+/** A workload B-tree request's placements, by what its use asks of a B-tree (btreeNeeds), its first `fixed` keys bound
+ * by equality (AccessIndexRequest `fixed`). */
 const btreeAccessPlacements = (
 	use: AccessUse,
 	keys: Keys,
+	fixed: number,
 	columns: Columns,
 	label: string
 ): Placements => {
@@ -522,7 +543,7 @@ const btreeAccessPlacements = (
 		case "range":
 			return rangePlacements(keys, columns)
 		case "order":
-			return orderedPlacements(keys)
+			return orderedPlacements(keys, fixed)
 		case "none":
 			return fail("MalformedDescription", label, `a use a B-tree serves; ${use} is none`)
 	}
@@ -552,7 +573,7 @@ const placementsOf = (
 		case "btree":
 			return request.role === "lawMaintenance"
 				? reversePlacements(blocks, keys, columns)
-				: btreeAccessPlacements(request.use, keys, columns, label)
+				: btreeAccessPlacements(request.use, keys, request.fixed, columns, label)
 	}
 }
 
@@ -603,14 +624,17 @@ const sameSet = (have: ReadonlyArray<IndexKey>, want: ReadonlyArray<IndexKey>): 
 	want.every((k) => have.some((l) => sameKey(l, k))) &&
 	have.every((l) => want.some((k) => sameKey(l, k)))
 
-/** Whether `keys` lead with `directed`'s columns in its directions, or all opposite. */
-const alongEither = (keys: ReadonlyArray<IndexKey>, directed: Keys): boolean => {
-	const along = (reversed: boolean): boolean =>
-		directed.every((k, i) => {
-			const l = keys[i]
-			return l !== undefined && (l.dir === k.dir) !== reversed
-		})
-	return along(false) || along(true)
+/**
+ * Whether two lists of keys take one direction on the columns they share: each key of one in the other's direction, or
+ * each opposite. An index holds an order (BlocksPlacement `directed`) when its keys and the order are together, its
+ * blocks having placed the order's columns, since a B-tree scanned backward yields the exact reverse of its order; two
+ * orders one index holds are together, and orders together pairwise are together all at once on any index whose leading
+ * runs hold each, since each order fixes only the relative direction of keys adjacent in it, adjacent in the index too,
+ * and those pairs make a path, which no two of them constrain apart (`directionsOf`).
+ */
+const together = (a: ReadonlyArray<IndexKey>, b: ReadonlyArray<IndexKey>): boolean => {
+	const along = a.flatMap((k) => b.filter((l) => sameKey(l, k)).map((l) => l.dir === k.dir))
+	return along.every((same) => same) || along.every((same) => !same)
 }
 
 /** Whether an index's keys hold a placement (see `planIndexes`), over `columns`, what its relation's columns hold. */
@@ -637,7 +661,7 @@ const placed = (index: KeyedIndex, placement: Placement, columns: Columns): bool
 				}
 				at += block.length
 			}
-			return placement.directed === undefined || alongEither(keys, placement.directed)
+			return placement.directed === undefined || together(keys, placement.directed)
 		}
 	}
 }
@@ -686,7 +710,8 @@ const without = (
 /**
  * A placement without the keys `left`, the equalities a request's entry leaves out as filters (Planned `filtered`): an
  * index that holds the rest serves the request, its reads applying the filters beside it; none where no key would place
- * it. A GiST and a unique index's placements leave nothing out, since only a B-tree's entry leaves an equality out.
+ * it. A GiST and a unique index's placements leave nothing out, since only a B-tree's entry leaves an equality out, and
+ * an order's keys stay directed, since none is an equality (BlocksPlacement `directed`).
  */
 const leavingOut = (p: Placement, left: ReadonlyArray<IndexKey>): Placement | undefined => {
 	switch (p.kind) {
@@ -695,10 +720,7 @@ const leavingOut = (p: Placement, left: ReadonlyArray<IndexKey>): Placement | un
 				const kept = without(block, left)
 				return isNonEmpty(kept) ? [kept] : []
 			})
-			const directed = p.directed === undefined ? [] : without(p.directed, left)
-			return isNonEmpty(blocks)
-				? { ...p, blocks, directed: isNonEmpty(directed) ? directed : undefined }
-				: undefined
+			return isNonEmpty(blocks) ? { ...p, blocks } : undefined
 		}
 		case "placed":
 		case "keyed":
@@ -707,8 +729,8 @@ const leavingOut = (p: Placement, left: ReadonlyArray<IndexKey>): Placement | un
 }
 
 /** An index under construction (see `planIndexes`): its access method, its own request's, blocks covering its columns,
- * the columns of its first block one of which leads it, and the order whose directions it takes, when an ordered request
- * fixed them. */
+ * the columns of its first block one of which leads it, and the orders whose directions it takes, each an ordered
+ * request's it answers to. */
 interface Draft {
 	readonly method: IndexMethod
 	readonly blocks: NonEmptyReadonlyArray<Block>
@@ -719,7 +741,9 @@ interface Draft {
 	 * request states first leads (`keysOf`).
 	 */
 	readonly leaders: Block
-	readonly directed: Keys | undefined
+	/** The order keys of each ordered request it answers to (BlocksPlacement `directed`), together pairwise (`together`),
+	 * whose directions its keys take (`directionsOf`). */
+	readonly orders: ReadonlyArray<Keys>
 }
 
 /** Two block sequences as one that satisfies both, or none when no order does: `draft`'s cover the index's columns, and
@@ -773,14 +797,6 @@ const leadDraft = (draft: Draft, lead: Keys, held: ReadonlyArray<IndexKey>): Dra
 	return isNonEmpty(leaders) ? { ...draft, leaders } : undefined
 }
 
-/** The order of two ordered requests leading one index, when they read it in one direction: the longer, when the
- * shorter's keys lie each in its direction or each opposite. */
-const oneDirection = (a: Keys, b: Keys): Keys | undefined => {
-	const short = a.length <= b.length ? a : b
-	const long = a.length <= b.length ? b : a
-	return alongEither(long, short) ? long : undefined
-}
-
 /** The draft of the index a planned request creates: its own placement's method and blocks, a GiST request's bound
  * columns as one block, in any order a later request fixes, the request's own otherwise. */
 const draftOf = (planned: Planned): Draft => {
@@ -791,10 +807,10 @@ const draftOf = (planned: Planned): Draft => {
 				method: own.method,
 				blocks: own.blocks,
 				leaders: own.blocks[0],
-				directed: own.directed
+				orders: own.directed === undefined ? [] : [own.directed]
 			}
 		case "placed":
-			return { method: "gist", blocks: [own.bound], leaders: own.lead, directed: undefined }
+			return { method: "gist", blocks: [own.bound], leaders: own.lead, orders: [] }
 	}
 }
 
@@ -825,14 +841,13 @@ const refinedBy = (draft: Draft, placement: Placement): Draft | undefined => {
 			if (!isNonEmpty(leaders)) {
 				return undefined
 			}
-			if (placement.directed === undefined) {
-				return { method, blocks, leaders, directed: draft.directed }
+			const { directed } = placement
+			if (directed === undefined) {
+				return { method, blocks, leaders, orders: draft.orders }
 			}
-			if (draft.directed === undefined) {
-				return { method, blocks, leaders, directed: placement.directed }
-			}
-			const directed = oneDirection(draft.directed, placement.directed)
-			return directed === undefined ? undefined : { method, blocks, leaders, directed }
+			return draft.orders.every((order) => together(order, directed))
+				? { method, blocks, leaders, orders: [...draft.orders, directed] }
+				: undefined
 		}
 	}
 }
@@ -884,8 +899,7 @@ const withinBlock: Readonly<
 }
 
 /** A draft's keys (see `planIndexes`): its first leader in its access method's order (`withinBlock`), then the rest of
- * its blocks in order, each block's columns in that order, the keys an ordered request directs in its directions and
- * every other in the first key's, canonical under reversal. */
+ * its blocks in order, each block's columns in that order, in the directions its orders take (`directionsOf`). */
 const keysOf = (draft: Draft, place: Place, columns: Columns): NonEmptyReadonlyArray<IndexKey> => {
 	const order = withinBlock[draft.method](place, columns)
 	const [leading, ...following] = draft.blocks
@@ -897,13 +911,36 @@ const keysOf = (draft: Draft, place: Place, columns: Columns): NonEmptyReadonlyA
 			...following.flatMap((block) => block.toSorted(order))
 		]
 	)
-	const directed = draft.directed
-	const first = directed === undefined ? "asc" : directed[0].dir
-	return canonicalKeys(
-		mapNonEmpty(keys, (k, i): IndexKey => {
-			const along = directed?.[i]
-			return { column: k.column, dir: along === undefined ? first : along.dir, opclass: k.opclass }
+	return directionsOf(keys, draft.orders)
+}
+
+/**
+ * An index's keys in the directions `orders` take, canonical under reversal: the first ascending, and each after it in
+ * the direction of the key before it, but opposite where an order holds both and directs them apart. An order's keys
+ * stand adjacent in every index that holds it, so each adjacent pair of its keys is one the walk directs, the same way
+ * whichever order holding both it reads, orders one index holds being together (`together`): every order is held in its
+ * directions or each opposite, an order and its exact reverse are one index, and a key no order directs, a fixed column
+ * or one no order holds, takes the direction of the key before it.
+ */
+const directionsOf = (
+	keys: NonEmptyReadonlyArray<IndexKey>,
+	orders: ReadonlyArray<Keys>
+): NonEmptyReadonlyArray<IndexKey> => {
+	const apart = (a: IndexKey, b: IndexKey): boolean =>
+		orders.some((order) => {
+			const x = order.find((k) => sameKey(k, a))
+			const y = order.find((k) => sameKey(k, b))
+			return x !== undefined && y !== undefined && x.dir !== y.dir
 		})
+	const [first, ...rest] = keys
+	return rest.reduce(
+		(held: NonEmptyReadonlyArray<IndexKey>, k): NonEmptyReadonlyArray<IndexKey> => {
+			const before = lastNonEmpty(held)
+			return extendNonEmpty(held, [
+				{ ...k, dir: apart(before, k) ? opposite(before.dir) : before.dir }
+			])
+		},
+		[{ ...first, dir: "asc" }]
 	)
 }
 
@@ -992,9 +1029,12 @@ const justificationOrder: Comparator<IndexRequest> = (a, b) => {
  *   range across every value of the prefix: on PostgreSQL 19, over 20,000 rows, a range on the half of a numeric of 141
  *   values after a three-valued handle touches 92 buffers of a GiST index on `(handle, numeric, handle, span)` for its
  *   3,334 rows, three times their share;
- * - an ordered request, a take or page seek, is served only by a B-tree whose leading columns are the requested ones in
- *   order and either in direction or all in the opposite direction, since a B-tree scanned backward yields the exact
- *   reverse of its order; GiST has no order;
+ * - an ordered request, a take or page seek, is served only by a B-tree whose leading columns are the ones its
+ *   equalities fix, in any order and any direction, since one value holds each within the seek, then the keys it orders
+ *   by, in order and either each in its direction or each in the opposite direction, since a B-tree scanned backward
+ *   yields the exact reverse of its order; GiST has no order. A superkey seek, whose equalities bind every key of a unique B-tree, is
+ *   served by that index too: at most one row answers it, which is in every order, so it asks for no index leading with
+ *   a key's columns beside the key's own, which a lookup binding the key would tie with;
  * - a GiST request (a workload span predicate, GiST key lookup or GiST write target, a law's GiST probe) binds every
  *   requested column, a scalar by equality through btree_gist and a span by overlap or equality, a span among them, and
  *   is served by a GiST index that holds every column it binds and whose first column of many values, and every column
@@ -1019,12 +1059,13 @@ const justificationOrder: Comparator<IndexRequest> = (a, b) => {
  * Each request's placements in a serving index (`placementsOf`) are the one statement of the rules on columns and methods:
  * its own, which an index created for it takes, and the others an index may hold instead, each owned by the access
  * method of the indexes that hold it (methodOf). A placement is blocks of columns leading an index, each block's columns
- * in any order among themselves (an ordered request's keys each a block of its own, in its directions or all opposite),
+ * in any order among themselves (an ordered request's fixed columns one block, then each key it orders by a block of its
+ * own, in its directions or all opposite),
  * a B-tree's, a hash or an HNSW index's, or a GiST index's whose first block holds a column of many values (an equality
  * lookup's, a range's or a law's probe's, `gistLed`); or a GiST index whose first column of many values is one of some
  * columns, every column before it and every other held, a GiST request's own; or, for a unique index, every key among
  * some of the columns the request fixes (a B-tree's for
- * an equality lookup or a range; a GiST request's: a GiST index's among all of them, a B-tree's among its scalars). No
+ * an equality lookup, a range or a seek's equalities; a GiST request's: a GiST index's among all of them, a B-tree's among its scalars). No
  * blocks place a GiST index's entries, so no placement of a GiST index is one by columns of few values alone. `serves`
  * reads them to judge an index, and the engine reads them to draft an index it creates.
  *
@@ -1037,8 +1078,8 @@ const justificationOrder: Comparator<IndexRequest> = (a, b) => {
  * `<table>__ix__<col>[__<col>...]`. The B-tree requests whose own placement is blocks, an equality lookup's, a range's,
  * a law's probe's, its suffix seek's or an order's, that no key serves once every other request of their relation has
  * landed or created its index, are planned together (`chainsOf`): each needs a chain of sets its index must lead with,
- * and they are grouped into the fewest indexes whose groups' sets are each one chain, two orders sharing one only in
- * one direction (indexes/chains.ts fewestSharingGroups), each index ordering its columns along its chain. Every other unserved request, wider requests first, so a narrower one lands on a
+ * and they are grouped into the fewest indexes whose groups' sets are each one chain, two orders sharing one only when
+ * they direct the keys they both order by alike or each opposite (`together`; indexes/chains.ts fewestSharingGroups), each index ordering its columns along its chain. Every other unserved request, wider requests first, so a narrower one lands on a
  * wider index that serves it, creates an index drafted for it (`draftFor`): it starts as the request's own placement and
  * its method, and is refined, in the plan's
  * order, by the placements of each later request no planned index serves yet, as long as one index still holds them
@@ -1068,9 +1109,9 @@ const justificationOrder: Comparator<IndexRequest> = (a, b) => {
  * (package, kind, start), 47 rows of other documents filtered for each of 24,991 lookups, 1.38 s, and with path
  * appended, 0.36 s through the unit's key. Appending never unseats a placement: a created index is never unique, and
  * every placement it took is a run of its leading keys. A B-tree some of whose keys the lookup binds, a prefix, is left
- * to PostgreSQL's estimate of the rows it reads. Its keys are canonical under reversal: a key no ordered request
- * directs takes the first key's direction, and an index whose first key descends is created reversed, so an order and
- * its exact reverse are one index. Its identity is its columns, the canonical directions and each key's operator class,
+ * to PostgreSQL's estimate of the rows it reads. Its keys are canonical under reversal: the first ascends, and a key
+ * no ordered request directs takes the direction of the key before it (`directionsOf`), so an order and its exact
+ * reverse are one index. Its identity is its columns, the canonical directions and each key's operator class,
  * which serving requires equal, and its access method; the name marks a method other than the B-tree, the descending
  * keys and the classes beyond the default, each part of its identity at the naming door (identity.accessIndex).
  * Uniqueness is never traded: a request never turns into or replaces a unique constraint, and enforcement objects
@@ -1364,7 +1405,8 @@ const plannedRoles =
 interface Chained {
 	readonly entry: Planned
 	readonly blocks: NonEmptyReadonlyArray<Block>
-	/** An order's keys, whose directions its index takes up to reversal; none for any other request. */
+	/** An order's order keys (BlocksPlacement `directed`), whose directions its index takes up to reversal; none for any
+	 * other request. */
 	readonly directed: Keys | undefined
 }
 
@@ -1372,7 +1414,7 @@ interface Chained {
  * A request as the chain cover plans it (`chainsOf`), where it is a B-tree request whose own placement is blocks, in no
  * direction or an order's, an equality lookup's, a range's, a law's probe's, its suffix seek's or a take or page
  * seek's, served by any index whose leading columns are its blocks' sets in order, whatever order within each, an
- * order's in its directions or all opposite, each block without the columns its entry leaves out (Planned `filtered`),
+ * order's order keys in their directions or all opposite, each block without the columns its entry leaves out (Planned `filtered`),
  * which no index holds; none for a GiST, hash, HNSW or GIN request, which fixes its own method, or one that states a
  * column twice, whose sets would hide it, each drafted on its own (`draftFor`), which refuses what it cannot create.
  */
@@ -1426,7 +1468,7 @@ const chainsOf = (entries: ReadonlyArray<Chained>): ReadonlyArray<Chain> => {
 	const apart = (i: number, j: number): boolean => {
 		const a = entries[i]?.directed
 		const b = entries[j]?.directed
-		return a !== undefined && b !== undefined && oneDirection(a, b) === undefined
+		return a !== undefined && b !== undefined && !together(a, b)
 	}
 	return fewestSharingGroups(
 		needed.map((sets) => mapNonEmpty(sets, (x) => x.members)),
@@ -1466,15 +1508,7 @@ const chainsOf = (entries: ReadonlyArray<Chained>): ReadonlyArray<Chain> => {
 					method: "btree",
 					blocks: extendNonEmpty([lowest.keys], following),
 					leaders: lowest.keys,
-					directed: holds.reduce<Keys | undefined>(
-						(most, { directed }) =>
-							directed === undefined
-								? most
-								: most === undefined
-									? directed
-									: oneDirection(most, directed),
-						undefined
-					)
+					orders: holds.flatMap(({ directed }) => (directed === undefined ? [] : [directed]))
 				},
 				answers: mapNonEmpty(holds, ({ entry }) => entry.request)
 			},
@@ -1482,10 +1516,6 @@ const chainsOf = (entries: ReadonlyArray<Chained>): ReadonlyArray<Chain> => {
 		}
 	})
 }
-
-/** A request's keys canonical under reversal: reversed when the first descends, so the first ascends. */
-const canonicalKeys = (keys: NonEmptyReadonlyArray<IndexKey>): NonEmptyReadonlyArray<IndexKey> =>
-	keys[0].dir === "desc" ? mapNonEmpty(keys, (k) => ({ ...k, dir: opposite(k.dir) })) : keys
 
 /** A lookup of one unit of a whole rule (ir/law.ts LawLookup): its unit's fields, its request's first block, and every
  * column it fixes by equality. */

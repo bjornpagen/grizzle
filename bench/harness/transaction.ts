@@ -74,7 +74,11 @@ export interface TransactionStatement {
  * The capture an explained statement of a transaction runs under: WAL, since a transaction under measurement writes,
  * and no SERIALIZE, since a write returns at most its read-back.
  */
-const transactionExplain: ExplainOptions = { wal: true, serialize: { kind: "off" } }
+const transactionExplain: ExplainOptions = {
+	wal: true,
+	serialize: { kind: "off" },
+	verbose: false
+}
 
 export type TransactionEnd = "plain" | "split" | "rollback"
 

@@ -660,10 +660,15 @@ export const readSnapshot: VariantTransaction = { kind: "snapshot", readOnly: tr
  * The EXPLAIN of every capture of the query gates: WAL on, no SERIALIZE; and the capture with SERIALIZE TEXT, the
  * output conversion and TOAST fetches of the delivered payload.
  */
-export const plainExplain: ExplainOptions = { wal: true, serialize: { kind: "off" } }
+export const plainExplain: ExplainOptions = {
+	wal: true,
+	serialize: { kind: "off" },
+	verbose: false
+}
 export const serializedExplain: ExplainOptions = {
 	wal: true,
-	serialize: { kind: "on", format: "text" }
+	serialize: { kind: "on", format: "text" },
+	verbose: false
 }
 
 const deliveredRole = (artifact: Artifact): "generated" | "conservative" =>

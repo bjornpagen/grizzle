@@ -3,7 +3,8 @@
  * create its indexes. Over drawn requests on a schema with a plain table, a span key's GiST index and a reverse lookup,
  * in a drawn order:
  *
- * - every request lands on exactly one planned index, of its relation;
+ * - every request lands on exactly one planned index, of its relation, an installed one where its equalities bind every
+ *   key of an installed unique B-tree;
  * - a created index is never unique, in the plan or in its CREATE INDEX;
  * - the plan is the same whatever order the requests arrive in, and whatever order each states the columns it binds by
  *   equality in, so every index that holds one block of columns holds it in one order, the relation's heading's
@@ -50,6 +51,9 @@ import {
 	shelfColumnsOf,
 	shelfGen,
 	shelfLookup,
+	superkeyOf,
+	superkeySeekGen,
+	superkeySeekRequest,
 	valueClass
 } from "#test/unit/physical/indexes.fixtures.ts"
 
@@ -175,6 +179,20 @@ export const theIndexRequestEngineLandsEveryRequestOnExactlyOneIndexPlansAlikeIn
 								(keys.length >= bound.length &&
 									Arr.every(Arr.take(keys, bound.length), (k) => bound.includes(k))),
 							`${index.index.name}(${Arr.join(keys, ", ")}) leads with exactly the columns ${r.relation}(${Arr.join(bound, ", ")}) binds by equality, or is a unique index all of whose keys it binds`
+						)
+						assert.ok(
+							r.method === "gist" ||
+								index.index.kind === "installed" ||
+								!Arr.some(
+									installation.indexes,
+									(x) =>
+										x.relation === r.relation &&
+										x.index.kind === "installed" &&
+										x.unique &&
+										x.method === "btree" &&
+										Arr.every(x.keys, (k) => bound.includes(keyField(k)))
+								),
+							`${r.relation}(${Arr.join(bound, ", ")}) binds a key and lands on an installed index, not on ${index.index.name}`
 						)
 						c.note(
 							index.index.kind === "created"
@@ -373,3 +391,81 @@ export const aRequestTwoKeysServeLandsOnTheKeyItsContentPutsFirstWhicheverOrderT
 			}
 		]
 	})
+
+type SuperkeyFeature =
+	| "a superkey seek on a key of one column"
+	| "a superkey seek on a key of two columns"
+	| "a superkey seek binding a column beyond its key"
+	| "a superkey seek ordering by two columns"
+
+/**
+ * A superkey seek, a take or page seek whose equalities bind every key of a unique index, lands on that index and the
+ * engine creates none for it (physical/indexes/engine.ts orderedPlacements): at most one row answers it, which is in
+ * every order, so an index of its own would lead with the key's columns beside the key's index, which a lookup binding
+ * the key ties with. Over Event's key of one column and Ledger's of two, each seek binding the key's columns and drawn
+ * others in a drawn order, then ordering by one or two of the rest in drawn directions.
+ *
+ * Its budget is the runner's: a new property, with no suite before it to carry a count from.
+ */
+export const aSuperkeySeekLandsOnItsKeyAndTheEngineCreatesNoIndexForIt = property.explore(
+	superkeySeekGen,
+	{
+		needs: {},
+		situations: [
+			"a superkey seek on a key of one column",
+			"a superkey seek on a key of two columns",
+			"a superkey seek binding a column beyond its key",
+			"a superkey seek ordering by two columns"
+		] satisfies ReadonlyArray<Reached<SuperkeyFeature>>,
+		check: (_, c: Case<SuperkeyFeature>) => (seek) =>
+			Effect.sync(() => {
+				const request = superkeySeekRequest(seek)
+				const installation = succeeded(install([request]))
+				const key = superkeyOf(seek)
+				assert.deepEqual(
+					Arr.map(
+						Arr.filter(installation.indexes, (x) => x.requests.includes(request)),
+						(x) => ({ kind: x.index.kind, unique: x.unique, keys: Arr.map(x.keys, keyField) })
+					),
+					[{ kind: "installed", unique: true, keys: [...key] }],
+					`the seek on ${seek.relation}(${Arr.join(seek.fixed, ", ")}) lands on its key (${Arr.join(key, ", ")})`
+				)
+				assert.deepEqual(
+					Arr.map(
+						Arr.filter(
+							installation.indexes,
+							(x) => x.index.kind === "created" && x.relation === seek.relation
+						),
+						(x) => x.index.name
+					),
+					[],
+					`no index of ${seek.relation} is created for the seek`
+				)
+				c.note(
+					key.length === 1
+						? "a superkey seek on a key of one column"
+						: "a superkey seek on a key of two columns"
+				)
+				if (seek.fixed.length > key.length) {
+					c.note("a superkey seek binding a column beyond its key")
+				}
+				if (seek.ordered.length > 1) {
+					c.note("a superkey seek ordering by two columns")
+				}
+			}),
+		oracle: {
+			kind: "specification",
+			name: "the seek on its key's index, and no index created for it"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/physical/indexes/engine.ts",
+				original:
+					'\t\tothers: isNonEmpty(bound) ? [{ kind: "keyed", method: "btree", within: bound }] : []\n',
+				replacement: "\t\tothers: []\n",
+				why: "A superkey seek is served only by an index leading with its keys in order, so it creates one leading with the key's columns beside the key's own index, which a lookup binding the key ties with (test/pg/physical/serving.ts, empty as installed)."
+			}
+		]
+	}
+)

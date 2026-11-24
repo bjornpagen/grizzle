@@ -46,6 +46,7 @@ import {
 } from "#compiler/physical/install/extension.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import {
+	type CopyIndex,
 	copyIndexes,
 	fillCopy,
 	indexesOf,
@@ -68,7 +69,8 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * What a probe asks of its relation: every key equal to a value; an equality prefix and its last key bounded on both
- * sides (by its sampled value alone, by the half of the column's extent holding it after a prefix); the keys' order;
+ * sides (by its sampled value alone, by the half of the column's extent holding it after a prefix); an equality prefix,
+ * a seek's fixed keys (AccessIndexRequest `fixed`), and the order of the keys after it;
  * equality on each scalar key and overlap on each span key; the nearest vectors; the documents a query matches.
  */
 const shapes = ["equality", "range", "ordered", "overlap", "nearest", "match", "contain"] as const
@@ -106,11 +108,11 @@ const lawShape: Readonly<Record<IndexRequest["method"], Shape>> = {
 const shapeOf = (r: IndexRequest): Shape =>
 	r.role === "access" ? accessShape[r.use] : lawShape[r.method]
 
-/** Whether a shape's probe takes its values from a row the relation holds: an order takes none. */
+/** Whether a shape's probe takes its values from a row the relation holds: an order's its fixed keys'. */
 const sampledShape: Readonly<Record<Shape, boolean>> = {
 	equality: true,
 	range: true,
-	ordered: false,
+	ordered: true,
 	overlap: true,
 	contain: true,
 	nearest: true,
@@ -903,16 +905,24 @@ const probeOf = (installed: Judged, table: Table, request: IndexRequest) =>
 						})),
 						tail: plainTail("")
 					})
-				case "ordered":
+				case "ordered": {
+					const fixed = request.role === "access" ? request.fixed : 0
+					const ordered = keys.slice(fixed)
 					return Effect.succeed({
-						conditions: [],
+						conditions: equal(fixed),
 						tail: plainTail(
-							` ORDER BY ${Arr.join(
-								Arr.map(keys, (k) => `${column(k.field)} ${k.dir === "desc" ? "DESC" : "ASC"}`),
-								", "
-							)} LIMIT 10`
+							ordered.length === 0
+								? " LIMIT 10"
+								: ` ORDER BY ${Arr.join(
+										Arr.map(
+											ordered,
+											(k) => `${column(k.field)} ${k.dir === "desc" ? "DESC" : "ASC"}`
+										),
+										", "
+									)} LIMIT 10`
 						)
 					})
+				}
 				case "nearest": {
 					const first = keys[0]
 					if (first === undefined) {
@@ -1242,14 +1252,17 @@ const judgeScan = (
 /**
  * The verdict on a probe's plan (see the header): its one scan of its relation judged (judgeScan), `claimed` whether
  * the index PostgreSQL chose is held to the engine's claim over the probe's conditions, or, one PostgreSQL chose by its
- * cost over the request's own, only to what it read; and no sort above it when the probe asks for an order.
+ * cost over the request's own, only to what it read; and no sort above it when the probe asks for an order, but one
+ * over a scan that reads at most one row by a key, as the plan shows it (copies.ts readsOneRowByKey over `cataloged`,
+ * its relation's indexes as the catalog holds them), a superkey seek's, whose one row is in every order.
  */
 const verdictOf = (
 	probe: Probe,
 	plan: PlanNode,
 	planned: ReadonlyMap<string, PlannedIndex>,
 	facts: ReadonlyMap<string, IndexFacts>,
-	claimed: (index: string) => boolean
+	claimed: (index: string) => boolean,
+	cataloged: ReadonlyArray<CopyIndex>
 ): Verdict => {
 	const nodes = [...planNodes(plan)]
 	const scans = Arr.filter(
@@ -1270,14 +1283,26 @@ const verdictOf = (
 				? { kind: "stated", conditions: probe.conditions }
 				: { kind: "read", conditions: probe.conditions }
 	)
-	return verdict.kind !== "unserved" &&
-		orderedShape[probe.shape] &&
-		Arr.some(nodes, (n) => sorts.has(n.nodeType))
-		? { kind: "unserved", why: `a sort above the scan of ${verdict.through.index.name}` }
-		: verdict
+	if (
+		verdict.kind === "unserved" ||
+		!orderedShape[probe.shape] ||
+		!Arr.some(nodes, (n) => sorts.has(n.nodeType))
+	) {
+		return verdict
+	}
+	const name = verdict.through.index.name
+	const oneRow = Option.exists(
+		Arr.findFirst(scanBindings(plan), (b) => b.relation === probe.table.name),
+		(b) =>
+			Option.exists(
+				Arr.findFirst(cataloged, (i) => i.name === name),
+				(i) => readsOneRowByKey(cataloged, i, b.bound)
+			)
+	)
+	return oneRow ? verdict : { kind: "unserved", why: `a sort above the scan of ${name}` }
 }
 
-const analyzed = { serialize: { kind: "off" }, wal: false } as const
+const analyzed = { serialize: { kind: "off" }, wal: false, verbose: true } as const
 
 /**
  * Runs `use` in a transaction rolled back after it, with sequential and bitmap scans disabled and generic plans, as
@@ -1667,7 +1692,8 @@ const leadsExactly = (request: IndexRequest, index: PlannedIndex): boolean => {
  * another, the probe runs again through the request's own alone, and must be served there too, so the engine's claim
  * is judged on the index it names:
  *
- * - with an index condition, when the probe fixes a column (every shape but an order and the nearest vectors);
+ * - with an index condition, when the probe fixes a column (every shape but the nearest vectors and an order whose seek
+ *   fixes no prefix);
  * - in one descent of the index (Index Searches at most 1), so a B-tree skip scan over a leading column the request
  *   does not fix does not serve it, as the engine states; but for the skip scan of an index the engine places a request
  *   in led by a column it fixes (physical/indexes/engine.ts, an equality lookup's index led by a requested column of
@@ -1695,7 +1721,9 @@ const leadsExactly = (request: IndexRequest, index: PlannedIndex): boolean => {
  *   nine rows in ten hold one of them, so its read alone cannot tell); so the needed check below, which holds every index
  *   to the claim, finds no such index a stand-in for a created one;
  * - through those indexes, removing no row by a filter;
- * - with no sort above it, when the probe asks for an order;
+ * - with no sort above it, when the probe asks for an order, but over a scan that reads at most one row by a key, as the
+ *   plan shows it (copies.ts readsOneRowByKey): a superkey seek's, whose equalities bind a key, which the engine lands
+ *   on the key's index, its one row in every order;
  * - touching at most the buffers its result requires (shared hit and read, PostgreSQL's own count): the result's share of
  *   the index's pages, its entries (the rows it returned and those its filter rechecked) over the index's entries times
  *   its pages, rounded up; a heap page per entry an Index Scan fetched, or per Heap Fetch of an Index Only Scan; and each
@@ -1809,6 +1837,14 @@ export const judgeServing = (
 			note("a relation its key bounds below the load, not judged")
 		}
 		const facts = yield* indexFacts(installed, judged, tableFor)
+		/** Each judged relation's indexes as the catalog holds them (copies.ts indexesOf). */
+		const catalogs = new Map<string, ReadonlyArray<CopyIndex>>()
+		for (const relation of new Set(Arr.map(judged, (i) => i.relation))) {
+			const cataloged = yield* indexesOf(tableFor(relation).quoted)
+			catalogs.set(relation, cataloged)
+		}
+		const catalogOf = (relation: string): ReadonlyArray<CopyIndex> =>
+			catalogs.get(relation) ?? assert.fail(`no catalog read for ${relation}`)
 		const probes = new Map<IndexRequest, Probe>()
 		for (const i of judged) {
 			for (const r of i.requests) {
@@ -1847,7 +1883,7 @@ export const judgeServing = (
 			if (!Arr.isReadonlyArrayNonEmpty(lookups)) {
 				continue
 			}
-			const cataloged = yield* indexesOf(tableFor(relation).quoted)
+			const cataloged = catalogOf(relation)
 			const chosen = yield* rolledBack(
 				Effect.gen(function* () {
 					const copy = yield* stoodUp(installed, tableFor(relation), loadOf(relation), {
@@ -2179,7 +2215,8 @@ export const judgeServing = (
 					alone[1],
 					new Map([[host.index.name, host]]),
 					facts,
-					() => true
+					() => true,
+					catalogOf(host.relation)
 				)
 				if (claim.kind !== "served") {
 					return Result.fail(`${probe.label}, planned on ${host.index.name}, alone: ${claim.why}`)
@@ -2247,7 +2284,8 @@ export const judgeServing = (
 						plan.success,
 						plannedOn(host.relation),
 						facts,
-						(index) => index === host.index.name
+						(index) => index === host.index.name,
+						catalogOf(host.relation)
 					)
 					if (verdict.kind === "unserved") {
 						problems.push(`${probe.label}, planned on ${host.index.name}: ${verdict.why}`)
@@ -2310,7 +2348,7 @@ export const judgeServing = (
 					probe,
 					Result.isFailure(plan)
 						? { kind: "unserved", why: plan.failure }
-						: verdictOf(probe, plan.success, without, facts, () => true),
+						: verdictOf(probe, plan.success, without, facts, () => true, catalogOf(i.relation)),
 					request
 				])
 			}
