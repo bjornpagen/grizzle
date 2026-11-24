@@ -76,7 +76,7 @@ import {
 import type { StampFunction } from "#compiler/physical/ddl/stamps.ts"
 
 /** A function a role executes beside its statements' own: a head's stamp function, or a declared function its served
- * programs call. */
+ * programs reach. */
 /**
  * The stand-up of the rule judge's session tables a write of one relation needs (physical/ddl/rules.ts addStandUps),
  * which every role whose grants let it write the relation executes.
@@ -2084,7 +2084,7 @@ export const addWorlds = (
 		/** The functions a role calls: the stamp function of each head of a relation its grants let it insert into
 		 * (grantedPrivileges), which every insert of the relation that stamps the head calls, the judge's stand-up of each
 		 * judged relation its grants let it write (`standUps`), which its session calls before its first write of it, and
-		 * each declared function its served programs call; and the head of each place of a relation its grants let it
+		 * each declared function its served programs reach; and the head of each place of a relation its grants let it
 		 * delete from, which its deletes delete the removed groups' heads of. */
 		const held = ({ checked }: CheckedRole): Held => {
 			const role = checked.world.role

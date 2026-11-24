@@ -96,7 +96,7 @@ export const workloadExtension = (workload: WorkloadPhysical): InstallExtension 
  * The served workload's extension: the workload's (workloadExtension), its parameters' types among it; the
  * certificate of every role of every login its plan certified (program/workload/compile.ts servedWorkload), which the
  * installation's guards follow; the roles whose served ChangeSets create a carrier, which it grants TEMPORARY on
- * the database; the roles whose served programs call a declared function, which it grants EXECUTE on the function; its live
+ * the database; the roles whose served programs reach a declared function, which it grants EXECUTE on the function; its live
  * plan; and the relations each login fences, on which it grants the login MAINTAIN.
  */
 export const servedWorkloadExtension = (

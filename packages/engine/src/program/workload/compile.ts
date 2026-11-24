@@ -16,12 +16,12 @@ import { noneWritten, servedQuery } from "#compiler/ir/derived.ts"
 import {
 	type ChangeSetDesc,
 	type WorkloadDesc,
+	callsThrough,
 	decodeDesc,
 	isOrderedQuery,
 	type ProgramDesc,
 	type QueryDesc
 } from "#compiler/ir/desc.ts"
-import { callsOf } from "#compiler/ir/desc.ts"
 import type {
 	AccessIndexRequest,
 	AccessPath,
@@ -814,7 +814,7 @@ export interface ServedWorkloadPlan<S extends ParamSource = ParamSource> extends
 	/** The roles whose served ChangeSets create a carrier (servedCarriers), which the installation grants TEMPORARY on the
 	 * database. */
 	readonly carriers: ReadonlyArray<RoleCarriers>
-	/** The roles whose served programs call a declared function, each with the function (servedCalls), which the
+	/** The roles whose served programs reach a declared function, each with the function (servedCalls), which the
 	 * installation grants EXECUTE on the function. */
 	readonly calls: ReadonlyArray<RoleCall>
 	readonly fences: ReadonlyArray<Fence>
@@ -845,10 +845,33 @@ const servedCarriers = (
 	)
 
 /**
- * The roles of `logins`, each with every declared function the programs of the login's workloads that run on it call
- * (ir/desc.ts callsOf), by its name, in login, role and function order: the roles whose statements call the function,
- * which PostgreSQL checks EXECUTE on against the role that runs them. A function a derived relation's or a query
- * entry's definition calls runs inside its stored table or its view, as their owner, which holds it.
+ * The definition a statement of `role` evaluates where it reads the relation `relation` by its name, none where a table
+ * holds its rows: a derived relation's of the role's base, stored or live alike, or the role's query entry's. The
+ * lowering splices a live derived relation's definition into the statement, and a stored one's wherever its table does
+ * not serve the read, a write's of one of its holders among them (analysis/schema.ts CheckedSchema serves); and
+ * PostgreSQL expands a query entry's view into the statement. Each runs inside the statement as the role.
+ */
+const definitionsOf =
+	(role: OwnedRole) =>
+	(relation: string): QueryDesc | undefined => {
+		const derived = role.base.relations[relation]
+		if (derived?.kind === "derived") {
+			return derived.desc.query
+		}
+		const entry = role.relations[relation]
+		return entry?.kind === "world" ? entry.query : undefined
+	}
+
+/**
+ * The roles of `logins`, each with every declared function the programs of the login's workloads that run on it reach,
+ * by its name, in login, role and function order: each a program's Description calls, and each the definition of a
+ * relation it reads calls, at any depth through the relations each definition reads (ir/desc.ts callsThrough,
+ * `definitionsOf`). PostgreSQL checks EXECUTE against the role that runs a statement on every function the statement
+ * evaluates, a view's among them, and a definition spliced into the statement, or a view expanded into it, calls its
+ * functions there, a SECURITY DEFINER function's call among them. One reachability decides the grant whatever holds a
+ * derived relation's rows: a stored relation's definition is read wherever its table does not serve the read, a
+ * write's of one of its holders among them, and calls only immutable functions (analysis/derived/storage.ts), which
+ * read no data, so a relation the installation moves between stored and live never moves a grant.
  */
 const servedCalls = (
 	logins: ReadonlyArray<ServedLogin>
@@ -864,8 +887,9 @@ const servedCalls = (
 			if (!running.ok) {
 				return Result.err({ kind: "workload", error: running.error })
 			}
-			const functions = new Set(
-				running.value.flatMap((p) => ("desc" in p ? [...callsOf(p.desc)] : []))
+			const functions = callsThrough(
+				running.value.map((p) => p.desc),
+				definitionsOf(parsed.value.owned)
 			)
 			for (const fn of [...functions].toSorted(compareStrings)) {
 				out.push({ login: login.name, role: name, function: fn })

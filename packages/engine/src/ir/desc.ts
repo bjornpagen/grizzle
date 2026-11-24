@@ -967,15 +967,22 @@ export type BindMapDesc<L = Located, R extends Refs = Spelled> = Readonly<
 export type CallArgDesc<L = Located, R extends Refs = Spelled> = ExprDesc<L, R> | RowsDesc<L, R>
 
 /**
- * The declared functions a Description calls, by name, at any depth: each call term (ExprDesc call) and each call
+ * The declared functions a Description reaches, by name, at any depth: each call term (ExprDesc call) and each call
  * source (SourceDesc call and callField) it holds, through its imports, attachments, interiors, rows arguments, members
- * and read-backs alike. A Description is plain data, records and lists, and a call is a node of kind "call" or
- * "callField" that names a `function`, so the walk needs no case for any other. A Description shares a part by
- * reference wherever it reads it (an imported query at every import, a bound query at every read), so the walk reads
- * each record and list once, where reading it at every reference expanded the sharing into a tree; the functions are a
- * set, which a second reading adds nothing to.
+ * and read-backs alike, and through each relation source (SourceDesc relation) whose relation `definitionOf` gives a
+ * definition, every function that definition reaches in turn: what a statement evaluates that reads each such relation
+ * through its definition. A Description is plain data, records and lists, a call is a node of kind "call" or
+ * "callField" that names a `function`, and a relation source a node of kind "relation" that names its relation, so the
+ * walk needs no case for any other. A Description shares a part by reference wherever it reads it (an imported query
+ * at every import, a bound query at every read, a definition at every source naming its relation), so the walk reads
+ * each record and list once, where reading it at every reference expanded the sharing into a tree, and a definition is
+ * walked once however many sources name its relation, a cycle through definitions ending where it began; the functions
+ * are a set, which a second reading adds nothing to.
  */
-export const callsOf = (desc: unknown): ReadonlySet<string> => {
+export const callsThrough = (
+	desc: unknown,
+	definitionOf: (relation: string) => QueryDesc | undefined
+): ReadonlySet<string> => {
 	const out = new Set<string>()
 	const read = new Set<object>()
 	const walk = (node: unknown): void => {
@@ -993,12 +1000,16 @@ export const callsOf = (desc: unknown): ReadonlySet<string> => {
 			return
 		}
 		const record = node
+		const kind = record["kind"]
 		const called = record["function"]
-		if (
-			(record["kind"] === "call" || record["kind"] === "callField") &&
-			typeof called === "string"
-		) {
+		if ((kind === "call" || kind === "callField") && typeof called === "string") {
 			out.add(called)
+		}
+		const relation = record["name"]
+		const definition =
+			kind === "relation" && typeof relation === "string" ? definitionOf(relation) : undefined
+		if (definition !== undefined) {
+			walk(definition)
 		}
 		for (const value of Object.values(record)) {
 			walk(value)
@@ -1007,6 +1018,16 @@ export const callsOf = (desc: unknown): ReadonlySet<string> => {
 	walk(desc)
 	return out
 }
+
+/** No relation's definition: what a Description's own calls follow (callsOf). */
+const noDefinition = (): undefined => undefined
+
+/**
+ * The declared functions a Description calls itself, at any depth (callsThrough), following no relation it names into
+ * a definition: a definition's own, read with each live relation it names read through its definition already, or a
+ * head's.
+ */
+export const callsOf = (desc: unknown): ReadonlySet<string> => callsThrough(desc, noDefinition)
 
 /** What `match` consumes. */
 export type SourceDesc<L = Located, R extends Refs = Spelled> =

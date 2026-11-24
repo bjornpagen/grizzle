@@ -55,7 +55,7 @@ export interface InstallExtension {
 	 */
 	readonly carriers: ReadonlyArray<RoleCarriers>
 	/**
-	 * The roles whose served programs call a declared function (schema/function.ts fn), each with the function's name,
+	 * The roles whose served programs reach a declared function (schema/function.ts fn), each with the function's name,
 	 * which the installation grants EXECUTE on the function (physical/ddl/roles.ts addWorlds), and no role else: the
 	 * served workload's, derived from the programs it serves (program/workload/compile.ts servedWorkload); every other
 	 * extension's, none (`noCalls`).
@@ -108,12 +108,13 @@ export interface RoleCarriers extends RoleOfLogin {
 	readonly columns: ReadonlyArray<HeadingColumn>
 }
 
-/** A role of a login whose served programs call the declared function `function`. */
+/** A role of a login whose served programs reach the declared function `function` (program/workload/compile.ts
+ * servedCalls): call it, or read a relation whose definition calls it, at any depth. */
 export interface RoleCall extends RoleOfLogin {
 	readonly function: string
 }
 
-/** No role that calls a declared function: what an extension that compiles no served workload states. */
+/** No role that reaches a declared function: what an extension that compiles no served workload states. */
 export const noCalls: ReadonlyArray<RoleCall> = []
 
 /** No fence: what an extension that compiles no served workload states. */

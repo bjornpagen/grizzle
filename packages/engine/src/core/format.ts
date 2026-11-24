@@ -539,7 +539,11 @@
  * (schema/own.ts OwnedRole `wholeDerived`), its definition over its entries otherwise: no role holds a derived relation
  * as an entry, so every role's description that held a stored one whole loses that entry, and every role reading one
  * in full gains its whole view. Every installation installs its stored tables, which format 8 left to an extension its
- * caller supplied (the installation's `deferred` derived relations are gone).
+ * caller supplied (the installation's `deferred` derived relations are gone). A role is granted EXECUTE on every declared
+ * function its programs reach through the definitions of the relations they read, derived relations stored or live
+ * and its query entries alike, at any depth (program/workload/compile.ts servedCalls), where format 8 granted only the
+ * calls its programs' own Descriptions held, a live definition inlined into one among them, so every role reading a
+ * stored relation or a query entry whose definition calls a declared function gains its grant.
  * A closed relation's constant, and each side's and each dependent key's owner function's, is two parallel arrays
  * (ir/cells.ts Constant): its cells, `'{-1,k1,…}'::bigint[]`, every row's key index ascending after the sentinel -1,
  * and, where its payload space holds more than one code, its payloads, `'{c1,…}'::bigint[]`, every row's payload code
