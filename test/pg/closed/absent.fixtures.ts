@@ -1170,6 +1170,7 @@ const namesLaw = (law: Law, relation: string): boolean => {
 		case "fold":
 		case "contract":
 		case "pattern":
+		case "sealed":
 			return false
 	}
 }

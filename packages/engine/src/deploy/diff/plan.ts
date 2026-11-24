@@ -72,7 +72,9 @@ export const noDeclarations: Declarations = Object.freeze({ renames: [], drops: 
  *   DROP DEFAULT of each column it drew; then each of those stored relations filled (structure.stored), bottom-up in install
  *   order, once every row it reads is written, so no committed state holds a view the target declares unpopulated;
  *   then each head this migration creates or changes (structure.heads; physical/ddl/stamps.ts), a changed one dropped
- *   first, its table created and filled from its relation as every data step leaves it, and its stamp function;
+ *   first, its table created and filled from its relation as every data step leaves it, and its stamp function; then
+ *   each sealed unit's founding table it creates or changes (structure.foundings; physical/ddl/seal.ts), a changed one
+ *   dropped first, created and filled from its members as every data step leaves them;
  *   then each table's one alteration adding the
  *   constraints of tables that may hold rows, NOT VALID, after every value they read is drawn, and each dropped guard
  *   created again as the previous installation created it; and last the roles' changed
@@ -119,6 +121,7 @@ export const slots = [
 	"structure.backfill",
 	"structure.stored",
 	"structure.heads",
+	"structure.foundings",
 	"structure.constraints",
 	"structure.worlds",
 	"indexes",
@@ -183,6 +186,7 @@ export const slotFile: { readonly [S in Slot]: SlotsFile } = {
 	"structure.backfill": structureFile,
 	"structure.stored": structureFile,
 	"structure.heads": structureFile,
+	"structure.foundings": structureFile,
 	"structure.constraints": structureFile,
 	"structure.worlds": structureFile,
 	indexes: indexesFile,

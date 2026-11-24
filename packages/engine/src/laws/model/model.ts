@@ -297,12 +297,14 @@ export interface DomainUse {
 }
 
 /**
- * A table's entry of the constraint-to-LawId map: the identifier a violation reports (a table constraint or a rule's
- * constraint trigger), the table that owns it, and every law it discharges with its description, each once, in code
- * point order of the laws' identities (canonicalLaws), so a refusal naming them names them alike whatever order the
- * schema states them in: a merged family axis lists its former's law and every containment that rides it, and a key's
- * index each law it serves. A rule's trigger is one per table the rule reads, each its one law, and no native object:
- * its violation is the rule's query, which no host judges. The law model emits these.
+ * A table's entry of the constraint-to-LawId map: the identifier a violation reports (a table constraint, a rule's
+ * constraint trigger, or a sealed unit's member's seal trigger), the table that owns it, and every law it discharges
+ * with its description, each once, in code point order of the laws' identities (canonicalLaws), so a refusal naming
+ * them names them alike whatever order the schema states them in: a merged family axis lists its former's law and every
+ * containment that rides it, and a key's index each law it serves. A rule's trigger is one per table the rule reads,
+ * each its one law, and no native object: its violation is the rule's query, which no host judges. The law model emits
+ * these, and the installation a `constraint` entry of each seal trigger, its unit's seal law, which a write of its
+ * table raises (physical/ddl/seal.ts sealConstraintLaws).
  */
 export type TableConstraintLaw =
 	| {

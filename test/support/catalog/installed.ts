@@ -416,6 +416,7 @@ export const installedScope = (
 						: []
 				)
 			),
+			foundings: created(snapshot, "founding", tableOf),
 			ledger: ledgerTableName,
 			guarded: created(snapshot, "isolationTrigger", guardedTableOf),
 			functions: new Map<string, InstalledFunction>([

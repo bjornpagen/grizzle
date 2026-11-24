@@ -94,6 +94,12 @@ export type IdentityKind =
 	| "isolationTrigger"
 	| "immutableGuard"
 	| "immutableTrigger"
+	| "sealLaw"
+	| "sealGuard"
+	| "sealTrigger"
+	| "founding"
+	| "foundingKey"
+	| "founder"
 	| "lawTrigger"
 	| "lawFunction"
 	| "ruleCapture"
@@ -127,11 +133,12 @@ declare const identifierBrand: unique symbol
  */
 export type Identifier<K extends IdentityKind> = string & { readonly [identifierBrand]: K }
 
-/** The kinds of law identity: a theory law's or a text pattern's, each of which a law function or a refusal raises. */
-type RaisedLawKind = "law" | "patternLaw"
+/** The kinds of law identity: a theory law's, a text pattern's or a sealed unit's, each of which a law function, a refusal
+ * or a seal guard raises. */
+type RaisedLawKind = "law" | "patternLaw" | "sealLaw"
 /**
- * A law's identifier, the snapshot's, its constraints' and its law function's: a theory law's or a text pattern's,
- * which a law function or a write statement's refusal raises. An outcome names the law by its description instead
+ * A law's identifier, the snapshot's, its constraints' and its law function's: a theory law's, a text pattern's or a
+ * sealed unit's, which a law function, a write statement's refusal or a seal guard raises. An outcome names the law by its description instead
  * (types/changeset Law).
  */
 export type LawId = Identifier<RaisedLawKind>
@@ -150,7 +157,8 @@ export type RelationIdent = Identifier<"table" | "rosterDomain" | "view" | "whol
 export type ColumnIdent = Identifier<"column" | "lawColumn">
 /**
  * What a violation reports as its constraint: a table constraint, a derived relation's unique index, a domain
- * constraint, a rule over a query's trigger, or the law identity a write statement's refusal raises (LawId).
+ * constraint, a rule over a query's trigger, a sealed unit's member's seal trigger, or the law identity a write
+ * statement's refusal raises (LawId).
  */
 export type ConstraintName = Identifier<
 	| "primaryKey"
@@ -168,6 +176,7 @@ export type ConstraintName = Identifier<
 	| "foreignKey"
 	| "derivedKey"
 	| "lawTrigger"
+	| "sealTrigger"
 	| RaisedLawKind
 >
 /** A non-unique access index the index engine creates. */

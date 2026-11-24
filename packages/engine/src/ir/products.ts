@@ -531,6 +531,7 @@ export const physicalKinds = [
 	"lawTrigger",
 	"immutableGuard",
 	"immutableTrigger",
+	"founding",
 	"role",
 	"decoder",
 	"membership",

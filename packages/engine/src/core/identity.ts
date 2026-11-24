@@ -1799,6 +1799,54 @@ export const identity = Object.freeze({
 			readable("__immutable")
 		),
 	/**
+	 * The law of the sealed unit `unit` (physical/ddl/seal.ts): every row of every relation under it at a key is inserted
+	 * by one transaction, the one that founds it there. One law a unit, which every member's seal guard raises.
+	 */
+	sealLaw: (unit: string): Identity<"sealLaw"> =>
+		mint("sealLaw", [unit], [...nameSegments(unit), "sealed"], `seal of unit ${unit}`, hashed),
+	/**
+	 * The seal guard of `relation`, a member of the sealed unit `unit` (physical/ddl/seal.ts): the function its seal
+	 * trigger runs at the end of every statement that inserts into it, which founds each key the statement inserted at
+	 * that no transaction founded and refuses the statement where another founded one. Its body names the unit's
+	 * founding table and the relation's key columns in PL/pgSQL text, so a rename of the relation names another.
+	 */
+	sealGuard: (unit: string, relation: string): Identity<"sealGuard"> =>
+		mint(
+			"sealGuard",
+			[unit, relation],
+			["sealed", ...nameSegments(relation)],
+			`seal guard of ${relation} under unit ${unit}`,
+			hashed
+		),
+	/** Every sealed unit's member's seal trigger: one name, which PostgreSQL scopes to its table's triggers, and the
+	 * constraint a seal guard's refusal reports. */
+	sealTrigger: (): Identity<"sealTrigger"> =>
+		mint("sealTrigger", [], ["sealed"], "the seal trigger", readable("__sealed")),
+	/**
+	 * The founding table of the sealed unit `unit` (physical/ddl/seal.ts): each key the unit is founded at, with the
+	 * transaction that founded it there, which its members' seal guards write and read.
+	 */
+	founding: (unit: string): Identity<"founding"> =>
+		mint(
+			"founding",
+			[unit],
+			[...nameSegments(unit), "founding"],
+			`founding of unit ${unit}`,
+			hashed
+		),
+	/** The primary key of the founding table of the sealed unit `unit`, over the unit's key. */
+	foundingKey: (unit: string): Identity<"foundingKey"> =>
+		mint(
+			"foundingKey",
+			[unit],
+			[...nameSegments(unit), "founding", "pk"],
+			`key of the founding of unit ${unit}`,
+			hashed
+		),
+	/** Every founding table's column of the transaction that founded each key, by its 64-bit id (xid8). */
+	founder: (): Identity<"founder"> =>
+		mint("founder", [], ["founder"], "the founding transaction", readable("__founder")),
+	/**
 	 * The live change source of the installation whose root level's PostgreSQL schema is `root`: one name for its
 	 * publication, which PostgreSQL scopes to the database, and for its decoder login, cluster wide under the
 	 * installation's role space (roleInSpace), and the stem of its replication slot in each database (liveSlotOf); the

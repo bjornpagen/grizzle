@@ -207,6 +207,12 @@ export type Installed<O extends AnyObject = ManifestObject> =
 	  }
 	| { readonly kind: "ledger"; readonly object: O; readonly create: CreateTable }
 	| {
+			/** A sealed unit's founding table (physical/ddl/seal.ts): its CREATE TABLE and its revoke. */
+			readonly kind: "founding"
+			readonly object: O
+			readonly create: CreateTable
+	  }
+	| {
 			/** A head's table and its stamp function, one object (physical/ddl/stamps.ts): the table's CREATE TABLE and its
 			 * revoke, then the function's CREATE FUNCTION and its revoke. */
 			readonly kind: "head"
@@ -520,6 +526,10 @@ export const installed = <O extends AnyObject>(o: O): Installed<O> => {
 			return s?.kind === "createTable"
 				? { kind: o.kind, object: o, create: s }
 				: malformed("the migrations ledger by its CREATE TABLE")
+		case "founding":
+			return o.ddl.length === 2 && s?.kind === "createTable" && o.ddl[1]?.kind === "revoke"
+				? { kind: o.kind, object: o, create: s }
+				: malformed("a founding table's CREATE TABLE and its revoke")
 		case "head": {
 			const stamp = functionHeaderOf(o.ddl[2])
 			return o.ddl.length === 4 &&
@@ -548,6 +558,7 @@ export const objectTable = (o: AnyObject): ObjectName | undefined => {
 		case "table":
 		case "ledger":
 		case "head":
+		case "founding":
 			return v.create.table
 		case "storedTable":
 			return v.create.name
@@ -730,6 +741,7 @@ export const builtOver = <O extends AnyObject>(
 		case "extension":
 		case "ledger":
 		case "head":
+		case "founding":
 		case "validation":
 			return undefined
 	}
@@ -840,6 +852,7 @@ const objectParts = <O extends AnyObject>(
 		case "extension":
 		case "ledger":
 		case "head":
+		case "founding":
 		case "validation":
 			return []
 	}

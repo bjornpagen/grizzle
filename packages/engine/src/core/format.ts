@@ -550,6 +550,14 @@
  * beside a key set of its own. So every literal pack, its comment and its function's name move, every read of a closed
  * relation a CHECK, a generated column or a statement makes moves, and snapshot.json's closed constants record their
  * cells' and payloads' functions, no width and no key set.
+ * A unit may be sealed at founding, sealed(unit(name, heading)), the unit statement's Description stating `sealed`
+ * (ir/desc.ts UnitDesc), false for every unit format 8 stated, so every statement text and fingerprint of a schema with a
+ * unit moves: every row of every relation under a sealed unit at a key is inserted by the one transaction that founds it
+ * there, a law the installation holds by the unit's founding table (ir/products.ts PhysicalKind `founding`), each key
+ * with its founding transaction's xid8, and each member's seal trigger `__sealed`, which founds each key its statement
+ * inserted at that no transaction founded and refuses the statement where another founded one (physical/ddl/seal.ts),
+ * a migration filling a founding table it creates from its members' rows (deploy/diff/plan.ts structure.foundings);
+ * snapshot.json's constraintToLaw maps each `__sealed` to the unit's seal law, a StatedLaw `sealed` lawsOf lists.
  * Every statement is printed once (sql/print-once.ts): a CTE its query reads once, that is not MATERIALIZED, not a
  * recursive WITH's, writes nothing and calls no VOLATILE function, is printed in place as the derived table PostgreSQL's
  * inlining makes of it, where format 8 printed it as a CTE that PostgreSQL inlined by a walk of the whole statement for
@@ -587,8 +595,8 @@ export type FormattedFile = (typeof formattedFiles)[number]
  * @formatConstant each file's shape: the digest of its type, by test/support/record-shape.ts
  */
 export const recordShapes: { readonly [F in FormattedFile]: string } = {
-	snapshot: "74fce2c900121e3fca91721977dbc7b33e932a6c4aeaf063c8d85208431e8b54",
-	served: "0c1adc88f9e29a508806b4c9a17ea4cd183173280e1c54b1c8b0e3f2bd3a0e40"
+	snapshot: "4d7c4da6903041ba40c14f83a028f6c915ecfe05487792fee02b89c2ce209ab4",
+	served: "907daf7bd2648296759ed6c684e767f804d1b40f218e45819ea2aff62c353137"
 }
 
 /**

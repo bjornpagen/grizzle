@@ -1151,6 +1151,7 @@ const levelStates = (level: ScalarType, law: StatedLaw): boolean => {
 		case "tree":
 		case "fold":
 		case "generated":
+		case "sealed":
 			return false
 	}
 }

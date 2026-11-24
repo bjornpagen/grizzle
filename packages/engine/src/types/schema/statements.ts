@@ -95,16 +95,19 @@ export interface Race<R> {
 
 /**
  * unit(name, heading): a unit, the key a family of rows sits under, each value of it one lock. Every stored relation
- * whose primary key leads with the heading's fields, by name and type in order, sits under it.
+ * whose primary key leads with the heading's fields, by name and type in order, sits under it. `Sealed` is whether it
+ * is sealed at founding, sealed(unit(name, heading)): every row under it at a key is inserted by the one transaction
+ * that founds it there.
  */
-export interface Unit<Name extends string, Heading> {
+export interface Unit<Name extends string, Heading, Sealed extends boolean> {
 	readonly kind: "unit"
 	readonly name: Name
 	readonly heading: Heading
+	readonly sealed: Sealed
 }
 
-/** Any unit statement: Unit is covariant in its heading. */
-export type UnitBase = Unit<string, unknown>
+/** Any unit statement, sealed or not: Unit is covariant in its heading. */
+export type UnitBase = Unit<string, unknown, boolean>
 
 /**
  * series(R): R's one primary key field, natural or a contract over an integer, runs 0, 1, 2, … with no gap, and R's

@@ -28,6 +28,7 @@ import {
 	predBuilder,
 	raceBuilder,
 	selectBuilder,
+	sealedBuilder,
 	seriesBuilder,
 	treeBuilder,
 	unitBuilder
@@ -607,7 +608,20 @@ export const unit = <const Name extends string, const Heading extends Record<str
 	name: Name,
 	heading: Heading & NamedIds<Heading> & UnitFields<Heading>,
 	...extra: ReadonlyArray<never>
-): Unit<Name, Heading> => unitBuilder<Name, Heading>(name, heading, extra)
+): Unit<Name, Heading, false> => unitBuilder<Name, Heading>(name, heading, extra)
+
+/**
+ * sealed(unit(name, heading)): the unit, sealed at founding, listed among the statements in its place: every row of
+ * every relation under it at a key is inserted by one transaction, the one that inserts the first of them there and so
+ * founds the unit at the key, a law PostgreSQL holds against every insert, a role's direct SQL's included
+ * (physical/ddl/seal.ts). Every relation under it is closed, so its rows at a key are its founding transaction's and
+ * stay as it wrote them: a package put whole, say. A founding write still borrows its unit. A unit is stated one way,
+ * sealed or not, and sealed once.
+ */
+export const sealed = <const Name extends string, const Heading>(
+	target: Unit<Name, Heading, false>,
+	...extra: ReadonlyArray<never>
+): Unit<Name, Heading, true> => sealedBuilder<Name, Heading>(target, extra)
 
 /**
  * series(R): R's one primary key field, natural or a contract over an integer, whose own CHECK refuses a number past its

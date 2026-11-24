@@ -143,6 +143,7 @@ export const kindModel: { readonly [K in PhysicalKind]: KindModel } = {
 	lawTrigger: { after: ["schema", "table", "lawFunction"], justified: "a law or a program" },
 	immutableGuard: onTable("any reason"),
 	immutableTrigger: { after: ["schema", "table", "immutableGuard"], justified: "any reason" },
+	founding: onTable("a law or a program"),
 	role: { after: [], justified: "any reason" },
 	decoder: { after: [], justified: "any reason" },
 	publication: { after: ["schema", "table", "replicaIdentity"], justified: "any reason" },

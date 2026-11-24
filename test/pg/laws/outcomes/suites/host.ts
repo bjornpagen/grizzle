@@ -284,6 +284,7 @@ const brokenOf = (law: Law): Broken | undefined => {
 		case "tree":
 		case "above":
 		case "fold":
+		case "sealed":
 			return undefined
 	}
 }

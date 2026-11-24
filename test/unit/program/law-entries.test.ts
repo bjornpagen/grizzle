@@ -237,6 +237,7 @@ export const everyLawCarriesTheCatalogEntryItsDeclarationStatesToEveryPlaceThatN
 							case "family":
 							case "tree":
 							case "fold":
+							case "sealed":
 								break
 						}
 					}

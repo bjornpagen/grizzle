@@ -144,6 +144,9 @@ export const types = {
 	/** A statistics object's functional dependencies, the value a declared dependency restores (sql/ast.ts
 	 * DeclareStatistics). */
 	dependencies: builtinType("pg_dependencies"),
+	/** A transaction's 64-bit id, pg_current_xact_id()'s, which a sealed unit's founding table holds its founder by
+	 * (physical/ddl/seal.ts). */
+	xid8: builtinType("xid8"),
 	money: builtinType("money"),
 	int4range: builtinType("int4range"),
 	int8range: builtinType("int8range"),

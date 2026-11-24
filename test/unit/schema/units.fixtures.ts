@@ -4,8 +4,9 @@ import { element, type Gen } from "@bjornpagen/testing/gen"
 import type { SideDesc } from "#compiler/ir/desc.ts"
 import { Logic } from "#compiler/public/compute.ts"
 import { contract, natural, pg, uuid } from "#compiler/public/fields.ts"
-import { mutable, relation, schema, series, unit } from "#compiler/public/schema.ts"
+import { mutable, relation, schema, sealed, series, unit } from "#compiler/public/schema.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
+import type { Statement } from "#compiler/types/schema/statements.ts"
 import { Id } from "#test/support/ids.ts"
 
 /**
@@ -26,6 +27,12 @@ export const levels = ["same", "above"] as const
  */
 export const seriesKeys = ["natural", "integerContract", "wide", "bigint", "uuidContract"] as const
 
+/**
+ * A sealed unit U over { k: Id }: founded, over R keyed (k) and two closed members S and T keyed (k, n); R, S and T with
+ * S mutable; R and Q, two relations keyed (k) alone, and S; or R, S and T with U stated both sealed and not.
+ */
+export const seals = ["founded", "openMember", "twoKeyed", "bothWays"] as const
+
 /** A case of the space: one of the four groups of the units' and the series' rules. */
 export type UnitCase =
 	| { readonly kind: "member"; readonly key: (typeof leads)[number] }
@@ -36,9 +43,10 @@ export type UnitCase =
 			readonly key: (typeof seriesKeys)[number]
 			readonly mutable: boolean
 	  }
+	| { readonly kind: "sealed"; readonly seal: (typeof seals)[number] }
 
 export const unitCaseGen: Gen<UnitCase> = (source) => {
-	const kind = source.draw(element(["member", "pair", "level", "series"] as const))
+	const kind = source.draw(element(["member", "pair", "level", "series", "sealed"] as const))
 	switch (kind) {
 		case "member":
 			return { kind, key: source.draw(element(leads)) }
@@ -52,6 +60,8 @@ export const unitCaseGen: Gen<UnitCase> = (source) => {
 				key: source.draw(element(seriesKeys)),
 				mutable: source.draw(element([false, true] as const))
 			}
+		case "sealed":
+			return { kind, seal: source.draw(element(seals)) }
 	}
 }
 
@@ -61,6 +71,7 @@ export type UnitFeature =
 	| `two units ${(typeof pairs)[number]}`
 	| `unit stated ${(typeof levels)[number]}`
 	| `series keyed ${(typeof seriesKeys)[number]}${"" | ", mutable"}`
+	| `sealed unit ${(typeof seals)[number]}`
 
 export const caseText = (c: UnitCase): UnitFeature => {
 	switch (c.kind) {
@@ -72,6 +83,8 @@ export const caseText = (c: UnitCase): UnitFeature => {
 			return `unit stated ${c.at}`
 		case "series":
 			return `series keyed ${c.key}${c.mutable ? ", mutable" : ""}`
+		case "sealed":
+			return `sealed unit ${c.seal}`
 	}
 }
 
@@ -128,31 +141,76 @@ const seriesS = (key: (typeof seriesKeys)[number]) =>
 		key === "wide" ? ["number", "held"] : ["number"]
 	)
 
-/** The schema a case states, and the series statement of a series case, whose laws its check reads. */
+/** The sealed unit every sealed case states, over { k: Id }. */
+const sealedU = sealed(unit("U", { k: Id }))
+
+/** The relations of a sealed case: R and Q, each keyed (k) alone; S and T, keyed (k, n). */
+const sealedRelations = {
+	R: relation("R", { k: Id, title: pg.integer }, ["k"]),
+	S: relation("S", { k: Id, n: pg.integer }, ["k", "n"]),
+	T: relation("T", { k: Id, n: pg.integer }, ["k", "n"]),
+	Q: relation("Q", { k: Id, other: pg.integer }, ["k"])
+} as const
+
+/**
+ * A sealed unit beside a mutable statement over one of its members, as a list of no fixed length: the types refuse the
+ * pair as the run time does (types/schema/schema.ts MutablesUnder), so the list holds what the run time judges alone.
+ */
+const openMember: ReadonlyArray<Statement> = [sealedU, mutable(sealedRelations.S)]
+
+/** The schema a sealed case states (`seals`). */
+const sealedSchema = (seal: (typeof seals)[number]): AnySchema => {
+	const { R, S, T, Q } = sealedRelations
+	switch (seal) {
+		case "founded":
+			return schema("Units", [R, S, T], [sealedU])
+		case "openMember":
+			return schema("Units", [R, S, T], openMember)
+		case "twoKeyed":
+			return schema("Units", [R, S, Q], [sealedU])
+		case "bothWays":
+			return schema("Units", [R, S, T], [sealedU, unit("U", { k: Id })])
+	}
+}
+
+/**
+ * The schema a case states, the series statement of a series case and the unit statement of a sealed one, whose laws
+ * its check reads.
+ */
 export const schemaOf = (
 	c: UnitCase
-): { readonly schema: AnySchema; readonly series: ReturnType<typeof series> | undefined } => {
+): {
+	readonly schema: AnySchema
+	readonly series: ReturnType<typeof series> | undefined
+	readonly sealed: typeof sealedU | undefined
+} => {
 	switch (c.kind) {
 		case "member":
 			return {
 				schema: schema("Units", [memberR(c.key)], [unit("U", { k: Id })]),
-				series: undefined
+				series: undefined,
+				sealed: undefined
 			}
 		case "pair": {
 			const R = relation("R", { k: Id, j: pg.integer }, ["k", "j"])
-			return { schema: schema("Units", [R], unitsOf(c.pair)), series: undefined }
+			return { schema: schema("Units", [R], unitsOf(c.pair)), series: undefined, sealed: undefined }
 		}
 		case "level": {
 			const R = relation("R", { k: Id, n: pg.integer }, ["k", "n"])
 			const T = relation("T", { t: pg.integer }, ["t"])
 			if (c.at === "same") {
 				const base = schema("Units", [R], [unit("U", { k: Id })])
-				return { schema: schema.extend([base], "Above", [T], []), series: undefined }
+				return {
+					schema: schema.extend([base], "Above", [T], []),
+					series: undefined,
+					sealed: undefined
+				}
 			}
 			const base = schema("Units", [R], [])
 			return {
 				schema: schema.extend([base], "Above", [T], [unit("U", { k: Id })]),
-				series: undefined
+				series: undefined,
+				sealed: undefined
 			}
 		}
 		case "series": {
@@ -166,9 +224,12 @@ export const schemaOf = (
 						? [stated, unit("Numbers", { number: numberTypes[c.key] }), mutable(S)]
 						: [stated]
 				),
-				series: stated
+				series: stated,
+				sealed: undefined
 			}
 		}
+		case "sealed":
+			return { schema: sealedSchema(c.seal), series: undefined, sealed: sealedU }
 	}
 }
 
@@ -177,6 +238,32 @@ export const schemaOf = (
  * grizzle draws, natural or a contract over an integer.
  */
 export const builds = (c: UnitCase): boolean => c.kind !== "series" || drawnKey(c.key)
+
+/**
+ * The oracle: how a sealed case's schema owns, by the rules of README "Units" restated: owned, its unit sealed over the
+ * relations its key leads; refused (Refused) for a relation mutable under a sealed unit; or MalformedDescription for one
+ * unit stated both sealed and not.
+ */
+export const sealedOwns = (
+	seal: (typeof seals)[number]
+):
+	| { readonly kind: "owns"; readonly members: ReadonlyArray<string> }
+	| { readonly kind: "refused"; readonly tag: "Refused" | "MalformedDescription" } => {
+	switch (seal) {
+		case "founded":
+			return { kind: "owns", members: ["R", "S", "T"] }
+		case "twoKeyed":
+			return { kind: "owns", members: ["Q", "R", "S"] }
+		case "openMember":
+			return { kind: "refused", tag: "Refused" }
+		case "bothWays":
+			return { kind: "refused", tag: "MalformedDescription" }
+	}
+}
+
+/** The refusal of a relation mutable under a sealed unit, as ownership states it. */
+export const mutableSealedRefusal =
+	"mutable over a relation under a sealed unit, whose every row is inserted by the transaction that founds its unit: a sealed unit's relations are closed, so keep it closed and record each change as an inserted fact, or declare its unit unsealed"
 
 /** Whether a series key is one field of a type grizzle draws, as drawn(c) takes it: natural or a contract over an integer. */
 const drawnKey = (key: (typeof seriesKeys)[number]): boolean => {
@@ -202,6 +289,8 @@ export const owns = (c: UnitCase): boolean => {
 			return c.at === "same"
 		case "series":
 			return drawnKey(c.key) && !c.mutable
+		case "sealed":
+			return sealedOwns(c.seal).kind === "owns"
 	}
 }
 
@@ -216,6 +305,7 @@ export const unitOfR = (
 		case "level":
 			return { unit: "U", fields: ["k"] }
 		case "series":
+		case "sealed":
 			return undefined
 	}
 }

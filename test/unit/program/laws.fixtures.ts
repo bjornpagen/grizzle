@@ -46,8 +46,10 @@ import {
 	mirrorsBuilder,
 	mutableBuilder,
 	onBuilder,
+	sealedBuilder,
 	selectBuilder,
-	statementDescOf
+	statementDescOf,
+	unitBuilder
 } from "#compiler/schema/statements.ts"
 import { type ColumnDef, type ObjectName, tableConstraints } from "#compiler/sql/ast.ts"
 import { regexField } from "#compiler/text/field.ts"
@@ -140,6 +142,8 @@ interface SchemaCase {
 	readonly tables: ReadonlyArray<TableCase>
 	readonly statements: ReadonlyArray<StatementCase>
 	readonly alternatives: boolean
+	/** Whether the tables' level holds a sealed unit, Victor over Victor and Whiskey (`victorUnit`). */
+	readonly sealed: boolean
 	readonly payload: Option.Option<Spelled>
 	readonly levels: Levels
 	readonly reorder: Reorder
@@ -398,6 +402,7 @@ const schemaCaseGen: Gen<SchemaCase> = (source) => {
 		tables,
 		statements,
 		alternatives: source.draw(boolean),
+		sealed: source.draw(boolean),
 		payload: source.draw(boolean) ? Option.some(source.draw(spelledGen(palette))) : Option.none(),
 		levels: source.draw(boolean)
 			? {
@@ -494,6 +499,15 @@ const Oscar = relation("Oscar", { kilo: Id }, ["kilo"], [])
 
 const Key = closed.ordered("Key", ["one"])
 
+/** A relation of a sealed unit, keyed by the unit's heading alone. */
+const Victor = relation("Victor", { victor: Id, note: pg.integer }, ["victor"], [])
+
+/** A relation of the sealed unit, keyed wider. */
+const Whiskey = relation("Whiskey", { victor: Id, at: pg.integer }, ["victor", "at"], [])
+
+/** The sealed unit over Victor and Whiskey, whose seal law lawsOf lists last. */
+const victorUnit = sealedBuilder(unitBuilder("Victor", { victor: Id }, []), [])
+
 /** A level's relations by name and its statements, in the order the case declares them. */
 interface Level {
 	readonly relations: ReadonlyArray<readonly [string, AnyRelation | AnyClosed]>
@@ -563,13 +577,15 @@ export const levelsOf = (
 						closed.relation("Payload", { key: closedId(Key), value: textOf(payload) }, ["key"], [])
 					] as const
 				]
-			})
+			}),
+			...(c.sealed ? [["Victor", Victor] as const, ["Whiskey", Whiskey] as const] : [])
 		],
 		statements: [
 			...statements,
 			...(c.alternatives
 				? [alternativesBuilder(Kilo, "kind", Kind, { lima: Lima, oscar: Oscar })]
-				: [])
+				: []),
+			...(c.sealed ? [victorUnit] : [])
 		]
 	}
 	const base: Level = {
@@ -667,8 +683,8 @@ export const reportsCheckAs = (
  * (adapter/witness/keylaw.ts keyLawsOf, as adapter/served/refusals.ts installationWitness builds it): the laws of each table
  * constraint, unique index and domain constraint the install script creates, read under the table or domain that owns
  * it, as PostgreSQL reports a violation's constraint and owner; every law a write statement's refusal raises; and the
- * generated law of each column the script creates, which a NOT NULL violation reports. Each as often as an object
- * reports it.
+ * generated law of each column the script creates, which a NOT NULL violation reports; and the seal law each seal
+ * trigger's refusal reports under the trigger's name. Each as often as an object reports it.
  */
 export const reportable = (installation: Installation): ReadonlyArray<IdentifiedLaw> => {
 	const map = keyLawsOf(installation)
@@ -740,6 +756,7 @@ export const reportable = (installation: Installation): ReadonlyArray<Identified
 			case "createIndex":
 				return s.unique ? ofTable(s.table, s.name) : []
 			case "createConstraintTrigger":
+			case "createTransitionTrigger":
 				return ofTable(s.table, s.name)
 			case "createDomain":
 				return installed(s.name)
@@ -761,7 +778,6 @@ export const reportable = (installation: Installation): ReadonlyArray<Identified
 			case "lockTable":
 			case "createGuardTrigger":
 			case "createUpdateGuardTrigger":
-			case "createTransitionTrigger":
 			case "createPublication":
 			case "dropPublication":
 			case "createLiveSecret":
@@ -829,7 +845,8 @@ export const ownedAs = (statement: Statement): Arr.NonEmptyReadonlyArray<Stateme
  * The laws a statement states in `installation`, through the naming door: each owned statement the value is, owned alone
  * over the installation's levels (ownedStatementText) and matched by identity text among its owned statements, and every
  * law of its theory that holds one, in theory order, described as the installation describes the law its objects
- * report. None when the installation states not every owned statement the value is.
+ * report; then a sealed unit's seal law, as the installation's constraint map describes it (physical/ddl/seal.ts). None
+ * when the installation states not every owned statement the value is.
  */
 export const statedBy = (
 	installation: Installation
@@ -840,9 +857,24 @@ export const statedBy = (
 		const text = ownedStatementText(owned.desc, desc)
 		return text.ok ? Arr.findFirstIndex(texts, (t) => t === text.value) : Option.none()
 	}
+	const seals = Arr.flatMap(installation.constraintLaws, (c) =>
+		c.kind === "constraint"
+			? Arr.flatMap(c.laws, (l) => (l.described.kind === "sealed" ? [l.described] : []))
+			: []
+	)
+	const sealOf = (desc: StatementDesc): ReadonlyArray<OwnLaw> =>
+		desc.kind === "unit" && desc.sealed
+			? Arr.take(
+					Arr.map(
+						Arr.filter(seals, (l) => l.unit === desc.name),
+						namedLaw
+					),
+					1
+				)
+			: []
 	return (statement) =>
-		Option.map(Option.all(Arr.map(ownedAs(statement), indexOf)), (indices) =>
-			Arr.map(
+		Option.map(Option.all(Arr.map(ownedAs(statement), indexOf)), (indices) => [
+			...Arr.map(
 				Arr.filter(theory.laws, (law) => Arr.some(law.statements, (i) => indices.includes(i))),
 				(law) =>
 					namedLaw(
@@ -851,8 +883,9 @@ export const statedBy = (
 							`the installation describes the law ${law.id}`
 						)
 					)
-			)
-		)
+			),
+			...Arr.flatMap(ownedAs(statement), sealOf)
+		])
 }
 
 /** The law kinds an outcome can name, each a coverage feature: a kind a case never lists fails the search. */
@@ -867,7 +900,8 @@ export const lawKinds = {
 	fold: "a fold law",
 	contract: "a contract law",
 	pattern: "a pattern law",
-	generated: "a generated law"
+	generated: "a generated law",
+	sealed: "a sealed law"
 } as const satisfies { readonly [K in OwnLaw["kind"]]: `a ${K} law` }
 
 export type LawsFeature =

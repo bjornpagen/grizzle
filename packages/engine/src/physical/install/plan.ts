@@ -93,6 +93,7 @@ import {
 	contextFieldsOf,
 	worldTextDomainUses
 } from "#compiler/physical/ddl/roles.ts"
+import { sealConstraintLaws } from "#compiler/physical/ddl/seal.ts"
 import {
 	type SpanColumn,
 	spanColumns,
@@ -407,8 +408,8 @@ export interface InstallPlan {
 	/** Each span column of a stored relation with its endpoint CHECKs, named (physical/span/storage.ts). */
 	readonly spans: ReadonlyArray<SpanColumn>
 	/** Every table constraint, unique index and domain constraint, with its owner and the law a violation of it reports:
-	 * the law model's, the text domains', the contract domains', then the span endpoint CHECKs'. A reader that iterates
-	 * them iterates this list. */
+	 * the law model's, the sealed units' members' seal triggers' (physical/ddl/seal.ts), the text domains', the contract
+	 * domains', then the span endpoint CHECKs'. A reader that iterates them iterates this list. */
 	readonly constraintLaws: ReadonlyArray<ConstraintLaw>
 	/** Each owner's constraint, unique index and domain constraint names to the law a violation reports, built from
 	 * constraintLaws. */
@@ -746,6 +747,7 @@ export const planInstallation = (
 		const spans = spanColumns(model)
 		const constraintLaws: ReadonlyArray<ConstraintLaw> = [
 			...model.constraints,
+			...sealConstraintLaws(owned),
 			...textDomainConstraintLaws(textPlans, fieldPatternLaws(model)),
 			...contractConstraintLaws(
 				names,

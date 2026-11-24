@@ -2114,8 +2114,8 @@ export type AboveRefusedLaw = RefusedLaw<AboveLaw>
  * The installed object that refused a law, as the snapshot's constraintToLaw names it. A refusal the host decides, a
  * same-key conflict or a NULL a generated column would hold, names the object PostgreSQL would have refused with.
  *
- * - `constraint`: a table's CHECK, key, foreign key or exclusion constraint, by its table's installed name and its
- *   own;
+ * - `constraint`: a table's CHECK, key, foreign key or exclusion constraint, or a sealed unit's member's seal trigger, by
+ *   its table's installed name and its own;
  * - `domain`: a domain's CHECK, by the domain's installed name and the constraint's;
  * - `statement`: a write statement or a rule over a query's trigger, which raises the law under its identity and
  *   installs no constraint for it;
@@ -2153,7 +2153,10 @@ export type RefusingObject =
  *   value broke it. A conjunction is one law, as its domain is one CHECK testing every pattern, which PostgreSQL
  *   refuses as a whole: no refusal tells which pattern a value missed;
  * - `generated`: a generated field, by its relation and field: its term has a value at every row, which a closed read
- *   `C.at` at a key its closed relation holds no row at does not, so PostgreSQL refuses the row by the column's NOT NULL.
+ *   `C.at` at a key its closed relation holds no row at does not, so PostgreSQL refuses the row by the column's NOT NULL;
+ * - `sealed`: a sealed unit's seal, sealed(unit(name, heading)), by the unit's name: every row of every relation under
+ *   it at a key is inserted by the one transaction that founds it there, which each member's seal trigger refuses
+ *   otherwise at the statement that inserts the row.
  *
  * Two laws of one schema state the same exactly when they are one law.
  */
@@ -2194,6 +2197,7 @@ export type StatedLaw =
 			readonly patterns: Patterns
 	  }
 	| { readonly kind: "generated"; readonly relation: string; readonly field: string }
+	| { readonly kind: "sealed"; readonly unit: string }
 
 /**
  * A law's catalog entry: the name an application calls the law by and the source its statement comes from, a required

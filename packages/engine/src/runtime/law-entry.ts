@@ -119,6 +119,8 @@ export const derivedEntry = (law: StatedLaw): LawEntry => {
 				`generated ${law.relation}.${law.field}`,
 				`relation.generated(${quoted(law.relation)}, …) field ${quoted(law.field)}`
 			)
+		case "sealed":
+			return derived(`sealed ${law.unit}`, `sealed(unit(${quoted(law.unit)}, …))`)
 	}
 }
 

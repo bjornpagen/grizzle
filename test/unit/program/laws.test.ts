@@ -11,20 +11,20 @@
  * share a domain with the span's; and a contract that refines nothing; and generated integers and refined texts read
  * from those fields. Statements over the tables key an integer, key a selection, check a row, contain one table's ids
  * in another's, mirror two tables, cover one table's spans by another's and make a table mutable, a statement drawn
- * twice standing twice; an alternatives law over a roster and a closed relation of a palette
- * pattern's payload may stand beside them. On two levels the tables stand above the core, which may restate core
- * statements.
+ * twice standing twice; an alternatives law over a roster, a closed relation of a palette pattern's payload and a
+ * sealed unit over two relations may stand beside them. On two levels the tables stand above the core, which
+ * may restate core statements.
  *
  * The oracle is the installation's own constraint-to-law map (adapter/witness/keylaw.ts keyLawsOf), the map a refusal is
  * read through: the laws of every table constraint, unique index and domain constraint the install script creates, read
  * under the table or domain that owns it as PostgreSQL reports a violation; every law a write statement's refusal
- * raises; and the generated law of every column the script creates. Every law it can report is in lawsOf exactly once,
+ * raises; the generated law of every column the script creates; and the seal law of every seal trigger it creates. Every law it can report is in lawsOf exactly once,
  * by sameLaw, and lawsOf holds no law it cannot report. The order is held to the case's declarations: lawsOf opens with
  * each ordinary relation's primary key by relation name, as the relation declares it, and closes with the pattern law of
  * every stored text field whose column a planned text domain types, spelled as the case declares it (a core tree's
  * root texts, on its relation and on the members of a family it owns, among them: fill.ts rootTextFieldsOf), then the
- * law of every generated field, each by relation name and each relation's fields in declared order; between them every
- * contract's law follows every statement's, by contract name; and the same schema declared in another order of its
+ * law of every generated field, each by relation name and each relation's fields in declared order, then the sealed unit's
+ * seal law; between them every contract's law follows every statement's, by contract name; and the same schema declared in another order of its
  * relations and statements lists the same laws in the same order. Planted in a scratch copy, lawsOf leaving out the
  * primary keys, the pattern laws or the generated laws, listing a law twice, or ordering the pattern laws by declaration
  * each fail it.
@@ -292,14 +292,17 @@ export const lawsOfListsExactlyTheLawsTheInstallationCanReportEachOnceInTheSchem
 									)
 							})
 				})
+				const seals: ReadonlyArray<OwnLaw> = c.sealed
+					? [derivedLaw({ kind: "sealed", unit: "Victor" })]
+					: []
 				const middle = Arr.drop(
-					Arr.take(laws, laws.length - patterns.length - generated.length),
+					Arr.take(laws, laws.length - patterns.length - generated.length - seals.length),
 					primaryKeys.length
 				)
 				assert.deepEqual(
 					laws,
-					[...primaryKeys, ...middle, ...patterns, ...generated],
-					"lawsOf opens with the primary keys and closes with the pattern laws, then the generated fields' laws, as the case declares them"
+					[...primaryKeys, ...middle, ...patterns, ...generated, ...seals],
+					"lawsOf opens with the primary keys and closes with the pattern laws, then the generated fields' laws, then the sealed units' seal laws, as the case declares them"
 				)
 				const contracts = Arr.flatMap(middle, (l) => (l.kind === "contract" ? [l.contract] : []))
 				assert.deepEqual(

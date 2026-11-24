@@ -1453,7 +1453,9 @@ export interface ArmDesc {
  *   never refused for differing from it (ir/law.ts Inserts).
  * - unit(name, heading) declares a unit: a key a family of rows sits under, each value of it one lock. It names no
  *   relation: every stored relation whose primary key leads with its heading's fields, by name and type in order, sits
- *   under it (schema/own.ts OwnedUnit), and states no law.
+ *   under it (schema/own.ts OwnedUnit), and states no law. sealed(unit(name, heading)) declares it sealed at founding:
+ *   every row of every relation under it at a key is inserted by one transaction, the one that inserts the first of
+ *   them there and so founds the unit at the key, the seal's one law (physical/ddl/seal.ts).
  * - series(R) declares R's one primary key field, natural or a contract over an integer (scalar/natural.ts isDrawnType),
  *   a series, 0, 1, 2, … with no gap, which expandSeries states, whose appends queue on one lock of their own: the only
  *   lock no key splits.
@@ -1504,6 +1506,9 @@ export type StatementDesc<L = Located> = L &
 				readonly name: string
 				/** The unit's key: its fields in order, each with its type, which every member's primary key leads with. */
 				readonly heading: NonEmptyReadonlyArray<UnitFieldDesc>
+				/** Whether it is sealed at founding (sealed(unit(...))): every row under it at a key is inserted by the one
+				 * transaction that founds it there. */
+				readonly sealed: boolean
 		  }
 		| {
 				readonly kind: "series"
@@ -3626,7 +3631,8 @@ const statementDescShape: S.Shape<StatementDesc> = S.tagged("kind", {
 					S.struct({ field: name, type: fieldDescShape }),
 					(f) => f.field,
 					"a unit's fields"
-				)
+				),
+				sealed: S.boolean
 			},
 			loc
 		)

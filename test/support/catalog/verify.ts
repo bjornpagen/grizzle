@@ -113,6 +113,12 @@ export interface ErasureExpectation {
 	 * DELETE, deleting the heads of the groups its deletes remove (write/insert/stamp.ts placeReleases).
 	 */
 	readonly releasedHeads: ReadonlySet<string>
+	/**
+	 * The sealed units' founding tables (physical/ddl/seal.ts): beside the authored ones, under no isolation guard, written
+	 * by their roots' founding stamps and read by their members' seal guards alone, on which no role and no login holds a
+	 * privilege.
+	 */
+	readonly foundings: ReadonlySet<string>
 	/** The migrations ledger's table, a bookkeeping table, which every login reads and the live source publishes. */
 	readonly ledger: string
 	/**
@@ -544,8 +550,9 @@ const loginLacks = (
 
 /**
  * What one catalog relation is to the installation: a table it expects (an authored relation's, a stored derived
- * relation's or the migrations ledger, carrying exactly one isolation guard when it is guarded and none otherwise) or
- * one it does not, or a relation of a kind grizzle never installs, a materialized view among them.
+ * relation's, a head's, a sealed unit's founding table or the migrations ledger, carrying exactly one isolation guard
+ * when it is guarded and none otherwise) or one it does not, or a relation of a kind grizzle never installs, a
+ * materialized view among them.
  */
 const standingProblems = (j: Judging, t: Table): ReadonlyArray<ErasureProblem> => {
 	if (t.kind !== "r") {
@@ -556,6 +563,7 @@ const standingProblems = (j: Judging, t: Table): ReadonlyArray<ErasureProblem> =
 		!j.expect.storedTables.has(t.name) &&
 		!j.expect.bookkeeping.has(t.name) &&
 		!j.expect.heads.has(t.name) &&
+		!j.expect.foundings.has(t.name) &&
 		!isSecret(j, t)
 	) {
 		return [{ kind: "unexpectedTable", table: t.name }]
@@ -619,14 +627,20 @@ interface WorldPrivileges {
 
 /**
  * What a world role may hold on `t`, the one reading of a world's grants on a relation: nothing on the secret, a
- * clock's head's table or a stored derived relation's table, which only the judge's upkeep writes and the world's
- * views read as their owner; SELECT and DELETE on a place's head's table; a table's privileges otherwise.
+ * clock's head's table, a sealed unit's founding table or a stored derived relation's table, which only the judge's
+ * upkeep writes and the world's views read as their owner; SELECT and DELETE on a place's head's table; a table's
+ * privileges otherwise.
  */
 const worldPrivileges = (j: Judging, t: Table): WorldPrivileges => {
 	if (j.expect.releasedHeads.has(t.name)) {
 		return { table: allowed.releasedHead, column: allowed.column }
 	}
-	if (isSecret(j, t) || j.expect.heads.has(t.name) || j.expect.storedTables.has(t.name)) {
+	if (
+		isSecret(j, t) ||
+		j.expect.heads.has(t.name) ||
+		j.expect.foundings.has(t.name) ||
+		j.expect.storedTables.has(t.name)
+	) {
 		return { table: allowed.none, column: allowed.none }
 	}
 	return { table: allowed.table, column: allowed.column }

@@ -235,13 +235,14 @@ export const cataloguedEntries = (c: Catalogued): ReadonlyArray<readonly [string
 export const catalogAt = (at: number) => defined(catalog[at], "a catalog entry")
 
 /**
- * The text every copy of a unit statement shares, its description's canonical text apart from source locations: a unit
- * states no law, but law(...) gives it an entry, one over its copies, so two copies that declare two entries are refused
- * as two statements of one law are. None for every other statement.
+ * The text every copy of an unsealed unit statement shares, its description's canonical text apart from source
+ * locations: an unsealed unit states no law, but law(...) gives it an entry, one over its copies, so two copies that
+ * declare two entries are refused as two statements of one law are. None for every other statement, a sealed unit's
+ * among them, whose entry is its seal law's.
  */
 export const unitText = (statement: Statement): Option.Option<string> => {
 	const desc = statementDescOf(statement)
-	return desc?.kind === "unit"
+	return desc?.kind === "unit" && !desc.sealed
 		? Option.some(succeeded(encode(desc, withoutSourceLocs), "a unit's canonical text"))
 		: Option.none()
 }

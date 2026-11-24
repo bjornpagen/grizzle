@@ -454,19 +454,35 @@ function failWith(reason: CompileReason): never {
 }
 
 /**
- * A unit as ownership resolved it (ir/desc.ts UnitDesc): its name, its key, the lowest level that states it, and every
- * stored relation that sits under it, each relation under one unit at most.
+ * A unit as ownership resolved it (ir/desc.ts UnitDesc): its name, its key, the lowest level that states it, every
+ * stored relation that sits under it, each relation under one unit at most, and whether it is sealed at founding.
  */
-export interface OwnedUnit {
+export type OwnedUnit = OpenUnit | SealedUnit
+
+/** What every unit holds, sealed or not (OwnedUnit). */
+interface UnitParts {
 	readonly name: string
 	readonly heading: NonEmptyReadonlyArray<UnitFieldDesc>
 	readonly level: number
 	readonly loc: SourceLoc
 	/** Each relation under it, in relation name order. */
 	readonly members: ReadonlyArray<UnitMember>
-	/** Whether it is sealed at founding: every row of a relation under it at a key is inserted by the transaction that
-	 * inserted the unit's root there, its relations closed (analysis/theory/frozen.ts foundedAt). */
-	readonly sealed: boolean
+}
+
+/** A unit whose rows any write of it may add, under its borrow. */
+export interface OpenUnit extends UnitParts {
+	readonly sealed: false
+}
+
+/**
+ * A unit sealed at founding (sealed(unit(...))): every row of every relation under it at a key is inserted by one
+ * transaction, the one that inserted the first of them there, which founds the unit at the key, its relations closed
+ * (analysis/theory/frozen.ts foundedAt), a law PostgreSQL holds (physical/ddl/seal.ts). Its entry is the catalog entry
+ * its statement's author declares for the seal's law (law(...)), or none.
+ */
+export interface SealedUnit extends UnitParts {
+	readonly sealed: true
+	readonly entry: StatedEntry
 }
 
 /**
@@ -525,13 +541,15 @@ const nests = (
  * - no unit's heading leads with another's, by name and type in order: a relation keyed by the longer would sit under
  *   both, and a lock on the inner key would not exclude a holder of the outer one (two names over one heading alike);
  * - a unit is stated at or below the level of every relation under it, since a process over that level compiles its
- *   writes alone, holding no level above it, and would take none of the unit's locks.
+ *   writes alone, holding no level above it, and would take none of the unit's locks;
+ * - every relation under a sealed unit is closed: founded is closed and sealed.
  *
  * And the rule every series statement keeps: its relation is immutable, so its numbers only grow by appends.
  */
 const ownUnits = (
 	statements: ReadonlyArray<OwnedStatement>,
 	levels: ReadonlyArray<number>,
+	entries: ReadonlyArray<StatedEntry>,
 	relations: Readonly<Record<string, OwnedRelation>>,
 	levelName: (level: number) => string
 ): {
@@ -545,7 +563,17 @@ const ownUnits = (
 		): ReadonlyArray<{
 			readonly st: UnitDesc
 			readonly level: number
-		}> => (st.kind === "unit" ? [{ st, level: defined(levels[at], "a statement's level") }] : [])
+			readonly entry: StatedEntry
+		}> =>
+			st.kind === "unit"
+				? [
+						{
+							st,
+							level: defined(levels[at], "a statement's level"),
+							entry: defined(entries[at], "a statement's entry")
+						}
+					]
+				: []
 	)
 	for (const [i, a] of declared.entries()) {
 		for (const b of declared.slice(i + 1)) {
@@ -553,7 +581,9 @@ const ownUnits = (
 				fail(
 					"MalformedDescription",
 					b.st.loc,
-					`unit ${b.st.name} over one heading; it is stated over two, (${a.st.heading.map((f) => f.field).join(", ")}) and (${b.st.heading.map((f) => f.field).join(", ")})`
+					a.st.sealed === b.st.sealed
+						? `unit ${b.st.name} over one heading; it is stated over two, (${a.st.heading.map((f) => f.field).join(", ")}) and (${b.st.heading.map((f) => f.field).join(", ")})`
+						: `unit ${b.st.name} stated one way, sealed or not; it is stated both, unit(...) and sealed(unit(...))`
 				)
 			}
 			if (nests(a.st.heading, b.st.heading)) {
@@ -567,7 +597,7 @@ const ownUnits = (
 	}
 	const unitOf = new Map<string, UnitMember>()
 	const units = new Map<string, OwnedUnit>()
-	for (const { st, level } of declared) {
+	for (const { st, level, entry } of declared) {
 		const members: Array<UnitMember> = []
 		for (const name of Object.keys(relations).toSorted(compareStrings)) {
 			const r = defined(relations[name], "a relation of its schema")
@@ -586,16 +616,16 @@ const ownUnits = (
 			members.push(member)
 			unitOf.set(name, member)
 		}
+		const parts: UnitParts = {
+			name: st.name,
+			heading: st.heading,
+			level,
+			loc: st.loc,
+			members: Object.freeze(members)
+		}
 		units.set(
 			st.name,
-			Object.freeze({
-				name: st.name,
-				heading: st.heading,
-				level,
-				loc: st.loc,
-				members: Object.freeze(members),
-				sealed: false
-			})
+			Object.freeze(st.sealed ? { ...parts, sealed: true, entry } : { ...parts, sealed: false })
 		)
 	}
 	for (const st of statements) {
@@ -605,6 +635,15 @@ const ownUnits = (
 				at: st.loc,
 				refusal:
 					"mutable over a relation under a unit, whose every change is a write its unit's borrow holds alone: declare the unit its primary key leads with, unit(name, { …its leading key fields }), or keep it closed and record each change as an inserted fact"
+			})
+		}
+		const under = st.kind === "mutable" ? unitOf.get(st.relation) : undefined
+		if (st.kind === "mutable" && under !== undefined && units.get(under.unit)?.sealed === true) {
+			failWith({
+				_tag: "Refused",
+				at: st.loc,
+				refusal:
+					"mutable over a relation under a sealed unit, whose every row is inserted by the transaction that founds its unit: a sealed unit's relations are closed, so keep it closed and record each change as an inserted fact, or declare its unit unsealed"
 			})
 		}
 		if (st.kind === "series" && relations[st.relation]?.mutable === true) {
@@ -1282,6 +1321,7 @@ class Owner {
 		const { units, unitOf } = ownUnits(
 			statements.map((s) => s.statement),
 			statements.map((s) => s.level),
+			statements.map((s) => s.entry),
 			relations,
 			(level) => this.#levelName(level)
 		)

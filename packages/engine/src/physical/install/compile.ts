@@ -40,6 +40,7 @@ import { addLibrary } from "#compiler/physical/ddl/library.ts"
 import { addLiveSource } from "#compiler/physical/ddl/live.ts"
 import { addWorlds, grantedPrivileges, type InstalledLogin } from "#compiler/physical/ddl/roles.ts"
 import { addRules } from "#compiler/physical/ddl/rules.ts"
+import { addSeals } from "#compiler/physical/ddl/seal.ts"
 import { addStamps } from "#compiler/physical/ddl/stamps.ts"
 import { addTables } from "#compiler/physical/ddl/tables.ts"
 import { wholeTables } from "#compiler/physical/ddl/whole.ts"
@@ -477,6 +478,7 @@ const installationIn = (
 				const { keyIndexes, lawColumns, tables } = addTables(b)
 				const stamps = addStamps(b)
 				addImmutableGuards(b)
+				addSeals(b)
 				addSpanStorage(b, plan.spans)
 
 				const extensionRequests: Array<IndexRequest> = []

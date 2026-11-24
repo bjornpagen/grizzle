@@ -538,6 +538,7 @@ const lawName = (law: Law): string => {
 		case "fold":
 		case "contract":
 		case "pattern":
+		case "sealed":
 			return law.kind
 	}
 }

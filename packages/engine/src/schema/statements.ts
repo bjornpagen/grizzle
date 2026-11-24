@@ -359,18 +359,50 @@ const admitUnit = (
 		kind: "unit",
 		name: unitName,
 		heading: fields,
+		sealed: false,
 		loc: builderLoc(label, [unitName, "unit"])
 	})
 }
 
-/** The value holds its name and a frozen copy of its heading. */
+/** The value holds its name and a frozen copy of its heading, unsealed. */
 export const unitBuilder = <const Name extends string, const Heading extends object>(
 	name: Name,
 	heading: Heading,
 	extra: ReadonlyArray<unknown>
-): Unit<Name, Heading> => {
+): Unit<Name, Heading, false> => {
 	const desc = admitUnit(name, heading, extra)
-	return ownedStatement({ kind: "unit", name, heading: frozenCopy(heading) }, desc)
+	return ownedStatement({ kind: "unit", name, heading: frozenCopy(heading), sealed: false }, desc)
+}
+
+/**
+ * The admission core of sealed(...): a unit statement unit(...) made, unsealed, its Description the unit's sealed. That
+ * its relations are closed is ownership's, which sees every relation under it (schema/own.ts ownUnits).
+ */
+const admitSealed = (target: unknown, extra: ReadonlyArray<unknown>): StatementDesc => {
+	const desc = statementDescOf(target)
+	if (desc?.kind !== "unit") {
+		throw malformed("sealed", "sealed(unit): a unit, unit(name, heading)'s value")
+	}
+	const label = `sealed unit ${desc.name}`
+	if (extra.length > 0) {
+		throw malformed(label, "sealed(unit): one argument")
+	}
+	if (desc.sealed) {
+		throw malformed(label, "a unit sealed once: sealed(unit(name, heading))")
+	}
+	return admitted({ ...desc, sealed: true, loc: builderLoc(label, [desc.name, "unit"]) })
+}
+
+/** sealed(unit): the unit, sealed at founding; the value holds the unit's name and heading. */
+export const sealedBuilder = <const Name extends string, const Heading>(
+	target: Unit<Name, Heading, false>,
+	extra: ReadonlyArray<unknown>
+): Unit<Name, Heading, true> => {
+	const desc = admitSealed(target, extra)
+	return ownedStatement(
+		{ kind: "unit", name: target.name, heading: target.heading, sealed: true },
+		desc
+	)
 }
 
 /**

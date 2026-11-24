@@ -670,9 +670,10 @@ export type StatementsWithin<
 
 /**
  * The refusal of a mutable statement of Statements over a relation whose primary key leads with no unit's heading of
- * Units, the unit statements of its level and every level below (the run time's refusal at the schema's build,
- * schema/own.ts ownUnits): an open relation is mutable inside a unit, whose borrow holds its every change alone, and
- * any other is closed. None where every mutable relation sits in a unit, where the statements are generic, holding
+ * Units, the unit statements of its level and every level below, or with a sealed unit's (the run time's refusals at
+ * the schema's build, schema/own.ts ownUnits): an open relation is mutable inside a unit, whose borrow holds its every
+ * change alone, and any other is closed; a sealed unit's relations are closed, every row of them its founding
+ * transaction's. None where every mutable relation sits in an unsealed unit, where the statements are generic, holding
  * every Mutable, or where Prior, the statements' check of the relations they name (StatementsWithin), refuses them
  * already: two refusals of one list would intersect to never, which names neither.
  */
@@ -688,10 +689,15 @@ type MutablesOutside<Statements extends ReadonlyArray<Statement>, Units> =
 		? unknown
 		: true extends OutsideUnits<
 					Statements[number],
-					HeadingsOf<Extract<Units, Unit<string, unknown>>>
+					HeadingsOf<Extract<Units, Unit<string, unknown, boolean>>>
 			  >
 			? Refusal<"mutable over a relation under a unit, whose every change is a write its unit's borrow holds alone: declare the unit its primary key leads with, unit(name, { …its leading key fields }), or keep it closed and record each change as an inserted fact">
-			: unknown
+			: true extends InsideUnits<
+						Statements[number],
+						HeadingsOf<Extract<Units, Unit<string, unknown, true>>>
+				  >
+				? Refusal<"mutable over a relation under a sealed unit, whose every row is inserted by the transaction that founds its unit: a sealed unit's relations are closed, so keep it closed and record each change as an inserted fact, or declare its unit unsealed">
+				: unknown
 
 /**
  * true for each mutable statement among the statements S whose relation's primary key leads with none of Hs; none for a
@@ -706,6 +712,19 @@ type OutsideUnits<S, Hs> =
 			: never
 		: never
 
+/**
+ * true for each mutable statement among the statements S whose relation's primary key leads with one of Hs, the
+ * headings of the sealed units; none for a relation whose key the types do not know, which the run time judges alone.
+ */
+type InsideUnits<S, Hs> =
+	S extends Mutable<infer R>
+		? KeyKnown<R> extends true
+			? InSomeUnit<R, Hs> extends true
+				? true
+				: never
+			: never
+		: never
+
 /** Whether R's primary key is a tuple the types know, of a fixed length. */
 type KeyKnown<R> = R extends { readonly primaryKey: infer K extends ReadonlyArray<string> }
 	? number extends K["length"]
@@ -714,7 +733,7 @@ type KeyKnown<R> = R extends { readonly primaryKey: infer K extends ReadonlyArra
 	: false
 
 /** The headings of the unit statements U, one union member a unit. */
-type HeadingsOf<U> = U extends Unit<string, infer H> ? H : never
+type HeadingsOf<U> = U extends Unit<string, infer H, boolean> ? H : never
 
 /** Whether R's primary key leads with one of the headings Hs. */
 type InSomeUnit<R, Hs> = true extends (Hs extends unknown ? LeadsWith<R, Hs> : never) ? true : false

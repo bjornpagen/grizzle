@@ -116,13 +116,14 @@ import type { InstallationManifest, PhysicalKind } from "#compiler/ir/products.t
 import { migrationGenerations } from "#compiler/laws/model/generation.ts"
 import { rosterConstants } from "#compiler/physical/ddl/constants.ts"
 import { guardBracket } from "#compiler/physical/ddl/immutable.ts"
+import { foundingFill, foundingTableOf, sealLaws } from "#compiler/physical/ddl/seal.ts"
 import { headFill } from "#compiler/physical/ddl/stamps.ts"
 import { type InlineSubcommand, notInline, wholeTable } from "#compiler/physical/ddl/whole.ts"
 import { fillStatement } from "#compiler/physical/derived/objects.ts"
 import { targetKey, touchedTargets } from "#compiler/physical/install/comments.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { namedIdent, parseIdent, qualifiedIdent } from "#compiler/physical/obligations/graph.ts"
-import { rostersOf } from "#compiler/schema/own.ts"
+import { rostersOf, type SealedUnit } from "#compiler/schema/own.ts"
 import {
 	addedColumn,
 	type AlterRole,
@@ -256,6 +257,7 @@ export const staleReplaced: { readonly [K in PhysicalKind]: boolean } = {
 	lawTrigger: true,
 	immutableGuard: true,
 	immutableTrigger: true,
+	founding: true,
 	role: false,
 	decoder: false,
 	membership: true,
@@ -394,6 +396,7 @@ const dropOrder: { readonly [K in Dropped]: number } = {
 	column: 13,
 	table: 14,
 	liveSecret: 14,
+	founding: 14,
 	domain: 15,
 	rowType: 15,
 	constant: 16,
@@ -957,6 +960,9 @@ class Differ {
 	readonly stamped: ReadonlyMap<NameKey, ReadonlyMap<string, Head>>
 	/** The target's heads by their tables' keys (physical/ddl/stamps.ts), which a head's fill reads its relation by. */
 	readonly heads: ReadonlyMap<NameKey, Head>
+	/** The target's sealed units by their founding tables' keys (physical/ddl/seal.ts), which a founding table's fill
+	 * reads its members by. */
+	readonly foundings: ReadonlyMap<NameKey, SealedUnit>
 	/** The drawn columns this migration adds to tables that may hold rows under their placeholders, by table key, in the
 	 * order it adds them, which the backfill draws and then drops the default of. */
 	readonly backfilled = new Map<
@@ -978,6 +984,11 @@ class Differ {
 		this.heads = new Map(
 			headsOf(input.installation.laws.theory.instants).map(
 				(h) => [nameKey(input.installation.names.head(h.relation, h.field.name)), h] as const
+			)
+		)
+		this.foundings = new Map(
+			sealLaws(input.installation.owned).map(
+				(s) => [nameKey(foundingTableOf(input.installation.names, s.unit.name)), s.unit] as const
 			)
 		)
 		this.generationOf = migrationGenerations(input.installation.laws, (r) =>
@@ -2048,6 +2059,11 @@ class Differ {
 	 * A table's isolation trigger, created after its table: a renamed table carries it, and it is never altered.
 	 * A table's guard, with its table: the ledger's in Setup, a relation's in Structure.
 	 *
+	 * A sealed unit's founding table (physical/ddl/seal.ts), created in structure.foundings, after every data step, and
+	 * filled from its members' rows (foundingFillOf), each key they hold founded by the migration's transaction, which
+	 * has ended before any later write reads it; dropped and created again, filled anew, when its definition changes.
+	 * Its seal guards are law functions, and its seal triggers law triggers, replaced in Validate as a rule's are.
+	 *
 	 * grants() handles them by role.
 	 *
 	 * validations() handles them once every domain is visited. */
@@ -2113,6 +2129,17 @@ class Differ {
 					this.sql("structure.heads", [...o.ddl, ...this.headFillOf(v.create.table)])
 				} else if (!this.unchanged(before, o)) {
 					this.head(before, v.create.table, o.ddl)
+				}
+				return
+			case "founding":
+				if (before === undefined) {
+					this.sql("structure.foundings", [...o.ddl, ...this.foundingFillOf(v.create.table)])
+				} else if (!this.unchanged(before, o)) {
+					this.sql("structure.foundings", [
+						{ kind: "drop", object: "TABLE", name: v.create.table, ifExists: false },
+						...o.ddl,
+						...this.foundingFillOf(v.create.table)
+					])
 				}
 				return
 			case "functionOwner":
@@ -2312,6 +2339,22 @@ class Differ {
 			...ddl,
 			...this.headFillOf(table)
 		])
+	}
+
+	/**
+	 * The fill of the founding table the target names `table` (physical/ddl/seal.ts foundingFill), one statement for each
+	 * member of its unit whose table may hold rows: a new member's holds none, so a new unit's founding table starts
+	 * empty, as a fresh installation's.
+	 */
+	foundingFillOf(table: ObjectName): ReadonlyArray<SqlStatement> {
+		const unit = defined(
+			this.foundings.get(nameKey(table)),
+			`the sealed unit of the table ${table.name}`
+		)
+		const { names, checked } = this.input.installation
+		return unit.members.flatMap((m) =>
+			this.mayHoldRows(names.relation(m.relation)) ? [foundingFill(names, checked, unit, m)] : []
+		)
 	}
 
 	/**
@@ -3464,6 +3507,12 @@ class Differ {
 					v.kind,
 					statement({ kind: "dropFunction", name: functionNameOf(v.stamp), ifExists: false })
 				)
+				drop(
+					v.kind,
+					statement({ kind: "drop", object: "TABLE", name: v.create.table, ifExists: false })
+				)
+				return
+			case "founding":
 				drop(
 					v.kind,
 					statement({ kind: "drop", object: "TABLE", name: v.create.table, ifExists: false })
@@ -4653,6 +4702,7 @@ const grantObjectsOf = (v: Installed<AnyObject>): ReadonlyArray<GrantObject> => 
 	switch (v.kind) {
 		case "table":
 		case "ledger":
+		case "founding":
 			return [{ kind: "TABLE", name: v.create.table }]
 		case "head":
 			return [

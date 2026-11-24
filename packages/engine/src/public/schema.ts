@@ -55,6 +55,7 @@ export {
 	row,
 	rows,
 	schema,
+	sealed,
 	select,
 	series,
 	tree,

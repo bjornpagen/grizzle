@@ -5460,7 +5460,7 @@ const statementType = (desc: StatementDesc, base: Base, ids: Ids): string => {
 		case "unit":
 			return `St.Unit<${jsonText(desc.name)}, ${objectType(
 				Arr.map(desc.heading, (f) => [f.field, valueDescriptorType(f.type, base, ids)] as const)
-			)}>`
+			)}, ${desc.sealed ? "true" : "false"}>`
 		case "series":
 			return `St.Series<typeof ${ids(desc.relation)}>`
 	}

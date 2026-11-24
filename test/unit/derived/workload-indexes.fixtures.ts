@@ -14,7 +14,7 @@ import type { WorkloadPlan } from "#compiler/program/workload/compile.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { natural, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { derived, relation, schema, unit } from "#compiler/public/schema.ts"
+import { derived, relation, schema, sealed, unit } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import type { IndexKey, SqlStatement } from "#compiler/sql/ast.ts"
@@ -27,10 +27,12 @@ import { asDrafted, type CompileOver } from "#test/support/migrate/kit.ts"
 
 /**
  * The books: each account's budget entries, keyed by the account first, so the account is the unit a stored relation
- * over them stands in (unit Book).
+ * over them stands in (unit Book), sealed at founding: an account's entries are put by the transaction that founds the
+ * account, so AccountBudget's upkeep, which re-derives an account's whole budget, runs at that founding write alone and
+ * the installation stores it (analysis/derived/storage.ts).
  */
 const Entry = relation("Entry", { account: Id, at: natural, budget: Cents }, ["account", "at"])
-const Book = unit("Book", { account: Id })
+const Book = sealed(unit("Book", { account: Id }))
 const Books = schema("Books", [Entry], [Book])
 
 /** Each account's entries, counted, and their budgets summed. */

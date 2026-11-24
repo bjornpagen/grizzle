@@ -11,7 +11,7 @@ import { sameScalarType, type ScalarType } from "#compiler/ir/scalar.ts"
 import { queryInput } from "#compiler/program/input.ts"
 import { natural, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { derived, relation, schema, unit } from "#compiler/public/schema.ts"
+import { derived, relation, schema, sealed, unit } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { plainType } from "#compiler/scalar/native.ts"
@@ -162,7 +162,9 @@ export const observedOf = (c: CountCase): Observed =>
 			...(r.kind === "written" || (r.kind === "union" && r.written) ? [Into] : []),
 			...(r.kind === "union" && r.beside !== "zero" ? [Beside] : [])
 		]
-		const Counts = schema("Counts", own, [unit("Kinds", { kind: pg.integer })])
+		/** Sealed at founding, so Tallied, a count over a kind's whole unit, is stored, upkept at the founding write alone
+		 * (analysis/derived/storage.ts), and its count is read from its table's column. */
+		const Counts = schema("Counts", own, [sealed(unit("Kinds", { kind: pg.integer }))])
 		const counted = query(Counts).rule((q) => {
 			const { id, kind } = v(Item, "item")
 			return q.match(Item, { id, kind }).find({ kind, n: q.count() })

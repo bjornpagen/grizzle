@@ -90,7 +90,8 @@ export const builtinTypeNames = [
 	"regconfig",
 	"char",
 	"interval",
-	"pg_dependencies"
+	"pg_dependencies",
+	"xid8"
 ] as const
 export type BuiltinTypeName = (typeof builtinTypeNames)[number]
 
@@ -152,6 +153,7 @@ export const catalogSpelling: { readonly [T in CatalogTypeName]: CatalogSpelling
 	name: "qualified",
 	tsvector: "qualified",
 	regconfig: "qualified",
+	xid8: "qualified",
 	oid: "qualified",
 	char: "qualified",
 	regclass: "qualified",

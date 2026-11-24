@@ -7,7 +7,7 @@ import type { ConstraintName } from "#compiler/core/ids.ts"
 import type { SchemaArtifacts } from "#compiler/program/schema.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { derived, relation, schema, unit } from "#compiler/public/schema.ts"
+import { derived, relation, schema, sealed, unit } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
@@ -52,7 +52,10 @@ export type EvidenceFeature = ViewName | "read-back over a stored relation"
 /** A line of a document: its place and its word count. */
 const Line = relation("Line", { doc: Id, at: pg.integer, words: pg.integer }, ["doc", "at"])
 
-const Docs = schema("Docs", [Line], [unit("Document", { doc: Id })])
+/** The documents, sealed at founding: a document's lines are put by the transaction that founds it, so DocWords, which
+ * re-derives a document's whole count and sum, is stored, upkept at that founding write alone (analysis/derived/
+ * storage.ts). */
+const Docs = schema("Docs", [Line], [sealed(unit("Document", { doc: Id }))])
 
 /** Each document's line count and word sum, keyed by the document, in its unit. */
 const DocWords = derived(

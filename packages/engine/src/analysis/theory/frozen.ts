@@ -42,7 +42,7 @@ export const frozenAt = (owned: Owned, relation: string): FrozenUnit | undefined
 
 /**
  * Whether the declared unit `unit` of `owned` is founded: sealed (schema/own.ts OwnedUnit `sealed`), so every row of
- * every relation under it at a key is inserted by the transaction that inserted the unit's root there, and no other
+ * every relation under it at a key is inserted by the one transaction that founds it there, and no other
  * write changes them; a stored relation over it is upkept at that founding write alone, whose delta is the whole unit
  * (analysis/derived/storage.ts). Storage admission reads it, never the borrow checker: a founding write still borrows
  * its unit.

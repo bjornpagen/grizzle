@@ -150,6 +150,7 @@ export const refusals = [
 	"grizzle mints no ids: key a row by its natural identity, its parent's key and its own name or place, a content digest, a published name and version, or an outside system's id under a contract of its own",
 	"insertAll names each relation by a required key: an optional key may insert nothing",
 	"mutable over a relation under a unit, whose every change is a write its unit's borrow holds alone: declare the unit its primary key leads with, unit(name, { …its leading key fields }), or keep it closed and record each change as an inserted fact",
+	"mutable over a relation under a sealed unit, whose every row is inserted by the transaction that founds its unit: a sealed unit's relations are closed, so keep it closed and record each change as an inserted fact, or declare its unit unsealed",
 	"no arm of the source delivers the bound constants",
 	"no contract is over an exact value of any size: declare it over pg.bigint, pg.numeric(p, s) or pg.money",
 	"not a field of the arms the bindings select",
