@@ -133,7 +133,7 @@ export const aNodesPropertiesHoldNoStepSourcesTheyAreWorkedOutAndReadInFinishAlo
 /** Where a column's offered name is told apart from the names it holds (logical/props.ts Fixing fresh, HeldNames). */
 const nameChecks = Object.freeze({
 	fixedEqual: { file: "packages/engine/src/logical/props.ts", name: "fixedEqual" },
-	nameKey: { file: "packages/engine/src/logical/props.ts", name: "nameKey" }
+	fixedNameKey: { file: "packages/engine/src/logical/props.ts", name: "fixedNameKey" }
 } satisfies Readonly<Record<string, CountedFunction>>)
 
 type ChainPoint = "m = 4" | "m = 8" | "m = 12"
@@ -170,7 +170,7 @@ export const anOfferedNameIsFoundAmongTheNamesItsColumnHoldsInOneLookup = proper
 					names += Arr.reduce([...fixed.names.values()], 0, (n, held) => n + held.length)
 				}
 				assert.equal(
-					counts.fixedEqual + counts.nameKey,
+					counts.fixedEqual + counts.fixedNameKey,
 					offers + names,
 					`the identities read at m = ${m}: one an offer, one a name`
 				)

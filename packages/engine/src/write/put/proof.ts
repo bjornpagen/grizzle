@@ -15,20 +15,20 @@ import {
 } from "#compiler/ir/rel.ts"
 import { sameScalarType } from "#compiler/ir/scalar.ts"
 import { type CatalogSchema, evidenceCatalog } from "#compiler/laws/model/catalog.ts"
-import { fixedEqual, type Named, nameKey, valueAt } from "#compiler/logical/props.ts"
+import { fixedEqual, type FixedName, fixedNameKey, valueAt } from "#compiler/logical/props.ts"
 import { only } from "#compiler/write/defined.ts"
 import { unrefined } from "#compiler/write/insert/statement.ts"
 
 /**
  * The value one key field carries at some node: a column of the node, or the value a name holds throughout, a
- * parameter, a literal or an outer column (logical/props.ts Named, the identity a fixed column's value has).
+ * parameter, a literal or an outer column (logical/props.ts FixedName, the identity a fixed column's value has).
  */
 type KeyValue =
 	| { readonly kind: "column"; readonly name: string }
-	| { readonly kind: "named"; readonly name: Named }
+	| { readonly kind: "named"; readonly name: FixedName }
 
 /** The name an expression a node evaluates over the input `input` holds throughout, where it holds one (valueAt). */
-const namedAt = (expr: ScalarExpr, input: ReadonlySet<NodeId>): Named | undefined => {
+const namedAt = (expr: ScalarExpr, input: ReadonlySet<NodeId>): FixedName | undefined => {
 	const value = valueAt(expr, input)
 	return value.kind === "local" || value.kind === "expr" ? undefined : value
 }
@@ -75,10 +75,14 @@ interface KeyQuestion {
 
 /**
  * A question's identity over its node: each field, then its value's kind and its column's name or its name's identity
- * (nameKey), so two questions over one node ask the same thing exactly when their identities are one tuple.
+ * (fixedNameKey), so two questions over one node ask the same thing exactly when their identities are one tuple.
  */
 const questionKey = (vs: ReadonlyMap<string, KeyValue>): ReadonlyArray<string> =>
-	[...vs].flatMap(([field, v]) => [field, v.kind, v.kind === "column" ? v.name : nameKey(v.name)])
+	[...vs].flatMap(([field, v]) => [
+		field,
+		v.kind,
+		v.kind === "column" ? v.name : fixedNameKey(v.name)
+	])
 
 /**
  * Key values at `node` with each name a column of the node holds throughout read as that column: the column `fixed`
@@ -94,7 +98,7 @@ const asFixedColumns = (
 		return values
 	}
 	const facts = fixed(node)
-	const columnOf = (name: Named): string | undefined =>
+	const columnOf = (name: FixedName): string | undefined =>
 		node.heading.find((c) => facts.get(c.name)?.some((f) => fixedEqual(f.fixed, name)) ?? false)
 			?.name
 	return new Map(
@@ -181,8 +185,8 @@ const provesKeys = (
 				 */
 				const wanted = new Map<
 					string,
-					| { readonly kind: "class"; readonly cls: VarId; readonly outer: Named }
-					| { readonly kind: "named"; readonly name: Named }
+					| { readonly kind: "class"; readonly cls: VarId; readonly outer: FixedName }
+					| { readonly kind: "named"; readonly name: FixedName }
 				>()
 				for (const [field, v] of keyed) {
 					if (v.kind === "named") {
@@ -397,7 +401,7 @@ const regionScope = (
 	const { fieldOf, bound } = bindings
 	const locals = new Set([node.id])
 	/** Whether the occurrence fixes `field` to the value `name` holds. */
-	const fixedTo = (field: string, name: Named): boolean => {
+	const fixedTo = (field: string, name: FixedName): boolean => {
 		const constant = occurrence.constants.find((c) => c.column === field)
 		const held = constant === undefined ? undefined : namedAt(constant.expr, locals)
 		return held !== undefined && fixedEqual(held, name)

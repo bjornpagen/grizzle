@@ -221,7 +221,7 @@ export interface Props {
 	 * Naming): the data every named closure of the node reads, its closure of nothing and each parent's closure of a
 	 * determinant of it, built once with its dependencies.
 	 */
-	readonly naming: Naming<Named>
+	readonly naming: Naming<FixedName>
 	/**
 	 * Its minimal keys over its classes of equal columns and its independent factors: for rows of one heading group one
 	 * proof, whose key holds one minimal key of each factor over the classes' representatives and whose alternatives are
@@ -283,7 +283,7 @@ export interface Props {
 	 * the value it was named by (closureOf). `fixed` is read off it, and a parent that closes the node's determinants
 	 * reads the empty one's here rather than closing it again (reachedFrom).
 	 */
-	readonly nothing: Closure<Named>
+	readonly nothing: Closure<FixedName>
 }
 
 /** A node as the logical analysis reads it: each input replaced by that input's properties. */
@@ -527,7 +527,7 @@ interface Table {
 	readonly stated: Rows
 	/** Where each row's step reads the value it fixes each of its targets to, in the row's target order (sourcesOf). */
 	readonly sources: StepSources
-	readonly naming: Naming<Named>
+	readonly naming: Naming<FixedName>
 }
 
 /** What a node's steps are read against: its table but what they are read into (sourcesOf, namingOf). */
@@ -537,20 +537,20 @@ type Steps = Omit<Table, "naming" | "sources">
 const attributesOf = (props: Pick<Table, "stated">): Attributes => props.stated.attributes
 
 /** A value a fixed column holds that names it: a literal, a parameter or an outer column. */
-export type Named = Exclude<Fixed, { readonly kind: "expr" }>
+export type FixedName = Exclude<Fixed, { readonly kind: "expr" }>
 
 /**
  * A name of the value a fixed column holds, with its derivation from nothing, whose first step to reach the column
  * names it, as the test kernel reads a derivation's value (test/support/keys/kernel.ts).
  */
 export interface NamedValue {
-	readonly name: Named
+	readonly name: FixedName
 	readonly derivation: Implication
 }
 
 /** The name a value gives what it is: a literal, a parameter, an outer column; none for a computation, which names no
  * value, nor for a value of the node's own rows, which varies with them. */
-const namedOf = (v: ValueAt): Named | undefined => {
+const namedOf = (v: ValueAt): FixedName | undefined => {
 	switch (v.kind) {
 		case "literal":
 		case "param":
@@ -567,7 +567,7 @@ const namedOf = (v: ValueAt): Named | undefined => {
  * does: the derivation a rule stores, and a fixed column's value, are read off it, so they name the value wherever a
  * step names it.
  */
-const closureOf = (props: Pick<Table, "stated" | "naming">, start: Bits): Closure<Named> =>
+const closureOf = (props: Pick<Table, "stated" | "naming">, start: Bits): Closure<FixedName> =>
 	closure(props.stated, start, props.naming)
 
 /**
@@ -581,7 +581,7 @@ const coverOf = (props: Pick<Table, "stated">, start: Bits): Closure<never> =>
  * What `start` determines at a node a parent reads: for the empty start, the closure of nothing the node carries
  * (Props.nothing); for any other, its closure there (closureOf).
  */
-const reachedFrom = (input: Props, start: Bits): Closure<Named> =>
+const reachedFrom = (input: Props, start: Bits): Closure<FixedName> =>
 	isEmpty(start) ? input.nothing : closureOf(input, start)
 
 /** The positions of the attributes `names` names at a node, in their order: none for a name the node lacks. */
@@ -619,7 +619,7 @@ export const fixedNames = (props: Fixes, column: string): ReadonlyArray<NamedVal
  * one value per row of the node, so it names none of the node's values, as an expression reading it names none
  * (valueAt).
  */
-const nameAt = (props: Pick<Table, "outer">, name: Named): Named | undefined =>
+const nameAt = (props: Pick<Table, "outer">, name: FixedName): FixedName | undefined =>
 	name.kind !== "outer" || props.outer.get(name.node)?.has(name.column) === true ? name : undefined
 
 /**
@@ -631,7 +631,7 @@ const firstNameAt = (
 	props: Pick<Table, "outer">,
 	input: Fixes,
 	column: string
-): Named | undefined => {
+): FixedName | undefined => {
 	const first = input.fixed.get(column)?.[0]?.name
 	return first === undefined ? undefined : nameAt(props, first)
 }
@@ -652,7 +652,7 @@ const namesAt = (
  */
 const fixedOver = (
 	props: Table,
-	reached: Closure<Named>
+	reached: Closure<FixedName>
 ): ReadonlyMap<string, ReadonlyArray<NamedValue>> => new FixedNames(props, reached).names
 
 /**
@@ -662,7 +662,7 @@ const fixedOver = (
  * arm's derivation.
  */
 type Offers =
-	| { readonly kind: "own"; readonly name: Named | undefined }
+	| { readonly kind: "own"; readonly name: FixedName | undefined }
 	| { readonly kind: "column"; readonly names: ReadonlyArray<NamedValue> }
 	| {
 			readonly kind: "input"
@@ -672,13 +672,13 @@ type Offers =
 	| {
 			readonly kind: "arms"
 			readonly names: ReadonlyArray<{
-				readonly name: Named
+				readonly name: FixedName
 				readonly arms: NonEmptyReadonlyArray<Implication>
 			}>
 	  }
 
 /** A name's identity, as fixedEqual compares two names: a literal by its key, a parameter by its id, an outer column. */
-export const nameKey = (name: Named): string => {
+export const fixedNameKey = (name: FixedName): string => {
 	switch (name.kind) {
 		case "literal":
 			return `l${name.key}`
@@ -690,7 +690,7 @@ export const nameKey = (name: Named): string => {
 }
 
 /**
- * The names a fixed column holds so far (FixedNames), in the order they were added, and their identities (nameKey): an
+ * The names a fixed column holds so far (FixedNames), in the order they were added, and their identities (fixedNameKey): an
  * offer of a name the column holds is found in one lookup, where it was compared with every name held.
  */
 class HeldNames {
@@ -699,17 +699,17 @@ class HeldNames {
 
 	constructor(first: ReadonlyArray<NamedValue>) {
 		this.list = [...first]
-		this.#keys = new Set(first.map((v) => nameKey(v.name)))
+		this.#keys = new Set(first.map((v) => fixedNameKey(v.name)))
 	}
 
-	has(name: Named): boolean {
-		return this.#keys.has(nameKey(name))
+	has(name: FixedName): boolean {
+		return this.#keys.has(fixedNameKey(name))
 	}
 
 	add(values: ReadonlyArray<NamedValue>): void {
 		for (const v of values) {
 			this.list.push(v)
-			this.#keys.add(nameKey(v.name))
+			this.#keys.add(fixedNameKey(v.name))
 		}
 	}
 }
@@ -728,7 +728,7 @@ class Fixing {
 	readonly column: string
 	/** The names `column` holds so far, which the step's offers are added to. */
 	readonly held: HeldNames
-	readonly #reached: Closure<Named>
+	readonly #reached: Closure<FixedName>
 	readonly #row: Row
 	readonly #offers: Offers
 	#made = 0
@@ -738,7 +738,13 @@ class Fixing {
 	 */
 	#determinants: { readonly steps: ReadonlyArray<Dependency>; readonly reach: boolean } | undefined
 
-	constructor(column: string, held: HeldNames, reached: Closure<Named>, row: Row, offers: Offers) {
+	constructor(
+		column: string,
+		held: HeldNames,
+		reached: Closure<FixedName>,
+		row: Row,
+		offers: Offers
+	) {
 		this.column = column
 		this.held = held
 		this.#reached = reached
@@ -781,7 +787,7 @@ class Fixing {
 		return offers.kind === "own" ? (offers.name === undefined ? 0 : 1) : offers.names.length
 	}
 
-	#nameAt(i: number): Named {
+	#nameAt(i: number): FixedName {
 		const offers = this.#offers
 		return offers.kind === "own"
 			? defined(offers.name, "an offer the step counts")
@@ -821,7 +827,7 @@ class Fixing {
 /** The step `row` of a node whose closure of nothing is `reached`, fixing `column`, as a Fixing. */
 const fixingOf = (
 	props: Table,
-	reached: Closure<Named>,
+	reached: Closure<FixedName>,
 	row: Row,
 	column: string,
 	held: HeldNames,
@@ -874,7 +880,7 @@ export class FixedNames {
 	/** The offers its steps offer when it is done: as many as it made. */
 	readonly offered: number
 
-	constructor(props: Table, reached: Closure<Named>) {
+	constructor(props: Table, reached: Closure<FixedName>) {
 		const names = new Map<string, HeldNames>()
 		for (const p of reached.sequence) {
 			const first = reached.named.get(p)
@@ -924,7 +930,7 @@ export class FixedNames {
  * like it that carries the column alone over another derivation of the input; or a union's arms, which agree on it.
  */
 type StepSource =
-	| { readonly kind: "own"; readonly name: Named | undefined }
+	| { readonly kind: "own"; readonly name: FixedName | undefined }
 	| { readonly kind: "column"; readonly column: string }
 	| {
 			readonly kind: "input"
@@ -1212,7 +1218,7 @@ const stepSource = (
 const commonNames = (
 	arms: NonEmptyReadonlyArray<Fixes>,
 	column: string
-): ReadonlyArray<{ readonly name: Named; readonly arms: NonEmptyReadonlyArray<Implication> }> =>
+): ReadonlyArray<{ readonly name: FixedName; readonly arms: NonEmptyReadonlyArray<Implication> }> =>
 	(fixedNames(arms[0], column) ?? []).flatMap((v) => {
 		const derivations = everyArm(
 			arms,
@@ -1228,8 +1234,8 @@ const commonNames = (
  * the first name its arms share, as its derivations do; an equality reads the name its other column holds when the
  * closure names one (a copy), none for a column the node lacks.
  */
-const nameSourceOf = (props: Steps, source: StepSource, column: string): NameSource<Named> => {
-	const value = (name: Named | undefined): NameSource<Named> =>
+const nameSourceOf = (props: Steps, source: StepSource, column: string): NameSource<FixedName> => {
+	const value = (name: FixedName | undefined): NameSource<FixedName> =>
 		name === undefined ? namesNone : { kind: "value", value: name }
 	switch (source.kind) {
 		case "own":
@@ -1246,7 +1252,7 @@ const nameSourceOf = (props: Steps, source: StepSource, column: string): NameSou
 }
 
 /** The naming of a node's steps (Props.naming): each row's source of the name it gives each target, in its order. */
-const namingOf = (props: Steps, sources: StepSources): Naming<Named> =>
+const namingOf = (props: Steps, sources: StepSources): Naming<FixedName> =>
 	namingOver(
 		props.stated,
 		sources.map(({ targets }) => targets.map((t) => nameSourceOf(props, t.source, t.column)))
