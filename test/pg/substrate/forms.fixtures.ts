@@ -41,22 +41,37 @@ export const workTemplate = migratedTemplate({
 })
 
 /**
- * Work installed once more as a template of its own, its content apart from workTemplate's: the second of the closed
- * set of templates oneOfTemplates draws from.
+ * Work installed once more as a template of its own, `copy` apart from workTemplate's and every other copy's content: a
+ * template of the closed sets the oneOf and budget properties draw from.
  */
-export const secondWorkTemplate = migratedTemplate({
-	declaredIn: import.meta,
-	name: "work, second",
-	content: { schema: "Work", logins: ["server"], ambient: "ordinary", copy: "second" },
-	versions: [{ schema: Work, logins: [workWorlds(Work).server], declarations: noDeclarations }],
-	options: {
-		label: "work",
-		extensions: [],
-		compile: compileInstallation,
-		ambient: ordinarySession,
-		review: noPlaceholders
-	}
-})
+const workCopyTemplate = (copy: string) =>
+	migratedTemplate({
+		declaredIn: import.meta,
+		name: `work, ${copy}`,
+		content: { schema: "Work", logins: ["server"], ambient: "ordinary", copy },
+		versions: [{ schema: Work, logins: [workWorlds(Work).server], declarations: noDeclarations }],
+		options: {
+			label: "work",
+			extensions: [],
+			compile: compileInstallation,
+			ambient: ordinarySession,
+			review: noPlaceholders
+		}
+	})
+
+/** The second of the closed set of templates oneOfTemplates draws from. */
+export const secondWorkTemplate = workCopyTemplate("second")
+
+/**
+ * Work's templates a case of the budget property holds at once, each its own fresh clone (forms.test.ts
+ * aCaseOfFreshSubstratesAndAFullPoolStaysWithinItsBudget): four templates apart, so a case takes four needs apart.
+ */
+export const heldWorkTemplates = {
+	first: workTemplate,
+	second: secondWorkTemplate,
+	third: workCopyTemplate("third"),
+	fourth: workCopyTemplate("fourth")
+} as const
 
 /** The keys of the closed set of templates the oneOf property draws a case's from. */
 const templateKeys = ["first", "second"] as const

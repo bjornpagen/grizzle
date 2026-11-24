@@ -1,6 +1,7 @@
 #!/usr/bin/env -S node
-import { availableParallelism, loadavg } from "node:os"
+import { loadavg } from "node:os"
 import { styleText } from "node:util"
+import { processors } from "@bjornpagen/testing/workers"
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime"
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import { Array as Arr, Console, Effect, FileSystem, Layer, Option, String as Str } from "effect"
@@ -145,7 +146,9 @@ const full = Effect.gen(function* () {
 		onNone: () => "no load average",
 		onSome: (average) => `load average ${average.toFixed(2)}`
 	})
-	yield* Console.info(`${load} over ${availableParallelism()} cores; run on a quiet machine`)
+	yield* Console.info(
+		`${load} over the ${processors} CPUs this run may use; run on a quiet machine`
+	)
 	const command = allGates(false)
 	const status = yield* gates(command)
 	const discovered = yield* discoverGates(defaultGateDirectories)

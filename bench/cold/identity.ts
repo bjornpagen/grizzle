@@ -1,4 +1,5 @@
-import { arch, availableParallelism, cpus, platform, release, totalmem } from "node:os"
+import { arch, cpus, platform, release, totalmem } from "node:os"
+import { processors } from "@bjornpagen/testing/workers"
 import { regex } from "arkregex"
 import {
 	Array as Arr,
@@ -211,7 +212,7 @@ const runtimeIdentity: Effect.Effect<RuntimeIdentity, IdentityUnreadable> = Effe
 				release: release(),
 				arch: arch(),
 				cpu: cpu.model,
-				cores: availableParallelism(),
+				cores: processors,
 				memoryBytes: totalmem(),
 				note: machineNote
 			})

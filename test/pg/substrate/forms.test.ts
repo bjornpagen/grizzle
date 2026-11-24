@@ -3,24 +3,28 @@
  * case (Substrate.fresh), and one owner transaction a case on the worker's own clone (Substrate.rolledBack). Each case
  * writes into what it was given and requires to find what its form promises: the template's installation and no row an
  * earlier case wrote, every login of the installation logging in with the credentials the case derives from the
- * member's owner password.
+ * member's owner password. A case that holds several fresh clones at once and a full pool's sessions beside them holds
+ * every connection within its worker's budget, which each substrate widens by its own sessions.
  */
 import { assert } from "@bjornpagen/testing/assert"
 import { finite, int } from "@bjornpagen/testing/gen"
 import { property } from "@bjornpagen/testing/property"
-import { Effect } from "effect"
+import { Array as Arr, Effect } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import {
 	loggedIn,
 	secondWorkTemplate,
 	servedTemplate,
 	servedWorld,
+	heldWorkTemplates,
 	oneOfCase,
 	workTemplate,
 	writtenAccounts
 } from "#test/pg/substrate/forms.fixtures.ts"
 import { Work } from "#test/support/fixtures/api/work.ts"
 import { Served } from "#test/support/served-db.ts"
+import { testPoolMax } from "#test/support/substrate/connections.ts"
+import { connect } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 
@@ -54,6 +58,69 @@ export const freshInstalled = property.exhaust(finite(int(1, 4)), {
  * holding no transaction id until the case writes: a logical slot's making waits for every transaction holding one
  * (substrate.ts transactionBegan), so a case's transaction holds one only once its own write assigns it.
  */
+/**
+ * A case that holds `count` fresh clones at once, each of a template of its own and so a need of its own (a case's
+ * need is one value however often it takes it), each its own substrate, and a full pool's sessions on one of them
+ * (testPoolMax, one for each CPU of the run's allowance) holds every connection within its worker's budget: each
+ * substrate widens the budget by its own sessions for its life (substrate.ts substrateHeld), so the budget is the
+ * case's demand, its substrates' sessions and one pool, at any count and any width, where one pool and one substrate's
+ * sessions were the whole budget and a case of five fresh databases under a 16-CPU allowance asked past it (lowering
+ * and rule-seeding under grizzle.slice's quota, 2026-11-24).
+ */
+export const aCaseOfFreshSubstratesAndAFullPoolStaysWithinItsBudget = property.exhaust(
+	finite(int(1, 4)),
+	{
+		needs: {
+			first: Substrate.fresh(heldWorkTemplates.first),
+			second: Substrate.fresh(heldWorkTemplates.second),
+			third: Substrate.fresh(heldWorkTemplates.third),
+			fourth: Substrate.fresh(heldWorkTemplates.fourth)
+		},
+		situations: [],
+		check:
+			({ first, second, third, fourth }) =>
+			(count) =>
+				Effect.gen(function* () {
+					const held = yield* Effect.forEach(
+						Arr.take([second, third, fourth], count - 1),
+						(need) => need
+					)
+					const taken = yield* first
+					const { substrate } = Arr.lastNonEmpty(Arr.prepend(held, taken))
+					const pool = yield* Effect.forEach(
+						Array.from({ length: testPoolMax }, (_, at) => at),
+						(at) =>
+							connect(substrate.cluster, {
+								database: substrate.database,
+								credentials: substrate.owner,
+								label: `pool ${at}`
+							}),
+						{ concurrency: "unbounded" }
+					)
+					const answered = yield* Effect.forEach(
+						pool,
+						(session) => session.queryValues("SELECT 1", []),
+						{ concurrency: "unbounded" }
+					)
+					assert.deepEqual(answered.length, testPoolMax)
+				}),
+		oracle: {
+			kind: "specification",
+			name: "a case holding any count of fresh substrates at once and a full pool beside them opens every connection it asks for, its worker's budget granting each substrate's sessions and one pool"
+		},
+		box: "every count of fresh clones a case holds at once beside a full pool, one to four, each of a template of its own",
+		kept: [],
+		kills: [
+			{
+				file: "test/support/substrate/substrate.ts",
+				original: "\tcluster.budget.widened(substrateConnections)\n",
+				replacement: "\tEffect.void\n",
+				why: "A worker's budget is one pool and a few sessions whatever its case holds, sized by the CPUs alone, so a case of several fresh substrates asks past it under a narrow allowance (lowering and rule-seeding under grizzle.slice's 16-CPU quota, 2026-11-24: ConnectionBudgetExhausted at 18); the property fails, its pool's sessions refused."
+			}
+		]
+	}
+)
+
 export const rolledBack = property.exhaust(finite(int(1, 4)), {
 	needs: { work: Substrate.rolledBack(workTemplate) },
 	situations: [],

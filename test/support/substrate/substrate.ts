@@ -61,7 +61,7 @@ import {
 import { memberBudget, sqlNeedFailed, WorkerBudgets } from "#test/support/runner.ts"
 import { awaitBlockedBy, awaitLockWait, type LockWait } from "#test/support/substrate/barrier.ts"
 import { type BudgetedCluster, budgeted, connectionBudget } from "#test/support/substrate/budget.ts"
-import { connectionsPerWorker } from "#test/support/substrate/connections.ts"
+import { connectionsPerWorker, substrateConnections } from "#test/support/substrate/connections.ts"
 import type { PsqlProcessError } from "#test/support/substrate/errors.ts"
 import {
 	defaultSchemaLabel,
@@ -784,7 +784,7 @@ const hangGuarded = <A, E, R>(what: string, step: Effect.Effect<A, E, R>): Effec
 /**
  * The substrate in a fresh database of its own, cloned from the template (test/support/pg.ts freshDatabase) and left
  * for the sweep, which drops it once no file of this process runs, its connections drawing from a budget of its own of
- * a worker's width (connections.ts connectionsPerWorker).
+ * a worker's width (connections.ts connectionsPerWorker), widened by the substrate's own sessions (substrateHeld).
  */
 const makeIsolatedSubstrate: Effect.Effect<
 	SubstrateShape,
@@ -796,6 +796,7 @@ const makeIsolatedSubstrate: Effect.Effect<
 	return yield* hangGuarded(
 		"the substrate's build in a database of its own",
 		Effect.gen(function* () {
+			yield* substrateHeld(cluster)
 			const database = yield* freshDatabase(cluster)
 			const admin = yield* connect(cluster, {
 				database,
@@ -1017,6 +1018,14 @@ const builtThenEnded = <A, E, R, E2, R2>(
 	Effect.andThen(Effect.scoped(build), ended)
 
 /**
+ * `cluster`'s budget widened by one substrate's own sessions for the enclosing scope, the substrate's life
+ * (connections.ts substrateConnections): every substrate a holder builds widens its holder's budget so, so the budget
+ * grants the substrates a case holds at once beside its one pool, whatever their count and the run's width.
+ */
+const substrateHeld = (cluster: BudgetedCluster): Effect.Effect<void, never, Scope.Scope> =>
+	cluster.budget.widened(substrateConnections)
+
+/**
  * A template of an installation over the base template (InstallSpec): its database is built by planning under the
  * template's schema name and installing the plan on a substrate over the template database, each worker plans it once
  * to bind its cases, and its cases clone it by either form (Substrate.fresh, rolledBack). Its identity is the
@@ -1024,7 +1033,9 @@ const builtThenEnded = <A, E, R, E2, R2>(
  * template, under new names. Its build first gives its database the test database settings (pg.ts configureDatabase),
  * as the base template's build does, since a derived template is made from its origin with no database setting of the
  * origin's: every session of the install then runs under them, a write of a fill SERIALIZABLE among them, and every
- * clone of it gets them, as the toolchain replays a template's own settings on each clone.
+ * clone of it gets them, as the toolchain replays a template's own settings on each clone; the session that gives them
+ * ends as it has, and the build's substrate widens its worker's budget by its own sessions (substrateHeld), as a case's
+ * does, so a worker building several templates at once holds each one's.
  */
 export const installTemplate = <P, T, E1, E2>(
 	spec: InstallSpec<P, T, E1, E2>
@@ -1047,12 +1058,16 @@ export const installTemplate = <P, T, E1, E2>(
 				Effect.gen(function* () {
 					const { digest, plan } = yield* planned(database)
 					const cluster = yield* memberBudget(target.member)
+					yield* substrateHeld(cluster)
 					const failed = sqlNeedFailed(spec.name, `the install in ${target.name}`)
-					const settings = yield* Effect.mapError(
-						devSession(cluster, Option.some("template settings")),
-						failed
+					yield* Effect.scoped(
+						Effect.mapError(
+							Effect.flatMap(devSession(cluster, Option.some("template settings")), (settings) =>
+								configureDatabase(settings, target.name)
+							),
+							failed
+						)
 					)
-					yield* Effect.mapError(configureDatabase(settings, target.name), failed)
 					const admin = yield* Effect.mapError(
 						connect(cluster, {
 							database: target.name,
@@ -1106,6 +1121,7 @@ const substrateOver = (
 ): Effect.Effect<SubstrateShape, NeedFailed, Scope.Scope> =>
 	Effect.gen(function* () {
 		const cluster = yield* budgets.on(taken.member)
+		yield* substrateHeld(cluster)
 		const failed = sqlNeedFailed(form, `the substrate in ${taken.name}`)
 		const admin = yield* Effect.mapError(
 			connect(cluster, {

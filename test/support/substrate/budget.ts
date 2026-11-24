@@ -47,6 +47,12 @@ export interface ConnectionBudget {
 	 */
 	readonly within: (width: number) => Effect.Effect<ConnectionBudget, never, Scope.Scope>
 	/**
+	 * The budget granting `width` permits more for the current scope, fewer again as it closes: what a holder of
+	 * connections of its own widens its budget by for its life (substrate.ts substrateHeld), so the budget grants what its
+	 * holders hold at once and no single holder's count sizes the whole of it.
+	 */
+	readonly widened: (width: number) => Effect.Effect<void, never, Scope.Scope>
+	/**
 	 * `transport` whose every socket draws one permit as `open` makes it, before anything is sent on it, and gives it back
 	 * when the socket closes, its TLS upgrade's end included. `open` throws ConnectionBudgetExhausted when none is free. A
 	 * CancelRequest's connection holds no backend, but the transport opens it as it opens a session's, so it draws one for
@@ -78,9 +84,11 @@ export type HeldConnection =
 /** A budget of `width` permits, none drawn. */
 export const connectionBudget = (width: number): ConnectionBudget => {
 	let drawn = 0
+	/** The permits granted now: `width`, and every widening whose scope is open (widened). */
+	let granted = width
 	/** Draws `count` permits when that many are free: whether it did. */
 	const draw = (count: number): boolean => {
-		if (drawn + count > width) {
+		if (drawn + count > granted) {
 			return false
 		}
 		drawn += count
@@ -96,7 +104,7 @@ export const connectionBudget = (width: number): ConnectionBudget => {
 		Effect.acquireRelease(
 			Effect.interruptible(
 				Effect.suspend(() =>
-					draw(count) ? Effect.void : Effect.die(new ConnectionBudgetExhausted({ width }))
+					draw(count) ? Effect.void : Effect.die(new ConnectionBudgetExhausted({ width: granted }))
 				)
 			),
 			() =>
@@ -123,11 +131,23 @@ export const connectionBudget = (width: number): ConnectionBudget => {
 				)
 			}),
 		within: (inner) => Effect.as(permits(inner), connectionBudget(inner)),
+		widened: (more) =>
+			Effect.asVoid(
+				Effect.acquireRelease(
+					Effect.sync(() => {
+						granted += more
+					}),
+					() =>
+						Effect.sync(() => {
+							granted -= more
+						})
+				)
+			),
 		transport: (transport) => ({
 			...transport,
 			open: () => {
 				if (!draw(1)) {
-					throw new ConnectionBudgetExhausted({ width })
+					throw new ConnectionBudgetExhausted({ width: granted })
 				}
 				const socket = transport.open()
 				sockets.set(socket, Option.none())

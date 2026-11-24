@@ -1,4 +1,4 @@
-import { availableParallelism } from "node:os"
+import { processors } from "@bjornpagen/testing/workers"
 
 /**
  * How many cases one window of a type agreement holds (agreement.ts): the cases its search draws under one snapshot of
@@ -83,11 +83,11 @@ const caseCpu = 0.32
  * @derivation ⌊typeWindow × caseCpu / programCpu⌋ = ⌊150 × 0.32 / 7.5⌋ = 6 programs of 25 cases each check 8 s of cases
  *   beside their 7.5 s of fixed load, where one program of 150 checks 48 s of them, so the window's 7.5 + 48 = 55.5 s
  *   of CPU in one program's wall time becomes 6 × 7.5 + 48 = 93 s in one twenty-five-case program's 15.5 s; one more
- *   program would check less of its own than its fixed load costs. availableParallelism caps it on a machine of fewer
- *   cores, and at least one program checks every window
+ *   program would check less of its own than its fixed load costs. The run's CPU allowance caps it
+ *   (@bjornpagen/testing/workers processors) where it holds fewer CPUs, and at least one program checks every window
  * @from {@link typeWindow}, {@link caseCpu}, {@link programCpu}
  */
 export const typeBatches = Math.max(
 	1,
-	Math.min(availableParallelism(), Math.floor((typeWindow * caseCpu) / programCpu))
+	Math.min(processors, Math.floor((typeWindow * caseCpu) / programCpu))
 )
