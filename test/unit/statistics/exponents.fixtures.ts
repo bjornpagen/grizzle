@@ -16,6 +16,8 @@ export type ExponentsFeature =
 	| "an anchor above 1"
 	| "a column above 1"
 	| "two anchors"
+	| "edullm's Instance at a5f2531ed"
+	| "edullm's Instance at 71bd2dfc5"
 
 /**
  * A small system drawn free: one or two anchors, one to four columns, one to six bounds over them, each bound of its
@@ -88,6 +90,128 @@ export const wideSystemGen: Gen<ExponentSystem> = plantedSystemGen({
 	bounds: 400,
 	width: 8
 })
+
+/**
+ * edullm's Instance relation as its app installation's declared statistics bound it, at a5f2531ed and at 71bd2dfc5
+ * (edullm out/grading-sql/j1/cpuprof culprit-a5f2531ed.json, culprit-71bd2dfc5.json, each bound once): its anchors
+ * package, __package_capwbknxpj and __package_y55am5j6k6 and 28 free columns, 41 and 46 bounds, the second adding the
+ * sets apart over package (site), (site, siteDocument), (site, siteDocument, document), (document, assemblyKind) and
+ * (start, document), on which e2abf18f2's exact search exhausted every solution at a largest exponent of 7 and spun at 8.
+ * Each with the least largest anchor exponent: 7, which that search found for the first, and 8 for the second.
+ */
+export const instanceSystems: Arr.NonEmptyReadonlyArray<{
+	readonly at: string
+	readonly system: ExponentSystem
+	readonly least: number
+}> = [
+	{
+		at: "a5f2531ed",
+		least: 7,
+		system: {
+			anchors: 3,
+			columns: 28,
+			bounds: [
+				{ kind: "apart", anchor: 0, columns: [] },
+				{ kind: "apart", anchor: 1, columns: [] },
+				{ kind: "apart", anchor: 2, columns: [] },
+				{ kind: "key", anchor: 0, columns: [12, 27] },
+				{ kind: "key", anchor: 1, columns: [18] },
+				{ kind: "key", anchor: 2, columns: [12, 23, 25] },
+				{ kind: "key", anchor: 0, columns: [12, 27, 22, 13, 18] },
+				{ kind: "key", anchor: 0, columns: [12, 27, 18, 13] },
+				{ kind: "key", anchor: 0, columns: [12, 27, 20, 18] },
+				{ kind: "key", anchor: 0, columns: [12, 3, 14] },
+				{ kind: "key", anchor: 0, columns: [12, 3, 4] },
+				{ kind: "key", anchor: 0, columns: [12, 27, 16, 13, 18] },
+				{ kind: "key", anchor: 0, columns: [12, 3, 14, 19] },
+				{ kind: "key", anchor: 0, columns: [12, 27, 21, 18] },
+				{ kind: "key", anchor: 0, columns: [12, 27, 18] },
+				{ kind: "key", anchor: 0, columns: [12, 27, 17, 18] },
+				{ kind: "key", anchor: 0, columns: [12, 27, 15] },
+				{ kind: "key", anchor: 0, columns: [18, 2] },
+				{ kind: "key", anchor: 0, columns: [18, 11] },
+				{ kind: "apart", anchor: 0, columns: [12] },
+				{ kind: "apart", anchor: 0, columns: [27] },
+				{ kind: "apart", anchor: 0, columns: [18] },
+				{ kind: "apart", anchor: 0, columns: [13, 12, 18] },
+				{ kind: "apart", anchor: 0, columns: [12, 13] },
+				{ kind: "apart", anchor: 0, columns: [18, 22] },
+				{ kind: "apart", anchor: 0, columns: [12, 3] },
+				{ kind: "apart", anchor: 0, columns: [26] },
+				{ kind: "apart", anchor: 0, columns: [13, 12, 18, 23] },
+				{ kind: "apart", anchor: 0, columns: [12, 13, 23] },
+				{ kind: "apart", anchor: 0, columns: [13, 12, 18, 23, 26] },
+				{ kind: "apart", anchor: 0, columns: [12, 13, 26, 18] },
+				{ kind: "apart", anchor: 0, columns: [12, 13, 23, 26] },
+				{ kind: "apart", anchor: 0, columns: [13, 12, 18, 23, 26, 25] },
+				{ kind: "apart", anchor: 0, columns: [12, 13, 26, 18, 25] },
+				{ kind: "apart", anchor: 0, columns: [12, 13, 23, 25, 26] },
+				{ kind: "apart", anchor: 0, columns: [12, 13, 25, 26] },
+				{ kind: "apart", anchor: 0, columns: [26, 25, 13] },
+				{ kind: "apart", anchor: 0, columns: [12, 13, 26] },
+				{ kind: "apart", anchor: 0, columns: [12, 18] },
+				{ kind: "apart", anchor: 0, columns: [12, 13, 25] },
+				{ kind: "apart", anchor: 0, columns: [13] }
+			]
+		}
+	},
+	{
+		at: "71bd2dfc5",
+		least: 8,
+		system: {
+			anchors: 3,
+			columns: 28,
+			bounds: [
+				{ kind: "apart", anchor: 0, columns: [] },
+				{ kind: "apart", anchor: 1, columns: [] },
+				{ kind: "apart", anchor: 2, columns: [] },
+				{ kind: "key", anchor: 0, columns: [12, 27] },
+				{ kind: "key", anchor: 1, columns: [18] },
+				{ kind: "key", anchor: 2, columns: [12, 23, 25] },
+				{ kind: "key", anchor: 0, columns: [12, 27, 22, 13, 18] },
+				{ kind: "key", anchor: 0, columns: [12, 27, 18, 13] },
+				{ kind: "key", anchor: 0, columns: [12, 27, 20, 18] },
+				{ kind: "key", anchor: 0, columns: [12, 3, 14] },
+				{ kind: "key", anchor: 0, columns: [12, 3, 4] },
+				{ kind: "key", anchor: 0, columns: [12, 27, 16, 13, 18] },
+				{ kind: "key", anchor: 0, columns: [12, 3, 14, 19] },
+				{ kind: "key", anchor: 0, columns: [12, 27, 21, 18] },
+				{ kind: "key", anchor: 0, columns: [12, 27, 18] },
+				{ kind: "key", anchor: 0, columns: [12, 27, 17, 18] },
+				{ kind: "key", anchor: 0, columns: [12, 27, 15] },
+				{ kind: "key", anchor: 0, columns: [18, 2] },
+				{ kind: "key", anchor: 0, columns: [18, 11] },
+				{ kind: "apart", anchor: 0, columns: [12] },
+				{ kind: "apart", anchor: 0, columns: [27] },
+				{ kind: "apart", anchor: 0, columns: [18] },
+				{ kind: "apart", anchor: 0, columns: [13, 12, 18] },
+				{ kind: "apart", anchor: 0, columns: [12, 13] },
+				{ kind: "apart", anchor: 0, columns: [18, 22] },
+				{ kind: "apart", anchor: 0, columns: [18, 13] },
+				{ kind: "apart", anchor: 0, columns: [12, 18] },
+				{ kind: "apart", anchor: 0, columns: [27, 18] },
+				{ kind: "apart", anchor: 0, columns: [12, 3] },
+				{ kind: "apart", anchor: 0, columns: [26] },
+				{ kind: "apart", anchor: 0, columns: [13, 12, 18, 23] },
+				{ kind: "apart", anchor: 0, columns: [12, 13, 23] },
+				{ kind: "apart", anchor: 0, columns: [13, 12, 18, 23, 26] },
+				{ kind: "apart", anchor: 0, columns: [12, 13, 26, 18] },
+				{ kind: "apart", anchor: 0, columns: [12, 13, 23, 26] },
+				{ kind: "apart", anchor: 0, columns: [13, 12, 18, 23, 26, 25] },
+				{ kind: "apart", anchor: 0, columns: [12, 13, 26, 18, 25] },
+				{ kind: "apart", anchor: 0, columns: [12, 13, 23, 25, 26] },
+				{ kind: "apart", anchor: 0, columns: [12, 13, 25, 26] },
+				{ kind: "apart", anchor: 0, columns: [25, 26, 18] },
+				{ kind: "apart", anchor: 0, columns: [26, 25, 13] },
+				{ kind: "apart", anchor: 0, columns: [12, 13, 26] },
+				{ kind: "apart", anchor: 0, columns: [25, 26] },
+				{ kind: "apart", anchor: 0, columns: [12, 13, 25] },
+				{ kind: "apart", anchor: 0, columns: [25] },
+				{ kind: "apart", anchor: 0, columns: [13] }
+			]
+		}
+	}
+]
 
 /** Whether exponents meet every bound of `system`. */
 export const meets = (

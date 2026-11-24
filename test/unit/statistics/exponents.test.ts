@@ -18,12 +18,14 @@
  */
 import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
+import { constant, finite, oneOf } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
-import { exponentsOf } from "#compiler/physical/statistics/exponents.ts"
+import { type ExponentSystem, exponentsOf } from "#compiler/physical/statistics/exponents.ts"
 import {
 	exactLeast,
 	type ExponentsFeature,
+	instanceSystems,
 	meets,
 	systemGen,
 	wideSystemGen
@@ -107,6 +109,66 @@ export const theRaiseMeetsEveryBoundAtTheExactLeastsLargestExponentAndCallsCross
 		]
 	})
 
+/** The raises of `system` the module's doc bounds: (keys + 1) times the sets apart over each key's anchor. */
+const boundedRaises = (system: ExponentSystem): number => {
+	const aparts = Array.from(
+		{ length: system.anchors },
+		(_, a) => Arr.filter(system.bounds, (b) => b.kind === "apart" && b.anchor === a).length
+	)
+	const keys = Arr.filter(system.bounds, (b) => b.kind === "key")
+	return (keys.length + 1) * Arr.reduce(keys, 0, (n, b) => n + (aparts[b.anchor] ?? 0))
+}
+
+/**
+ * edullm's Instance relation, on whose bounds e2abf18f2's exact search spun at 71bd2dfc5, is raised within its bounded
+ * raises to exponents meeting every bound at the least largest exponent.
+ */
+export const edullmsInstanceIsRaisedWithinItsBoundedRaisesToExponentsMeetingEveryBoundAtTheLeastLargestExponent =
+	property.exhaust(finite(oneOf(Arr.map(instanceSystems, (s) => constant(s)))), {
+		needs: {},
+		situations: [
+			"edullm's Instance at a5f2531ed",
+			"edullm's Instance at 71bd2dfc5"
+		] satisfies ReadonlyArray<Reached<ExponentsFeature>>,
+		check: (_, c: Case<ExponentsFeature>) => (kept) =>
+			Effect.sync(() => {
+				c.note(
+					kept.at === "a5f2531ed"
+						? "edullm's Instance at a5f2531ed"
+						: "edullm's Instance at 71bd2dfc5"
+				)
+				const raised = exponentsOf(kept.system)
+				assert.ok(
+					raised.raises <= boundedRaises(kept.system),
+					`the raise makes ${raised.raises} raises, within ${boundedRaises(kept.system)}`
+				)
+				assert.ok(raised.kind === "exponents", "the raise settles Instance's bounds")
+				assert.ok(
+					meets(kept.system, raised.anchors, raised.columns),
+					"the raised exponents meet every bound"
+				)
+				assert.equal(
+					largest(raised.anchors),
+					kept.least,
+					"the raise's largest exponent is the least"
+				)
+			}),
+		oracle: {
+			kind: "specification",
+			name: "the module's bound on its raises, the bounds themselves, and the least largest exponent e2abf18f2's exact search found (7) or exhausted below (8)"
+		},
+		box: "edullm's Instance at a5f2531ed and at 71bd2dfc5",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/physical/statistics/exponents.ts",
+				original: "\t\teffects.findLast((e) => !e.short && !e.higher)?.c ??",
+				replacement: "\t\teffects.findLast((e) => !e.short)?.c ??",
+				why: "A raise blind to the largest exponent: a column whose raise lifts it is taken where one that keeps it would do, and Instance is declared at 11 and 12, not its least, 7 and 8."
+			}
+		]
+	})
+
 /** On a wide schema's system the raise ends within the raises the module's doc bounds, and its exponents meet every bound. */
 export const onAWideSchemasSystemTheRaiseEndsWithinItsBoundedRaisesAndItsExponentsMeetEveryBound =
 	property.explore(wideSystemGen, {
@@ -116,16 +178,10 @@ export const onAWideSchemasSystemTheRaiseEndsWithinItsBoundedRaisesAndItsExponen
 		>,
 		check: (_, c: Case<ExponentsFeature>) => (system) =>
 			Effect.sync(() => {
-				const aparts = Array.from(
-					{ length: system.anchors },
-					(_, a) => Arr.filter(system.bounds, (b) => b.kind === "apart" && b.anchor === a).length
-				)
-				const keys = Arr.filter(system.bounds, (b) => b.kind === "key")
-				const perRound = Arr.reduce(keys, 0, (n, b) => n + (aparts[b.anchor] ?? 0))
 				const raised = exponentsOf(system)
 				assert.ok(
-					raised.raises <= (keys.length + 1) * perRound,
-					`the raise makes ${raised.raises} raises, within (keys + 1) · Σ sets apart = ${(keys.length + 1) * perRound}`
+					raised.raises <= boundedRaises(system),
+					`the raise makes ${raised.raises} raises, within (keys + 1) · Σ sets apart = ${boundedRaises(system)}`
 				)
 				if (raised.kind !== "exponents") {
 					return
