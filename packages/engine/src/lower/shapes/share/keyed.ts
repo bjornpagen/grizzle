@@ -19,6 +19,7 @@ import {
 	emptyEnv,
 	type Env,
 	envOf,
+	type CteTable,
 	equalitiesOver,
 	type LowerContext,
 	namedMap,
@@ -28,6 +29,12 @@ import {
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
 import { fencedRead } from "#compiler/lower/conservative/step/index.ts"
 import type { CtePlan } from "#compiler/lower/optimize/cte-policy/index.ts"
+import {
+	type CopyClass,
+	type CopySite,
+	copyCandidates,
+	copySites
+} from "#compiler/lower/shapes/share/copies.ts"
 import {
 	atomsOf,
 	type FixedOf,
@@ -40,7 +47,13 @@ import {
 	whole
 } from "#compiler/lower/shapes/share/keys.ts"
 import { columnType } from "#compiler/runtime/lower/columns.ts"
-import type { Cte, Expr, FromSource, OperandSelect } from "#compiler/sql/ast.ts"
+import {
+	type Cte,
+	type Expr,
+	type FromSource,
+	isSetQuery,
+	type OperandSelect
+} from "#compiler/sql/ast.ts"
 import {
 	col,
 	conjunction,
@@ -49,7 +62,9 @@ import {
 	type DefinedCte,
 	derived,
 	distinctCore,
+	keyedSet,
 	operandSelect,
+	provedCore,
 	operandUnionAll,
 	select,
 	target
@@ -65,24 +80,36 @@ import {
 /**
  * The key sets a query's statement computes its nodes at (keyPlan): each node the CTE policy shares in the statement's
  * WITH, by its label, the CTE's body the node at its key set; each such node every read of which reads it at values of
- * the statement's own alone (KeyAnalysis readsAtValues), inline at each read instead; and each union or fold lowered in
- * place.
+ * the statement's own alone (KeyAnalysis readsAtValues), inline at each read instead; each union or fold lowered in
+ * place; and each site of a sub-query the statement reads at several, computed once at every site's keys (copies.ts).
  */
 export interface StatementKeys {
 	readonly once: ReadonlyMap<NodeId, Keys>
 	readonly atValues: ReadonlySet<NodeId>
 	readonly inPlace: ReadonlyMap<RelNode, Keys>
+	readonly copies: ReadonlyMap<RelNode, CopySite>
 }
 
 /** No node computed at keys: a lowering whose own sharing keys its nodes (a write's), or that wants every row. */
-export const noKeys: StatementKeys = { once: new Map(), atValues: new Set(), inPlace: new Map() }
+export const noKeys: StatementKeys = {
+	once: new Map(),
+	atValues: new Set(),
+	inPlace: new Map(),
+	copies: new Map()
+}
 
 /**
  * The key sets of a query's DAG (keyPlan over its nodes, its roots whole): each node the CTE policy shares in the
- * statement's WITH (cte-policy CteDecision, statement scope) at its key set, and each union or fold the statement
- * lowers in place at its own, the physical analysis's fixings `fixed` equating a correlated read's columns.
+ * statement's WITH (cte-policy CteDecision, statement scope) at its key set, each union or fold the statement lowers in
+ * place at its own, and each class of copies it reads at several sites (copies.ts copyCandidates) at its sites' keys,
+ * the physical analysis's fixings `fixed` equating a correlated read's columns, its `realization` telling copies apart.
  */
-export const queryKeys = (dag: ValidDag, cte: CtePlan, fixed: FixedOf): StatementKeys => {
+export const queryKeys = (
+	dag: ValidDag,
+	cte: CtePlan,
+	fixed: FixedOf,
+	realization: (node: RelNode) => string
+): StatementKeys => {
 	const order = topoOrder(dag)
 	const place = new Map(order.map((node, i) => [node, i] as const))
 	const once = order.filter((node) => {
@@ -92,14 +119,17 @@ export const queryKeys = (dag: ValidDag, cte: CtePlan, fixed: FixedOf): Statemen
 			(decision.strategy === "materialized" || decision.strategy === "notMaterialized")
 		)
 	})
+	const candidates = copyCandidates(dag, order, cte, realization)
 	const plan = keyPlan({
 		nodes: order,
 		roots: new Map(dag.roots.map((r) => [r, whole] as const)),
 		once: once.map((node) => [node]),
+		copied: candidates.map((c) => c.request),
 		fixed,
 		inputs: inputsOf,
 		height: (node) => place.get(node) ?? 0
 	})
+
 	return {
 		once: new Map(
 			once.flatMap((node, i) => {
@@ -108,7 +138,8 @@ export const queryKeys = (dag: ValidDag, cte: CtePlan, fixed: FixedOf): Statemen
 			})
 		),
 		atValues: new Set(once.flatMap((node, i) => (plan.atValues[i] === true ? [node.id] : []))),
-		inPlace: plan.inPlace
+		inPlace: plan.inPlace,
+		copies: copySites(order, candidates, plan.copied)
 	}
 }
 
@@ -444,6 +475,116 @@ export class KeyedLowering {
 		return select(
 			distinctCore(headingTargetsOf(node, rows.map), [keyRows.item, rows.item], undefined)
 		)
+	}
+
+	/**
+	 * A site of a sub-query the statement reads at several (copies.ts CopyClass), as it reads it: its class's one
+	 * evaluation (#computedOnce), read at the site's outer values in `env`, each key column equal to the column its hole
+	 * reads of the site's outer row, every column of the copy's heading read through the evaluation's.
+	 */
+	copied(
+		node: RelNode,
+		site: CopySite,
+		cx: LowerContext,
+		env: Env,
+		scope: KeyScope,
+		table: CteTable<RelNode>,
+		lower: (cx: LowerContext, env: Env) => OperandSelect
+	): OperandSelect {
+		const copied = site.copied
+		const cte =
+			table.defined.get(copied.representative) ?? this.#computedOnce(copied, scope, table, lower)
+		const alias = cx.relationAlias({ kind: "node", node: node.id })
+		const at = site.outer.map((o, i) =>
+			cx.equal(
+				defined(copied.types[i], "a place's type, one for each place"),
+				col(alias, defined(cte.columns[i], "a key column of the evaluation, one for each place")),
+				columnIn(
+					defined(env.columns.get(o.node), "a site's outer row, in scope where the site is read"),
+					o.column
+				)
+			)
+		)
+		const heading = new Map(
+			node.heading.map(
+				(c, j) =>
+					[
+						c.name,
+						col(
+							alias,
+							defined(
+								cte.columns[copied.outer.length + j],
+								"a column of the evaluation, one for each of the copy's"
+							)
+						)
+					] as const
+			)
+		)
+		const targets = headingTargetsOf(node, heading)
+		const from = [cteRefAs(cte.name, alias)]
+		return cte.set
+			? select(provedCore("keyed", targets, from, conjunction(at)))
+			: operandSelect(core(targets, from, conjunction(at)))
+	}
+
+	/**
+	 * The one evaluation of a sub-query the statement reads at several sites (copies.ts CopyClass), the statement's
+	 * MATERIALIZED CTE entered in `table` past every CTE it reads: `SELECT k.*, c.* FROM <the key set> AS k, LATERAL
+	 * (<the representative>) AS c`, the representative lowered by `lower` in the statement's scope (KeyScope
+	 * `statement`) with each column it reads of an outer row k's column of its hole, its rows at each key of its sites; a
+	 * set where the representative's rows are one. The
+	 * representative is read apart (step/index.ts fencedRead), so PostgreSQL reads it once for each key, at the key,
+	 * whatever it estimates of either side: pulled up beside the key set, it is a join the estimates order, and a
+	 * Materialize of every stored row under a join filter read each group stored beside the one a write touched.
+	 */
+	#computedOnce(
+		copied: CopyClass,
+		scope: KeyScope,
+		table: CteTable<RelNode>,
+		lower: (cx: LowerContext, env: Env) => OperandSelect
+	): DefinedCte {
+		const cx = scope.statement
+		const node = copied.representative
+		const origin = { kind: "node", node: node.id } as const
+		const keyRows = this.#keyRows(node, copied.keys, scope)
+		const keyColumns = copied.outer.map((o, i) => ({
+			read: o,
+			value: col(
+				keyRows.alias,
+				defined(keyRows.named[i], "a key set column, one for each place").column
+			)
+		}))
+		const outer = new Map<NodeId, Map<string, Expr>>()
+		for (const k of keyColumns) {
+			outer.getOrInsertComputed(k.read.node, () => new Map()).set(k.read.column, k.value)
+		}
+		const query = lower(cx, envOf(outer))
+		const rows = cx.wrap(query, node.heading, origin)
+		const atKey = cx.wrapAs(
+			fencedRead(headingTargetsOf(node, rows.map), rows.item, undefined),
+			node.heading,
+			origin,
+			true
+		)
+		const targets = [
+			...keyColumns.map((k) => target(k.value)),
+			...headingTargetsOf(node, atKey.map)
+		]
+		const name = cx.relationAlias(origin)
+		const columns = cx.supply.columns(targets.map(() => origin))
+		const from = [keyRows.item, atKey.item]
+		const set = isSetQuery(query)
+		table.ctes.add({
+			name,
+			columns,
+			materialized: "MATERIALIZED",
+			query: set
+				? select(keyedSet(targets, from, undefined, "a sub-query's rows at each key of its sites"))
+				: operandSelect(core(targets, from, undefined))
+		})
+		const cte = { name, columns, set }
+		table.defined.set(node, cte)
+		return cte
 	}
 
 	/**

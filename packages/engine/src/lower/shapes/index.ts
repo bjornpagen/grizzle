@@ -1,4 +1,5 @@
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { postorder } from "@bjornpagen/grizzle-text/base/graph"
 import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	concatNonEmpty,
@@ -11,7 +12,14 @@ import { searchInRows } from "#compiler/check/approximate/attach.ts"
 import { canonicalEquals, unwrap } from "#compiler/core/canonical.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
-import type { CompletedOrder, Heading, NodeOf, RelKind, RelNode } from "#compiler/ir/rel.ts"
+import {
+	type CompletedOrder,
+	type Heading,
+	inputsOf,
+	type NodeOf,
+	type RelKind,
+	type RelNode
+} from "#compiler/ir/rel.ts"
 import { withAdmission } from "#compiler/lower/conservative/admission.ts"
 import { parentEvaluations, statementEvaluations } from "#compiler/lower/conservative/call/index.ts"
 import {
@@ -86,6 +94,7 @@ import { refineDelivered } from "#compiler/lower/shapes/refined/index.ts"
 import { regionLowerer } from "#compiler/lower/shapes/region/index.ts"
 import { inputSetLowerer } from "#compiler/lower/shapes/relparam/index.ts"
 import { searchFenced } from "#compiler/lower/shapes/search/index.ts"
+import type { CopySite } from "#compiler/lower/shapes/share/copies.ts"
 import { shareKey } from "#compiler/lower/shapes/share/index.ts"
 import {
 	KeyedLowering,
@@ -874,7 +883,7 @@ const dispatchIn = <I extends ChoiceInput>(
 				: keyedGroup(facts, node, cx, env, restriction),
 		(node) => node.id
 	)
-	const dispatch: NodeDispatch = (node, cx: LowerContext, env) => {
+	const placed: NodeDispatch = (node, cx: LowerContext, env) => {
 		const shared = state.decision(node)
 		/** A node every read of which reads it at values is read inline at each (StatementKeys atValues). */
 		const decision = shared !== undefined && state.keys.atValues.has(node.id) ? undefined : shared
@@ -912,7 +921,37 @@ const dispatchIn = <I extends ChoiceInput>(
 			}
 		}
 	}
+	const dispatch: NodeDispatch = (node, cx, env) => {
+		const site = state.keys.copies.get(node)
+		return site !== undefined && readsCopy(node, site, cx, env)
+			? keyed.copied(
+					node,
+					site,
+					cx,
+					env,
+					state.keyScope(cx.atStatementRoot(dispatch)),
+					state.log,
+					(within, at) => placed(site.copied.representative, within, at)
+				)
+			: placed(node, cx, env)
+	}
 	return dispatch
+}
+
+/**
+ * Whether a site of a sub-query the statement reads at several reads its one evaluation where it stands (share/keyed.ts
+ * KeyedLowering copied): off every recursion's feedback, each outer row it reads in scope, and no restriction placed on
+ * a node under it, which its copy alone would keep.
+ */
+const readsCopy = (node: RelNode, site: CopySite, cx: LowerContext, env: Env): boolean => {
+	if (cx.readsFeedback(node) || !site.outer.every((o) => env.columns.has(o.node))) {
+		return false
+	}
+	if (env.restricted.size === 0) {
+		return true
+	}
+	const under = new Set(postorder([node], inputsOf))
+	return ![...env.restricted.keys()].some((n) => under.has(n))
 }
 
 /**

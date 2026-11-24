@@ -825,6 +825,58 @@ export class KeyAnalysis {
 	}
 
 	/**
+	 * The key set of the sites of a sub-query a statement reads at several (copies.ts CopyClass), at `columns`, one for
+	 * each column its copies read of outer rows: each site's source the rows those columns are bound by where they stand
+	 * (#outerSource), each column at its slot, a source `again` admits read again where the key set stands; none where a
+	 * site's column has no such source, or its columns are two rows', whose product the key set would read.
+	 *
+	 * Soundness: a site is evaluated for each row of what reads it, its outer columns that row's; each such row binds
+	 * every column the source binding it holds there, so the source's values hold every key a site is read at.
+	 */
+	copyKeys(
+		columns: NonEmptyReadonlyArray<string>,
+		sites: ReadonlyArray<NonEmptyReadonlyArray<{ readonly node: string; readonly column: string }>>,
+		again: (node: RelNode) => boolean
+	): Keys | undefined {
+		const slotOf = (i: number): string => `copy:${String(i)}`
+		const [c0, ...cs] = columns
+		const keys: KeySource["keys"] = [
+			{ column: c0, slot: slotOf(0) },
+			...cs.map((column, i) => ({ column, slot: slotOf(i + 1) }))
+		]
+		const sources: Array<KeySource> = []
+		for (const site of sites) {
+			const bound = site.map((c) => this.#outerSource(c.node, c.column))
+			const [first] = bound
+
+			if (
+				first === undefined ||
+				!again(first.node) ||
+				!bound.every((b) => b !== undefined && b.row === first.row)
+			) {
+				return undefined
+			}
+			sources.push({
+				seeds: [
+					{
+						kind: "read",
+						node: first.node,
+						bindings: bound.flatMap((b, i) =>
+							b === undefined ? [] : [{ column: b.column, slot: slotOf(i) }]
+						),
+						constants: []
+					}
+				],
+				steps: [],
+				fixed: [],
+				keys
+			})
+		}
+		const [head, ...tail] = sources
+		return head === undefined ? undefined : { kind: "keys", columns, sources: [head, ...tail] }
+	}
+
+	/**
 	 * Where an outer row's column `column` of node `id` is read where it stands: the node itself where it reads no outer
 	 * row and holds no node it would be read beside; an enclosing region's variable, by the occurrence that binds it, a
 	 * source of the region read where it stands, or by the outer column its correlation reads in turn; a projection's
@@ -1230,15 +1282,31 @@ export const keyedOrder = (
 }
 
 /**
+ * The sites of a sub-query a statement reads at several, each a copy correlated to rows of its own (copies.ts
+ * CopyClass): the key set's columns, one for each column a copy reads of outer rows, and each site's outer columns in
+ * that order.
+ */
+export interface CopiedSites {
+	readonly columns: NonEmptyReadonlyArray<string>
+	readonly sites: ReadonlyArray<
+		NonEmptyReadonlyArray<{ readonly node: string; readonly column: string }>
+	>
+}
+
+/**
  * The key sets a statement computes its nodes at (KeyAnalysis over the statement's own `nodes`, each of `roots` at the
  * key set it is given): each sub-query it computes once (`once`, its copies, a CTE or a part) at its copies' key set,
  * and each union or fold it lowers in place, uncorrelated, at its own, where no value of the statement restricts it and
- * no cycle closes (keyedOrder); every other node whole. A fold is computed at its grouping keys alone (computedAt).
+ * no cycle closes (keyedOrder); each sub-query it reads at several sites (`copied`) at the keys its sites are read at
+ * (KeyAnalysis copyKeys), its sources read again where each is a node the statement computes once or its values
+ * restrict, through steps, filters and projections of columns; every other node whole. A fold is computed at its grouping keys alone
+ * (computedAt).
  */
 export const keyPlan = (statement: {
 	readonly nodes: ReadonlyArray<RelNode>
 	readonly roots: ReadonlyMap<RelNode, KeyRestriction>
 	readonly once: ReadonlyArray<ReadonlyArray<RelNode>>
+	readonly copied: ReadonlyArray<CopiedSites>
 	readonly fixed: FixedOf
 	readonly inputs: (node: RelNode) => ReadonlyArray<RelNode>
 	readonly height: (node: RelNode) => number
@@ -1246,6 +1314,7 @@ export const keyPlan = (statement: {
 	readonly once: ReadonlyArray<Keys | undefined>
 	readonly atValues: ReadonlyArray<boolean>
 	readonly inPlace: ReadonlyMap<RelNode, Keys>
+	readonly copied: ReadonlyArray<Keys | undefined>
 } => {
 	const computedOnce = new Set(statement.once.flat())
 	const analysis = new KeyAnalysis(
@@ -1333,7 +1402,20 @@ export const keyPlan = (statement: {
 		}))
 	]
 	const order = keyedOrder(statement.inputs, candidates)
+	/**
+	 * Whether a key source reads `node` again at no more rows than its reader does: a node the statement computes once,
+	 * or one its own values restrict (cte-policy restrictedByValues: a delta, the call's input), through steps, filters
+	 * and projections; never a stored relation's scan, which read again for the keys would read every unit's rows
+	 * (test/pg/laws/rule-aggregate: a probe of the touched groups read 1,605 rows beside 800 untouched groups where it
+	 * read 405).
+	 */
+	const again = (node: RelNode): boolean =>
+		computedOnce.has(node) ||
+		restrictedByValues(node) ||
+		((node.kind === "Step" || node.kind === "Filter" || node.kind === "ProjectSet") &&
+			again(node.input))
 	return {
+		copied: statement.copied.map((c) => analysis.copyKeys(c.columns, c.sites, again)),
 		once: statement.once.map((_, i) => order[i]?.keys),
 		atValues: statement.once.map((copies, i) => {
 			const at = copies.length > 0 ? analysis.readsAtValues(copies) : undefined

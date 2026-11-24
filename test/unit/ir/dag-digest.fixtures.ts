@@ -7,7 +7,7 @@ import { encode, omitSourceLocs } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { digest } from "#compiler/core/fingerprint.ts"
 import { makeIdSupply } from "#compiler/core/ids.ts"
-import { claimedNode, type OuterNames } from "#compiler/ir/dag-digest.ts"
+import { claimedNode, type TableOuterNames } from "#compiler/ir/dag-digest.ts"
 import { normalizeReach } from "#compiler/ir/dag.ts"
 import type { RelDag, Roots } from "#compiler/ir/rel.ts"
 import { everyKind } from "#test/unit/ir/fixture.ts"
@@ -22,14 +22,14 @@ export type DigestFeature = "followed" | "labelled" | "every kind of node" | "a 
 export const digestCaseGen: Gen<{
 	readonly dag: RelDag
 	readonly every: boolean
-	readonly outer: OuterNames
+	readonly outer: TableOuterNames
 	readonly domain: string
 }> = (source) => {
 	const every = source.draw(element([true, false]))
 	return {
 		dag: every ? everyKind(makeIdSupply()).dag : source.draw(generatedDags),
 		every,
-		outer: source.draw(element<OuterNames>(["followed", "labelled"])),
+		outer: source.draw(element<TableOuterNames>(["followed", "labelled"])),
 		domain: source.draw(string(codePoint(0x21, 0x7e), { min: 1, max: 8 }))
 	}
 }
@@ -38,7 +38,7 @@ export const digestCaseGen: Gen<{
 const claimedTable = (
 	dag: RelDag,
 	roots: Roots,
-	outer: OuterNames
+	outer: TableOuterNames
 ): Result.Result<unknown, CompileError> =>
 	Result.map(normalizeReach(dag, roots, outer), (normal) => ({
 		roots: normal.roots,
@@ -50,7 +50,7 @@ const claimedTable = (
 export const tableUnits = (
 	dag: RelDag,
 	roots: Roots,
-	outer: OuterNames
+	outer: TableOuterNames
 ): Result.Result<number, CompileError> =>
 	Result.flatMap(claimedTable(dag, roots, outer), (table) =>
 		Result.map(encode(table, { omit: omitSourceLocs }), (text) => text.length)
@@ -64,7 +64,7 @@ export const tableDigest = (
 	dag: RelDag,
 	roots: Roots,
 	domain: string,
-	outer: OuterNames
+	outer: TableOuterNames
 ): Result.Result<string, CompileError> =>
 	Result.flatMap(claimedTable(dag, roots, outer), (table) =>
 		digest(domain, table, { omit: omitSourceLocs })
@@ -73,10 +73,10 @@ export const tableDigest = (
 /** A share key's case under a limit of the table's text drawn below its length or at it, as a share of the length. */
 export const boundCaseGen: Gen<{
 	readonly dag: RelDag
-	readonly outer: OuterNames
+	readonly outer: TableOuterNames
 	readonly share: number
 }> = (source) => ({
 	dag: source.draw(generatedDags),
-	outer: source.draw(element<OuterNames>(["followed", "labelled"])),
+	outer: source.draw(element<TableOuterNames>(["followed", "labelled"])),
 	share: source.draw(int(0, 100))
 })

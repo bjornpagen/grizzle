@@ -1842,12 +1842,20 @@ export type ProbeSide = Extract<DeltaSide, "added" | "removed">
 /** The variable a probe over its region reads the touched occurrence's field `field` in. */
 const regionId = (field: string): string => `region.${field}`
 
-/** The channel a probe over touched groups at nesting `depth` reads the group field `field` in (Region `groups`). */
-const groupParam = (depth: number, field: string): InferredExpr => ({
+/**
+ * The channel a probe over touched groups at nesting `depth` reads its `place`-th group field in (Region `groups`), named
+ * by its place, never the field's name: the body a channel reads is then one sub-query whatever the names of the
+ * touched set's keys, so a lowering computes it once for every probe that reads it at keys of one domain
+ * (lower/shapes/share/copies.ts), where named by field the body read at (child, stage) and at (child, number) was two.
+ */
+const groupParam = (depth: number, place: number): InferredExpr => ({
 	kind: "param",
-	name: `groups${depth}.${field}`,
+	name: groupChannel(depth, place),
 	type: { kind: "channel" }
 })
+
+/** The name of a probe's channel at nesting `depth` for its `place`-th group field (groupParam). */
+const groupChannel = (depth: number, place: number): string => `groups${depth}.${place}`
 
 /** The variable a probe over touched groups delivers its head field `field` in. */
 const deliveredId = (field: string): string => `delivered.${field}`
@@ -1957,7 +1965,9 @@ const overRegion = (region: Region, rule: InferredRule, loc: SourceLoc): Inferre
 				}
 			}
 			const keys = region.keys.filter((k) => reads.has(regionId(k)))
-			const channels = new Map(keys.map((k) => [regionId(k), groupParam(region.depth, k)] as const))
+			const channels = new Map(
+				keys.map((k, place) => [regionId(k), groupParam(region.depth, place)] as const)
+			)
 			const leaves: LeafRewrite = { var: (id) => channels.get(id), field: () => undefined }
 			const inner: InferredRule = {
 				...rule,
@@ -1995,7 +2005,9 @@ const overRegion = (region: Region, rule: InferredRule, loc: SourceLoc): Inferre
 							kind: "step",
 							query: queryOf([inner], loc),
 							bind: Object.fromEntries(
-								keys.map((k) => [`groups${region.depth}.${k}`, varRef(regionId(k))] as const)
+								keys.map(
+									(k, place) => [groupChannel(region.depth, place), varRef(regionId(k))] as const
+								)
 							)
 						},
 						bindings: delivered,

@@ -31,7 +31,7 @@ import {
 	type DagTemplates,
 	digestedFields,
 	numberReach,
-	type OuterNames,
+	type TableOuterNames,
 	ReachNumbering,
 	tableExprOf
 } from "#compiler/ir/dag-digest.ts"
@@ -839,14 +839,14 @@ export const normalizeWithin = (
 ): Result.Result<DagTable, CompileError> => normalizeReach(context, roots, "followed")
 
 /**
- * normalizeWithin, every name of a node outside the roots' reach read as `outer` says (ir/dag-digest.ts OuterNames):
- * numbered by the one numbering of a normal form (ReachNumbering, numberReach), each node and expression restated with
- * the names it holds as it is read.
+ * normalizeWithin, every name of a node outside the roots' reach read as `outer` says (ir/dag-digest.ts
+ * TableOuterNames): numbered by the one numbering of a normal form (ReachNumbering, numberReach), each node and
+ * expression restated with the names it holds as it is read.
  */
 export const normalizeReach = (
 	context: RelDag,
 	roots: Roots,
-	outer: OuterNames
+	outer: TableOuterNames
 ): Result.Result<DagTable, CompileError> =>
 	catchRefusal(() => {
 		/** The context's labels, read only when a name the walk has not met needs its node. */

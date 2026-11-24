@@ -78,7 +78,7 @@ export const aReadThatTestsAJoinOrAFoldByTheTestsKeysReadsTheStoreAtTheAskedKeys
 		kills: [
 			{
 				file: "packages/engine/src/lower/conservative/semi-join/exists.ts",
-				original: '\tcostClass(node.right) !== "scan" &&\n',
+				original: "\treadsStored(node.right) &&\n",
 				replacement: "\tfalse &&\n",
 				why: "Every right side stays in a bare NOT EXISTS, as before: the fold by the key is a grouped derived table PostgreSQL never restricts by the test's keys, so the read folds every key the store holds, past the bound."
 			}

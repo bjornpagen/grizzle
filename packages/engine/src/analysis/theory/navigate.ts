@@ -756,14 +756,21 @@ interface Chain {
 class Passing {
 	readonly bind = new Map<string, InferredExpr>()
 	readonly #depth: number
+	/** Each variable passed in, by the place of its channel: the order the step first reads it in. */
+	readonly #places = new Map<string, number>()
 
 	constructor(depth: number) {
 		this.#depth = depth
 	}
 
-	/** The channel the reader's variable `id` is passed in under. */
+	/**
+	 * The channel the reader's variable `id` is passed in under, named by its place, never the variable's name: a step
+	 * built alike under readers whose variables are named apart is one sub-query, which a lowering computes once for
+	 * every reader (lower/shapes/share/copies.ts), where named by the variable a rule reading the limits at its `stage`
+	 * and one reading them at its `resumed` sitting each read a copy of their own.
+	 */
 	channel(id: string): InferredExpr {
-		const name = `via${this.#depth}.${id}`
+		const name = `via${this.#depth}.${this.#places.getOrInsertComputed(id, () => this.#places.size)}`
 		this.bind.set(name, varRef(id))
 		return { kind: "param", name, type: channel }
 	}

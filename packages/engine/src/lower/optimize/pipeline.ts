@@ -183,7 +183,9 @@ const optimizedLowering = (options: OptimizedOptions): Pass<LogicalQuery, Optimi
 		const facts = factsOf(plan, ctx, options)
 		/** A derived relation's definition wants every row: none of its nodes is computed at keys. */
 		const keys =
-			options.subject.kind === "derivedDefinition" ? noKeys : queryKeys(query.dag, cte, facts.fixed)
+			options.subject.kind === "derivedDefinition"
+				? noKeys
+				: queryKeys(query.dag, cte, facts.fixed, facts.realization)
 		const delivered = deliver(query, facts, cte, keys, options)
 		if (!delivered.ok) {
 			return delivered

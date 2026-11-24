@@ -119,15 +119,14 @@ export const aRuleOverAnAggregatingDerivedRelationCommitsExactlyTheWritesWhoseSt
 			{
 				file: "packages/engine/src/analysis/theory/query.ts",
 				original:
-					'\t\t\t\t\t{\n\t\t\t\t\t\tdirection: "removed",\n\t\t\t\t\t\tregion: {\n\t\t\t\t\t\t\tkind: "groups",\n\t\t\t\t\t\t\tdepth,\n\t\t\t\t\t\t\ttouched: t.query,\n\t\t\t\t\t\t\tkeys: t.keys,\n\t\t\t\t\t\t\tread: { kind: "lost" }\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n',
+					'\t\t\t\t{\n\t\t\t\t\tdirection: "removed",\n\t\t\t\t\tregion: {\n\t\t\t\t\t\tkind: "groups",\n\t\t\t\t\t\tdepth,\n\t\t\t\t\t\ttouched: t.query,\n\t\t\t\t\t\tkeys: t.fields,\n\t\t\t\t\t\tread: { kind: "lost" }\n\t\t\t\t\t}\n\t\t\t\t}\n',
 				replacement: "",
 				why: "A touched group's lost fact is read by no probe, so a write that changes a group's fold withdraws the fact Expect holds it to unjudged, and a state breaking the containment into the aggregate commits."
 			},
 			{
 				file: "packages/engine/src/analysis/theory/query.ts",
-				original:
-					'\t\t\t...relaxedOf(\n\t\t\t\t[arm],\n\t\t\t\t"removed",\n\t\t\t\t() => keys.map(([, term]) => term),\n\t\t\t\trelation,\n\t\t\t\tside,\n\t\t\t\tdepth,\n\t\t\t\tmemo,\n\t\t\t\tloc\n\t\t\t).map(({ candidate: c }) => deliver(c, c.where))\n',
-				replacement: "",
+				original: "\t\t\t\tbothWays,\n",
+				replacement: '\t\t\t\t["added"],\n',
 				why: "A group is touched only by the facts of its body a write may add, never by those it withdraws, so a delete or a put that takes an attempt out of its group leaves the group's fold unjudged: a delete that raises a group's least score past the check's bound, or lowers a count Expect holds, commits."
 			}
 		]
@@ -172,9 +171,24 @@ export const aProbeOfTheGroupsAWriteTouchedReadsThoseGroupsAloneHoweverManyGroup
 				reason:
 					"a count grouped by child, item and n under a key of child and n beside 291 groups and then 891, whose touched group's two attempts PostgreSQL read by (child, n) and sorted, then read in order by the primary key: 12 rows handled, then 10, for the same two rows read (trunk's TEST_SEED=552969958 at f1bf91a2f), so the measure counts the rows scans read alone (rule-aggregate.fixtures.ts scannedWork)",
 				since: "2026-11-22"
+			},
+			{
+				token: ReplayToken(
+					"test/pg/laws/rule-aggregate.test.ts#aProbeOfTheGroupsAWriteTouchedReadsThoseGroupsAloneHoweverManyGroupsStandBesideThem:-:0.0.1.1.1.1.1.0.1.0.0.0.1.0.0"
+				),
+				reason:
+					"a count grouped by item over Attempt's rows whose item is not adaptive, read by both arms of a plain union beside 200 groups and then 800, its body computed once over the touched items (share/keyed.ts computedOnce): with the body beside the key set unfenced, PostgreSQL joined them by a Materialize of every Attempt row under a join filter, 405 rows read, then 1,605 (DECIDE4's compute-once at 8f997ec92)",
+				since: "2026-11-24"
 			}
 		],
 		kills: [
+			{
+				file: "packages/engine/src/lower/shapes/share/keyed.ts",
+				original: "\t\t\tfencedRead(headingTargetsOf(node, rows.map), rows.item, undefined),",
+				replacement:
+					"\t\t\toperandSelect(core(headingTargetsOf(node, rows.map), [rows.item], undefined)),",
+				why: "A sub-query computed once is read beside its key set unfenced: PostgreSQL pulls it up and joins it to the keys by its estimates, a Materialize of every stored row under a join filter, so a write of one group reads every group stored beside it."
+			},
 			{
 				file: "packages/engine/src/analysis/theory/navigate.ts",
 				original:

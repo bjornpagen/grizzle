@@ -130,10 +130,18 @@ export type Reached =
 
 /**
  * What a normal form reads of a node outside what its roots reach by their inputs: the node, read through the context's
- * labels and numbered as the walk's own (`followed`); or its label (`labelled`), so the form reads an enclosing node by
- * which it is, never by what it holds.
+ * labels and numbered as the walk's own (`followed`); its label (`labelled`), so the form reads an enclosing node by
+ * which it is, never by what it holds; or its place among the outside nodes the form names, "x#i" by first occurrence
+ * (`positional`), so two sub-queries built alike, each correlated to rows of its own, are one form, which the place
+ * names their outer rows by alike.
  */
-export type OuterNames = "followed" | "labelled"
+export type OuterNames = "followed" | "labelled" | "positional"
+
+/**
+ * The OuterNames a normal form's table states (ir/dag.ts normalizeReach): all but `positional`, whose columns read
+ * outside only a digest names by their places.
+ */
+export type TableOuterNames = Exclude<OuterNames, "positional">
 
 /**
  * The numbering of a normal form (the module header): each label numbered on its first occurrence, each node and
@@ -145,17 +153,24 @@ export class ReachNumbering {
 	readonly vars = new Names("v", VarId)
 	readonly occurrences = new Names("o", OccurrenceId)
 	readonly scopes = new Names("s", ScopeId)
+	/** The nodes outside the reach a name holds, by first occurrence (`positional`). */
+	readonly outer = new Names("x", NodeId)
+	/** The columns of nodes outside the reach an expression reads, by first occurrence (`positional`), in that order. */
+	readonly outerColumns = new Names("y", NodeId)
+	readonly outerRead: Array<OuterRead> = []
 	/** Every node and expression met, in the order it was met: each namespace's in its numbers' order. */
 	readonly met: Array<Reached> = []
 	/** The context's labels, read only where a name the walk has not met needs its node. */
 	readonly #labels: () => ReadonlyMap<NodeId, RelNode>
-	/** What the roots reach by their inputs, where a name of a node outside it is its label (`labelled`). */
+	/** What the roots reach by their inputs, where a name of a node outside it is not followed (OuterNames). */
 	readonly #reached: ReadonlySet<NodeId> | undefined
+	readonly #outer: OuterNames
 
 	constructor(labels: () => ReadonlyMap<NodeId, RelNode>, roots: Roots, outer: OuterNames) {
 		this.#labels = labels
+		this.#outer = outer
 		this.#reached =
-			outer === "labelled" ? new Set(postorder(roots, inputsOf).map((node) => node.id)) : undefined
+			outer === "followed" ? undefined : new Set(postorder(roots, inputsOf).map((node) => node.id))
 	}
 
 	/** A data edge's node, numbered and queued where it is new. */
@@ -186,9 +201,39 @@ export class ReachNumbering {
 		return this.nodes.index(id)
 	}
 
-	/** A name a node holds as the form writes it: its label outside the reach, its number's name inside. */
+	/** A name a node holds as the form writes it: outside the reach as OuterNames says, its number's name inside. */
 	labelName(id: NodeId): NodeId {
-		return this.outside(id) ? id : this.nodes.nameOf(this.label(id))
+		return this.outside(id) ? this.outsideName(id) : this.nodes.nameOf(this.label(id))
+	}
+
+	/** The name of a node outside the reach: its label, or its place among the outside nodes (`positional`). */
+	outsideName(id: NodeId): NodeId {
+		return this.#outer === "positional" ? this.outer.name(id) : id
+	}
+
+	/**
+	 * The text of a column an expression reads of the node `id`: its name, or, of a node outside the reach, its place
+	 * among the columns read outside (`positional`), numbered as the table's text first writes it, so a sub-query is one
+	 * form whatever the names of the outer columns it reads, each typed as its expression is.
+	 */
+	columnName(id: NodeId, name: string): string {
+		if (this.#outer !== "positional" || !this.outside(id)) {
+			return name
+		}
+		const key = `${id}\u0000${name}`
+		if (!this.outerColumns.has(key)) {
+			this.outerRead.push({ node: id, column: name })
+		}
+		return this.outerColumns.name(key)
+	}
+
+	/** A name a node holds, numbered: inside the reach as `label` numbers it, outside it as `outsideName` names it. */
+	name(id: NodeId): void {
+		if (this.outside(id)) {
+			this.outsideName(id)
+		} else {
+			this.label(id)
+		}
 	}
 
 	/** An expression, numbered and queued where it is new. */
@@ -209,7 +254,7 @@ export class ReachNumbering {
 		return sortedUnique(
 			expr.deps.nodes.map((label) =>
 				this.outside(label)
-					? label
+					? this.outsideName(label)
 					: this.nodes.nameOf(this.nodes.indexed(label, ["exprs", name, "deps"]))
 			)
 		)
@@ -309,6 +354,7 @@ type Namespace = "n" | "e" | "v" | "o" | "s"
 type Naming =
 	| { readonly kind: "edge"; readonly node: RelNode }
 	| { readonly kind: "label"; readonly label: NodeId }
+	| { readonly kind: "column"; readonly label: NodeId; readonly name: string }
 	| { readonly kind: "expr"; readonly expr: ScalarExpr }
 	| { readonly kind: "var"; readonly id: VarId }
 	| { readonly kind: "occurrence"; readonly id: OccurrenceId }
@@ -390,7 +436,10 @@ const nodeTemplateOf = (node: RelNode): Template => {
 	)
 }
 
-/** An expression's template (nodeTemplateOf): its arguments, its column's node, its own name and its dependencies. */
+/**
+ * An expression's template (nodeTemplateOf): its arguments, its column's node and name, its own name and its
+ * dependencies.
+ */
 const exprTemplateOf = (expr: ScalarExpr): Template => {
 	const namings: Array<Naming> = []
 	return markedTemplate(
@@ -404,7 +453,7 @@ const exprTemplateOf = (expr: ScalarExpr): Template => {
 							...args,
 							column: {
 								node: NodeId(marker({ kind: "label", label: args.column.node })),
-								name: args.column.name
+								name: marker({ kind: "column", label: args.column.node, name: args.column.name })
 							}
 						}
 					: args
@@ -465,6 +514,8 @@ interface EntryNames {
 	nodeText(id: NodeId): string | undefined
 	/** The text a name of an occurrence is written as where the numbering gives it no number of its own. */
 	occurrenceText(id: OccurrenceId): string | undefined
+	/** The text a column an expression reads of the node `id` is written as. */
+	columnText(id: NodeId, name: string): string
 }
 
 /** A numbering that names what it meets as it meets it: a reach's (ReachNumbering) or a block's (BlockNumbering). */
@@ -472,9 +523,9 @@ interface Numbering {
 	readonly vars: Names<VarId>
 	readonly occurrences: Names<OccurrenceId>
 	readonly scopes: Names<ScopeId>
-	outside(id: NodeId): boolean
 	edge(node: RelNode): number
-	label(id: NodeId): void
+	/** A name a node holds, numbered where the numbering numbers it. */
+	name(id: NodeId): void
 	expr(expr: ScalarExpr): number
 }
 
@@ -485,9 +536,9 @@ const numbered = (numbering: Numbering, naming: Naming): void => {
 			numbering.edge(naming.node)
 			return
 		case "label":
-			if (!numbering.outside(naming.label)) {
-				numbering.label(naming.label)
-			}
+			numbering.name(naming.label)
+			return
+		case "column":
 			return
 		case "expr":
 			numbering.expr(naming.expr)
@@ -587,6 +638,9 @@ const writeNaming = (out: Utf8Writer, names: EntryNames, naming: Naming): void =
 			}
 			return
 		}
+		case "column":
+			writeCanonicalString(out, wellFormed(names.columnText(naming.label, naming.name)))
+			return
 		case "expr":
 			writeName(out, "e", names.exprs.index(naming.expr.id))
 			return
@@ -684,6 +738,24 @@ export class DagDigests {
 
 	/** The digest under `domain` of what `roots` reach, its enclosing nodes read as `outer` says (OuterNames). */
 	digest(roots: Roots, domain: string, outer: OuterNames): Result.Result<string, CompileError> {
+		return Result.map(this.#framed(roots, domain, outer), (d) => d.digest)
+	}
+
+	/**
+	 * The digest under `domain` of what `roots` reach, each node outside it and each column read of one by its place
+	 * (`positional`), and those columns in their places' order: what two sub-queries built alike share, and what each
+	 * reads outside.
+	 */
+	positional(roots: Roots, domain: string): Result.Result<PositionalDigest, CompileError> {
+		return this.#framed(roots, domain, "positional")
+	}
+
+	/** The digest of a framed table under `domain`, refused where its form is (#digest). */
+	#framed(
+		roots: Roots,
+		domain: string,
+		outer: OuterNames
+	): Result.Result<PositionalDigest, CompileError> {
 		return Result.flatMap(fingerprintDomain(domain), (line) => {
 			const digested = this.#digest(roots, line, outer)
 			if (!digested.ok) {
@@ -698,7 +770,7 @@ export class DagDigests {
 		roots: Roots,
 		line: WellFormedText,
 		outer: OuterNames
-	): Result.Result<string, CompileError> {
+	): Result.Result<PositionalDigest, CompileError> {
 		return catchRefusal(() => {
 			const templates = this.#templates
 			const labels = this.#labels
@@ -726,7 +798,8 @@ export class DagDigests {
 				vars: numbering.vars,
 				occurrences: numbering.occurrences,
 				scopes: numbering.scopes,
-				nodeText: (id) => (numbering.outside(id) ? id : undefined),
+				nodeText: (id) => (numbering.outside(id) ? numbering.outsideName(id) : undefined),
+				columnText: (id, name) => numbering.columnName(id, name),
 				occurrenceText: () => undefined
 			}
 			const out = this.#messages.out
@@ -761,9 +834,24 @@ export class DagDigests {
 			}
 			out.ascii("]}")
 			boundCanonicalText(out.units - start, this.#limit)
-			return this.#messages.hex()
+			return { digest: this.#messages.hex(), outer: numbering.outerRead }
 		})
 	}
+}
+
+/** A column a sub-query reads of a node outside it. */
+export interface OuterRead {
+	readonly node: NodeId
+	readonly column: string
+}
+
+/**
+ * A digest (DagDigests) and the columns it reads of nodes outside its reach, in their places' order: none but under
+ * `positional`, whose form names them by those places.
+ */
+export interface PositionalDigest {
+	readonly digest: string
+	readonly outer: ReadonlyArray<OuterRead>
 }
 
 /** A node a block numbers, by its number: read by the block, or sealed, an entry its own share key fills. */
@@ -823,10 +911,10 @@ class BlockNumbering implements Numbering, EntryNames {
 	}
 
 	/**
-	 * A name a node holds: its node, read through the context's labels, named where no data edge has met it; a name the
-	 * context does not hold is MalformedDescription.
+	 * A name a node holds, every one the block's own: its node, read through the context's labels, named where no data
+	 * edge has met it; a name the context does not hold is MalformedDescription.
 	 */
-	label(id: NodeId): void {
+	name(id: NodeId): void {
 		if (this.nodes.has(id) || this.#named.has(id)) {
 			return
 		}
@@ -838,17 +926,17 @@ class BlockNumbering implements Numbering, EntryNames {
 		this.named.push(node)
 	}
 
-	/** Every name is the block's own: none is outside. */
-	outside(_id: NodeId): boolean {
-		return false
-	}
-
 	/** A node no data edge of the block met is written as its place (`nodeTexts`). */
 	nodeText(id: NodeId): string | undefined {
 		if (this.nodes.has(id)) {
 			return undefined
 		}
 		return defined(this.nodeTexts.get(id), "the place of a node the block names")
+	}
+
+	/** A column is written as its name: a block names no node outside it. */
+	columnText(_id: NodeId, name: string): string {
+		return name
 	}
 
 	/** An occurrence a node of another block declares is written as its place there (`occurrenceTexts`). */
