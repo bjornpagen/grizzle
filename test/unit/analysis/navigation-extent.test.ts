@@ -9,7 +9,16 @@
  *
  * Oracle: a specification, read off the navigated query: the reads of the import it keeps whole.
  *
- * Features: an import of one rule and a union, each over the units and over every row; an import read three times.
+ * And a navigation keeps a query's navigation by the extent it navigates over and by the query's identity (Navigation
+ * `navigated`), the whole of what the navigation reads beside the schema's facts: the query of an import of one rule
+ * navigated over both extents in one navigation, either first, is navigated over each as a navigation of its own
+ * navigates it, where a navigation kept by identity alone read the first extent's navigation at the second: qti-pie's
+ * ledger installation with one navigation for all its judge statements turned __judge_unfinal_ended_in_unsettled_
+ * sitting's check over every row into the probes' shape. Oracle: a second implementation, a navigation of its own for
+ * each extent, as each judge statement has. Kill: the navigation kept by identity alone.
+ *
+ * Features: an import of one rule and a union, each over the units and over every row; an import read three times; the
+ * units first, every row first.
  */
 
 import { type Reached as ReachedOf } from "@bjornpagen/testing/features"
@@ -19,7 +28,10 @@ import { Effect } from "effect"
 import {
 	extentGen,
 	navigatedOver,
-	type Reached
+	navigatedTogether,
+	type Reached,
+	type TogetherReached,
+	togetherGen
 } from "#test/unit/analysis/navigation-extent.fixtures.ts"
 
 /** Over the units an import of one rule no parameter restricts is read at each read; over every row, whole. */
@@ -49,3 +61,32 @@ export const anUnrestrictedImportOfOneRuleIsReadAtEachReadOverTheUnitsAndWholeOv
 			}
 		]
 	})
+
+/** One query navigated over both extents in one navigation is navigated over each as a navigation of its own navigates it. */
+export const oneQueryNavigatedOverBothExtentsInOneNavigationIsNavigatedOverEach = property.exhaust(
+	finite(togetherGen),
+	{
+		needs: {},
+		situations: [
+			"the units first",
+			"every row first",
+			"an import read three times"
+		] satisfies ReadonlyArray<ReachedOf<TogetherReached>>,
+		check: (_, c: Case<TogetherReached>) => (drawn) =>
+			Effect.sync(() => navigatedTogether(drawn, c.note)),
+		oracle: {
+			kind: "second-implementation",
+			name: "a navigation of its own for each extent, as each judge statement has"
+		},
+		box: "the rule over BV reading the join import of one rule two or three times, over both extents in one navigation, either first",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/analysis/theory/navigate.ts",
+				original: "\t\tconst navigations = this.#navigations[sharingKey(sharing)]\n",
+				replacement: "\t\tconst navigations = this.#navigations.units\n",
+				why: "The navigation kept by the query's identity alone, as it was: the second extent reads the first's navigation, the check over every row the probes' steps or the probe the whole import."
+			}
+		]
+	}
+)

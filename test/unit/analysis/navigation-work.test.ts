@@ -56,7 +56,7 @@ export const navigatingAChainOfUnionsWorksOnceALevelHoweverDeepTheChain = proper
 		kills: [
 			{
 				file: "packages/engine/src/analysis/theory/navigate.ts",
-				original: "\t\tconst known = this.#navigations.get(identity)",
+				original: "\t\tconst known = navigations.get(identity)",
 				replacement: "\t\tconst known = undefined",
 				why: "Every read of a level navigates it again, as before: each level's two rules each navigate the level below, so a chain d deep navigates its leaf two to the d times; the property fails."
 			},

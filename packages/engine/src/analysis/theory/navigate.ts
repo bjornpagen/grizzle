@@ -218,6 +218,16 @@ export type ImportSharing =
  */
 export type RegionExtent = "units" | "every"
 
+/**
+ * What a query's navigation reads beside the query (Navigation `navigated`): how its imports are shared (ImportSharing),
+ * a read's or a statement's over its region's extent, each navigating an import of one rule apart (`restrictedFlat`).
+ */
+type SharingKey = "perRead" | RegionExtent
+
+/** The key of `sharing` (`SharingKey`). */
+const sharingKey = (sharing: ImportSharing): SharingKey =>
+	sharing.kind === "perRead" ? "perRead" : sharing.extent
+
 /** An import's bind map, its terms in the scope of the rule the unfolding reads it in. */
 type Binds = ReadonlyMap<string, InferredExpr>
 
@@ -236,8 +246,17 @@ type Binds = ReadonlyMap<string, InferredExpr>
  * (`within`).
  */
 export class Navigation {
-	/** The navigation of the first query of each identity this navigation read, by the identity. */
-	readonly #navigations = new Map<string, InferredQuery>()
+	/**
+	 * The navigation of the first query of each identity this navigation read, by how it shares its imports and by the
+	 * identity: the whole of what the navigation reads beside the schema's facts, so one query navigated under two
+	 * extents is navigated under each, where a navigation by identity alone read a query navigated under one extent at
+	 * the other, a probe's units for a check over every row.
+	 */
+	readonly #navigations: Readonly<Record<SharingKey, Map<string, InferredQuery>>> = {
+		perRead: new Map(),
+		units: new Map(),
+		every: new Map()
+	}
 	/** What navigation reads of each rule this navigation asked about (`reads`), by the rule. */
 	readonly #reads = new Map<InferredRule, RuleReads>()
 	/** Whether each rule this navigation asked about reads a chain of steps (`overSteps`), by the rule. */
@@ -365,20 +384,22 @@ export class Navigation {
 	}
 
 	/**
-	 * `query` navigated by `navigate`: the navigation of the first query of its identity this navigation read, that
-	 * query itself where its navigation changes nothing.
+	 * `query` navigated by `navigate` with its imports shared as `sharing`: the navigation of the first query of its
+	 * identity this navigation read under that sharing, that query itself where its navigation changes nothing.
 	 */
 	navigated(
 		query: InferredQuery,
+		sharing: ImportSharing,
 		navigate: (query: InferredQuery) => InferredQuery
 	): InferredQuery {
+		const navigations = this.#navigations[sharingKey(sharing)]
 		const identity = this.identity(query)
-		const known = this.#navigations.get(identity)
+		const known = navigations.get(identity)
 		if (known !== undefined) {
 			return known
 		}
 		const navigated = navigate(query)
-		this.#navigations.set(identity, navigated)
+		navigations.set(identity, navigated)
 		return navigated
 	}
 
@@ -2087,7 +2108,7 @@ const navigatedQuery = (
 	sharing: ImportSharing,
 	interned: Navigation
 ): InferredQuery => {
-	return interned.navigated(query, () => {
+	return interned.navigated(query, sharing, () => {
 		const stage = query.stage
 		if (stage.kind !== "rules") {
 			return query

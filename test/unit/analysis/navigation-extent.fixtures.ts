@@ -7,7 +7,7 @@ import { queryColumns } from "#compiler/analysis/theory/columns.ts"
 import { Navigation, navigateQuery, type RegionExtent } from "#compiler/analysis/theory/navigate.ts"
 import { buildTheory } from "#compiler/analysis/theory/theory.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import type { InferredQuery } from "#compiler/ir/desc.ts"
+import { descIdentity, type InferredQuery } from "#compiler/ir/desc.ts"
 import { queryInput } from "#compiler/program/input.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -163,3 +163,56 @@ export const navigatedOver = (c: Extent, note: (r: Reached) => void): void => {
 		`${Formatter.format(c)}: the navigation keeps ${kept} reads of the import whole, where it keeps ${expected}`
 	)
 }
+
+/** The reads of the import of one rule, under the units first or every row first: a case of the shared navigation. */
+export interface Together {
+	readonly reads: 2 | 3
+	readonly unitsFirst: boolean
+}
+
+export const togetherGen: Gen<Together> = (s) => ({
+	reads: s.draw(element<Together["reads"]>([2, 3])),
+	unitsFirst: s.draw(element([true, false] as const))
+})
+
+/** The navigation of the case's query over `extent` in `navigation`, by its identity (ir/desc.ts descIdentity). */
+const navigatedIdentity = (reads: 2 | 3, extent: RegionExtent, navigation: Navigation): string =>
+	succeeded(
+		descIdentity(
+			navigateQuery(
+				queryOf({ reads, import: "one rule", extent }),
+				loc,
+				columns,
+				{ kind: "perStatement", extent },
+				navigation
+			)
+		)
+	)
+
+/**
+ * Judges case `c`: its query navigated over both extents in one navigation, in the case's order, is navigated over each
+ * as a navigation of its own navigates it, and the two navigations differ, the import read at each read over the units
+ * and whole over every row.
+ */
+export const navigatedTogether = (c: Together, note: (r: TogetherReached) => void): void => {
+	note(c.unitsFirst ? "the units first" : "every row first")
+	if (c.reads === 3) {
+		note("an import read three times")
+	}
+	const alone = {
+		units: navigatedIdentity(c.reads, "units", new Navigation(facts)),
+		every: navigatedIdentity(c.reads, "every", new Navigation(facts))
+	}
+	assert.notEqual(alone.units, alone.every, "the two extents navigate the query apart")
+	const shared = new Navigation(facts)
+	const order: ReadonlyArray<RegionExtent> = c.unitsFirst ? ["units", "every"] : ["every", "units"]
+	for (const extent of order) {
+		assert.equal(
+			navigatedIdentity(c.reads, extent, shared),
+			alone[extent],
+			`${Formatter.format(c)}: over ${extent}, the shared navigation navigates the query as one of its own does`
+		)
+	}
+}
+
+export type TogetherReached = "the units first" | "every row first" | "an import read three times"
