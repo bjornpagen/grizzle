@@ -2,7 +2,15 @@ import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { NodeId } from "#compiler/core/ids.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
-import { inputsOf, type NodeOf, type RelNode, type ValidDag } from "#compiler/ir/rel.ts"
+import {
+	edgesOf,
+	inputsOf,
+	type NodeOf,
+	regionVarClasses,
+	type RelNode,
+	unionArms,
+	type ValidDag
+} from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import {
 	type ColumnEqualities,
@@ -110,6 +118,156 @@ export interface KeyScope {
 	readonly ctes: Set<Cte>
 	readonly keySets: Map<Keys, DefinedCte>
 	readonly lookups: Lookups
+	/**
+	 * Whether the statement lowers a node where it is read, neither a CTE nor a carrier of its, so a restriction placed
+	 * on the node's rows there restricts that read alone (pushedInto).
+	 */
+	readonly inPlace: (node: RelNode) => boolean
+}
+
+/** Each DAG's references to each node, one per edge (ir/rel.ts edgesOf), counted once: a DAG is immutable. */
+const referenceCounts = new WeakMap<ValidDag, ReadonlyMap<RelNode, number>>()
+
+/** How many times `dag`'s nodes read each node (`referenceCounts`). */
+const referencesIn = (dag: ValidDag): ReadonlyMap<RelNode, number> => {
+	const known = referenceCounts.get(dag)
+	if (known !== undefined) {
+		return known
+	}
+	const out = new Map<RelNode, number>()
+	for (const node of topoOrder(dag)) {
+		for (const input of edgesOf(node)) {
+			out.set(input, (out.get(input) ?? 0) + 1)
+		}
+	}
+	referenceCounts.set(dag, out)
+	return out
+}
+
+/**
+ * Where a union or a fold read at keys is read at them inside its own fences: each node under it a step's input whose
+ * rows the keys restrict, with the equalities that restrict it (LowerContext withRestricted). A union's arm, or a fold's
+ * input at its grouping keys, is reached at the keys, each column by the name it has there, through a projection of
+ * columns, a filter, the left side of an existence test, an intersection or a difference, a step, and a region to every
+ * source that binds the column's variable or one its equalities join, each keeping the rows at those values alone of
+ * what it reads; at a step, the restriction stands on the input inside its fence, where PostgreSQL moves it into every
+ * relation the input reads, an index lookup at the key, and goes on to the steps the input reads in turn. Every node on
+ * the way is read once in the DAG and lowered where it is read (KeyScope `inPlace`), so the restriction keeps the rows
+ * of that one read. A restriction over the union's arm, or over the fold's input, stands at the fence and goes no
+ * further (PostgreSQL moves no qualifier into a subquery with an OFFSET, step/index.ts fencedRead): metis's hold gate
+ * read the read-aloud stamps of the due assignments, a union of three rules each a navigation's chain of steps, its
+ * first step every assignment, which per due key read all 97,379 assignments again.
+ */
+const pushedInto = (
+	node: NodeOf<"Union"> | NodeOf<"Group">,
+	restriction: ColumnEqualities,
+	references: ReadonlyMap<RelNode, number>,
+	inPlace: (node: RelNode) => boolean
+): ReadonlyMap<RelNode, ColumnEqualities> => {
+	const out = new Map<RelNode, ColumnEqualities>()
+	const descend = (at: RelNode, equalities: ColumnEqualities): void => {
+		if (equalities.length === 0 || references.get(at) !== 1 || !inPlace(at)) {
+			return
+		}
+		switch (at.kind) {
+			case "ProjectSet": {
+				const input = at.input
+				descend(
+					input,
+					equalities.flatMap((e) => {
+						const x = at.out.find((o) => o.name === e.column)?.expr
+						return x?.kind === "column" && x.column.node === input.id
+							? [{ column: x.column.name, value: e.value }]
+							: []
+					})
+				)
+				return
+			}
+			case "Filter":
+				descend(at.input, equalities)
+				return
+			case "SemiJoin":
+			case "AntiJoin":
+			case "Intersect":
+			case "Difference":
+				descend(at.left, equalities)
+				return
+			case "Step":
+				if (references.get(at.input) === 1 && inPlace(at.input)) {
+					out.set(at.input, equalities)
+					descend(at.input, equalities)
+				}
+				return
+			case "MatchRegion": {
+				const classOf = regionVarClasses(at)
+				const bySource = new Map<
+					RelNode,
+					Array<{ readonly column: string; readonly value: Expr }>
+				>()
+				for (const e of equalities) {
+					const v = at.vars.find((x) => x.name === e.column)
+					if (v === undefined) {
+						continue
+					}
+					for (const o of at.occurrences) {
+						for (const b of o.bindings) {
+							if (o.source.kind !== "Base" && classOf(b.var) === classOf(v)) {
+								bySource
+									.getOrInsertComputed(o.source, () => [])
+									.push({ column: b.column, value: e.value })
+							}
+						}
+					}
+				}
+				for (const [source, columns] of bySource) {
+					descend(source, columns)
+				}
+				return
+			}
+			case "Union":
+				for (const arm of unionArms(at.groups)) {
+					descend(arm, equalities)
+				}
+				return
+			case "Group":
+				descend(
+					at.input,
+					equalities.filter((e) => at.keys.includes(e.column))
+				)
+				return
+			case "ApproximateNearest":
+			case "Attach":
+			case "Base":
+			case "Call":
+			case "Closed":
+			case "Context":
+			case "Delta":
+			case "Forbid":
+			case "InputSet":
+			case "OrderedResult":
+			case "OrderedSetAggregate":
+			case "Produce":
+			case "Recursive":
+			case "SelfRef":
+			case "Take":
+			case "Window":
+				return
+		}
+	}
+	switch (node.kind) {
+		case "Union":
+			for (const arm of unionArms(node.groups)) {
+				descend(arm, restriction)
+			}
+			break
+		case "Group":
+			descend(
+				node.input,
+				restriction.filter((e) => node.keys.includes(e.column))
+			)
+			break
+	}
+	return out
 }
 
 /**
@@ -268,7 +426,10 @@ export class KeyedLowering {
 			column: n.name,
 			value: col(keyRows.alias, n.column)
 		}))
-		const rows = cx.wrapAs(this.#keyed(node, cx, env, equalities), node.heading, origin, true)
+		const within = cx.withRestricted(
+			pushedInto(node, equalities, referencesIn(cx.dag), scope.inPlace)
+		)
+		const rows = cx.wrapAs(this.#keyed(node, within, env, equalities), node.heading, origin, true)
 		return select(
 			distinctCore(headingTargetsOf(node, rows.map), [keyRows.item, rows.item], undefined)
 		)

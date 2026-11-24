@@ -242,9 +242,8 @@ export const anExistenceTestReadsARightSideOfSeveralSourcesOrAFoldByItsKeysPerLe
 				},
 				{
 					file: "packages/engine/src/lower/optimize/cte-policy/index.ts",
-					original:
-						"\t\t\t\treturn restrictedByValues(node.input) || valueEqualities(node).length > 0\n",
-					replacement: "\t\t\t\treturn restrictedByValues(node.input)\n",
+					original: "\t\t\t\t\tvalueEqualities(node).length > 0 ||\n",
+					replacement: "\t\t\t\t\tfalse ||\n",
 					why: "A filter at the statement's value restricts nothing, as before: the fold at the asked k1, whose filter the checked DAG keeps above the fold's region, counts as unrestricted and is read per left row."
 				}
 			]

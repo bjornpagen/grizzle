@@ -135,8 +135,8 @@ export const aSubQueryTheArgumentsOfACallsEvaluationReadIsComputedOnceInItsState
 			{
 				file: "packages/engine/src/lower/optimize/cte-policy/index.ts",
 				original:
-					"\t\tconst fixed =\n\t\t\to.constants.some((c) => fixedValue(c.expr, outside)) ||\n\t\t\to.bindings.some((b) => reached.has(b.var))\n",
-				replacement: "\t\tconst fixed = true\n",
+					"\t\t\t(o.constants.some((c) => fixedValue(c.expr, outside)) ||\n\t\t\t\to.bindings.some((b) => reached.has(b.var)))\n",
+				replacement: "\t\t\ttrue\n",
 				why: "Every stored relation a region reads counts as restricted by the statement's values: the join over every session is computed once, derived whole, where each argument read it restricted."
 			}
 		]

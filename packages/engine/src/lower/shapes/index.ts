@@ -540,7 +540,25 @@ export class ShapeState<I extends ChoiceInput> implements ShapeLog<I> {
 	}
 
 	get keyScope(): KeyScope {
-		return { ctes: this.#log.ctes, keySets: this.#keySets, lookups: this.#lookups }
+		return {
+			ctes: this.#log.ctes,
+			keySets: this.#keySets,
+			lookups: this.#lookups,
+			inPlace: this.#inPlace
+		}
+	}
+
+	/**
+	 * Whether the statement lowers a node where it is read (dispatchIn): no CTE the policy materializes, or one every read
+	 * of which reads it at values (StatementKeys atValues), inline at each.
+	 */
+	readonly #inPlace = (node: RelNode): boolean => {
+		const decision = this.cte.decisions[node.id]
+		return (
+			decision === undefined ||
+			this.keys.atValues.has(node.id) ||
+			cteMaterialization(decision.strategy) === undefined
+		)
 	}
 
 	/**

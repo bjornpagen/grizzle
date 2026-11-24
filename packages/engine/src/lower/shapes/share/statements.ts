@@ -950,7 +950,8 @@ export class StatementSharing {
 				this.#fixed
 			),
 			keySets: new Map(),
-			lookups: new Lookups((n) => carried(n) || materialize.get(n.id) !== undefined)
+			lookups: new Lookups((n) => carried(n) || materialize.get(n.id) !== undefined),
+			inPlace: (n) => !carried(n) && materialize.get(n.id) === undefined
 		}
 		const inScope: NodeDispatch = (n, ncx, nenv) =>
 			this.#readCarrier(n, ncx, filling) ?? this.#inPlace(n, ncx, nenv, scope)

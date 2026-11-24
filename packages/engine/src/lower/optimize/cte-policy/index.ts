@@ -269,16 +269,26 @@ export const restrictedWithin = (node: RelNode, reader: RelNode): boolean => {
 /**
  * Whether a region's rows are restricted by the values fixed where it is evaluated (restrictedByValues): every
  * occurrence is reached from one whose rows those values restrict, an occurrence of a stored relation a parameter or an
- * outer row's column fixes a column of (`fixedValue`), or a source restricted where the region evaluates it
- * (restrictedWithin), through the variables the reached ones bind, each occurrence it reaches restricted by them, a
- * stored relation's range at the bound columns or a source fixing them restricts at every relation (restrictedByKeys).
- * A correlated region is evaluated once per outer row, which fixes the values its correlation reads as a parameter
- * fixes them for the statement: edullm's decideStage read-back evaluated attempt_marks_of per sitting, and the latest
- * attempt of each session of the sitting's stage, restricted by the sitting, was read per key by each of 162 rows
- * arguments where it is one fold per sitting. A literal fixes no such range: the kind codes a content read compares are
- * no restriction of its rows to the statement's.
+ * outer row's column fixes a column of (`fixedValue`), through the variables the reached ones bind, each occurrence it
+ * reaches restricted by them, a stored relation's range at the bound columns or a source fixing them restricts at every
+ * relation (restrictedByKeys); and a source restricted once the row it reads of an outer node is, each such node outside
+ * the region (restrictedWithin) or a variable or an occurrence of the region already reached, a step a navigation reads
+ * by the variables the steps before it bound (analysis/theory/navigate.ts), restricted for each of their rows as a
+ * parameter restricts it for the statement. `also` are equalities between the region's variables a filter over it
+ * states (`filterEqualities`), which restrict it as its own do. A correlated region is evaluated once per outer row,
+ * which fixes the values its correlation reads as a parameter fixes them for the statement: edullm's decideStage
+ * read-back evaluated attempt_marks_of per sitting, and the latest attempt of each session of the sitting's stage,
+ * restricted by the sitting, was read per key by each of 162 rows arguments where it is one fold per sitting. A literal
+ * fixes no such range: the kind codes a content read compares are no restriction of its rows to the statement's. metis's
+ * hold gate read its due assignments, the call's user's beside the derived view Open, its step reading each assignment
+ * again at the key the first read bound and the view's row equated to it by a filter: restricted by neither, the due
+ * rows seeded no key set, and the union of each assignment's read-aloud stamps beside them was read whole, 97,379
+ * assignments in each of its three arms per call.
  */
-const regionRestrictedByValues = (region: NodeOf<"MatchRegion">): boolean => {
+const regionRestrictedByValues = (
+	region: NodeOf<"MatchRegion">,
+	also: ReadonlyArray<{ readonly a: VarDecl; readonly b: VarDecl }>
+): boolean => {
 	const outside = outsideOf(region)
 	const reached = new Set<VarDecl>(
 		region.correlated.flatMap((c) => (fixedValue(c.expr, outside) ? [c.var] : []))
@@ -291,19 +301,26 @@ const regionRestrictedByValues = (region: NodeOf<"MatchRegion">): boolean => {
 		}
 	}
 	for (const o of region.occurrences) {
-		const fixed =
-			o.constants.some((c) => fixedValue(c.expr, outside)) ||
-			o.bindings.some((b) => reached.has(b.var))
 		if (
-			(o.source.kind === "Base" && fixed) ||
-			(o.source.kind !== "Base" && restrictedWithin(o.source, region))
+			o.source.kind === "Base" &&
+			(o.constants.some((c) => fixedValue(c.expr, outside)) ||
+				o.bindings.some((b) => reached.has(b.var)))
 		) {
 			reach(o)
 		}
 	}
+	/** Whether `o` reads an outer row's column `c` the region already fixes: outside it, or reached within it. */
+	const fixedFor = (
+		o: Occurrence,
+		c: { readonly node: NodeId; readonly column: string }
+	): boolean =>
+		outside.has(c.node) ||
+		(c.node === region.id && region.vars.some((v) => v.name === c.column && reached.has(v))) ||
+		region.occurrences.some((q) => q !== o && !pending.has(q) && q.source.id === c.node)
+	const equalities = [...region.equalities, ...also]
 	for (let grew = true; grew;) {
 		grew = false
-		for (const e of region.equalities) {
+		for (const e of equalities) {
 			if (reached.has(e.a) === reached.has(e.b)) {
 				continue
 			}
@@ -313,7 +330,12 @@ const regionRestrictedByValues = (region: NodeOf<"MatchRegion">): boolean => {
 		}
 		for (const o of pending) {
 			const joined = o.bindings.flatMap((b) => (reached.has(b.var) ? [b.column] : []))
-			if (isNonEmpty(joined) && (o.source.kind === "Base" || restrictedByKeys(o.source, joined))) {
+			if (
+				(isNonEmpty(joined) && (o.source.kind === "Base" || restrictedByKeys(o.source, joined))) ||
+				(o.source.kind !== "Base" &&
+					restrictedByValues(o.source) &&
+					outerOf(o.source).every((c) => fixedFor(o, c)))
+			) {
 				reach(o)
 				grew = true
 			}
@@ -321,6 +343,24 @@ const regionRestrictedByValues = (region: NodeOf<"MatchRegion">): boolean => {
 	}
 	return pending.size === 0
 }
+
+/**
+ * The equalities a filter over a region states between two of its columns, each a variable of the region: the region
+ * at them (regionRestrictedByValues `also`), as a navigation's step equates the row of a view it reads to the values
+ * its reader passes in.
+ */
+const filterEqualities = (
+	filter: NodeOf<"Filter">,
+	region: NodeOf<"MatchRegion">
+): ReadonlyArray<{ readonly a: VarDecl; readonly b: VarDecl }> =>
+	conjuncts(filter.pred).flatMap((e) => {
+		const [x, y, ...more] = e.kind === "op" && nativeOp(e.op)?.fn === "eq" ? e.args : []
+		const a = x?.kind === "column" && x.column.node === region.id ? x.column.name : undefined
+		const b = y?.kind === "column" && y.column.node === region.id ? y.column.name : undefined
+		const va = region.vars.find((v) => v.name === a)
+		const vb = region.vars.find((v) => v.name === b)
+		return va !== undefined && vb !== undefined && more.length === 0 ? [{ a: va, b: vb }] : []
+	})
 
 /**
  * Whether the rows of `node` are restricted by the statement's own values, so the statement derives only what they
@@ -349,7 +389,7 @@ export const restrictedByValues = (node: RelNode): boolean => {
 			case "SelfRef":
 				return false
 			case "MatchRegion":
-				return regionRestrictedByValues(node)
+				return regionRestrictedByValues(node, [])
 			case "Union":
 				return unionArms(node.groups).every(restrictedByValues)
 			case "Intersect":
@@ -365,7 +405,12 @@ export const restrictedByValues = (node: RelNode): boolean => {
 			case "Difference":
 				return restrictedByValues(node.left)
 			case "Filter":
-				return restrictedByValues(node.input) || valueEqualities(node).length > 0
+				return (
+					restrictedByValues(node.input) ||
+					valueEqualities(node).length > 0 ||
+					(node.input.kind === "MatchRegion" &&
+						regionRestrictedByValues(node.input, filterEqualities(node, node.input)))
+				)
 			case "ProjectSet":
 			case "Take":
 			case "Group":
