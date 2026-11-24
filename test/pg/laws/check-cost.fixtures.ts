@@ -3,7 +3,15 @@
 import { assert, defined } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Formatter, Option, Result, String as Str } from "effect"
+import {
+	Array as Arr,
+	Effect,
+	Formatter,
+	Option,
+	Record as Rec,
+	Result,
+	String as Str
+} from "effect"
 import {
 	findNodes,
 	type PlanNode,
@@ -11,11 +19,13 @@ import {
 	planNodes,
 	rowsTouched
 } from "#bench/harness/explain.ts"
-import type { LawId } from "#compiler/core/ids.ts"
+import type { LawId, RelationIdent } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { violationCheck } from "#compiler/deploy/render/sql.ts"
 import { lawChecks } from "#compiler/deploy/snapshot/violation.ts"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
+import { lawsOfConstraint } from "#compiler/ir/products.ts"
+import { fillStatement } from "#compiler/physical/derived/objects.ts"
+import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
@@ -33,11 +43,13 @@ import {
 import {
 	type FromSource,
 	isSetQuery,
+	nameKey,
 	type OperandSelect,
+	type Select,
 	type SelectCore
 } from "#compiler/sql/ast.ts"
 import { type Lexeme, lexemesOf } from "#compiler/sql/lexer.ts"
-import { sqlText, writeDoBlock } from "#compiler/sql/print.ts"
+import { printObjectName, printStatement, sqlText, writeDoBlock } from "#compiler/sql/print.ts"
 import { identityHooks, transformQuery } from "#compiler/sql/transform.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -176,13 +188,18 @@ const TypedName = derived(
 /**
  * And no two declared elements of one document and kind share a weight: a key over a join of two stored relations
  * whose terms read both, as QTI's __choice_node_key_package_path_kind_identifier, whose check derived choice ⋈ node
- * twice when it was a self-join of the side.
+ * twice when it was a self-join of the side. Declared delivers Doc's unit at its places, (pkg, path, at), wider than
+ * Doc's key, so the installation stores it (`storedDerived`) and its key is its table's unique index, which its fill and
+ * its upkeep's INSERT fire, its cost the fill's. And no declared name of a document has two cardinalities, however many
+ * places declare it: a key over CardName, which delivers (pkg, path) alone, Doc's whole key, so it is read live and its
+ * key is a rule the judge holds, as QTI's One base, a key over KnownOperandBase, each operator's operand bases with the
+ * operand's place projected away, whose check is the side read once, grouped by the key, its facts counted.
  */
 const Mid = schema.extend(
 	[Base],
 	"CheckCost_1",
 	[Declared, CardName, TypedName],
-	[key(on(Declared, "pkg", "path", "kind", "w"))]
+	[key(on(Declared, "pkg", "path", "kind", "w")), key(on(CardName, "pkg", "path", "ident"))]
 )
 
 /** Each binding beside its variable's cardinality and base type, by its place: as QTI's BindingBaseTypeNode. */
@@ -216,7 +233,7 @@ const Checked = schema.extend(
 
 /**
  * The relations each derived relation of the box matches, an entry at each occurrence its rule reads one: what a law over
- * it reads as the schema declares it (`storedReadsOf`).
+ * it reads as the schema declares it (`storedReadsOf`), and what its fill reads where it is stored (`fillReadsOf`).
  */
 const declaredReads: ReadonlyMap<string, ReadonlyArray<string>> = new Map([
 	[Declared.name, [Node.name, Decl.name]],
@@ -225,11 +242,28 @@ const declaredReads: ReadonlyMap<string, ReadonlyArray<string>> = new Map([
 	[Fit.name, [Bind.name, CardName.name, TypedName.name]]
 ])
 
+/**
+ * The derived relations of the box the installation stores (analysis/derived/storage.ts), in name order: Declared alone,
+ * whose head delivers Doc's unit at (pkg, path, at), wider than Doc's key, so its upkeep re-derives the places a write
+ * touched. CardName, TypedName and Fit deliver (pkg, path) alone, Doc's whole key, so each upkeep would re-derive a
+ * whole document at every write of it, and each is read live, by its definition.
+ */
+const storedDerived: ReadonlyArray<string> = [Declared.name]
+
 /** The stored relations `relation` reads as the box declares it, one at each occurrence: itself where it is stored. */
 const storedReadsOf = (relation: string): ReadonlyArray<string> => {
 	const read = declaredReads.get(relation)
-	return read === undefined ? [relation] : Arr.flatMap(read, storedReadsOf)
+	return read === undefined || storedDerived.includes(relation)
+		? [relation]
+		: Arr.flatMap(read, storedReadsOf)
 }
+
+/** The stored relations the fill of the stored relation `relation` reads, one at each occurrence: its definition's. */
+const fillReadsOf = (relation: string): ReadonlyArray<string> =>
+	Arr.flatMap(
+		defined(declaredReads.get(relation), `${relation}, a derived relation of the box`),
+		storedReadsOf
+	)
 
 /** The schema installed through its first migration, its tables empty. */
 export const checkCostTemplate = migratedTemplate({
@@ -394,31 +428,137 @@ const smallTableRescans = (plan: PlanNode, probeCost: number): number =>
 			: sum
 	)
 
+/** The plan PostgreSQL runs `statement` by, explained with ANALYZE, which runs it: an explained write writes. */
+const explainedPlan = (connection: PgConnection, statement: string) =>
+	Effect.map(
+		connection.queryValues(
+			`EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, SETTINGS, FORMAT JSON) ${statement}`,
+			[]
+		),
+		(explained) => succeeded(parsePlan(explained[0]?.[0]), "one EXPLAIN plan").plan
+	)
+
+/** What a plan is held to (`holdsTheBound`): the rows of the tables, and what an index probe of one row costs at least. */
+interface Bound {
+	readonly rows: number
+	readonly probeCost: number
+}
+
+/**
+ * Holds one plan PostgreSQL ran, `what`'s, to the bound (runCheck): it reads each table by at most one plan node per
+ * occurrence `reads` holds of it, the node that writes a fill's table, its INSERT's ModifyTable, reading none of it, and
+ * touches at most its nodes times the rows of the tables and the rows its rescans of tables no larger than an index probe
+ * touch (`smallTableRescans`).
+ */
+const holdsTheBound = (
+	plan: PlanNode,
+	reads: ReadonlyArray<string>,
+	bound: Bound,
+	what: string
+): void => {
+	const nodes = Arr.fromIterable(planNodes(plan)).length
+	const touched = rowsTouched(plan)
+	const rescans = smallTableRescans(plan, bound.probeCost)
+	assert.ok(
+		touched <= nodes * bound.rows + rescans,
+		`${what} touches ${touched} rows, past its ${nodes} nodes times the ${bound.rows} rows it reads and the ${rescans} its rescans of tables no larger than an index probe read, ${Formatter.format(Arr.map(Arr.fromIterable(planNodes(plan)), (n) => n.nodeType))}`
+	)
+	const scans = Arr.flatMap(
+		findNodes(
+			plan,
+			(n) =>
+				Option.isSome(n.relation) &&
+				n.nodeType !== "Bitmap Index Scan" &&
+				n.nodeType !== "ModifyTable"
+		),
+		(n) => Option.toArray(n.relation)
+	)
+	for (const table of Arr.dedupe(scans)) {
+		const read = Arr.filter(scans, (t) => t === table).length
+		const at = Arr.filter(reads, (t) => t === table).length
+		assert.ok(
+			read <= at,
+			`${what} reads ${table} by ${read} plan nodes, past the ${at} occurrences it reads it at`
+		)
+	}
+}
+
+/**
+ * A stored relation's fill, as the migration that creates its table runs it, into the table empty, once every row its
+ * definition reads is written (physical/derived/objects.ts fillStatement, deploy/diff/diff.ts view): the relation, its
+ * table, the INSERT's query and text, and the laws its table's natives hold, every law the installation's constraint map
+ * reads under one of the table's constraints (ir/products.ts ConstraintLaws), which its INSERT fires.
+ */
+interface StoredFill {
+	readonly relation: string
+	readonly table: { readonly schema: string; readonly name: RelationIdent }
+	readonly query: Select
+	readonly text: string
+	readonly natives: ReadonlyArray<LawId>
+}
+
+/** The fill of each derived relation `installation` stores (StoredFill), in name order. */
+const storedFills = (installation: Installation): ReadonlyArray<StoredFill> => {
+	const creates = Arr.flatMap(installation.statements, (s) =>
+		s.kind === "createStoredTable" ? [s] : []
+	)
+	const stored = Arr.sort(
+		Arr.flatMap(Arr.fromIterable(installation.checked.holdings), ([relation, holding]) =>
+			holding.kind === "stored" ? [relation] : []
+		),
+		Str.Order
+	)
+	return Arr.map(stored, (relation) => {
+		const table = installation.names.relation(relation)
+		const fill = fillStatement(
+			defined(
+				Arr.findFirst(creates, (create) => nameKey(create.name) === nameKey(table)).pipe(
+					Option.getOrUndefined
+				),
+				`the stored table of ${relation}`
+			)
+		)
+		return {
+			relation,
+			table,
+			query: fill.query,
+			text: printStatement(fill),
+			natives: Arr.dedupe(
+				Arr.flatten(Rec.values(installation.constraintToLaw.tables[table.name] ?? {}))
+			)
+		}
+	})
+}
+
 /**
  * One case in its one transaction, which the case's end rolls back: the elements of `c` loaded with the triggers off,
- * a declaration at each of a declaring kind or of tag 5, weighed by its place, the tables analyzed; then the rule's
- * check, as the migration that adds the rule runs it (deploy/render/sql.ts violationCheck), each statement it plans
- * explained with ANALYZE, and the block run. The rules' checks are each planned and run so. Every plan reads each table
- * by one node per occurrence its law reads it at as the box declares it, so it derives no relation twice, and handles
- * each row it reads a bounded number of times: its rows
- * touched (bench/harness/explain.ts rowsTouched, every row each node handled over all its loops, a join's examined
- * pairs among them) at most its nodes times the rows of the tables and the rows its sequential rescans of tables no
- * larger than an index probe touch (`smallTableRescans`), since a filter, a projection, a deduplication,
- * a hash, a sort and a merge pass each row of their input once, and an anti join over sets passes each outer row once
- * and meets each inner row once in its hash or merge. A plan that reads a set again for each row of another, a nested
- * loop over a materialized set, handles the product of the two, past the bound once the outer holds more rows than the
- * plan has nodes. The block raises nothing; then, with one element of a declaring kind and of tag, group and band 5 and
- * no declaration added, and two declared elements of one document and kind of one weight, each raises SQLSTATE 23000
- * under its law's identity.
+ * a declaration at each of a declaring kind or of tag 5, weighed by its place, the tables analyzed; then, as the
+ * migration that creates them runs them, each stored relation's fill (`storedFills`), explained with ANALYZE, which runs
+ * it, and each rule's check, as the migration that adds the rule runs it (deploy/render/sql.ts violationCheck), each
+ * statement it plans explained with ANALYZE, and the block run. A law the installation holds by a native of a stored
+ * relation's table, Declared's key, has no check of its own: its migration's cost is the fill's, which the table's
+ * unique index refuses at the first row that breaks the key. Every plan, a fill's and a check's, reads each table by one
+ * node per occurrence its law or definition reads it at as the box declares it, so it derives no relation twice, and
+ * handles each row it reads a bounded number of times: its rows touched (bench/harness/explain.ts rowsTouched, every row
+ * each node handled over all its loops, a join's examined pairs among them) at most its nodes times the rows of the
+ * tables and the rows its sequential rescans of tables no larger than an index probe touch (`smallTableRescans`), since
+ * a filter, a projection, a deduplication, a hash, a sort and a merge pass each row of their input once, and an anti join
+ * over sets passes each outer row once and meets each inner row once in its hash or merge. A plan that reads a set again
+ * for each row of another, a nested loop over a materialized set, handles the product of the two, past the bound once the
+ * outer holds more rows than the plan has nodes. The fill and the blocks raise nothing; then, the stored tables emptied
+ * as their migration found them, with one element of a declaring kind and of tag, group and band 5 and no declaration
+ * added, two declared elements of one document and kind of one weight, a name its document declares at two places of
+ * two cardinalities, and a binding of attribute 1 to a variable of base type 2, each block raises SQLSTATE 23000 under
+ * its law's identity and Declared's fill raises 23505 under its key's, the constraint the installation maps to it.
  */
 export const runCheck = (
-	installed: Installed,
+	migrated: Installed,
 	connection: PgConnection,
 	c: CheckCase,
 	k: Case<CheckFeature>
 ) =>
 	Effect.gen(function* () {
-		const names = namesOf(installed)
+		const names = namesOf(migrated)
 		const nodeTable = names.table(Node)
 		const declTable = names.table(Decl)
 		const declared = declarationsOf(c)
@@ -448,20 +588,28 @@ export const runCheck = (
 			)}`,
 			[]
 		)
-		const rows = Number(defined(counted[0]?.[0], "the tables' count"))
 		const costs = yield* connection.queryValues(
 			"SELECT pg_catalog.current_setting('random_page_cost')::pg_catalog.float8",
 			[]
 		)
-		const probeCost = 2 * Number(defined(costs[0]?.[0], "random_page_cost"))
-		const installation = installed.installation
+		const bound: Bound = {
+			rows: Number(defined(counted[0]?.[0], "the tables' count")),
+			probeCost: 2 * Number(defined(costs[0]?.[0], "random_page_cost"))
+		}
+		const installation = migrated.installation
+		const fills = storedFills(installation)
+		assert.deepEqual<ReadonlyArray<string>>(
+			Arr.map(fills, (f) => f.relation),
+			storedDerived,
+			"the box's stored relations, as the installation infers them"
+		)
 		const checks = lawChecks(installation)
 		assert.equal(checks.rules.length, 4, "the schema's four rules")
 		/**
 		 * The occurrences of each table a rule reads as the box declares it, each rule of the box a unit-local one: each of
-		 * its sides' relations, a derived one by the relations its rule matches (`storedReadsOf`), never the reads of the
-		 * compiled check (WholeRule reads, walked from the violation query the check is), which count a side read twice
-		 * twice.
+		 * its sides' relations, a derived one by the relations its rule matches where it is live (`storedReadsOf`), never
+		 * the reads of the compiled check (WholeRule reads, walked from the violation query the check is), which count a
+		 * side read twice twice.
 		 */
 		const occurrences = (law: LawId): ReadonlyArray<string> => {
 			const rule = defined(
@@ -475,6 +623,28 @@ export const runCheck = (
 			return Arr.map(
 				Arr.flatMap(sides, (side) => storedReadsOf(side.relation)),
 				(relation) => installation.names.relation(relation).name
+			)
+		}
+		for (const fill of fills) {
+			assert.equal(
+				fill.natives.length,
+				1,
+				`${fill.relation}'s key, the one law its table's natives hold`
+			)
+			assert.equal(
+				needlessDeduplications(fill.query).length,
+				0,
+				`${fill.relation}: the fill deduplicates no set it reads whole`
+			)
+			const plan = yield* explainedPlan(connection, fill.text)
+			holdsTheBound(
+				plan,
+				Arr.map(
+					fillReadsOf(fill.relation),
+					(relation) => installation.names.relation(relation).name
+				),
+				bound,
+				`${Formatter.format(c)}: ${fill.relation}'s fill`
 			)
 		}
 		for (const rule of checks.rules) {
@@ -494,44 +664,42 @@ export const runCheck = (
 			const planned = plannedStatements(text)
 			assert.equal(planned.length, 1, "a check plans one statement over the tables")
 			for (const statement of planned) {
-				const explained = yield* connection.queryValues(
-					`EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, SETTINGS, FORMAT JSON) ${statement}`,
-					[]
-				)
-				const plan = succeeded(parsePlan(explained[0]?.[0]), "one EXPLAIN plan").plan
-				const nodes = Arr.fromIterable(planNodes(plan)).length
-				const touched = rowsTouched(plan)
-				const rescans = smallTableRescans(plan, probeCost)
-				assert.ok(
-					touched <= nodes * rows + rescans,
-					`${Formatter.format(c)}: the check touches ${touched} rows, past its ${nodes} nodes times the ${rows} rows it reads and the ${rescans} its rescans of tables no larger than an index probe read, ${Formatter.format(Arr.map(Arr.fromIterable(planNodes(plan)), (n) => n.nodeType))}`
-				)
-				const scans = Arr.flatMap(
-					findNodes(plan, (n) => Option.isSome(n.relation) && n.nodeType !== "Bitmap Index Scan"),
-					(n) => Option.toArray(n.relation)
-				)
-				const reads = occurrences(law)
-				for (const table of Arr.dedupe(scans)) {
-					const read = Arr.filter(scans, (t) => t === table).length
-					const at = Arr.filter(reads, (t) => t === table).length
-					assert.ok(
-						read <= at,
-						`${Formatter.format(c)}: ${law} reads ${table} by ${read} plan nodes, past the ${at} its law reads it at`
-					)
-				}
+				const plan = yield* explainedPlan(connection, statement)
+				holdsTheBound(plan, occurrences(law), bound, `${Formatter.format(c)}: ${law}'s check`)
 			}
 			yield* connection.query(text, [])
 		}
 		k.note("a law that holds")
 		for (const sql of [
+			...Arr.map(fills, (f) => `TRUNCATE ${printObjectName(f.table)}`),
 			`INSERT INTO ${nodeTable} VALUES (1000000, 0, 0, 1, 5, 5, 5), (1000000, 0, 1, 1, 0, 0, 0), (1000000, 0, 2, 1, 0, 0, 0)`,
 			`INSERT INTO ${declTable} VALUES (1000000, 0, 1, 7), (1000000, 0, 2, 7)`,
-			`INSERT INTO ${tables.dcl} VALUES (1000000, 0, 0, 0)`,
-			`INSERT INTO ${tables.card} VALUES (1000000, 0, 0, 1)`,
+			`INSERT INTO ${tables.dcl} VALUES (1000000, 0, 0, 0), (1000000, 0, 1, 0)`,
+			`INSERT INTO ${tables.card} VALUES (1000000, 0, 0, 1), (1000000, 0, 1, 2)`,
 			`INSERT INTO ${tables.typed} VALUES (1000000, 0, 0, 2)`,
 			`INSERT INTO ${tables.bind} VALUES (1000000, 0, 10, 1, 0)`
 		]) {
 			yield* connection.query(sql, [])
+		}
+		for (const fill of fills) {
+			const refused = yield* Effect.flip(connection.query(fill.text, []))
+			const fields = pgErrorFields(refused)
+			assert.equal(
+				fields?.code,
+				"23505",
+				`${Formatter.format(c)}: ${fill.relation}'s fill refuses the two declared elements at one key`
+			)
+			assert.deepEqual<ReadonlyArray<LawId> | undefined>(
+				fields?.constraint === undefined
+					? undefined
+					: lawsOfConstraint(
+							installation.constraintToLaw,
+							{ kind: "table", name: fill.table.name },
+							fields.constraint
+						),
+				fill.natives,
+				`${Formatter.format(c)}: under its key's identity`
+			)
 		}
 		for (const { law, text } of blocks) {
 			const refused = yield* Effect.flip(connection.query(text, []))
