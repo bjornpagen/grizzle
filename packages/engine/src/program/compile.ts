@@ -181,7 +181,7 @@ export const compileQuery = (
 		read: options.read,
 		label: "query",
 		clock: options.clock,
-		session: new CheckSession()
+		session: CheckSession.own()
 	})
 	if (!checkedQuery.ok) {
 		return checkedQuery

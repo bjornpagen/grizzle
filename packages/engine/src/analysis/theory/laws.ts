@@ -124,7 +124,6 @@ import { type LowerEnv, lowerPredicate, lowerTerm } from "#compiler/scalar/compu
 import { noParams } from "#compiler/scalar/compute/typing.ts"
 import { guardedTerm } from "#compiler/scalar/natural.ts"
 import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
-import type { TextLookup } from "#compiler/scalar/registry.ts"
 import type {
 	OwnedContract,
 	OwnedKey,
@@ -585,7 +584,6 @@ export interface SidesEnv {
 	readonly lowerEnv: {
 		readonly fieldType: LowerEnv["fieldType"]
 		readonly patterns: PatternAutomata
-		readonly patternLanguage: TextLookup
 		readonly closed: LowerEnv["closed"]
 	}
 }
@@ -1845,7 +1843,7 @@ export class Normalizer {
 			fold.step.kind === "value"
 				? fold.step.field.type
 				: headNonEmpty(foldPlanes(fold.accumulators)).end.type
-		const unproved = combineRule(monoid, plane)
+		const unproved = combineRule(monoid, plane, this.env.lowerEnv.patterns)
 		if (unproved !== undefined) {
 			refuse("MalformedDescription", loc, unproved)
 		}

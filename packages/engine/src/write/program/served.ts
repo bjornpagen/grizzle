@@ -33,7 +33,7 @@ import {
 } from "#compiler/runtime/write/flight.ts"
 import type { PreparedStaged, Staged } from "#compiler/runtime/write/staged.ts"
 import type { OwnStep, UniqueAbort } from "#compiler/runtime/write/steps.ts"
-import { CompilePatterns, type PatternReads } from "#compiler/scalar/regex/patterns.ts"
+import type { PatternReads } from "#compiler/scalar/regex/patterns.ts"
 import type { ServedReadBack } from "#compiler/served/read.ts"
 import { servedReadBacks } from "#compiler/served/spine.ts"
 import type { EmittedText, SqlStatement } from "#compiler/sql/ast.ts"
@@ -289,7 +289,7 @@ export const flightOf = (compiled: ServableWrite, codes: Codebook): FlightWrite 
 		projectWrite(compiled),
 		codes,
 		closedTableOf(compiled.frontend.schema),
-		new CompilePatterns()
+		compiled.frontend.schema.patterns
 	)
 
 /**

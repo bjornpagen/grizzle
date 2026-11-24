@@ -327,7 +327,7 @@ const analyzedQuery = (
 	clock: ClockBinding
 ): Result.Result<AnalyzedQuery, CompileError> =>
 	Result.flatMap(
-		checkQuery(read, query, { read: reading, label, clock, session: new CheckSession() }),
+		checkQuery(read, query, { read: reading, label, clock, session: CheckSession.own() }),
 		(checked) =>
 			Result.flatMap(allenNormalDag(checked.dag), (allen) =>
 				Result.flatMap(keyJoinNormalDag(allen), (dag) => {

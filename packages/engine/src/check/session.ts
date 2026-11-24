@@ -13,7 +13,8 @@ import {
 } from "#compiler/ir/desc.ts"
 import type { Heading, RelNode } from "#compiler/ir/rel.ts"
 import { checkerEvidence, SharedAnalyses } from "#compiler/logical/annotate.ts"
-import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
+import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
+import { AnalyzedPatterns } from "#compiler/text/refinement.ts"
 
 /**
  * How a query is entered, the one thing of its reader's context its rules read (check/description.ts): as a query of
@@ -100,15 +101,30 @@ class ResolvedImports implements ImportedWalks<Resolved["param"], ParamTyping> {
  *   (query/build/state.ts publicDesc), so the compile's descriptions are one DAG of queries, and a query's structure
  *   under one reading and one entry is the query's alone, so one validation of it serves every reader of it in every
  *   query the compile checks, where each path to it was walked again.
- * - The admitted patterns the checks read (scalar/regex/patterns.ts CompilePatterns), each parsed, and minimized where
- *   a proof compares it, once for the compile: a pattern is its source and flags alone, so every check of the compile
- *   that types a text of it, admits a literal of it or proves a cast into it reads one parse and one minimal DFA.
+ * - The admitted patterns the checks read, with the text analysis of each conjunction they type (text/refinement.ts
+ *   AnalyzedPatterns), each parsed, minimized and analyzed once for the compile: a pattern is its source and flags
+ *   alone, and a conjunction's language its patterns' alone, so every check of the compile that types a text of it,
+ *   admits a literal of it or proves a cast into it reads one parse, one minimal DFA and one analysis. A check inside a
+ *   checked schema's own compile, a derived definition's, a rule's or a column's, reads the schema's table
+ *   (SchemaReading `patterns`); a query's, a write's or a workload's compile holds a table of its own (`own`), so no
+ *   compile's patterns outlive it in a schema a server keeps.
  */
 export class CheckSession {
 	/** Each imported query, resolved once for its identity. */
 	readonly resolved = new ResolvedImports()
-	/** The admitted patterns the checks read, each parsed and minimized once. */
-	readonly patterns = new CompilePatterns()
+	/** The admitted patterns the checks read, each parsed, minimized and analyzed once. */
+	readonly patterns: PatternAutomata
+
+	/** The session of checks that read `patterns`, the table of the compile they serve. */
+	constructor(patterns: PatternAutomata) {
+		this.patterns = patterns
+	}
+
+	/** The session of a compile of its own, a query's, a write's or a workload's, over a table of its own. */
+	static own(): CheckSession {
+		return new CheckSession(new AnalyzedPatterns())
+	}
+
 	/** Each query whose structure was validated, by the reading of the check that validated it and by its entry. */
 	readonly validated: Readonly<
 		Record<QueryRead, Readonly<Record<QueryEntry, WeakSet<InferredQuery>>>>

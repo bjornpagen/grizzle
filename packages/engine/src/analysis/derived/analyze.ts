@@ -218,7 +218,7 @@ export const shapedDefinition = (
 	},
 	CompileError
 > => {
-	const checkedResult = checkDefinition(schema, label, query, new CheckSession())
+	const checkedResult = checkDefinition(schema, label, query, new CheckSession(schema.patterns))
 	if (!checkedResult.ok) {
 		return checkedResult
 	}

@@ -50,7 +50,6 @@ import { additionSplitter, type NestingLevels } from "#compiler/runtime/write/ad
 import { type DecodedInput, recordDecoded } from "#compiler/runtime/write/decoded.ts"
 import { levelNormalizer, nestedReader } from "#compiler/runtime/write/nesting.ts"
 import { type JudgedField, type Judge, judgeOf } from "#compiler/runtime/write/witness.ts"
-import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import type { HeadingPlan, ReadFact } from "#compiler/scalar/values/identity.ts"
 import type { InsertableNameOf, InsertAllRowsOf } from "#compiler/types/changeset/changeset.ts"
 import type { FactsDecoder, FactsRefused, RowPlace } from "#compiler/types/changeset/decode.ts"
@@ -180,7 +179,7 @@ export const factsDecoderOver = <S extends AnySchema>(
 	Result.map(
 		Result.flatMap(parseBuiltSchema(schema, captureLoc("factsDecoder", [])), compiledSchema),
 		(state) => {
-			const judge = judgeOf(closedTableOf(state.model.checked), new CompilePatterns())
+			const judge = judgeOf(closedTableOf(state.model.checked), state.model.checked.patterns)
 			const inserts = familyInsertsOf(schema, state)
 			/** The decoder of `relation`'s rows (RowsDecoder), from its member's input in its families' insert, or the
 			 * CompileError that insert refuses by. */

@@ -4,18 +4,18 @@ import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { defined } from "@bjornpagen/testing/assert"
 import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record as Rec } from "effect"
-import { pg } from "#compiler/public/fields.ts"
+import { closedId, pg } from "#compiler/public/fields.ts"
+import { closed } from "#compiler/public/schema.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import {
 	admittedClosedId,
-	closedBuilder as closed,
 	closedRelation,
 	generatedField,
 	generatedRelation
 } from "#compiler/schema/relation.ts"
 import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
 import { selectBuilder } from "#compiler/schema/statements.ts"
-import { regexField } from "#compiler/text/field.ts"
+import { regexField, str } from "#compiler/text/field.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { Id } from "#test/support/ids.ts"
 
@@ -94,10 +94,37 @@ const descriptorOf = (p: Pattern): FieldBase =>
 	p.flags === "u" ? regexField(p.source, ["u"]) : regexField(p.source, ["su"])
 
 /**
- * The case's schema with each relation copied `copies` times and `rows` closed rows: relation r's copy k, R{r}c{k},
- * holds an id, its text fields t{i}, and m, generated as whether its first text matches its pattern's match.
+ * The closed relations a schema of the case holds, built afresh for each schema, so no description holds an admission
+ * before its compile: the roster Kind; Rules, each handle's str.pattern a chosen pattern's match, in turn, which each
+ * relation's p reads (C.at); and Labels, `rows` rows of the first pattern's member.
  */
-const relationsOf = (c: ParseCase, copies: number) =>
+const closedOf = (c: ParseCase, rows: number) => {
+	const kinds = ["A", "B", "C", "D"] as const
+	const Kind = closed.ordered("Kind", kinds)
+	const Rules = closed.relation(
+		"Rules",
+		{ kind: closedId(Kind), pattern: str.pattern },
+		["kind"],
+		Arr.map(kinds, (kind, i) => ({ kind, pattern: patternAt(c, i % c.chosen.length).match }))
+	)
+	const Labels = closedRelation(
+		"Labels",
+		{ kind: admittedClosedId(Kind), label: descriptorOf(patternAt(c, 0)) },
+		["kind"],
+		Arr.map(Arr.take(handles, rows), (kind) => ({ kind, label: patternAt(c, 0).member })),
+		[]
+	)
+	return { Kind, Rules, Labels }
+}
+
+/**
+ * The case's relations, each copied `copies` times, over the closed relations `closedRelations`: relation r's copy k,
+ * R{r}c{k}, holds an id, its text fields t{i}, and three generated fields: m, whether its first text matches its
+ * pattern's match; w, the same match as a Logic.when guard, whose branch types its first text as of its pattern and the
+ * match together (the text analysis of that conjunction, scalar/compute/typing.ts whenScope); and p, whether its first
+ * text matches the pattern Rules holds at A, which reads every pattern Rules holds, whatever its key (check/closed.ts).
+ */
+const relationsOf = (c: ParseCase, copies: number, closedRelations: ReturnType<typeof closedOf>) =>
 	Arr.flatMap(c.relations, (fields, r) =>
 		Arr.map(indices(copies), (k) => {
 			const name = `R${r}c${k}`
@@ -108,6 +135,8 @@ const relationsOf = (c: ParseCase, copies: number) =>
 				)
 			}
 			const match = patternAt(c, fields[0]).match
+			const yes = computeCore.literal(pg.boolean, true)
+			const no = computeCore.literal(pg.boolean, false)
 			const R = generatedRelation(
 				name,
 				written,
@@ -115,10 +144,24 @@ const relationsOf = (c: ParseCase, copies: number) =>
 				(row: Readonly<Record<string, unknown>>) => ({
 					m: generatedField(
 						pg.boolean,
-						computeCore.cond(
+						computeCore.cond(computeCore.matches(row["t0"], computeCore.pattern(match)), yes, no),
+						[]
+					),
+					w: generatedField(
+						pg.boolean,
+						computeCore.when(
 							computeCore.matches(row["t0"], computeCore.pattern(match)),
-							computeCore.literal(pg.boolean, true),
-							computeCore.literal(pg.boolean, false)
+							() => yes,
+							no
+						),
+						[]
+					),
+					p: generatedField(
+						pg.boolean,
+						computeCore.cond(
+							computeCore.matches(row["t0"], closedRelations.Rules.at("pattern", "A")),
+							yes,
+							no
 						),
 						[]
 					)
@@ -129,21 +172,47 @@ const relationsOf = (c: ParseCase, copies: number) =>
 		})
 	)
 
-/** The schema of the case's relations, `relations`, and its closed rows, `rows` of them. */
-const schemaOver = (c: ParseCase, relations: ReturnType<typeof relationsOf>, rows: number) => {
-	const Kind = closed("Kind", ["A", "B", "C", "D"], "ordered", [])
-	const Labels = closedRelation(
-		"Labels",
-		{ kind: admittedClosedId(Kind), label: descriptorOf(patternAt(c, 0)) },
-		["kind"],
-		Arr.map(Arr.take(handles, rows), (kind) => ({ kind, label: patternAt(c, 0).member })),
+/** The schema of the case's relations, `relations`, over its closed relations, `closedRelations`. */
+const schemaOver = (
+	relations: ReturnType<typeof relationsOf>,
+	closedRelations: ReturnType<typeof closedOf>
+) =>
+	schema(
+		"Parsed",
+		[
+			closedRelations.Kind,
+			closedRelations.Rules,
+			closedRelations.Labels,
+			...Rec.values(Rec.fromEntries(relations))
+		],
+		[],
 		[]
 	)
-	return schema("Parsed", [Kind, Labels, ...Rec.values(Rec.fromEntries(relations))], [], [])
+
+/** The case's schema with each relation copied `copies` times and `rows` rows of Labels. */
+export const schemaOf = (c: ParseCase, copies: number, rows: number) => {
+	const closedRelations = closedOf(c, rows)
+	return schemaOver(relationsOf(c, copies, closedRelations), closedRelations)
 }
 
-export const schemaOf = (c: ParseCase, copies: number, rows: number) =>
-	schemaOver(c, relationsOf(c, copies), rows)
+/**
+ * The distinct patterns the case's schema holds, each once by its flags and source, whatever reads them: its text
+ * fields' and its matches', every chosen pattern's match among Rules's rows.
+ */
+export const distinctPatterns = (c: ParseCase): number =>
+	new Set(
+		Arr.flatMap(c.chosen, (_, i) => [
+			`${patternAt(c, i).flags}/${patternAt(c, i).source}`,
+			`u/${patternAt(c, i).match}`
+		])
+	).size
+
+/**
+ * The distinct conjunctions the case's schema's guards type, each a relation's first text's pattern with its match:
+ * one for each distinct pattern a first text declares.
+ */
+export const distinctConjunctions = (c: ParseCase): number =>
+	new Set(Arr.map(c.relations, (fields) => fields[0])).size
 
 /**
  * The case's schema as rowEvaluator reads it: each relation once, R{r}c0, as schemaOf makes it, with `selections`
@@ -151,7 +220,8 @@ export const schemaOf = (c: ParseCase, copies: number, rows: number) =>
  * match, and a row of it holding each text field's member.
  */
 export const evaluatorCaseOf = (c: ParseCase, selections: number) => {
-	const once = relationsOf(c, 1)
+	const closedRelations = closedOf(c, c.closedRows)
+	const once = relationsOf(c, 1, closedRelations)
 	const relations = Arr.map(c.relations, (fields, r) => {
 		const [, R] = defined(once[r], `the relation R${r}c0`)
 		const match = patternAt(c, fields[0]).match
@@ -170,12 +240,14 @@ export const evaluatorCaseOf = (c: ParseCase, selections: number) => {
 			)
 		}
 	})
-	return { schema: schemaOver(c, once, c.closedRows), relations }
+	return { schema: schemaOver(once, closedRelations), relations }
 }
 
 export const parseSites = Object.freeze({
-	admitted: { file: "packages/engine/src/scalar/regex/patterns.ts", name: "admittedParse" },
-	parsed: { file: "packages/text/src/regex/parse.ts", name: "parsePattern" }
+	parsed: { file: "packages/text/src/regex/parse.ts", name: "parsePattern" },
+	automata: { file: "packages/text/src/regex/nfa.ts", name: "buildNfa" },
+	minimized: { file: "packages/text/src/regex/dfa.ts", name: "minimalDfa" },
+	analyzed: { file: "packages/engine/src/text/refinement.ts", name: "analyzeTextIn" }
 })
 
 export type ParseFeature =

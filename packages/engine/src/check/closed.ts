@@ -8,26 +8,31 @@ import type {
 	ClosedRelations,
 	PayloadPatterns
 } from "#compiler/scalar/compute/typing.ts"
-import { admitMatch, type MatchAdmission, matchValueAt } from "#compiler/scalar/regex/admit.ts"
+import { type MatchAdmission, matchAdmission, matchValueAt } from "#compiler/scalar/regex/admit.ts"
+import type { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 
 /**
  * The one place check state attaches to a closed relation's description (check/schema.ts ClosedRelation `desc`): the
  * admission of each str.pattern payload field's distinct values, by the field, made where a checked schema first reads
- * the field. A description is immutable and one value however many schemas hold it, every level of a generate's
- * installation and every slice of it among them, so the checked schemas over it share each pattern's one admission, its
- * parse, its automaton and its language (scalar/regex/admit.ts admitMatch), where each checked schema admitted every
- * pattern again. A WeakMap holds nothing alive and is never enumerated: it is the description's state.
+ * the field, in that schema's table (scalar/regex/patterns.ts CompilePatterns spelling), which keeps each pattern's
+ * parse and automaton for what its compile reads of it after. A description is immutable and one value however many
+ * schemas hold it, every level of a generate's installation and every slice of it among them, so the checked schemas
+ * over it share each pattern's one admission and its language, where each checked schema admitted every pattern again.
+ * A WeakMap holds nothing alive and is never enumerated: it is the description's state.
  */
 const payloadAdmissions = new WeakMap<
 	ClosedRelationDesc,
 	Map<string, ReadonlyArray<MatchAdmission>>
 >()
 
-/** A str.pattern payload field's distinct values in row order, each admitted, once for its description. */
+/**
+ * A str.pattern payload field's distinct values in row order, each admitted in `patterns`, once for its description.
+ */
 const admittedPayload = (
 	closed: ClosedRelation,
 	field: string,
-	position: number
+	position: number,
+	patterns: CompilePatterns
 ): ReadonlyArray<MatchAdmission> => {
 	const fields =
 		payloadAdmissions.get(closed.desc) ?? new Map<string, ReadonlyArray<MatchAdmission>>()
@@ -43,7 +48,9 @@ const admittedPayload = (
 			sources.add(value.value)
 		}
 	}
-	const admitted = Object.freeze([...sources].map((source) => admitMatch(source)))
+	const admitted = Object.freeze(
+		[...sources].map((source) => matchAdmission(source, patterns.spelling(source)))
+	)
 	fields.set(field, admitted)
 	return admitted
 }
@@ -58,12 +65,13 @@ const payloadPatterns = (
 	closed: ClosedRelation,
 	field: string,
 	position: number,
-	type: ScalarType
+	type: ScalarType,
+	patterns: CompilePatterns
 ): PayloadPatterns => {
 	if (textOf(type) !== "pattern") {
 		return { kind: "other" }
 	}
-	const admitted = admittedPayload(closed, field, position)
+	const admitted = admittedPayload(closed, field, position, patterns)
 	const at = childLoc(closed.loc, "rows")
 	for (const admission of admitted) {
 		unwrap(matchValueAt(admission, at))
@@ -76,7 +84,7 @@ const payloadPatterns = (
  * application's terms meet one by one, and its payload, every other field of its heading, one of which C.at reads,
  * with what a Text.matches pattern reading it can be.
  */
-const closedHeading = (closed: ClosedRelation): ClosedHeading => {
+const closedHeading = (closed: ClosedRelation, patterns: CompilePatterns): ClosedHeading => {
 	const key = closed.relation.primaryFields
 	const payload = closed.heading.flatMap((c, position) =>
 		key.some((k) => k.name === c.name)
@@ -85,7 +93,7 @@ const closedHeading = (closed: ClosedRelation): ClosedHeading => {
 					{
 						name: c.name,
 						type: c.type,
-						patterns: payloadPatterns(closed, c.name, position, c.type)
+						patterns: payloadPatterns(closed, c.name, position, c.type, patterns)
 					}
 				]
 	)
@@ -94,12 +102,16 @@ const closedHeading = (closed: ClosedRelation): ClosedHeading => {
 
 /**
  * The closed relations an expression may apply (scalar/compute/typing.ts ClosedRelations): `readable`, by name, each
- * read by its key and its payload. Its caller chooses them: a query reads every closed relation of its schema, a
- * generated field those of its own level or below.
+ * read by its key and its payload, its pattern payloads admitted in `patterns`, the table of the schema's compile. Its
+ * caller chooses them: a query reads every closed relation of its schema, a generated field those of its own level or
+ * below.
  */
-export const closedReads = (readable: ReadonlyArray<ClosedRelation>): ClosedRelations => {
+export const closedReads = (
+	readable: ReadonlyArray<ClosedRelation>,
+	patterns: CompilePatterns
+): ClosedRelations => {
 	const headings = new Map<string, ClosedHeading>(
-		readable.map((c) => [c.name, closedHeading(c)] as const)
+		readable.map((c) => [c.name, closedHeading(c, patterns)] as const)
 	)
 	return Object.freeze({
 		kind: "schema",

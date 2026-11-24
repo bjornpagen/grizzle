@@ -65,7 +65,6 @@ import {
 import type { EvalStop } from "#compiler/scalar/compute/evaluate.ts"
 import { exprEmitter, lowerPredicate } from "#compiler/scalar/compute/lower.ts"
 import { noParams } from "#compiler/scalar/compute/typing.ts"
-import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { AdmittedBytes } from "#compiler/scalar/values/bytes.ts"
 import {
 	admitValue,
@@ -163,7 +162,7 @@ const rowPredicate = (
 	const loc = evaluationLoc(relation)
 	const lowered = Result.map(
 		lowerPredicate(predicate, {
-			...typingEnv(model.owned),
+			...typingEnv(model.owned, model.checked.patterns),
 			closed: model.checked.closedReads,
 			mode: "check",
 			loc,
@@ -250,7 +249,7 @@ const relationReadingOf = (
 		model.checked,
 		`derived ${name}`,
 		derived.desc.query,
-		new CheckSession()
+		new CheckSession(model.checked.patterns)
 	)
 	if (!admitted.ok) {
 		throw defect(`the definition of ${name}, which the compiled schema checked`)
@@ -619,8 +618,8 @@ const evaluated = <S, R>(
  * relation no source reads is never read: `const evaluate = rowEvaluator(schema)`, then `evaluate.admit(R, row)` admits
  * a row of R once, holding it to its domains, and `evaluate(source, admitted)` is the admitted row's evaluation as a row
  * of any source of R, R itself or select(R, φ), each source read once, where it is first evaluated. One judge reads every row, over the
- * schema's closed relations and one pattern table, so a closed relation is indexed and a pattern parsed once for the
- * evaluator. Each answer a caller reads, an admission and every item, is `answer`'s, made where it is computed (Answers).
+ * schema's closed relations and its checked schema's pattern table, so a closed relation is indexed once for the
+ * evaluator and a pattern parsed once for the schema's compile. Each answer a caller reads, an admission and every item, is `answer`'s, made where it is computed (Answers).
  * A schema that does not compile is its CompileError.
  */
 export const rowEvaluatorOver = <S extends AnySchema>(
@@ -629,7 +628,7 @@ export const rowEvaluatorOver = <S extends AnySchema>(
 ): Result.Result<RowEvaluator<S>, CompileError> =>
 	Result.map(lawModel(schema, "rowEvaluator"), (model): RowEvaluator<S> => {
 		const codes = firstCodebook(rostersOf(model.owned))
-		const judge = judgeOf(closedTableOf(model.checked), new CompilePatterns())
+		const judge = judgeOf(closedTableOf(model.checked), model.checked.patterns)
 		const answers = answersOf(answer)
 		const readings = new Map<string, RelationReading>()
 		const readingOf = (relation: string): RelationReading => {

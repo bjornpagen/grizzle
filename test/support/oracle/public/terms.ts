@@ -7,9 +7,8 @@ import { type TypedLiteral, storedColumn } from "#compiler/ir/expr.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { exprEmitter, type LowerEnv, lowerTerm } from "#compiler/scalar/compute/lower.ts"
 import { noClosedRelations, noParams } from "#compiler/scalar/compute/typing.ts"
-import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { bareEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
-import { textLookup } from "#compiler/text/refinement.ts"
+import { AnalyzedPatterns } from "#compiler/text/refinement.ts"
 import { noExtension } from "#test/support/compute.ts"
 import { numeric, typedLiteralDesc } from "#test/support/oracle/gen/domain.ts"
 import {
@@ -160,8 +159,7 @@ const loweredType = (desc: (name: (v: Var) => string) => ExprDesc): ScalarType =
 		},
 		params: noParams,
 		fieldType: (d, loc) => scalarTypeOf(d, bareEnv, loc),
-		patterns: new CompilePatterns(),
-		patternLanguage: textLookup,
+		patterns: new AnalyzedPatterns(),
 		extension: noExtension
 	}
 	const lowered = lowerTerm(expr, env)

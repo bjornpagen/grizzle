@@ -50,7 +50,7 @@ import type { CountedFamily } from "#compiler/runtime/write/binding.ts"
 import type { ClosedTable } from "#compiler/runtime/write/fill.ts"
 import type { MemberFacts } from "#compiler/runtime/write/normalize.ts"
 import type { Transport } from "#compiler/runtime/write/transport.ts"
-import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
+import type { PatternReads } from "#compiler/scalar/regex/patterns.ts"
 import { fieldEntry } from "#compiler/schema/declared-entries.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
 import { writesOf } from "#compiler/schema/reach.ts"
@@ -205,7 +205,7 @@ interface PreviewCompile {
 	readonly model: LawModel
 	readonly codes: ReturnType<typeof firstCodebook>
 	readonly closed: () => ClosedTable
-	readonly patterns: CompilePatterns
+	readonly patterns: PatternReads
 }
 
 /**
@@ -447,7 +447,7 @@ const familyInsertsMade = (schema: AnySchema, model: LawModel): FamilyInserts =>
 		model,
 		codes: firstCodebook(rostersOf(model.owned)),
 		closed: once(() => closedTableOf(model.checked)),
-		patterns: new CompilePatterns()
+		patterns: model.checked.patterns
 	}
 	/** The insert of each set of families a call wrote, by the top-level relations it inserts, in the schema's order. */
 	const writes = new TupleMap<ReadonlyArray<string>, Result.Result<PreviewWrite, CompileError>>()

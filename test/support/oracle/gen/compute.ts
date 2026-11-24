@@ -39,11 +39,10 @@ import {
 } from "#compiler/scalar/compute/types.ts"
 import { noClosedRelations } from "#compiler/scalar/compute/typing.ts"
 import { type PlainCarrier, plainType } from "#compiler/scalar/native.ts"
-import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { bareEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
-import { textLookup } from "#compiler/text/refinement.ts"
+import { AnalyzedPatterns } from "#compiler/text/refinement.ts"
 import { noExtension } from "#test/support/compute.ts"
 import {
 	fieldDescOf,
@@ -829,8 +828,7 @@ const lowerEnv = (heading: Heading, hooks: LowerHooks): LowerEnv => ({
 			? Result.err(refusal(SourceLoc("a generated cast", []), "a generated cast target"))
 			: Result.ok(t)
 	},
-	patterns: new CompilePatterns(),
-	patternLanguage: textLookup,
+	patterns: new AnalyzedPatterns(),
 	extension: noExtension,
 	closed: noClosedRelations("a generated term reads no closed relation")
 })

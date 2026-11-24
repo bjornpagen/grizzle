@@ -55,7 +55,7 @@ import {
 } from "#compiler/ir/scalar.ts"
 import { queryInput } from "#compiler/program/input.ts"
 import { queryValueDesc } from "#compiler/query/build/query.ts"
-import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
+import { AnalyzedPatterns } from "#compiler/text/refinement.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { refusalLoc } from "#test/support/assert.ts"
 import type { FixtureSchema } from "#test/support/compile.ts"
@@ -1161,7 +1161,7 @@ const corruptions: Arr.NonEmptyReadonlyArray<Corruption<Live, Refusal, RuleName>
 						term.value,
 						field.value.type,
 						SourceLoc(name, []),
-						new CompilePatterns(),
+						new AnalyzedPatterns(),
 						"stored"
 					)
 				)

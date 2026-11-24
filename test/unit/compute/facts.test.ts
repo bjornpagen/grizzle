@@ -26,7 +26,6 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { computeCore, scalarTerm } from "#compiler/scalar/compute/builders.ts"
 import { contractPredicateTable } from "#compiler/scalar/compute/total.ts"
 import { bareEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
-import { textLookup } from "#compiler/text/refinement.ts"
 import { referencePatterns } from "#test/support/oracle/reference/evaluate.ts"
 import {
 	caseGen,
@@ -71,8 +70,7 @@ export const aContractsFactsAreExactlyTheFactsItsProvesDeclaresEachOfWhichItsPre
 						{
 							loc: SourceLoc(`contract ${name}`, []),
 							fieldType: (desc, at) => scalarTypeOf(desc, bareEnv, at),
-							patterns: referencePatterns(),
-							patternLanguage: textLookup
+							patterns: referencePatterns()
 						}
 					)
 					const sound = Arr.every(declared, (f) => implied.includes(f))

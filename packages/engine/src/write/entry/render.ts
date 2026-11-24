@@ -121,7 +121,7 @@ export const renderMembership = (
 		read: "membership",
 		label: `write ${entry.entry}`,
 		clock: noClock,
-		session: new CheckSession()
+		session: CheckSession.own()
 	})
 	if (!query.ok) {
 		return query

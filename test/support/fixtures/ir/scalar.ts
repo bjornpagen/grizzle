@@ -6,7 +6,9 @@
  */
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { minimalDfa } from "@bjornpagen/grizzle-text/regex/dfa"
 import type { RegexNode } from "@bjornpagen/grizzle-text/regex/ir"
+import { regexDfaLimits } from "@bjornpagen/grizzle-text/regex/limits"
 import { Matcher } from "@bjornpagen/grizzle-text/regex/match"
 import { buildNfa } from "@bjornpagen/grizzle-text/regex/nfa"
 import { Array as Arr, Record as Rec } from "effect"
@@ -14,7 +16,7 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import { type ExprTable, predicateTable, predicateTree } from "#compiler/ir/expr.ts"
-import { languageOf, type PatternValue, admitSpelling } from "#compiler/ir/pattern.ts"
+import { admitSpelling, knownOf, type PatternValue } from "#compiler/ir/pattern.ts"
 import {
 	type Carrier,
 	type DeclaredType,
@@ -189,10 +191,10 @@ export const accepts = (refinement: TextRefinement, value: string): boolean =>
 
 /**
  * The language of a parsed pattern (scalar/regex/parse.ts parsePattern) as analyzeText knows it (ir/pattern.ts
- * languageOf): its canonical automaton within the DFA bounds, of no state for the empty language, which analyzeText
+ * knownOf): its canonical automaton within the DFA bounds, of no state for the empty language, which analyzeText
  * refuses, or its structure past them.
  */
-export const analyzeLanguage = (ir: RegexNode) => languageOf(buildNfa(ir))
+export const analyzeLanguage = (ir: RegexNode) => knownOf(minimalDfa(buildNfa(ir), regexDfaLimits))
 
 /**
  * The pattern value of `spelling` (ir/pattern.ts admitSpelling), admitted and its language's key computed as

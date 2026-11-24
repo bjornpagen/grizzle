@@ -208,8 +208,8 @@ export const readingAPrintedAREBackAdmitsAPatternExactlyWhenItAdmitsTheAREItPrin
 			},
 			{
 				file: "packages/engine/src/text/refinement.ts",
-				original: "are: toAre(ir), known: languageOf(nfa)",
-				replacement: "are: source, known: languageOf(nfa)",
+				original: "are: toAre(ir), known: knownOf(table.minimal(pattern))",
+				replacement: "are: source, known: knownOf(table.minimal(pattern))",
 				why: "A pattern's ARE is its source as written, never the IR's print; the budgets property fails."
 			}
 		]

@@ -12,6 +12,7 @@ import { type CombineBuild, combine, type MonoidSpec, monoidSpecs } from "#compi
 import { numericBoundOf, Roster, sameScalarType, type ScalarType } from "#compiler/ir/scalar.ts"
 import { naturalDescriptor } from "#compiler/scalar/natural.ts"
 import { capabilitiesOf } from "#compiler/scalar/registry.ts"
+import { AnalyzedPatterns } from "#compiler/text/refinement.ts"
 import { succeeded, throwsDefect } from "#test/support/assert.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { declaredTypeGen, setTypeGen } from "#test/unit/ir/types.ts"
@@ -296,7 +297,7 @@ export const constructs = (spec: MonoidSpec, carrier: ScalarType): boolean =>
 		onSome: (identity) =>
 			identity.length === spec.planes.length &&
 			Arr.every(identity, (literal) => literalProblem(literal, carrier) === undefined) &&
-			combineRule(spec, carrier) === undefined
+			combineRule(spec, carrier, new AnalyzedPatterns()) === undefined
 	})
 
 /** Whether a type is natural, the builtin contract count's plane is: its declared descriptor's own type. */

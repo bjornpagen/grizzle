@@ -73,7 +73,7 @@ import { binaryCoercion } from "#compiler/scalar/compute/registry.ts"
 import { contractPredicateTable } from "#compiler/scalar/compute/total.ts"
 import { type ClosedRelations, type LeafDesc, noParams } from "#compiler/scalar/compute/typing.ts"
 import { isDrawnType } from "#compiler/scalar/natural.ts"
-import { CompilePatterns, type PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
+import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import {
 	type ScalarEnv,
 	scalarTypeOf,
@@ -92,7 +92,7 @@ import type {
 } from "#compiler/schema/own.ts"
 import type { Slice } from "#compiler/schema/reach.ts"
 import type { Scope } from "#compiler/schema/scope.ts"
-import { textLookup } from "#compiler/text/refinement.ts"
+import { AnalyzedPatterns } from "#compiler/text/refinement.ts"
 
 /**
  * A derived relation with its analysis (analysis/derived/analyze.ts): its definition checked against the levels below
@@ -447,6 +447,14 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 	 * is lowered where it is typed.
 	 */
 	readonly #predicates: ReadonlyMap<string, Result.Result<ExprTable, CompileError>>
+	/**
+	 * The admitted patterns the schema's compile meets, with the text analysis of each conjunction it types
+	 * (text/refinement.ts AnalyzedPatterns): its one table, which its fields' and closed rows' typing, its contracts'
+	 * predicates, its closed relations' pattern payloads and its generated fields read, and which its theory's and law
+	 * model's typing take (analysis/theory/theory.ts typingEnv), so the compile parses, admits, minimizes and analyzes
+	 * each distinct pattern and conjunction once. A role's is its base's, whose types it resolves against.
+	 */
+	readonly patterns: AnalyzedPatterns
 
 	/**
 	 * Reality holds its closure's stored relations: its rosters and closed relations first, which a generated field's
@@ -464,6 +472,7 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 				this.#rosters.set(r.name, r.roster)
 			}
 		}
+		this.patterns = world.kind === "role" ? world.base.patterns : new AnalyzedPatterns()
 		this.#predicates = world.kind === "role" ? world.base.#predicates : this.#declaredPredicates()
 		const relations = new Map<string, RelationInfo>()
 		const closed = new Map<string, ClosedRelation>()
@@ -537,14 +546,13 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 		const ownedStored = ownedRelations
 			.flatMap((o): ReadonlyArray<OwnedStored> => (o.kind === "derived" ? [] : [o]))
 			.toSorted(byName)
-		const patterns = new CompilePatterns()
 		const closedInfos = ownedStored.flatMap((r) =>
-			r.kind === "relation" ? [] : [this.#closedInfo(r, patterns)]
+			r.kind === "relation" ? [] : [this.#closedInfo(r, this.patterns)]
 		)
 		const readable = closedInfos.filter((c) => !this.#rosters.has(c.name))
-		this.closedReads = closedReads(readable)
+		this.closedReads = closedReads(readable, this.patterns)
 		const ordinaryInfos = ownedStored.flatMap((r) =>
-			r.kind === "relation" ? [this.#ordinaryInfo(r, readable, patterns)] : []
+			r.kind === "relation" ? [this.#ordinaryInfo(r, readable, this.patterns)] : []
 		)
 		for (const info of [...closedInfos, ...ordinaryInfos].toSorted(byName)) {
 			hold(info, true)
@@ -858,8 +866,7 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 					fieldType: (d, l) =>
 						catchRefusal(() => this.queryFieldType(d, l, declarations, patterns)),
 					closed: row.closed,
-					patterns,
-					patternLanguage: textLookup
+					patterns
 				})
 			)
 			return { desc, emit, term }
@@ -1075,8 +1082,7 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 				contractPredicateTable(predicate, base, contract, facts, {
 					loc: SourceLoc(`contract ${contract}`, []),
 					fieldType: (d, at) => scalarTypeOf(d, env, at),
-					patterns,
-					patternLanguage: textLookup
+					patterns
 				})
 		}
 		return env
@@ -1087,7 +1093,7 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 	 * it; a contract whose base does not type is refused there, where every field of it is, and holds none.
 	 */
 	#declaredPredicates(): ReadonlyMap<string, Result.Result<ExprTable, CompileError>> {
-		const env = this.#env(new CompilePatterns(), new Map())
+		const env = this.#env(this.patterns, new Map())
 		const out = new Map<string, Result.Result<ExprTable, CompileError>>()
 		for (const c of Object.values(this.owned.contracts)) {
 			const predicate = c.desc.predicate
@@ -1104,9 +1110,9 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 		return unwrap(scalarTypeOf(desc, this.#env(patterns, this.#predicates), loc))
 	}
 
-	/** The ScalarType of a schema descriptor, typed as a compile of its own. */
+	/** The ScalarType of a schema descriptor, typed by the schema's own table (`patterns`). */
 	fieldType(desc: FieldDesc, loc: SourceLoc): ScalarType {
-		return this.#typeOf(desc, loc, new CompilePatterns())
+		return this.#typeOf(desc, loc, this.patterns)
 	}
 
 	/**

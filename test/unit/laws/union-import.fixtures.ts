@@ -142,7 +142,7 @@ export const judged = (c: Case, note: (f: Feature) => void): void => {
 				read: "region",
 				clock: noClock,
 				label: "the check over every row",
-				session: new CheckSession()
+				session: CheckSession.own()
 			}
 		),
 		"the checker admits the check over every row"

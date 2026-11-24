@@ -2,10 +2,9 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { natural } from "#compiler/public/fields.ts"
 import { contractPredicateTable } from "#compiler/scalar/compute/total.ts"
-import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { noRosters, type ScalarEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
 import { describedField } from "#compiler/schema/protocol.ts"
-import { textLookup } from "#compiler/text/refinement.ts"
+import { AnalyzedPatterns } from "#compiler/text/refinement.ts"
 
 /**
  * natural, the builtin contract over bigint whose predicate refuses every negative (scalar/natural.ts): a count's
@@ -13,7 +12,7 @@ import { textLookup } from "#compiler/text/refinement.ts"
  */
 export const naturalType: ScalarType = ((): ScalarType => {
 	const loc = SourceLoc("natural", [])
-	const patterns = new CompilePatterns()
+	const patterns = new AnalyzedPatterns()
 	/** A schema's registry, which compiles a contract's predicate into the table its type carries (a builder's keeps none). */
 	const env: ScalarEnv = {
 		kind: "schema",
@@ -22,8 +21,7 @@ export const naturalType: ScalarType = ((): ScalarType => {
 			contractPredicateTable(predicate, base, contract, facts, {
 				loc,
 				fieldType: (desc, at) => scalarTypeOf(desc, env, at),
-				patterns,
-				patternLanguage: textLookup
+				patterns
 			})
 	}
 	const typed = scalarTypeOf(describedField(natural, "natural").desc, env, loc)

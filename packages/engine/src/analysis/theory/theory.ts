@@ -110,16 +110,10 @@ import type { StoredUnit } from "#compiler/ir/unit.ts"
 import type { ContainmentFact } from "#compiler/logical/attach.ts"
 import { contractPredicateTable } from "#compiler/scalar/compute/total.ts"
 import { compatible, sameCarrier } from "#compiler/scalar/compute/types.ts"
-import { CompilePatterns, type PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
-import {
-	contractInfoOf,
-	type ScalarEnv,
-	scalarTypeOf,
-	type TextLookup
-} from "#compiler/scalar/registry.ts"
+import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
+import { contractInfoOf, type ScalarEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
 import { derivedStatement, mergedEntry } from "#compiler/schema/declared-entries.ts"
 import type { Owned } from "#compiler/schema/own.ts"
-import { textLookup } from "#compiler/text/refinement.ts"
 import type { StatedEntry } from "#compiler/types/changeset/changeset.ts"
 
 /**
@@ -459,12 +453,14 @@ const contractNames = (t: ScalarType): ReadonlyArray<string> => {
 
 /**
  * The typing environment of an owned schema's laws: the descriptor registry's reading, its closed relations' rosters,
- * each contract's predicate table, the admitted patterns of the compile it serves (scalar/regex/patterns.ts), one table
- * per environment, and the text analysis of a pattern a predicate computes. Theory normalization types its laws in it,
- * and law specialization its generated CHECK predicates.
+ * each contract's predicate table, and `patterns`, the admitted patterns of the compile it serves with the text
+ * analysis of a pattern a predicate computes (scalar/regex/patterns.ts PatternAutomata), its checked schema's one table
+ * (analysis/schema.ts CheckedSchema `patterns`). Theory normalization types its laws in it, and law specialization its
+ * generated CHECK predicates.
  */
 export const typingEnv = (
-	owned: Owned
+	owned: Owned,
+	patterns: PatternAutomata
 ): {
 	readonly fieldType: (desc: FieldDesc, loc: SourceLoc) => Result.Result<ScalarType, CompileError>
 	readonly contractInfo: (
@@ -472,9 +468,7 @@ export const typingEnv = (
 		loc: SourceLoc
 	) => Result.Result<ContractInfo, CompileError>
 	readonly patterns: PatternAutomata
-	readonly patternLanguage: TextLookup
 } => {
-	const patterns = new CompilePatterns()
 	const rosters = new Map<string, Roster>()
 	for (const r of Object.values(owned.relations)) {
 		if (r.kind === "closed") {
@@ -491,15 +485,13 @@ export const typingEnv = (
 			contractPredicateTable(predicate, base, contract, facts, {
 				loc,
 				fieldType,
-				patterns,
-				patternLanguage: textLookup
+				patterns
 			})
 	})
 	return {
 		fieldType,
 		contractInfo: (desc, loc) => contractInfoOf(desc, schemaEnv(loc), loc),
-		patterns,
-		patternLanguage: textLookup
+		patterns
 	}
 }
 
@@ -509,13 +501,12 @@ export const typingEnv = (
  * closed relations its laws' predicates and terms may read (CheckedSchema.closedReads).
  */
 const sidesEnvOf = (checked: CheckedSchema): SidesEnv => {
-	const typing = typingEnv(checked.owned)
+	const typing = typingEnv(checked.owned, checked.patterns)
 	return {
 		relations: new Map(checked.stored.map((r) => [r.name, r] as const)),
 		lowerEnv: {
 			fieldType: typing.fieldType,
 			patterns: typing.patterns,
-			patternLanguage: textLookup,
 			closed: checked.closedReads
 		}
 	}
@@ -1106,7 +1097,7 @@ export const ruleViolation = (
 			read: "rows",
 			label: `rule ${law.named.display}`,
 			clock: noClock,
-			session: new CheckSession()
+			session: new CheckSession(checked.patterns)
 		}),
 		(admitted) =>
 			readsStable(admitted.dag)

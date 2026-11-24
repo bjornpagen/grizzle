@@ -237,7 +237,7 @@ export const checkedBy = (desc: InferredQuery, session: CheckSession): LogicalQu
 
 /** A program checked as a query read checks it, by a compile of its own. */
 export const checkedOf = (shape: Shape, copies: Copies): LogicalQuery =>
-	checkedBy(descOf(shape, copies), new CheckSession())
+	checkedBy(descOf(shape, copies), CheckSession.own())
 
 /** The identity digests' module (core/fingerprint.ts), whose calls are the work of digesting what a check reads. */
 const isDigesting = (file: string): boolean => Str.endsWith("core/fingerprint.ts")(file)

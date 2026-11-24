@@ -72,7 +72,6 @@ import {
 	types
 } from "#compiler/sql/build.ts"
 import { printExpr } from "#compiler/sql/print.ts"
-import { textLookup } from "#compiler/text/refinement.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { textDesc } from "#test/support/fixtures/ir/desc.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
@@ -124,8 +123,7 @@ const testEnv: ScalarEnv = {
 		contractPredicateTable(predicate, base, name, facts, {
 			loc: SourceLoc(`contract ${name}`, []),
 			fieldType: (d) => scalarTypeOf(d, testEnv, SourceLoc(`contract ${name}`, [])),
-			patterns: referencePatterns(),
-			patternLanguage: textLookup
+			patterns: referencePatterns()
 		})
 }
 
@@ -449,8 +447,7 @@ const commonEnv = (
 	params,
 	fieldType: (desc, loc) => scalarTypeOf(desc, testEnv, loc),
 	closed: noClosedRelations("the compute suites read no closed relation"),
-	patterns: referencePatterns(),
-	patternLanguage: textLookup
+	patterns: referencePatterns()
 })
 
 /**
@@ -463,17 +460,12 @@ export const typeWith = (
 	predicate: boolean,
 	params: LowerParams<Spelled>
 ): Result.Result<TermTyping<Spelled>, CompileError> => {
-	const {
-		emit: _emitted,
-		patterns,
-		patternLanguage,
-		...names
-	} = commonEnv(vars, sink().emit, params)
+	const { emit: _emitted, patterns, ...names } = commonEnv(vars, sink().emit, params)
 	const env: TypingEnv<Spelled> = {
 		...names,
 		functions: { kind: "none", why: "a unit typing declares no function" },
 		held: [],
-		analysis: { kind: "analyzed", lookup: patternLanguage, patterns }
+		analysis: { kind: "analyzed", patterns }
 	}
 	const literal = withLiterals(expr, vars)
 	return predicate ? typePredicate(literal, env) : typeOf(literal, env)

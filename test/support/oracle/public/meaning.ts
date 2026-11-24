@@ -56,9 +56,8 @@ import {
 import { type LowerEnv, lowerTerm } from "#compiler/scalar/compute/lower.ts"
 import { canonicalZeroSpec, definedRangeOp } from "#compiler/scalar/compute/registry.ts"
 import { widening } from "#compiler/scalar/compute/types.ts"
-import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { bareEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
-import { textLookup } from "#compiler/text/refinement.ts"
+import { AnalyzedPatterns } from "#compiler/text/refinement.ts"
 import { foldInputOf } from "#test/support/fixtures/ir/fold.ts"
 import { bool, compareParamType } from "#test/support/oracle/gen/domain.ts"
 import type { GenFacts } from "#test/support/oracle/gen/facts.ts"
@@ -387,8 +386,7 @@ class Translation {
 			},
 			params: noParams,
 			fieldType: (desc, loc) => scalarTypeOf(desc, bareEnv, loc),
-			patterns: new CompilePatterns(),
-			patternLanguage: textLookup,
+			patterns: new AnalyzedPatterns(),
 			extension: noExtension
 		}
 		const lowered = lowerTerm(termDesc(t, name), env)

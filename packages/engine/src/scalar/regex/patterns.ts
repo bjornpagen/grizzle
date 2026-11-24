@@ -1,18 +1,26 @@
 import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { CharSet } from "@bjornpagen/grizzle-text/regex/charset"
 import { type DfaOutcome, minimalDfa } from "@bjornpagen/grizzle-text/regex/dfa"
 import type { LiveNode, RegexNode } from "@bjornpagen/grizzle-text/regex/ir"
 import { regexDfaLimits } from "@bjornpagen/grizzle-text/regex/limits"
 import { Matcher } from "@bjornpagen/grizzle-text/regex/match"
-import { buildNfa, type CountOp, type NfaEdge } from "@bjornpagen/grizzle-text/regex/nfa"
+import { buildNfa, type CountOp, type Nfa, type NfaEdge } from "@bjornpagen/grizzle-text/regex/nfa"
 import {
 	parsePattern,
 	type PatternSource,
+	type RegexDiagnostic,
 	type RegexFlags
 } from "@bjornpagen/grizzle-text/regex/parse"
 import { entry } from "@bjornpagen/grizzle-text/regex/table"
 import type { ExprTable } from "#compiler/ir/expr.ts"
-import { matchFlags } from "#compiler/ir/pattern.ts"
+import {
+	admitParsed,
+	matchFlags,
+	type PatternRefusal,
+	type PatternValue,
+	patternValueOf
+} from "#compiler/ir/pattern.ts"
 import { type RegexRef, regexRefOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import {
 	countCode,
@@ -21,12 +29,13 @@ import {
 	type ServedMatcher,
 	type ServedMatchers
 } from "#compiler/scalar/regex/matcher.ts"
+import type { TextLookup } from "#compiler/scalar/registry.ts"
 
 /**
  * An admitted pattern parsed: its node, which a translation's image reads, and the matcher of its automaton (match.ts
- * Matcher), whose NFA the language proofs read and whose search language membership runs, built once here. The node is
- * a refinement member's language, which has a member (text/refinement.ts analyzeText), or a Text.matches pattern's,
- * which may be the empty language (admit.ts admitMatch), whose matcher matches no text.
+ * Matcher), whose NFA the language proofs read and whose search language membership runs. The node is a refinement
+ * member's language, which has a member (text/refinement.ts analyzeText), or a Text.matches pattern's, which may be the
+ * empty language (admit.ts admitMatch), whose matcher matches no text.
  */
 export interface ParsedPattern {
 	readonly node: RegexNode
@@ -34,18 +43,69 @@ export interface ParsedPattern {
 }
 
 /**
- * The parse of a pattern its admission parsed already, the one site of the fact that such a pattern parses: a RegexRef
- * is minted only from a pattern its text analysis admitted (text/refinement.ts analyzeText), a lexical form is
- * grizzle's own (scalar/lexical.ts formSource), and a Text.matches pattern is admitted where its node is typed
- * (admit.ts matchPattern). It runs where a program compiles or a pattern is admitted, into a table (CompilePatterns,
- * ProgramPatterns), and never per membership: membership reads the table.
+ * One pattern as a table holds it (CompilePatterns), each part made the first time a reader reads it and read from the
+ * entry after: its parse (parse.ts parsePattern), made where the table first meets the pattern; its admission over that
+ * parse (ir/pattern.ts admitParsed); its NFA; its parse with its matcher (ParsedPattern); its canonical DFA within the
+ * text analysis's bounds (dfa.ts minimalDfa at regexDfaLimits); and, of a Text.matches pattern, its pattern value
+ * (ir/pattern.ts patternValueOf). So a table parses, builds the automaton of, determinizes and minimizes each pattern
+ * once, whatever reads it: its admission, the text analysis, a proof or a membership.
  */
-const admittedParse = (pattern: PatternSource): ParsedPattern => {
-	const parsed = parsePattern(pattern.source, pattern.flags)
-	if (!parsed.ok) {
-		throw defect(`a pattern its admission parsed: /${pattern.source}/${pattern.flags}`)
+class PatternEntry {
+	readonly #pattern: PatternSource
+	readonly #parse: Result.Result<RegexNode, RegexDiagnostic>
+	#admission: Result.Result<RegexNode, PatternRefusal> | undefined
+	#nfa: Nfa | undefined
+	#parsed: ParsedPattern | undefined
+	#outcome: DfaOutcome | undefined
+	#value: Result.Result<PatternValue, PatternRefusal> | undefined
+
+	constructor(pattern: PatternSource) {
+		this.#pattern = pattern
+		this.#parse = parsePattern(pattern.source, pattern.flags)
 	}
-	return { node: parsed.value, matcher: Matcher.of(buildNfa(parsed.value)) }
+
+	/** The pattern's admission: its IR, or why PostgreSQL's regex compiler or the grammar refuses it. */
+	admission(): Result.Result<RegexNode, PatternRefusal> {
+		this.#admission ??= admitParsed(this.#parse)
+		return this.#admission
+	}
+
+	/**
+	 * The IR of a pattern its admission parsed, the one site of the fact that such a pattern parses: a RegexRef is minted
+	 * only from a pattern its text analysis admitted (text/refinement.ts analyzeText), a lexical form is grizzle's own
+	 * (scalar/lexical.ts formSource), and a Text.matches pattern is admitted where its node is typed (admit.ts
+	 * matchPattern).
+	 */
+	#ir(): RegexNode {
+		if (!this.#parse.ok) {
+			const { source, flags } = this.#pattern
+			throw defect(`a pattern its admission parsed: /${source}/${flags}`)
+		}
+		return this.#parse.value
+	}
+
+	#automaton(): Nfa {
+		this.#nfa ??= buildNfa(this.#ir())
+		return this.#nfa
+	}
+
+	parsed(): ParsedPattern {
+		this.#parsed ??= { node: this.#ir(), matcher: Matcher.of(this.#automaton()) }
+		return this.#parsed
+	}
+
+	outcome(): DfaOutcome {
+		this.#outcome ??= minimalDfa(this.#automaton(), regexDfaLimits)
+		return this.#outcome
+	}
+
+	/** The pattern value of a Text.matches pattern, its spelling the source, or why its admission refuses it. */
+	value(): Result.Result<PatternValue, PatternRefusal> {
+		this.#value ??= Result.map(this.admission(), (ir) =>
+			patternValueOf(this.#pattern.source, ir, this.outcome())
+		)
+		return this.#value
+	}
 }
 
 /**
@@ -72,8 +132,8 @@ export interface PatternReads {
 }
 
 /**
- * What membership, inclusion and translation read of admitted patterns: each one's parse, from a table a compile or a
- * compiled program holds, so none is parsed per membership.
+ * What typing, membership, inclusion and translation read of admitted patterns, from the table of the compile they
+ * serve (text/refinement.ts AnalyzedPatterns), so none is parsed, minimized or analyzed per reader.
  */
 export interface PatternAutomata extends PatternReads {
 	/** The parse of an admitted pattern: a refinement's member, a lexical form's, or a Text.matches pattern's. */
@@ -81,9 +141,54 @@ export interface PatternAutomata extends PatternReads {
 	/**
 	 * The canonical DFA of an admitted pattern's search language within the text analysis's bounds (dfa.ts minimalDfa
 	 * of its matcher's automaton at regexDfaLimits), or its bound: what the inclusion and length proofs compare
-	 * (scalar/regex/inclusion.ts), made the first time a proof reads it and read from the table after.
+	 * (scalar/regex/inclusion.ts) and the text analysis knows a pattern's language by.
 	 */
 	readonly minimal: (pattern: PatternSource) => DfaOutcome
+	/**
+	 * The language of a conjunction of patterns as the text analysis proves it (text/refinement.ts analyzeText,
+	 * textLanguage), a refusal located at the patterns: what a typing types a text a computation makes by.
+	 */
+	readonly language: TextLookup
+}
+
+/**
+ * The patterns one compile meets, by flags and then source, each entered the first time it is met (PatternEntry) and
+ * read from the table after: a compile's own explicit state, created where the compile begins and passed to what it
+ * compiles, never shared by two compiles, so it holds only what its compile meets. A compile parses, admits, builds the
+ * automaton of and minimizes each distinct pattern once, whatever reads it: O(p) constructions for its p distinct
+ * patterns and a lookup for each of its r reads, where a reader of a table of its own, or of none, built again what
+ * another had, O(r) constructions. Over edullm's QTI schema's laws (qti-pie 1bf7dcc's lawsOf), whose 440 distinct
+ * patterns were parsed 512 times beside their admissions' own parses and minimized 82 times over 5 by the proofs, each
+ * is now parsed, built and minimized once.
+ */
+export class CompilePatterns implements PatternReads {
+	readonly #entries = new Map<RegexFlags, Map<string, PatternEntry>>()
+
+	#entry(pattern: PatternSource): PatternEntry {
+		const bySource = this.#entries.getOrInsertComputed(
+			pattern.flags,
+			() => new Map<string, PatternEntry>()
+		)
+		return bySource.getOrInsertComputed(pattern.source, () => new PatternEntry(pattern))
+	}
+
+	/** A pattern's admission (ir/pattern.ts admitParsed): its IR, or why it is refused, which its reader places. */
+	readonly admitted = (pattern: PatternSource): Result.Result<RegexNode, PatternRefusal> =>
+		this.#entry(pattern).admission()
+
+	/** A Text.matches pattern's value (ir/pattern.ts patternValueOf), or why its admission refuses it. */
+	readonly spelling = (source: string): Result.Result<PatternValue, PatternRefusal> =>
+		this.#entry({ source, flags: matchFlags }).value()
+
+	readonly parse = (pattern: PatternSource): ParsedPattern => this.#entry(pattern).parsed()
+
+	readonly minimal = (pattern: PatternSource): DfaOutcome => this.#entry(pattern).outcome()
+
+	readonly member = (regex: RegexRef, text: string): boolean =>
+		memberOf(regex, (pattern) => this.parse(pattern).matcher, text)
+
+	readonly matches = (source: string, text: string): boolean =>
+		this.parse({ source, flags: matchFlags }).matcher.matches(text)
 }
 
 /** Parses, by flags and then source. */
@@ -92,90 +197,35 @@ type ParseTable = Map<RegexFlags, Map<string, ParsedPattern>>
 const tabled = (table: ParseTable, pattern: PatternSource): ParsedPattern | undefined =>
 	table.get(pattern.flags)?.get(pattern.source)
 
-/** `pattern`'s parse, entered into `table`. */
-const entered = (table: ParseTable, pattern: PatternSource): ParsedPattern => {
-	const made = admittedParse(pattern)
-	const bySource = table.getOrInsertComputed(pattern.flags, () => new Map<string, ParsedPattern>())
-	bySource.set(pattern.source, made)
-	return made
-}
-
-/**
- * Each parsed pattern's canonical DFA, made the first time a proof reads it: a table's own, beside its parses, so a
- * pattern compared many times is minimized once, where each comparison minimized it again.
- */
-class Minimized {
-	readonly #outcomes = new Map<ParsedPattern, DfaOutcome>()
-	#made = 0
-
-	/** How many patterns the table has minimized: the proofs' determinizations and minimizations. */
-	get made(): number {
-		return this.#made
-	}
-
-	of(parsed: ParsedPattern): DfaOutcome {
-		const known = this.#outcomes.get(parsed)
-		if (known !== undefined) {
-			return known
-		}
-		const outcome = minimalDfa(parsed.matcher.nfa, regexDfaLimits)
-		this.#made += 1
-		this.#outcomes.set(parsed, outcome)
-		return outcome
-	}
-}
-
-/**
- * The patterns one compile meets, each parsed the first time it is met and minimized the first time a proof compares
- * it, and read from the table after: a compile's own explicit state, created where the compile begins and passed to
- * what it compiles, so a compile parses and minimizes each distinct pattern once.
- */
-export class CompilePatterns implements PatternAutomata {
-	readonly #table: ParseTable = new Map()
-	readonly #minimized = new Minimized()
-
-	readonly parse = (pattern: PatternSource): ParsedPattern =>
-		tabled(this.#table, pattern) ?? entered(this.#table, pattern)
-
-	readonly minimal = (pattern: PatternSource): DfaOutcome => this.#minimized.of(this.parse(pattern))
-
-	/** How many patterns the compile has minimized (Minimized): one for each distinct pattern a proof compared. */
-	get minimized(): number {
-		return this.#minimized.made
-	}
-
-	readonly member = (regex: RegexRef, text: string): boolean =>
-		memberOf(regex, (pattern) => this.parse(pattern).matcher, text)
-
-	readonly matches = (source: string, text: string): boolean =>
-		this.parse({ source, flags: matchFlags }).matcher.matches(text)
-}
-
 /**
  * The patterns a compiled program checks, every one parsed when the program compiles and none after: the host's fill
  * and check paths read them per row. A pattern outside the table is a defect of the collection that built it
  * (typePatterns, tablePatterns), which reads every pattern the program's types and expressions hold.
  */
-export class ProgramPatterns implements PatternAutomata {
+export class ProgramPatterns implements PatternReads {
 	readonly #table: ParseTable
-	readonly #minimized = new Minimized()
 
 	private constructor(table: ParseTable) {
 		this.#table = table
 	}
 
-	/** The table of `patterns`, each distinct one parsed once. */
+	/** The table of `patterns`, each distinct one parsed once, in a table of their own. */
 	static of(patterns: Iterable<PatternSource>): ProgramPatterns {
+		return ProgramPatterns.ofCompile(patterns, new CompilePatterns())
+	}
+
+	/** The table of `patterns`, each distinct one's parse read from `compile`, the table of the compile it serves. */
+	static ofCompile(patterns: Iterable<PatternSource>, compile: CompilePatterns): ProgramPatterns {
 		const table: ParseTable = new Map()
 		for (const pattern of patterns) {
-			if (tabled(table, pattern) === undefined) {
-				entered(table, pattern)
-			}
+			table
+				.getOrInsertComputed(pattern.flags, () => new Map<string, ParsedPattern>())
+				.getOrInsertComputed(pattern.source, () => compile.parse(pattern))
 		}
 		return new ProgramPatterns(table)
 	}
 
-	readonly parse = (pattern: PatternSource): ParsedPattern => {
+	readonly #parse = (pattern: PatternSource): ParsedPattern => {
 		const known = tabled(this.#table, pattern)
 		if (known === undefined) {
 			throw defect(`a pattern its program's types hold: /${pattern.source}/${pattern.flags}`)
@@ -183,13 +233,11 @@ export class ProgramPatterns implements PatternAutomata {
 		return known
 	}
 
-	readonly minimal = (pattern: PatternSource): DfaOutcome => this.#minimized.of(this.parse(pattern))
-
 	readonly member = (regex: RegexRef, text: string): boolean =>
-		memberOf(regex, (pattern) => this.parse(pattern).matcher, text)
+		memberOf(regex, (pattern) => this.#parse(pattern).matcher, text)
 
 	readonly matches = (source: string, text: string): boolean =>
-		this.parse({ source, flags: matchFlags }).matcher.matches(text)
+		this.#parse({ source, flags: matchFlags }).matcher.matches(text)
 
 	/**
 	 * Each pattern of the table with its automaton, in the order the table first met them, over one table of the char

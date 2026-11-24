@@ -10,7 +10,6 @@ import type { CompareOp, ExprDesc, LiteralDesc } from "#compiler/ir/desc.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { contractPredicateTable } from "#compiler/scalar/compute/total.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
-import { textLookup } from "#compiler/text/refinement.ts"
 import { referencePatterns } from "#test/support/oracle/reference/evaluate.ts"
 import {
 	baseParams,
@@ -34,8 +33,7 @@ import {
 const options = Object.freeze({
 	loc: SourceLoc("test", []),
 	fieldType: (d: Parameters<typeof scalarOfDesc>[0]) => Result.ok(scalarOfDesc(d)),
-	patterns: referencePatterns(),
-	patternLanguage: textLookup
+	patterns: referencePatterns()
 })
 
 /** The bases a contract's VALUE is drawn of: the integers, numeric at a typmod and at the widest, a float and money. */

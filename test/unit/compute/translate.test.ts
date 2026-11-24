@@ -44,10 +44,9 @@ import type { ExprDesc, FieldDesc } from "#compiler/ir/desc.ts"
 import type { OpenExpr } from "#compiler/ir/open.ts"
 import { textInfoBounds, textOf, textPatterns } from "#compiler/ir/scalar.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
-import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { charMapOf, imageOf } from "#compiler/scalar/regex/translate.ts"
 import { collapseSources } from "#compiler/scalar/regex/whitespace.ts"
-import { analyzeText } from "#compiler/text/refinement.ts"
+import { AnalyzedPatterns, analyzeText } from "#compiler/text/refinement.ts"
 import { refusalLoc, refused, succeeded, throwsRefused } from "#test/support/assert.ts"
 import { textDesc } from "#test/support/fixtures/ir/desc.ts"
 import { jsMatcher } from "#test/support/regex.ts"
@@ -237,7 +236,7 @@ export const computesTranslateAndLowerAsciiTypesATranslationAsTextOfExactlyTheIm
 							source: imageOf(
 								operandPattern,
 								succeeded(charMapOf(codePointsText(c.map.from), codePointsText(c.map.to))),
-								new CompilePatterns()
+								new AnalyzedPatterns()
 							).exact,
 							flags: "u"
 						}
@@ -285,7 +284,7 @@ export const computesTranslateAndLowerAsciiTypesATranslationAsTextOfExactlyTheIm
 			{
 				file: "packages/engine/src/scalar/compute/typing.ts",
 				original:
-					"\t\t\treturn analysis.lookup([exact]).ok ? exact : { source: sources.within, flags: imageFlags }",
+					"\t\t\treturn analysis.patterns.language([exact]).ok\n\t\t\t\t? exact\n\t\t\t\t: { source: sources.within, flags: imageFlags }",
 				replacement: "\t\t\treturn { source: sources.within, flags: imageFlags }",
 				why: "A translation's type is the looser image even where the exact one is admitted; the image type property fails."
 			}
@@ -717,7 +716,7 @@ export const computesTranslateAndLowerAsciiTypesACollapseAsTextHoldingItsImageWi
 						collapseSources(
 							operandPattern,
 							textInfoBounds(operandText)?.length,
-							new CompilePatterns()
+							new AnalyzedPatterns()
 						),
 						(s) => analyzeText([{ source: s.source, flags: s.flags }], SourceLoc("image", [])).ok
 					).pipe(Option.getOrUndefined),

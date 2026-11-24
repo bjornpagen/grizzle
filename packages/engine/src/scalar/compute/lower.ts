@@ -130,7 +130,6 @@ import {
 import { type MatchAdmission, matchValueAt } from "#compiler/scalar/regex/admit.ts"
 import { bytesWithin, formIncludes, patternIncludes } from "#compiler/scalar/regex/inclusion.ts"
 import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
-import type { TextLookup } from "#compiler/scalar/registry.ts"
 import { numericMaxIntegerDigits, numericMaxPrecision } from "#compiler/scalar/values/fault.ts"
 
 /**
@@ -224,11 +223,10 @@ interface LowerCommon<R extends Refs> {
 	readonly closed: ClosedRelations
 	/**
 	 * The admitted patterns the lowering reads, its compile's table (scalar/regex/patterns.ts): a literal's membership
-	 * in a regex refinement, a language's inclusion in another or in a lexical form, a translation's image.
+	 * in a regex refinement, a language's inclusion in another or in a lexical form, a translation's image, and the text
+	 * analysis of a language the term computes, which its typing reads (typing.ts TextAnalysis).
 	 */
 	readonly patterns: PatternAutomata
-	/** The text analysis of a language the term computes, which its typing reads (typing.ts TextAnalysis). */
-	readonly patternLanguage: TextLookup
 }
 
 /**
@@ -248,7 +246,7 @@ export type LowerEnv<R extends Refs = Spelled> =
 	  })
 	| (LowerCommon<R> & { readonly mode: "check" })
 
-/** The typing a lowering reads: its environment's names, its text analyzed by the compile's lookup and patterns. */
+/** The typing a lowering reads: its environment's names, its text analyzed by the compile's patterns. */
 const typingEnvOf = <R extends Refs>(env: LowerEnv<R>): TypingEnv<R> => ({
 	loc: env.loc,
 	leaf: env.leaf,
@@ -263,7 +261,7 @@ const typingEnvOf = <R extends Refs>(env: LowerEnv<R>): TypingEnv<R> => ({
 					why: "PostgreSQL alone evaluates a declared function, and the host evaluates a check, a contract predicate and a generated field"
 				},
 	held: env.mode === "query" ? env.held : [],
-	analysis: { kind: "analyzed", lookup: env.patternLanguage, patterns: env.patterns }
+	analysis: { kind: "analyzed", patterns: env.patterns }
 })
 
 /** The premise that every value of an operand is a member of a refinement's language. */

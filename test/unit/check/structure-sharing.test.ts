@@ -76,12 +76,12 @@ export const aSharedQueryIsRefusedExactlyWhereItIsMalformedAsItIsEnteredAsItIsRe
 		check: (_, c: Case<Situation>) => (box) =>
 			Effect.sync(() => {
 				const { root, bottom } = descriptionOf(box, { count: 0 })
-				const checked = validateQueryStructure(root, { read: "rows", session: new CheckSession() })
+				const checked = validateQueryStructure(root, { read: "rows", session: CheckSession.own() })
 				if (refusedAt(box)) {
 					assert.ok(!checked.ok, `the description over a bottom query with ${box.plant} is refused`)
 					const alone = validateQueryStructure(bottom, {
 						read: "rows",
-						session: new CheckSession()
+						session: CheckSession.own()
 					})
 					assert.ok(!alone.ok, "the bottom query alone is refused")
 					assert.deepEqual(checked.error, alone.error, "the refusal is the bottom query's own")
@@ -116,7 +116,7 @@ export const aCheckThatRefusesNothingEntersEachSharedQueryOnceForEachWayItIsRead
 				const reads = { count: 0 }
 				const { root } = descriptionOf(box, reads)
 				assert.ok(
-					validateQueryStructure(root, { read: "rows", session: new CheckSession() }).ok,
+					validateQueryStructure(root, { read: "rows", session: CheckSession.own() }).ok,
 					"the description is valid"
 				)
 				assert.equal(
@@ -163,7 +163,7 @@ export const theMembersOfOneCompileAreEachRefusedAsTheSharedQueryAloneIsOrEnterI
 				Effect.sync(() => {
 					const reads = { count: 0 }
 					const { root, bottom } = descriptionOf(box, reads)
-					const session = new CheckSession()
+					const session = CheckSession.own()
 					const checks: Array<ReturnType<typeof validateQueryStructure>> = []
 					for (let i = 1; i <= members; i++) {
 						checks.push(validateQueryStructure(memberOf(root, i, reads), { read: "rows", session }))
@@ -171,7 +171,7 @@ export const theMembersOfOneCompileAreEachRefusedAsTheSharedQueryAloneIsOrEnterI
 					if (refusedAt(box)) {
 						const alone = validateQueryStructure(bottom, {
 							read: "rows",
-							session: new CheckSession()
+							session: CheckSession.own()
 						})
 						assert.ok(!alone.ok, "the bottom query alone is refused")
 						for (const checked of checks) {

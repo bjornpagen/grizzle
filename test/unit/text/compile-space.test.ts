@@ -17,13 +17,15 @@
  * shape admitted; a member, no member, and a walked member.
  */
 
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { assert, assertVariant, defined } from "@bjornpagen/testing/assert"
 import type { Reached as ReachedOf } from "@bjornpagen/testing/features"
 import { oneOf } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { regexMaxHeldStates, colorsOf, rawNfa, rawSize } from "#compiler/ir/pattern-space.ts"
-import { admitPattern } from "#compiler/scalar/regex/admit.ts"
+import { admitIr } from "#compiler/ir/pattern.ts"
+import { refusalAt } from "#compiler/scalar/regex/admit.ts"
 import { refused } from "#test/support/assert.ts"
 import { accepts } from "#test/support/fixtures/ir/scalar.ts"
 import {
@@ -144,7 +146,9 @@ export const postgreSQLsRegexCompileLimitsRefuseAPatternAsResourceBoundWithTheLi
 		check: (_, c: Case<Verdict>) => (shape) =>
 			Effect.sync(() => {
 				const label = `${shape.crosses}: /${Str.slice(0, 120)(shape.source)}/u`
-				const admitted = admitPattern(shape.source, "u", loc)
+				const admitted = Result.mapError(admitIr(shape.source, "u"), (r) =>
+					refusalAt(r, shape.source, "u", loc)
+				)
 				const refusal = admitted.ok ? undefined : refused(admitted, "ResourceBound", label).reason
 				const measure =
 					refusal?._tag === "ResourceBound" && refusal.bound.kind === "regexCompileSpace"

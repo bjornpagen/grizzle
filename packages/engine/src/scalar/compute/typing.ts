@@ -447,11 +447,12 @@ export type LowerSite = "query" | "check"
  * The text analysis a typing reads. A builder's term goes unanalyzed: it is typed before it is known where it stands,
  * so a language no declaration states is no type there, an operation's text is text of no pattern and a match
  * establishes nothing of its subject, a sound over-approximation of the type its compilation gives it. A compiled
- * term's is the compile's: a computed text's language by its lookup (textWithin), over the compile's admitted patterns.
+ * term's is the compile's: a computed text's language by its table's text analysis (textWithin), over the compile's
+ * admitted patterns (scalar/regex/patterns.ts PatternAutomata `language`).
  */
 export type TextAnalysis =
 	| { readonly kind: "unanalyzed" }
-	| { readonly kind: "analyzed"; readonly lookup: TextLookup; readonly patterns: PatternAutomata }
+	| { readonly kind: "analyzed"; readonly patterns: PatternAutomata }
 
 /** The compile's text analysis. */
 type Analyzed = Extract<TextAnalysis, { readonly kind: "analyzed" }>
@@ -473,9 +474,9 @@ type Derivation = "collapse" | CharMap
  * the value the text analysis proved of its patterns, which every type of the language holds however often a type of it
  * is made (a schema's every compile makes its fields' types again, each reading its descriptor's language): the
  * language of each mapping of its values (Derivation), analyzed where a typing first meets it and read from it after.
- * The text analysis is one function (text/refinement.ts textLookup), so every typing of a collapse or an image over a
- * text of the language reads one analysis of its derived patterns, where each typed them again, a minimal automaton
- * each. A WeakMap holds nothing alive and is never enumerated: it is the language's state.
+ * The text analysis is one function of its patterns (text/refinement.ts analyzeText), whatever table a compile reads
+ * them from, so every typing of a collapse or an image over a text of the language reads one analysis of its derived
+ * patterns, where each typed them again, a minimal automaton each. A WeakMap holds nothing alive and is never enumerated: it is the language's state.
  */
 const derivedLanguages = new WeakMap<RegexCheck, Map<Derivation, DerivedLanguage>>()
 
@@ -2561,7 +2562,7 @@ class Typing<R extends Refs> {
 			? node
 			: this.restate(
 					node,
-					this.textWithin([wildcardPattern], aBytes + bBytes, analysis.lookup, at),
+					this.textWithin([wildcardPattern], aBytes + bBytes, analysis.patterns.language, at),
 					node.actual,
 					node.facts
 				)
@@ -2611,7 +2612,7 @@ class Typing<R extends Refs> {
 			? node
 			: this.restate(
 					node,
-					this.textWithin([wildcardPattern], bytes, analysis.lookup, at),
+					this.textWithin([wildcardPattern], bytes, analysis.patterns.language, at),
 					node.actual,
 					node.facts
 				)
@@ -2921,7 +2922,7 @@ class Typing<R extends Refs> {
 		return this.textOfLanguage(
 			derivedLanguage(text, map, () => {
 				const patterns = this.image(text, map, analysis)
-				return { patterns, language: unwrap(analysis.lookup(patterns)) }
+				return { patterns, language: unwrap(analysis.patterns.language(patterns)) }
 			}),
 			bounds === undefined
 				? undefined
@@ -2940,7 +2941,9 @@ class Typing<R extends Refs> {
 		return mapNonEmpty(textPatterns(regex), (pattern): PatternSource => {
 			const sources = imageOf(pattern, map, analysis.patterns)
 			const exact = { source: sources.exact, flags: imageFlags }
-			return analysis.lookup([exact]).ok ? exact : { source: sources.within, flags: imageFlags }
+			return analysis.patterns.language([exact]).ok
+				? exact
+				: { source: sources.within, flags: imageFlags }
 		})
 	}
 
@@ -2981,12 +2984,12 @@ class Typing<R extends Refs> {
 			derivedLanguage(text, "collapse", () => {
 				const images = textPatterns(text).flatMap((pattern): ReadonlyArray<PatternSource> => {
 					const admitted = collapseSources(pattern, bounds?.length, analysis.patterns).find(
-						(c) => analysis.lookup([{ source: c.source, flags: c.flags }]).ok
+						(c) => analysis.patterns.language([{ source: c.source, flags: c.flags }]).ok
 					)
 					return admitted === undefined ? [] : [{ source: admitted.source, flags: admitted.flags }]
 				})
 				const patterns: Patterns = isNonEmpty(images) ? images : [wildcardPattern]
-				return { patterns, language: unwrap(analysis.lookup(patterns)) }
+				return { patterns, language: unwrap(analysis.patterns.language(patterns)) }
 			}),
 			bounds?.bytes,
 			at
@@ -3947,7 +3950,7 @@ class Typing<R extends Refs> {
 				return [parameter]
 			}
 			const text = this.term(argOf(counted, 0, at), childLoc(at, "subject", 0))
-			const bytes = this.bytesGuard(text, within[1], analysis.lookup, at)
+			const bytes = this.bytesGuard(text, within[1], analysis.patterns.language, at)
 			return bytes === undefined ? [parameter] : [parameter, { kind: "occurrences", holds: bytes }]
 		}
 		if (analysis.kind === "unanalyzed") {
@@ -3960,7 +3963,7 @@ class Typing<R extends Refs> {
 				flags: matchFlags
 			}),
 			own === undefined ? undefined : textInfoBounds(own)?.bytes,
-			analysis.lookup,
+			analysis.patterns.language,
 			childLoc(at, "pattern")
 		)
 		return [{ kind: "parameter", guard, holds: { kind: "language", subject: subject.node, type } }]

@@ -88,7 +88,7 @@ export const checkOptions = (label: string): CheckOptions => ({
 	read: "rows",
 	clock: noClock,
 	label,
-	session: new CheckSession()
+	session: CheckSession.own()
 })
 
 /**

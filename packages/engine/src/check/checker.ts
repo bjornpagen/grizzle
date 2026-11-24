@@ -188,10 +188,9 @@ import {
 	type ParamRef
 } from "#compiler/scalar/compute/typing.ts"
 import { type PlainCarrier, plainType } from "#compiler/scalar/native.ts"
-import type { CompilePatterns, PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
+import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import { tokenSource } from "#compiler/scalar/regex/whitespace.ts"
 import { hasCapability, spanType } from "#compiler/scalar/registry.ts"
-import { textLookup } from "#compiler/text/refinement.ts"
 /**
  * How a query is read: as rows (execute, get, compile, attach, derived, a ChangeSet member), as a page, as a
  * ChangeSet's read-back, which may read delta.added and delta.removed sources, as a write filter's membership, which
@@ -1121,9 +1120,10 @@ export class Checker {
 	readonly #importKeys = new Map<RelNode, ImportKey>()
 	/**
 	 * The admitted patterns the query's compile reads (scalar/regex/patterns.ts), its session's (session.ts
-	 * CheckSession patterns): each parsed, and minimized where a proof compares it, once for every check of the compile.
+	 * CheckSession patterns): each parsed, minimized where a proof compares it, and analyzed where a typing computes
+	 * its language, once for every check of the compile.
 	 */
-	readonly patterns: CompilePatterns
+	readonly patterns: PatternAutomata
 	/**
 	 * The order the user stated for each Take, OrderedResult and ordered Attach, completed once the DAG is built
 	 * (order.ts).
@@ -2626,7 +2626,7 @@ export class Checker {
 	 */
 	#tokenType(text: TextInfo, loc: SourceLoc): ScalarType {
 		const source = tokenSource(textPatterns(text), this.patterns)
-		const pattern = unwrap(textLookup([source]))
+		const pattern = unwrap(this.patterns.language([source]))
 		const bytes = textInfoBounds(text)?.bytes
 		const language = bytes === undefined ? pattern : languageWithin(pattern, bytes)
 		return this.schema.queryFieldType(
@@ -3219,7 +3219,6 @@ export class Checker {
 			fieldType: (desc, at) =>
 				catchRefusal(() => this.schema.queryFieldType(desc, at, this.#declarations, this.patterns)),
 			patterns: this.patterns,
-			patternLanguage: textLookup,
 			extension: (desc, at, lower) => catchRefusal(() => this.#extension(desc, lower, at))
 		}
 	}

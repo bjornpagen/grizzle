@@ -31,7 +31,8 @@ import {
 	type VarDecl
 } from "#compiler/ir/rel.ts"
 import { type RegexRef, type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
-import { CompilePatterns, type PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
+import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
+import { AnalyzedPatterns } from "#compiler/text/refinement.ts"
 import {
 	type Atom,
 	Identities,
@@ -172,14 +173,16 @@ export const patternMember = (regex: Pick<RegexRef, "patterns">, text: string): 
 
 /**
  * The admitted patterns a lowering under test reads, its membership and its matches the reference's (patternMember)
- * and each pattern's parse and minimization, which inclusion and translation read, the engine's own (CompilePatterns):
- * one table per call, as one compile holds one.
+ * and each pattern's parse and minimization, which inclusion and translation read, and the text analysis of each
+ * language it computes, the engine's own (text/refinement.ts AnalyzedPatterns): one table per call, as one compile
+ * holds one.
  */
 export const referencePatterns = (): PatternAutomata => {
-	const compiled = new CompilePatterns()
+	const compiled = new AnalyzedPatterns()
 	return {
 		parse: compiled.parse,
 		minimal: compiled.minimal,
+		language: compiled.language,
 		member: patternMember,
 		matches: (source, text) => patternMember({ patterns: [{ source, flags: matchFlags }] }, text)
 	}

@@ -1,6 +1,6 @@
 /**
  * A text pattern is analyzed once, where its descriptor is admitted: compiling a schema, from its str.regex descriptors
- * through ownership, the law model and the installation, runs the text analysis (text/refinement.ts analyzeText) and
+ * through ownership, the law model and the installation, runs the text analysis (text/refinement.ts analyzeTextIn) and
  * its subset construction (scalar/regex/dfa.ts minimalDfa) exactly once for each distinct pattern its fields declare,
  * however many relations, keys, containments and closed rows read it. Every later reader, a key's B-tree entry, a row's
  * size, a planned UNIQUE, a text domain, reads the language the descriptor carries.
@@ -142,7 +142,7 @@ export const theTextAnalysisRunsOnceForEachDistinctPatternASchemasFieldsDeclareW
 					{
 						analyzeText: {
 							file: "packages/engine/src/text/refinement.ts",
-							name: "analyzeText"
+							name: "analyzeTextIn"
 						},
 						minimalDfa: {
 							file: "packages/text/src/regex/dfa.ts",

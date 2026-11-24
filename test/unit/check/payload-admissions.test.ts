@@ -1,8 +1,9 @@
 /**
  * A closed relation's str.pattern payload is admitted once for its description, however many checked schemas read it
  * (check/closed.ts payloadAdmissions): each distinct pattern its rows hold admitted as a Text.matches pattern, its
- * parse, its automaton and its language (scalar/regex/admit.ts admitMatch), where the relation's description, one value
- * shared by every schema whose levels hold it, is first read, and read from it by every other checked schema. A
+ * parse, its automaton and its language, in the table of the checked schema that first reads the relation's
+ * description (scalar/regex/patterns.ts CompilePatterns spelling, scalar/regex/admit.ts matchAdmission), one value
+ * shared by every schema whose levels hold it, and read from it by every other checked schema. A
  * generate checks its installation's schemas many times, a level and a slice at a time, each reading the closed
  * relations below it: qti-database's admitted its 429 patterns 3,344 times, a minimal automaton each.
  *
@@ -64,9 +65,9 @@ const schemaOf = (patterns: Arr.NonEmptyReadonlyArray<string>) => {
 	return schema("Patterns", [Domain, Pattern, Value], [lexical])
 }
 
-/** The admission of a Text.matches pattern (scalar/regex/admit.ts admitMatch), counted. */
+/** The admission of a Text.matches pattern (scalar/regex/admit.ts matchAdmission), counted. */
 const admissionSites = Object.freeze({
-	admitted: { file: "packages/engine/src/scalar/regex/admit.ts", name: "admitMatch" }
+	admitted: { file: "packages/engine/src/scalar/regex/admit.ts", name: "matchAdmission" }
 })
 
 /** The times a case's schema is checked: once, twice and three times. */

@@ -120,7 +120,7 @@ export const judged = (c: Case, note: (f: Feature) => void): void => {
 				read: "region",
 				clock: noClock,
 				label: "the check over every row",
-				session: new CheckSession()
+				session: CheckSession.own()
 			})
 		)
 		const root = defined(checked.dag.roots[0], "the probe's root")

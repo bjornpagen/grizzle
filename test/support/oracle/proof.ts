@@ -28,8 +28,8 @@ import { nativeHolds } from "#compiler/scalar/compute/native.ts"
 import { nativeOp } from "#compiler/scalar/compute/registry.ts"
 import { formOctets, parseTargetOf } from "#compiler/scalar/lexical.ts"
 import { formIncludes, patternIncludes } from "#compiler/scalar/regex/inclusion.ts"
-import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { numericMaxFractionDigits, numericMaxIntegerDigits } from "#compiler/scalar/values/fault.ts"
+import { AnalyzedPatterns } from "#compiler/text/refinement.ts"
 
 /**
  * Whether a proof's premises establish its precondition: the proof kernel, which re-checks the kept proofs a lowering
@@ -118,7 +118,7 @@ const proofHolds = (
 						(m.kind === "language" &&
 							m.operand === 0 &&
 							(octets === undefined || (m.bytes !== undefined && m.bytes <= octets)) &&
-							patternIncludes(m.patterns, refinement.patterns, new CompilePatterns()).kind ===
+							patternIncludes(m.patterns, refinement.patterns, new AnalyzedPatterns()).kind ===
 								"included")
 				)
 			}
@@ -190,7 +190,7 @@ const proofHolds = (
 							((p.kind === "checked" && p.by === "literal") ||
 								(p.kind === "language" &&
 									(octets === undefined || (p.bytes !== undefined && p.bytes <= octets)) &&
-									formIncludes(p.patterns, form, new CompilePatterns()).kind === "included"))
+									formIncludes(p.patterns, form, new AnalyzedPatterns()).kind === "included"))
 					)
 				)
 			}

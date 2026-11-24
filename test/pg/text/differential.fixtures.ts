@@ -26,8 +26,8 @@ import { identity } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
+import { admitIr } from "#compiler/ir/pattern.ts"
 import { createDomain } from "#compiler/physical/ddl/domains.ts"
-import { admitPattern } from "#compiler/scalar/regex/admit.ts"
 import { emit } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 import {
@@ -79,7 +79,7 @@ interface Growth {
 }
 
 /**
- * A count's pattern as PostgreSQL is handed it: admitted (admit.ts admitPattern) with an IR some text matches, and the
+ * A count's pattern as PostgreSQL is handed it: admitted (ir/pattern.ts admitIr) with an IR some text matches, and the
  * NFA its host membership reads.
  */
 interface LivePattern {
@@ -93,21 +93,17 @@ type Measured =
 	| { readonly kind: "refused"; readonly refusal: EdgeRefusal }
 
 export const measureAt = (growth: Growth, n: number): Measured => {
-	const r = admitPattern(growth.at(n), "u", SourceLoc("str.regex", []))
+	const r = admitIr(growth.at(n), "u")
 	if (!r.ok) {
-		const reason = r.error.reason
 		return {
 			kind: "refused",
-			refusal:
-				reason._tag === "ResourceBound" && reason.bound.kind === "regexCompileSpace"
-					? reason.bound.measure.kind
-					: "another refusal"
+			refusal: r.error.kind === "compileSpace" ? r.error.measure.kind : "another refusal"
 		}
 	}
-	const { ir, nfa } = r.value
+	const ir = r.value
 	return ir.kind === "never"
 		? { kind: "refused", refusal: "no text" }
-		: { kind: "admitted", pattern: { ir, nfa } }
+		: { kind: "admitted", pattern: { ir, nfa: buildNfa(ir) } }
 }
 
 /** The largest count admitted from an admitted 1, its pattern, and what refuses the count past it. */

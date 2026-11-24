@@ -77,7 +77,6 @@ import {
 	drawnField,
 	placeDescriptor
 } from "#compiler/schema/relation.ts"
-import { textLookup } from "#compiler/text/refinement.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { contractDescriptor, spanDescriptor } from "#test/support/fixtures/descriptors.ts"
 import { scalarOf as registryTypeOf } from "#test/support/fixtures/ir/scalar.ts"
@@ -120,8 +119,7 @@ export const predicateTable = (
 	contractPredicateTable(predicate, base, name, facts, {
 		loc: SourceLoc(`contract ${name}`, []),
 		fieldType: (desc, location) => scalarTypeOf(desc, bareEnv, location),
-		patterns: referencePatterns(),
-		patternLanguage: textLookup
+		patterns: referencePatterns()
 	})
 
 /**

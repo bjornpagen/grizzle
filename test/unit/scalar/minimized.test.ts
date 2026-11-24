@@ -3,7 +3,8 @@
  * inclusion and length proofs (scalar/regex/inclusion.ts patternIncludes, bytesWithin) read each member's canonical DFA
  * from the compile's table, made the first time a proof compares it, where each proof determinized and minimized every
  * member again (text/regex/inclusion.ts inclusion over automata): 13.5 s of edullm's QTI database generate at
- * 94aa830e1 (its cpu profile, dfaOf under patternIncludes, every cast of a text into a refined text type a proof).
+ * 94aa830e1 (its cpu profile, dfaOf under patternIncludes, every cast of a text into a refined text type a proof). The
+ * minimizations are counted, never timed: V8's precise coverage counts minimalDfa's calls (kernel/calls.ts callCounts).
  *
  * The box, drawn: two to twelve proofs one compile makes, each of a conjunction of one or two patterns inside another,
  * over a pool of six admitted patterns nested in one another's languages and apart.
@@ -24,7 +25,8 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { patternIncludes } from "#compiler/scalar/regex/inclusion.ts"
-import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
+import { AnalyzedPatterns } from "#compiler/text/refinement.ts"
+import { callCounts } from "#test/support/kernel/calls.ts"
 import { boxGen, distinctPatterns, memberPlaces } from "#test/unit/scalar/minimized.fixtures.ts"
 
 type Situation = "a proof included" | "a proof refuted" | "a pattern compared twice"
@@ -41,8 +43,8 @@ export const everyVerdictOfACompilesProofsIsTheVerdictOverMembersMinimizedAfresh
 		] satisfies ReadonlyArray<Reached<Situation>>,
 		check: (_, c: Case<Situation>) => (proofs) =>
 			Effect.sync(() => {
-				const patterns = new CompilePatterns()
-				const fresh = new CompilePatterns()
+				const patterns = new AnalyzedPatterns()
+				const fresh = new AnalyzedPatterns()
 				for (const proof of proofs) {
 					const verdict = patternIncludes(proof.inner, proof.outer, patterns)
 					const afresh = inclusion(
@@ -77,13 +79,18 @@ export const aCompileMinimizesEachDistinctPatternItsProofsCompareOnceHoweverMany
 		needs: {},
 		situations: [],
 		check: () => (proofs) =>
-			Effect.sync(() => {
-				const patterns = new CompilePatterns()
-				for (const proof of proofs) {
-					patternIncludes(proof.inner, proof.outer, patterns)
-				}
+			Effect.gen(function* () {
+				const [, counts] = yield* callCounts(
+					Effect.sync(() => {
+						const patterns = new AnalyzedPatterns()
+						for (const proof of proofs) {
+							patternIncludes(proof.inner, proof.outer, patterns)
+						}
+					}),
+					{ minimalDfa: { file: "packages/text/src/regex/dfa.ts", name: "minimalDfa" } }
+				)
 				assert.equal(
-					patterns.minimized,
+					counts.minimalDfa,
 					distinctPatterns(proofs),
 					`the compile minimizes its ${distinctPatterns(proofs)} distinct patterns once, not at each of ${memberPlaces(proofs)} member places`
 				)
@@ -96,8 +103,8 @@ export const aCompileMinimizesEachDistinctPatternItsProofsCompareOnceHoweverMany
 		kills: [
 			{
 				file: "packages/engine/src/scalar/regex/patterns.ts",
-				original: "\t\tconst known = this.#outcomes.get(parsed)\n",
-				replacement: "\t\tconst known: DfaOutcome | undefined = undefined\n",
+				original: "\t\tthis.#outcome ??= minimalDfa(this.#automaton(), regexDfaLimits)\n",
+				replacement: "\t\tthis.#outcome = minimalDfa(this.#automaton(), regexDfaLimits)\n",
 				why: "Each proof minimizes its members again, where it read the compile's table: the minimizations are the member places, a pattern compared twice minimized twice, and the search fails."
 			}
 		]

@@ -2,7 +2,6 @@ import { isNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { Patterns } from "@bjornpagen/grizzle-text/regex/parse"
 import type { GeneratedRule } from "#compiler/core/causes.ts"
 import { NodeId } from "#compiler/core/ids.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { type ExprDesc, exprChildren, exprFieldReads } from "#compiler/ir/desc.ts"
 import type { Volatility } from "#compiler/ir/expr.ts"
@@ -17,7 +16,6 @@ import {
 } from "#compiler/ir/scalar.ts"
 import { bytesWithin } from "#compiler/scalar/regex/inclusion.ts"
 import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
-import { analyzeText } from "#compiler/text/refinement.ts"
 
 /**
  * A generated field's rule: a STORED generated column's expression reads its own row's written fields, literals and
@@ -188,13 +186,14 @@ export const generatedTypeRule = (
 
 /**
  * Whether the text analysis proves that no value is of both texts' types: their patterns' conjunction is the empty
- * language (text/refinement.ts analyzeText, which refuses exactly such a conjunction within the DFA bounds), or no member
- * of it, the empty text among them, takes at most the tighter of their byte bounds (scalar/regex/inclusion.ts
- * bytesWithin). Past the analysis's bounds it proves nothing, and the domain's CHECK stays the judge.
+ * language (text/refinement.ts analyzeText, which refuses exactly such a conjunction within the DFA bounds, read as the
+ * compile's table analyzes it), or no member of it, the empty text among them, takes at most the tighter of their byte
+ * bounds (scalar/regex/inclusion.ts bytesWithin). Past the analysis's bounds it proves nothing, and the domain's CHECK
+ * stays the judge.
  */
 const disjointTexts = (a: TextInfo, b: TextInfo, patterns: PatternAutomata): boolean => {
 	const both: Patterns = [...textPatterns(a), ...textPatterns(b)]
-	if (!analyzeText(both, SourceLoc("a generated field's two types", [])).ok) {
+	if (!patterns.language(both).ok) {
 		return true
 	}
 	const bounds = [textInfoBounds(a), textInfoBounds(b)].flatMap((t) =>

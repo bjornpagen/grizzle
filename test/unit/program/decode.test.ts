@@ -225,10 +225,14 @@ export const decodeRefusesExactlyWhereTheInsertsOwnAdmissionRefusesAtTheSameFiel
 		]
 	})
 
-/** The calls a decoder's work is counted by: a heading planned, a pattern parsed, a relation's nesting split. */
+/**
+ * The calls a decoder's work is counted by: a heading planned, a pattern parsed, a judge of its rows' domains made, a
+ * relation's nesting split.
+ */
 const workSites = Object.freeze({
 	plans: { file: "packages/engine/src/scalar/values/identity.ts", name: "headingPlan" },
-	parses: { file: "packages/engine/src/scalar/regex/patterns.ts", name: "admittedParse" },
+	parses: { file: "packages/text/src/regex/parse.ts", name: "parsePattern" },
+	judges: { file: "packages/engine/src/runtime/write/witness.ts", name: "judgeOf" },
 	splits: { file: "packages/engine/src/runtime/write/addition.ts", name: "relationSplit" }
 })
 
@@ -258,10 +262,7 @@ export const aDecoderPlansEachHeadingParsesEachPatternAndSplitsEachNestingOnceWh
 					Arr.every([...once, ...twice], (admitted) => admitted),
 					"every relation's rows are admitted"
 				)
-				assert.ok(
-					onceCounts.parses > 0 && onceCounts.splits > 0,
-					"a decoder parses its patterns and splits its nestings"
-				)
+				assert.ok(onceCounts.splits > 0, "a decoder splits its nestings")
 				assert.deepEqual(twiceCounts, onceCounts, "twice the rows, the same work")
 			}),
 		oracle: { kind: "specification", name: "a decoder's work a function of its schema alone" },
@@ -279,8 +280,8 @@ export const aDecoderPlansEachHeadingParsesEachPatternAndSplitsEachNestingOnceWh
 				file: "packages/engine/src/program/decode.ts",
 				original: "\t\t\t\t\t\t\t\t\t\tconst field = domainOf(judge, at, read)",
 				replacement:
-					"\t\t\t\t\t\t\t\t\t\tconst field = domainOf(judgeOf(closedTableOf(model.checked), new CompilePatterns()), at, read)",
-				why: "Each row's domains are judged by a judge of its own, its patterns parsed again: twice the rows parse twice as often."
+					"\t\t\t\t\t\t\t\t\t\tconst field = domainOf(judgeOf(closedTableOf(state.model.checked), state.model.checked.patterns), at, read)",
+				why: "Each row's domains are judged by a judge of its own, the closed relations indexed again: twice the rows make twice the judges."
 			}
 		]
 	})

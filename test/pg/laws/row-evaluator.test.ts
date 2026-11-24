@@ -113,8 +113,8 @@ export const theHostEvaluatesARowAsPostgreSQLDoesItsDomainsRefusalItsGeneratedVa
 			},
 			{
 				file: "packages/engine/src/program/evaluate.ts",
-				original: "judgeOf(closedTableOf(model.checked), new CompilePatterns())",
-				replacement: "judgeOf(new Map(), new CompilePatterns())",
+				original: "judgeOf(closedTableOf(model.checked), model.checked.patterns)",
+				replacement: "judgeOf(new Map(), model.checked.patterns)",
 				why: "The judge reads none of the schema's closed relations, so a closed read is no value of the host's."
 			},
 			{

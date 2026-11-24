@@ -4,6 +4,7 @@ import {
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
 import { utf8Width } from "@bjornpagen/grizzle-text/regex/charset"
 import { type TextBounds, textBounds } from "@bjornpagen/grizzle-text/regex/dfa"
 import {
@@ -14,14 +15,14 @@ import {
 	membersWithin
 } from "@bjornpagen/grizzle-text/regex/dfa"
 import type { RegexNode } from "@bjornpagen/grizzle-text/regex/ir"
-import type { Patterns } from "@bjornpagen/grizzle-text/regex/parse"
-import type { RegexFlags } from "@bjornpagen/grizzle-text/regex/parse"
+import { regexDfaLimits } from "@bjornpagen/grizzle-text/regex/limits"
+import type { PatternSource, Patterns, RegexFlags } from "@bjornpagen/grizzle-text/regex/parse"
 import { toAre } from "@bjornpagen/grizzle-text/regex/print"
 import { codePoints } from "@bjornpagen/grizzle-text/text"
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { type CompileError, unsupported } from "#compiler/core/errors.ts"
 import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
-import { dfaLimits, type Known, languageOf, ownKey } from "#compiler/ir/pattern.ts"
+import { type Known, knownOf, ownKey } from "#compiler/ir/pattern.ts"
 import {
 	finiteCheck,
 	languageKey,
@@ -32,7 +33,8 @@ import {
 	type RegexKey,
 	regexCheck
 } from "#compiler/ir/scalar.ts"
-import { admitPattern } from "#compiler/scalar/regex/admit.ts"
+import { refusalAt } from "#compiler/scalar/regex/admit.ts"
+import { CompilePatterns, type PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import type { TextLookup } from "#compiler/scalar/registry.ts"
 import type { Collation, Expr, TypeRef } from "#compiler/sql/ast.ts"
 import { and, binary, call, cUtf8Collation, isIn, le, lit, types } from "#compiler/sql/build.ts"
@@ -195,39 +197,44 @@ const testingOf = (members: ReadonlyArray<PatternAnalysis>): ReadonlyArray<Testi
 }
 
 /**
- * One pattern analyzed alone: admitted as every pattern grizzle hands PostgreSQL is admitted (scalar/regex/admit.ts
- * admitPattern), its grammar with source-located diagnostics and PostgreSQL's regex compile space, a pattern past one of
- * its measures refused as ResourceBound; else its IR, its ARE (scalar/regex/print.ts) and its language as the host's
- * bounds let the analysis know it (ir/pattern.ts languageOf). The empty language is one as any other here; a conjunction of it,
- * alone or beside others, is refused as every conjunction no text matches is (analyzeText). `loc` places a refusal; diagnostics point one level deeper, at the pattern offset of the
- * construct (`... .pattern[3]`).
+ * One pattern analyzed alone, read from `table`, the table of the compile it serves: admitted as every pattern grizzle
+ * hands PostgreSQL is admitted (ir/pattern.ts admitParsed), its grammar with source-located diagnostics and
+ * PostgreSQL's regex compile space, a pattern past one of its measures refused as ResourceBound (scalar/regex/admit.ts
+ * refusalAt); else its IR, its ARE (scalar/regex/print.ts) and its language as the host's bounds let the analysis know
+ * it (ir/pattern.ts knownOf, of the table's minimal DFA). The empty language is one as any other here; a conjunction of
+ * it, alone or beside others, is refused as every conjunction no text matches is (analyzeText). `loc` places a refusal;
+ * diagnostics point one level deeper, at the pattern offset of the construct (`... .pattern[3]`).
  */
 const analyzePattern = (
-	source: string,
-	flags: RegexFlags,
-	loc: SourceLoc
+	pattern: PatternSource,
+	loc: SourceLoc,
+	table: CompilePatterns
 ): Result.Result<PatternAnalysis, CompileError> => {
-	const admitted = admitPattern(source, flags, loc)
+	const { source, flags } = pattern
+	const admitted = table.admitted(pattern)
 	if (!admitted.ok) {
-		return admitted
+		return Result.err(refusalAt(admitted.error, source, flags, loc))
 	}
-	const { ir, nfa } = admitted.value
-	return Result.ok(Object.freeze({ source, flags, ir, are: toAre(ir), known: languageOf(nfa) }))
+	const ir = admitted.value
+	return Result.ok(
+		Object.freeze({ source, flags, ir, are: toAre(ir), known: knownOf(table.minimal(pattern)) })
+	)
 }
 
 /** Each pattern analyzed alone (analyzePattern) in order, or the first one's refusal. */
 const analyzeEach = (
 	patterns: Patterns,
-	loc: SourceLoc
+	loc: SourceLoc,
+	table: CompilePatterns
 ): Result.Result<NonEmptyReadonlyArray<PatternAnalysis>, CompileError> => {
 	const [first, ...rest] = patterns
-	const head = analyzePattern(first.source, first.flags, loc)
+	const head = analyzePattern(first, loc, table)
 	if (!head.ok) {
 		return head
 	}
 	const tail: Array<PatternAnalysis> = []
 	for (const pattern of rest) {
-		const analyzed = analyzePattern(pattern.source, pattern.flags, loc)
+		const analyzed = analyzePattern(pattern, loc, table)
 		if (!analyzed.ok) {
 			return analyzed
 		}
@@ -247,7 +254,7 @@ const conjunctionKnown = (members: NonEmptyReadonlyArray<PatternAnalysis>): Know
 	)
 	const product =
 		dfas.length === members.length && isNonEmpty(dfas)
-			? intersectionDfa(dfas, dfaLimits)
+			? intersectionDfa(dfas, regexDfaLimits)
 			: undefined
 	return product?.kind === "minimal"
 		? { kind: "automaton", dfa: product.dfa }
@@ -274,13 +281,22 @@ const conjunctionKnown = (members: NonEmptyReadonlyArray<PatternAnalysis>): Know
  *
  * Checks, analyzes and lowers declared patterns, whose sources and flags the description's boundary admitted
  * (field.ts admitRegex, the description decoder). `loc` is the descriptor's source location, where every refusal is
- * placed; a pattern's diagnostic names it.
+ * placed; a pattern's diagnostic names it. It reads each pattern from a table of its own (analyzeTextIn); a compile
+ * analyzes in its own table (AnalyzedPatterns).
  */
 export const analyzeText = (
 	patterns: Patterns,
 	loc: SourceLoc
 ): Result.Result<TextRefinement, CompileError> =>
-	Result.flatMap(analyzeEach(patterns, loc), (members) => {
+	analyzeTextIn(patterns, loc, new CompilePatterns())
+
+/** The text analysis of `patterns` (analyzeText), each pattern read from `table`. */
+const analyzeTextIn = (
+	patterns: Patterns,
+	loc: SourceLoc,
+	table: CompilePatterns
+): Result.Result<TextRefinement, CompileError> =>
+	Result.flatMap(analyzeEach(patterns, loc, table), (members) => {
 		const known = conjunctionKnown(members)
 		if (known.kind === "automaton" && known.dfa.states.length === 0) {
 			return Result.err(
@@ -316,14 +332,45 @@ export const textLanguage = (refinement: TextRefinement): PatternLanguage => {
 		: Object.freeze({ kind: "refined", key: refinement.digest, check })
 }
 
+/** The analyzed language of a conjunction of patterns read from `table`, a refusal located at the patterns. */
+const languageIn = (
+	patterns: Patterns,
+	table: CompilePatterns
+): Result.Result<PatternLanguage, CompileError> =>
+	Result.map(analyzeTextIn(patterns, SourceLoc(patternsText(patterns), []), table), textLanguage)
+
 /**
- * The analyzed language of a conjunction of patterns, a refusal located at the patterns: what a text descriptor is
- * admitted with (text/field.ts), and what a lowering types patterns it computes by (scalar/registry.ts TextLookup). Each
- * call analyzes: a descriptor carries its language from its admission on, so no later pass calls it for declared
- * patterns.
+ * The analyzed language of a conjunction of patterns, a refusal located at the patterns, from a table of its own: what a
+ * text descriptor is admitted with (text/field.ts). A descriptor carries its language from its admission on, so no
+ * later pass analyzes declared patterns; a compile types the patterns it computes by its own table's languages
+ * (AnalyzedPatterns).
  */
-export const textLookup: TextLookup = (patterns) =>
-	Result.map(analyzeText(patterns, SourceLoc(patternsText(patterns), [])), textLanguage)
+export const textLookup: TextLookup = (patterns) => languageIn(patterns, new CompilePatterns())
+
+/**
+ * The patterns one compile meets (scalar/regex/patterns.ts CompilePatterns) with the text analysis of each conjunction
+ * of them the compile types (scalar/regex/patterns.ts PatternAutomata `language`), analyzed the first time it is read
+ * over the table's own admissions and minimal DFAs and read from the table after: the language of a conjunction is its
+ * patterns' alone, in their order, so a compile's every typing of a text of one conjunction, a Logic.when's match or a
+ * byte guard over a text of its patterns, reads one analysis: O(c) analyses for the c distinct conjunctions a compile
+ * types, where each of its typings analyzed every member again. Over edullm's QTI schema's laws (qti-pie 1bf7dcc's lawsOf) 90 typings of 15 conjunctions analyzed 173 members of
+ * 9 patterns; with the compile's one table (scalar/regex/patterns.ts CompilePatterns) lawsOf's CPU went from 5,549 ms
+ * to 5,215 ms median, eight interleaved runs on the loaded machine. The text analysis is a layer above the patterns, so
+ * it is this module's to add to the compile's table.
+ */
+export class AnalyzedPatterns extends CompilePatterns implements PatternAutomata {
+	/** Each conjunction's language, by its patterns' flags and sources in order. */
+	readonly #languages = new TupleMap<
+		ReadonlyArray<string>,
+		Result.Result<PatternLanguage, CompileError>
+	>()
+
+	readonly language: TextLookup = (patterns) =>
+		this.#languages.getOrInsertComputed(
+			patterns.flatMap((p) => [p.flags, p.source]),
+			() => languageIn(patterns, this)
+		)
+}
 
 /** A domain CHECK's VALUE. */
 export const domainValue: Expr = Object.freeze({ kind: "domainValue" })

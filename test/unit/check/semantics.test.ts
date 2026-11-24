@@ -377,9 +377,9 @@ export const theCheckersParameterMemberAndBoundRulesBindANegatedMatchsParameterW
 		kills: [
 			{
 				file: "packages/engine/src/analysis/schema.ts",
-				original: "this.closedReads = closedReads(readable)",
+				original: "this.closedReads = closedReads(readable, this.patterns)",
 				replacement: "{}",
-				why: "Operator mutant 14ac793b0a at packages/engine/src/analysis/schema.ts:474 in <module>: `this.closedReads = closedReads(readable)` becomes `{}`; the property fails (the census, lane TESTPOLICY2)."
+				why: "Operator mutant 14ac793b0a at packages/engine/src/analysis/schema.ts:474 in <module>: `this.closedReads = closedReads(readable, this.patterns)` becomes `{}`; the property fails (the census, lane TESTPOLICY2)."
 			}
 		]
 	})

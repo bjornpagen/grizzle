@@ -322,7 +322,7 @@ const judgedStatement = (
 				{ kind: "perStatement", extent },
 				new Navigation(b.model.theory.regionFacts)
 			),
-			{ read: "region", label, clock: noClock, session: new CheckSession() }
+			{ read: "region", label, clock: noClock, session: new CheckSession(b.checked.patterns) }
 		)
 	)
 	const requests = requestsAt(checked.dag.roots[0])

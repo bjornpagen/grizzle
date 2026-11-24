@@ -133,7 +133,12 @@ import { lowerPredicate, lowerTerm } from "#compiler/scalar/compute/lower.ts"
 import { languagePattern, predicateSource } from "#compiler/scalar/compute/predicate-source.ts"
 import { type ClosedRelations, type LeafDesc, noParams } from "#compiler/scalar/compute/typing.ts"
 import { guardedTerm } from "#compiler/scalar/natural.ts"
-import { ProgramPatterns, tablePatterns, typePatterns } from "#compiler/scalar/regex/patterns.ts"
+import {
+	type CompilePatterns,
+	ProgramPatterns,
+	tablePatterns,
+	typePatterns
+} from "#compiler/scalar/regex/patterns.ts"
 import type { Owned } from "#compiler/schema/own.ts"
 import type { Slice } from "#compiler/schema/reach.ts"
 import { alignUp, maxAlign } from "#compiler/schema/representability.ts"
@@ -477,8 +482,9 @@ export interface LawModel {
 	/** The checker's reading of the owned schema, whose relation handles the theory's laws read. */
 	readonly checked: CheckedSchema
 	/**
-	 * Every admitted pattern the host evaluates against over the model (lawPatterns), each parsed once, where the model
-	 * compiles: what a write's host fill and its refusal's witness read per row, parsing none.
+	 * Every admitted pattern the host evaluates against over the model (lawPatterns), each parse read from its checked
+	 * schema's table, where the model compiles: what a write's host fill and its refusal's witness read per row, parsing
+	 * none.
 	 */
 	readonly patterns: ProgramPatterns
 	/**
@@ -530,12 +536,14 @@ const judgedOf = (
  * The admitted patterns the host's evaluation of a write reads over the model: the field types and generated
  * expressions of every stored relation its slice writes, which are the relations a write's rows are of, every family
  * fold's selections, and every constraint native's predicates the witness judges (runtime/write/fill.ts hostEvaluator,
- * runtime/write/witness.ts).
+ * runtime/write/witness.ts), each parse read from `compile`, the checked schema's table, which parsed every pattern its
+ * fields and closed relations hold.
  */
 const lawPatterns = (
 	stored: ReadonlyArray<TheoryRelation>,
 	families: ReadonlyArray<Family>,
-	natives: ReadonlyArray<NamedNative>
+	natives: ReadonlyArray<NamedNative>,
+	compile: CompilePatterns
 ): ProgramPatterns => {
 	const exprPatterns = (e: ScalarExpr): ReadonlyArray<PatternSource> =>
 		tablePatterns(predicateTable(e))
@@ -557,19 +565,22 @@ const lawPatterns = (
 				return []
 		}
 	}
-	return ProgramPatterns.of([
-		...stored.flatMap((r) =>
-			r.fields.flatMap((f) => {
-				const generation = generationOf(f)
-				return [
-					...typePatterns(f.type),
-					...(generation === undefined ? [] : exprPatterns(generation))
-				]
-			})
-		),
-		...families.flatMap((f) => f.folds.flatMap((fold) => fold.where.flatMap(exprPatterns))),
-		...natives.flatMap(nativePatterns)
-	])
+	return ProgramPatterns.ofCompile(
+		[
+			...stored.flatMap((r) =>
+				r.fields.flatMap((f) => {
+					const generation = generationOf(f)
+					return [
+						...typePatterns(f.type),
+						...(generation === undefined ? [] : exprPatterns(generation))
+					]
+				})
+			),
+			...families.flatMap((f) => f.folds.flatMap((fold) => fold.where.flatMap(exprPatterns))),
+			...natives.flatMap(nativePatterns)
+		],
+		compile
+	)
 }
 
 /** A native object's identity (`nativeIdentity`) as a TupleMap key: a key's KeyColumnSet tuple, or any other object's
@@ -1123,7 +1134,7 @@ class Specializer {
 			theory.regionFacts,
 			keys
 		)
-		this.#typing = typingEnv(checked.owned)
+		this.#typing = typingEnv(checked.owned, checked.patterns)
 		this.#laws = new Map([
 			...theory.laws.map((l) => [l.id, l] as const),
 			...theory.primaryKeys.map((pk) => [pk.law.id, pk.law] as const)
@@ -1356,7 +1367,8 @@ class Specializer {
 			patterns: lawPatterns(
 				this.checked.stored.filter((r) => this.writes.has(r.name)),
 				this.theory.families,
-				natives
+				natives,
+				this.checked.patterns
 			),
 			unrepresentable: this.recognizer.keys.met()
 		}

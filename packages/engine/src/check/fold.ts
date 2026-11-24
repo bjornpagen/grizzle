@@ -17,8 +17,7 @@ import { type CombineFn, combine, type MonoidSpec } from "#compiler/ir/monoid.ts
 import { enteredType, entersColumn, type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
 import { exprEmitter, lowerPredicate } from "#compiler/scalar/compute/lower.ts"
 import { noClosedRelations, noParams } from "#compiler/scalar/compute/typing.ts"
-import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
-import { textLookup } from "#compiler/text/refinement.ts"
+import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 
 /**
  * A fold's typing: what `fold(family, Monoid.m, step, end)` names, resolved to its fields.
@@ -153,12 +152,16 @@ const one: ExprDesc = { kind: "literal", value: 1n }
  * and x a column of the plane's type with no text refinement (scalar.ts enteredType), which each of them refines on its
  * own. The comparison widens both sides into exact arithmetic where the combine computes
  * there (count's and sum's `+`), so nothing narrows; the combine applies the scalar operations (ir/monoid.ts CombineFn),
- * each of which a check admits only where the host evaluates it, as it must to fill the after.
+ * each of which a check admits only where the host evaluates it, as it must to fill the after. It reads `patterns`,
+ * its compile's table.
  */
-export const combineRule = (monoid: MonoidSpec, plane: ScalarType): string | undefined => {
+export const combineRule = (
+	monoid: MonoidSpec,
+	plane: ScalarType,
+	patterns: PatternAutomata
+): string | undefined => {
 	const loc = SourceLoc(`fold ${monoid.name}`, [])
 	const carrier = enteredType(plane)
-	const patterns = new CompilePatterns()
 	const befores: NonEmptyReadonlyArray<ExprDesc> = mapNonEmpty(monoid.planes, () => operand)
 	const combined = combine<ExprDesc>(
 		monoid,
@@ -178,8 +181,7 @@ export const combineRule = (monoid: MonoidSpec, plane: ScalarType): string | und
 				fieldType: () =>
 					Result.err(malformedDescription(loc, "no descriptor: a combine reads its planes alone")),
 				closed: noClosedRelations("a fold's combine reads its planes and its step alone"),
-				patterns,
-				patternLanguage: textLookup
+				patterns
 			}
 		)
 		if (!typed.ok) {

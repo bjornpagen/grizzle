@@ -1100,7 +1100,7 @@ const compile = (
 
 	/** 1. Check the members and read-backs, merging their queries into one DAG in that order, every check one session's
 	 * (check/session.ts), so every closed import of one key, in any of them, is one node of the DAG. */
-	const session = new CheckSession()
+	const session = CheckSession.own()
 	/** Its members' navigation, each query they read navigated once for the ChangeSet (analysis/theory/navigate.ts). */
 	const navigation = new Navigation(laws.theory.regionFacts)
 	const merger = new QueryMerger(session)

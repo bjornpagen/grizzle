@@ -100,7 +100,7 @@ export const queryFromDescription = (
 					read: "rows",
 					clock: noClock,
 					label: "query",
-					session: new CheckSession()
+					session: CheckSession.own()
 				})
 			),
 			() => queryFromDesc(desc, schema)

@@ -95,6 +95,12 @@ export interface SchemaReading {
 	readonly closed: ReadonlyMap<string, ClosedRelation>
 	/** The closed relations C.at and C.row apply (check/closed.ts closedReads): every closed relation, no roster. */
 	readonly closedReads: ClosedRelations
+	/**
+	 * The admitted patterns of the schema's own compile, with the text analysis of each conjunction it types
+	 * (analysis/schema.ts CheckedSchema `patterns`): what a check inside that compile reads, a derived definition's
+	 * among them (check/session.ts CheckSession).
+	 */
+	readonly patterns: PatternAutomata
 	/** A relation by name, refused when the schema or role holds none of that name. */
 	relation(name: string, loc: SourceLoc): ReadRelation
 	/**

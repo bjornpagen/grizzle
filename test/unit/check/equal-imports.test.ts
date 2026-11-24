@@ -187,8 +187,8 @@ export const aCompileDigestsItsImportsForItselfAlone = property.exhaust(shapeGen
 			noteShape(shape, c)
 			checkedOf(shape, "a factory per import")
 			const desc = descOf(shape, "a factory per import")
-			const compile = new CheckSession()
-			const nextCompile = new CheckSession()
+			const compile = CheckSession.own()
+			const nextCompile = CheckSession.own()
 			const first = yield* digestingOf(() => checkedBy(desc, compile))
 			const next = yield* digestingOf(() => checkedBy(desc, nextCompile))
 			assert.equal(

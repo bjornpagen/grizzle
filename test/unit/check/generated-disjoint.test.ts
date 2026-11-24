@@ -81,8 +81,7 @@ export const aGeneratedFieldIsRefusedExactlyWhenNoValueOfItsExpressionsTypeIsOne
 		kills: [
 			{
 				file: "packages/engine/src/check/generated.ts",
-				original:
-					'\tif (!analyzeText(both, SourceLoc("a generated field\'s two types", [])).ok) {\n\t\treturn true\n\t}',
+				original: "\tif (!patterns.language(both).ok) {\n\t\treturn true\n\t}",
 				replacement: "",
 				why: "A pair whose patterns share no value is admitted, its domain refusing every row; the property fails."
 			},

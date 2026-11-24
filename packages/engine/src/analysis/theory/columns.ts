@@ -69,7 +69,7 @@ export const knownColumns = (
 	checked: CheckedSchema
 ): ((relation: string, query: InferredQuery, loc: SourceLoc) => ColumnTypes) => {
 	const known = new WeakMap<InferredQuery, ColumnTypes>()
-	const session = new CheckSession()
+	const session = new CheckSession(checked.patterns)
 	return (relation, query, loc) => {
 		const found = known.get(query)
 		if (found !== undefined) {
