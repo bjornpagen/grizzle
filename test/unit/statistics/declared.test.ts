@@ -64,6 +64,17 @@ export const declaredStatisticsBindOneRowAtAKeyAndTwoOrMoreAtEverySetApartAsPost
 							)
 						}
 						return
+					case "unsettled":
+						c.note("an unsettled raise")
+						for (const b of d.bounds) {
+							assert.ok(
+								b.kind === "key"
+									? Arr.some(shape.keys, (k) => Arr.join(k, ",") === Arr.join(b.columns, ","))
+									: !holdsKey(shape, b.columns),
+								"an unsettled raise names the shape's own keys and sets apart"
+							)
+						}
+						return
 					case "beyondValues": {
 						c.note("a column beyond its values")
 						const values = Option.getOrUndefined(

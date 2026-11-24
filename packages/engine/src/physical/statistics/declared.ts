@@ -1,7 +1,7 @@
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { compareStrings } from "#compiler/core/order.ts"
-import { type Bound, leastExponents } from "#compiler/physical/statistics/least.ts"
+import { type Bound, exponentsOf } from "#compiler/physical/statistics/exponents.ts"
 import type { CreateTable, DeclaredDistinct, DeclareStatistics } from "#compiler/sql/ast.ts"
 
 /**
@@ -38,7 +38,7 @@ import type { CreateTable, DeclaredDistinct, DeclareStatistics } from "#compiler
  *   holds at most k values, so 2^x ≤ k; a boolean holds 2.
  * Each bound is PostgreSQL's own independence product over the exact columns the set holds, a generated column and the
  * columns it is computed from together, so a set that binds both is priced as PostgreSQL prices it. The exponents are
- * the least integers meeting every bound (physical/statistics/least.ts): a key holding two anchors binds at most one
+ * the integers a raise from all ones reaches (physical/statistics/exponents.ts): a key holding two anchors binds at most one
  * row at any size worth planning and needs no bound; a key or a set apart holding none, of a relation whose indexes lead
  * by several columns, is priced by its unique index alone, or binds the more rows the larger the table.
  */
@@ -86,9 +86,10 @@ export type CrossingBound =
 
 /**
  * A relation's declaration: each column's number of distinct values, in the shape's column order; or no number of
- * distinct values ranks its statements' access paths: `crossing`, the least set of bounds that no exponents meet
- * together (keys whose columns the sets apart cover, as a pair of keys crossed by a pair of sets); or `beyondValues`, the least
- * exponents asking a column for more values than its type holds.
+ * distinct values ranks its statements' access paths: `crossing`, bounds that no exponents meet together, by their proof
+ * (a key whose columns a set apart covers, or keys crossed by sets whose differences sum to no column, exponents.ts);
+ * `unsettled`, bounds grizzle's raise did not meet within its rounds, a limitation of grizzle's; or `beyondValues`, the
+ * raised exponents asking a column for more values than its type holds.
  */
 export type Declaration =
 	| {
@@ -100,6 +101,7 @@ export type Declaration =
 			readonly dependencies: ReadonlyArray<DeclaredDependency>
 	  }
 	| { readonly kind: "crossing"; readonly bounds: NonEmptyReadonlyArray<CrossingBound> }
+	| { readonly kind: "unsettled"; readonly bounds: NonEmptyReadonlyArray<CrossingBound> }
 	| {
 			readonly kind: "beyondValues"
 			readonly column: string
@@ -308,13 +310,13 @@ export const declarationOf = (shape: RelationShape): Declaration => {
 		}
 	}
 
-	const least = leastExponents({ anchors: anchors.length, columns: free.length, bounds })
-	if (least.kind === "crossing") {
-		const [first, ...rest] = least.bounds.map((i) => defined(meaning[i], "a bound's meaning"))
-		return { kind: "crossing", bounds: [defined(first, "a crossing's bound"), ...rest] }
+	const raised = exponentsOf({ anchors: anchors.length, columns: free.length, bounds })
+	if (raised.kind !== "exponents") {
+		const [first, ...rest] = raised.bounds.map((i) => defined(meaning[i], "a bound's meaning"))
+		return { kind: raised.kind, bounds: [defined(first, "a refused bound"), ...rest] }
 	}
 	for (const [c, exponent] of free.map(
-		(col, i) => [col, defined(least.columns[i], "an exponent")] as const
+		(col, i) => [col, defined(raised.columns[i], "an exponent")] as const
 	)) {
 		const v = values.get(c)
 		if (v?.kind === "few" && 2 ** exponent > v.handles) {
@@ -328,7 +330,7 @@ export const declarationOf = (shape: RelationShape): Declaration => {
 			dependent,
 			exponent:
 				defined(
-					least.anchors[defined(anchorOf.get(determinant), "a determinant's place")],
+					raised.anchors[defined(anchorOf.get(determinant), "a determinant's place")],
 					"its exponent"
 				) - 1
 		})),
@@ -339,7 +341,7 @@ export const declarationOf = (shape: RelationShape): Declaration => {
 					column,
 					distinct: {
 						kind: "relative",
-						exponent: defined(least.anchors[anchor], "an anchor's exponent")
+						exponent: defined(raised.anchors[anchor], "an anchor's exponent")
 					}
 				}
 			}
@@ -348,7 +350,7 @@ export const declarationOf = (shape: RelationShape): Declaration => {
 				column,
 				distinct: {
 					kind: "absolute",
-					exponent: at === undefined ? 0 : defined(least.columns[at], "a column's exponent")
+					exponent: at === undefined ? 0 : defined(raised.columns[at], "a column's exponent")
 				}
 			}
 		})

@@ -1,67 +1,122 @@
-import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
-import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
-
 /**
- * The least exponents of a relation's declared statistics (physical/statistics/declared.ts), found exactly.
- *
- * Each anchor `a` of a relation, a column whose values PostgreSQL is told are a fixed number of rows each at any size of
- * the table, holds 2^y_a rows a value; each other column `c` the planner multiplies by halves a bound set's rows
- * 2^x_c times. A bound is one column set over one anchor, the anchor among its columns and no other, its other
- * columns `columns`:
- * - a key binds at most one row: Σ x_c ≥ y_a;
- * - a set apart, which holds no key, binds two rows or more: Σ x_c ≤ y_a − 1 (an anchor that is no key alone is a set
- *   apart with no other column, y_a ≥ 1; one that is a key alone a key with none, y_a = 0).
- * A bound over a pair of anchors a declared dependency ties is the same with 1 in y_a's place: the pair binds two rows.
- * The unknowns are integers, y_a ≥ 0 and x_c ≥ 1: PostgreSQL rounds a declared absolute number of distinct values to an
- * integer (selfuncs.c get_variable_numdistinct, clamp_row_est), and every column at least halves the rows it binds.
- *
- * The least solution is canonical: the least largest anchor exponent Y, then the columns' exponents least in column
- * order (lexicographically), then each anchor's least exponent under them, 1 more than its largest set apart's sum, or
- * 0. Exactly:
- * - the system holds integer solutions iff it holds rational ones: a rational solution (x, y) scaled by any t ≥ 1 stays
- *   one (t·Σx ≥ t·y; t·Σx ≤ t·y − t ≤ t·y − 1; t·x ≥ 1), and scaled by its denominators' least common multiple it is
- *   an integer one. So an exact rational simplex decides it (`feasible`, Bland's rule over exact fractions, which
- *   terminates), and a system with none is refused with a least set of bounds that holds none (`crossing`, the
- *   deletion filter: each bound in order dropped where the rest still holds no solution);
- * - with Y fixed, every column's exponent is at most the greater of Y and 1 in some least solution: one in a set apart
- *   is below its anchor's exponent, one in keys alone serves them at that, one in no bound is 1. So the solutions at Y lie in a finite box, which
- *   a depth-first search walks in lexicographic order, pruning each partial assignment no completion meets (`atMost`);
- *   its first leaf is the least. Y runs up from its least possible value and stops by the scaled rational solution's
- *   largest anchor exponent (`ceiling`), where the system holds an integer solution: the search is bounded by that
- *   box.
+ * What the properties of exponents.test.ts read: their spaces of systems, whether exponents meet a system's bounds, and
+ * e2abf18f2's exact search for the least exponents (`exactLeast`), the raise's oracle and nothing else's.
  */
 
+import { defined } from "@bjornpagen/testing/assert"
+import { array, boolean, type Gen, int, subset, weighted } from "@bjornpagen/testing/gen"
+import { Array as Arr, Option } from "effect"
+import type { Bound, ExponentSystem, Over } from "#compiler/physical/statistics/exponents.ts"
+
+export type ExponentsFeature =
+	| "exponents"
+	| "a crossing"
+	| "a crossing the raise's last round proves"
+	| "an unsettled raise"
+	| "an anchor above 1"
+	| "a column above 1"
+	| "two anchors"
+	| "a bound over a pair"
+
 /**
- * What a bound's set holds of the relation's anchors: one anchor, by its position, whose exponent is the bound's; or a
- * pair of anchors a declared dependency ties (declared.ts), which binds two rows at any size, an exponent of 1.
+ * A small system drawn free: one or two anchors, one to four columns, one to six bounds over them, each bound of its
+ * kind, its anchor, or one time in four a pair of anchors a dependency ties, and a subset of the columns; most cross.
  */
-export type Over = { readonly kind: "anchor"; readonly at: number } | { readonly kind: "pair" }
-
-/** One bound of a system, over an anchor or a pair and other columns by their positions (see the module's doc). */
-export interface Bound {
-	readonly kind: "key" | "apart"
-	readonly over: Over
-	readonly columns: ReadonlyArray<number>
-}
-
-/** A system of bounds over `anchors` anchors and `columns` other columns, each by its position. */
-export interface ExponentSystem {
-	readonly anchors: number
-	readonly columns: number
-	readonly bounds: ReadonlyArray<Bound>
+const freeSystemGen: Gen<ExponentSystem> = (source) => {
+	const anchors = source.draw(int(1, 2))
+	const columns = source.draw(int(1, 4))
+	const indexes = Array.from({ length: columns }, (_, c) => c)
+	const bound: Gen<Bound> = (s) => ({
+		kind: s.draw(boolean) ? "key" : "apart",
+		over: s.draw(
+			weighted<Over>([
+				[3, (t) => ({ kind: "anchor", at: t.draw(int(0, anchors - 1)) })],
+				[1, () => ({ kind: "pair" })]
+			])
+		),
+		columns: s.draw(subset(indexes, { min: 0, max: columns }))
+	})
+	return { anchors, columns, bounds: source.draw(array(bound, { min: 1, max: 6 })) }
 }
 
 /**
- * The least solution of a system, each anchor's and each column's exponent by position; or a crossing: the system holds
- * none, and `bounds`, by their positions in the system, is a least set of its bounds that holds none.
+ * A system of exponents drawn first and bounds drawn after, each kept where the exponents meet it: one to `anchors`
+ * anchors of exponents 0 to 11, one to `columns` columns of exponents 1 to 5, up to `bounds` bounds, each a key or a set
+ * apart over an anchor, one time in twenty over a pair, and a subset of at most `width` columns. Every such system holds
+ * a solution, the drawn one.
  */
-export type Least =
-	| {
-			readonly kind: "least"
-			readonly anchors: ReadonlyArray<number>
-			readonly columns: ReadonlyArray<number>
-	  }
-	| { readonly kind: "crossing"; readonly bounds: NonEmptyReadonlyArray<number> }
+const plantedSystemGen =
+	(size: {
+		readonly anchors: number
+		readonly columns: number
+		readonly bounds: number
+		readonly width: number
+	}): Gen<ExponentSystem> =>
+	(source) => {
+		const anchors = source.draw(int(1, size.anchors))
+		const columns = source.draw(int(1, size.columns))
+		const x = Array.from({ length: columns }, () => source.draw(int(1, 5)))
+		const y = Array.from({ length: anchors }, () => source.draw(int(0, 11)))
+		const indexes = Array.from({ length: columns }, (_, c) => c)
+		const drawn = source.draw(
+			array<Bound>(
+				(s) => ({
+					kind: s.draw(boolean) ? "key" : "apart",
+					over: s.draw(
+						weighted<Over>([
+							[19, (t) => ({ kind: "anchor", at: t.draw(int(0, anchors - 1)) })],
+							[1, () => ({ kind: "pair" })]
+						])
+					),
+					columns: s.draw(subset(indexes, { min: 0, max: Math.min(columns, size.width) }))
+				}),
+				{ min: 1, max: size.bounds }
+			)
+		)
+		const bounds = Arr.filter(drawn, (b) => meets({ anchors, columns, bounds: [b] }, y, x))
+		return {
+			anchors,
+			columns,
+			bounds:
+				bounds.length > 0
+					? bounds
+					: [{ kind: "apart", over: { kind: "anchor", at: 0 }, columns: [] }]
+		}
+	}
+
+/**
+ * The comparison's space: a free system one time in four, most of them crossing; else a planted one of up to four
+ * anchors, ten columns and eighteen bounds, which holds a solution.
+ */
+export const systemGen: Gen<ExponentSystem> = weighted([
+	[1, freeSystemGen],
+	[3, plantedSystemGen({ anchors: 4, columns: 10, bounds: 18, width: 10 })]
+])
+
+/**
+ * The work property's space, a wide schema's: a planted system of up to eight anchors, sixty-four columns and four
+ * hundred bounds, each over at most eight columns.
+ */
+export const wideSystemGen: Gen<ExponentSystem> = plantedSystemGen({
+	anchors: 8,
+	columns: 64,
+	bounds: 400,
+	width: 8
+})
+
+/** Whether exponents meet every bound of `system`. */
+export const meets = (
+	system: ExponentSystem,
+	anchors: ReadonlyArray<number>,
+	columns: ReadonlyArray<number>
+): boolean =>
+	Arr.every(anchors, (y) => y >= 0) &&
+	Arr.every(columns, (x) => x >= 1) &&
+	Arr.every(system.bounds, (b) => {
+		const sum = Arr.reduce(b.columns, 0, (s, c) => s + (columns[c] ?? 0))
+		const y = b.over.kind === "pair" ? 1 : (anchors[b.over.at] ?? 0)
+		return b.kind === "key" ? sum >= y : sum <= y - 1
+	})
 
 /** An exact rational, its denominator positive and coprime to its numerator. */
 interface Fraction {
@@ -104,7 +159,7 @@ const rowsOf = (
 	system: ExponentSystem,
 	bounds: ReadonlyArray<Bound>
 ): ReadonlyArray<{ readonly coefficients: ReadonlyArray<bigint>; readonly limit: bigint }> =>
-	bounds.map((b) => {
+	Arr.map(bounds, (b) => {
 		const coefficients = Array.from({ length: system.anchors + system.columns }, () => 0n)
 		const sense = b.kind === "key" ? -1n : 1n
 		if (b.over.kind === "anchor") {
@@ -131,9 +186,9 @@ const feasible = (
 ): ReadonlyArray<Fraction> | undefined => {
 	const rows = rowsOf(system, bounds)
 	const unknowns = system.anchors + system.columns
-	const negative = rows.flatMap((r, i) => (r.limit < 0n ? [i] : []))
+	const negative = Arr.flatMap(rows, (r, i) => (r.limit < 0n ? [i] : []))
 	const width = unknowns + rows.length + negative.length
-	const tableau: Array<Array<Fraction>> = rows.map((r, i) => {
+	const tableau: Array<Array<Fraction>> = Arr.map(rows, (r, i) => {
 		const negated = r.limit < 0n
 		const s = negated ? -1n : 1n
 		const line = Array.from({ length: width + 1 }, () => zero)
@@ -148,7 +203,7 @@ const feasible = (
 		line[width] = whole(s * r.limit)
 		return line
 	})
-	const basis = rows.map((r, i) =>
+	const basis = Arr.map(rows, (r, i) =>
 		r.limit < 0n ? unknowns + rows.length + negative.indexOf(i) : unknowns + i
 	)
 	const cost = (j: number): Fraction => (j >= unknowns + rows.length ? whole(1n) : zero)
@@ -156,9 +211,12 @@ const feasible = (
 		defined(defined(tableau[i], "a tableau row")[j], "a tableau cell")
 	for (;;) {
 		const reduced = (j: number): Fraction =>
-			basis.reduce((r, column, i) => sub(r, mul(cost(column), at(i, j))), cost(j))
-		const entering = Array.from({ length: width }, (_, j) => j).find(
-			(j) => !basis.includes(j) && sign(reduced(j)) < 0
+			Arr.reduce(basis, cost(j), (r, column, i) => sub(r, mul(cost(column), at(i, j))))
+		const entering = Option.getOrUndefined(
+			Arr.findFirst(
+				Array.from({ length: width }, (_, j) => j),
+				(j) => !basis.includes(j) && sign(reduced(j)) < 0
+			)
 		)
 		if (entering === undefined) {
 			break
@@ -182,11 +240,13 @@ const feasible = (
 			}
 		}
 		if (leaving === undefined) {
-			throw defect("phase 1 of the simplex is bounded below by 0, so no column enters unboundedly")
+			throw new Error(
+				"phase 1 of the simplex is bounded below by 0, so no column enters unboundedly"
+			)
 		}
 		const pivotRow = defined(tableau[leaving], "the leaving row")
 		const pivot = defined(pivotRow[entering], "the pivot")
-		const normalized = pivotRow.map((v) => div(v, pivot))
+		const normalized = Arr.map(pivotRow, (v) => div(v, pivot))
 		tableau[leaving] = normalized
 		for (const [i, line] of tableau.entries()) {
 			if (i === leaving) {
@@ -194,14 +254,13 @@ const feasible = (
 			}
 			const factor = defined(line[entering], "a cell of the entering column")
 			if (sign(factor) !== 0) {
-				tableau[i] = line.map((v, j) => sub(v, mul(factor, defined(normalized[j], "a cell"))))
+				tableau[i] = Arr.map(line, (v, j) => sub(v, mul(factor, defined(normalized[j], "a cell"))))
 			}
 		}
 		basis[leaving] = entering
 	}
-	const artificials = basis.reduce(
-		(s, column, i) => (column >= unknowns + rows.length ? add(s, at(i, width)) : s),
-		zero
+	const artificials = Arr.reduce(basis, zero, (s, column, i) =>
+		column >= unknowns + rows.length ? add(s, at(i, width)) : s
 	)
 	if (sign(artificials) !== 0) {
 		return undefined
@@ -212,18 +271,14 @@ const feasible = (
 	})
 }
 
-/** Two bounds are one where they hold one kind, one anchor and one set of columns. */
-const boundKey = (b: Bound): string =>
-	`${b.kind}\u0000${b.over.kind === "anchor" ? b.over.at : "pair"}\u0000${[...new Set(b.columns)].toSorted((x, y) => x - y).join(",")}`
-
 /**
  * The largest anchor exponent of an integer solution: the rational point (x, y) scaled by its denominators' least common
  * multiple, which is one (see the module's doc).
  */
 const ceiling = (system: ExponentSystem, point: ReadonlyArray<Fraction>): number => {
-	const lcm = point.reduce((m, v) => (m * v.d) / gcd(m, v.d), 1n)
-	const exponents = point.slice(0, system.anchors).map((v) => (v.n * lcm) / v.d)
-	return Number(exponents.reduce((m, v) => (v > m ? v : m), 0n))
+	const lcm = Arr.reduce(point, 1n, (m, v) => (m * v.d) / gcd(m, v.d))
+	const exponents = Arr.map(point.slice(0, system.anchors), (v) => (v.n * lcm) / v.d)
+	return Number(Arr.reduce(exponents, 0n, (m, v) => (v > m ? v : m)))
 }
 
 /**
@@ -239,13 +294,13 @@ interface Indexed {
 
 const indexed = (system: ExponentSystem, bounds: ReadonlyArray<Bound>): Indexed => ({
 	apart: Array.from({ length: system.anchors }, (_, a) =>
-		bounds.filter((b) => b.kind === "apart" && b.over.kind === "anchor" && b.over.at === a)
+		Arr.filter(bounds, (b) => b.kind === "apart" && b.over.kind === "anchor" && b.over.at === a)
 	),
 	key: Array.from({ length: system.anchors }, (_, a) =>
-		bounds.filter((b) => b.kind === "key" && b.over.kind === "anchor" && b.over.at === a)
+		Arr.filter(bounds, (b) => b.kind === "key" && b.over.kind === "anchor" && b.over.at === a)
 	),
-	pairApart: bounds.filter((b) => b.kind === "apart" && b.over.kind === "pair"),
-	pairKey: bounds.filter((b) => b.kind === "key" && b.over.kind === "pair")
+	pairApart: Arr.filter(bounds, (b) => b.kind === "apart" && b.over.kind === "pair"),
+	pairKey: Arr.filter(bounds, (b) => b.kind === "key" && b.over.kind === "pair")
 })
 
 /**
@@ -253,9 +308,8 @@ const indexed = (system: ExponentSystem, bounds: ReadonlyArray<Bound>): Indexed 
  * where `low` gives each column's least): 1 more than the largest sum of its sets apart, or 0.
  */
 const anchorFloor = (ix: Indexed, anchor: number, low: (c: number) => number): number =>
-	defined(ix.apart[anchor], "an anchor's sets apart").reduce(
-		(m, b) => Math.max(m, 1 + b.columns.reduce((s, c) => s + low(c), 0)),
-		0
+	Arr.reduce(defined(ix.apart[anchor], "an anchor's sets apart"), 0, (m, b) =>
+		Math.max(m, 1 + Arr.reduce(b.columns, 0, (s, c) => s + low(c)))
 	)
 
 /**
@@ -278,31 +332,29 @@ const atMost = (
 		}
 		let most = Math.max(1, Y)
 		for (const [family, top] of [
-			...ix.apart.map((apart) => [apart, Y - 1] as const),
+			...Arr.map(ix.apart, (apart) => [apart, Y - 1] as const),
 			[ix.pairApart, 0] as const
 		]) {
 			for (const b of family) {
 				if (b.columns.includes(c)) {
-					const rest = b.columns.reduce((s, other) => (other === c ? s : s + low(other)), 0)
+					const rest = Arr.reduce(b.columns, 0, (s, other) => (other === c ? s : s + low(other)))
 					most = Math.min(most, top - rest)
 				}
 			}
 		}
 		return most
 	}
-	if (ix.pairKey.some((b) => b.columns.reduce((s, c) => s + high(c), 0) < 1)) {
+	if (Arr.some(ix.pairKey, (b) => Arr.reduce(b.columns, 0, (s, c) => s + high(c)) < 1)) {
 		return false
 	}
 	for (let a = 0; a < anchors; a++) {
 		const floor = anchorFloor(ix, a, low)
 		const keys = defined(ix.key[a], "an anchor's keys")
-		const top = keys.reduce(
-			(m, b) =>
-				Math.min(
-					m,
-					b.columns.reduce((s, c) => s + high(c), 0)
-				),
-			Y
+		const top = Arr.reduce(keys, Y, (m, b) =>
+			Math.min(
+				m,
+				Arr.reduce(b.columns, 0, (s, c) => s + high(c))
+			)
 		)
 		if (floor > top) {
 			return false
@@ -338,45 +390,39 @@ const leastAt = (
 		assigned[c] = undefined
 		return false
 	}
-	return walk(0) ? assigned.map((v) => defined(v, "an assigned exponent")) : undefined
+	return walk(0) ? Arr.map(assigned, (v) => defined(v, "an assigned exponent")) : undefined
 }
 
-/** The least solution of a system, or a least set of its bounds that holds none (see the module's doc). */
-export const leastExponents = (system: ExponentSystem): Least => {
-	const unique = new Map<string, number>()
-	for (const [i, b] of system.bounds.entries()) {
-		unique.set(boundKey(b), unique.get(boundKey(b)) ?? i)
-	}
-	const positions = [...unique.values()].toSorted((x, y) => x - y)
-	const bounds = positions.map((i) => defined(system.bounds[i], "a bound"))
-	const point = feasible(system, bounds)
+/**
+ * The least exponents of a system, e2abf18f2's exact search (physical/statistics/least.ts there): the least largest
+ * anchor exponent, then the columns' least in column order, then each anchor's least; none where the system holds no
+ * solution, which an exact rational simplex decides (a rational solution scaled is an integer one). Exponential in the
+ * columns at worst, so it serves small systems alone, as the raise's oracle.
+ */
+export const exactLeast = (
+	system: ExponentSystem
+):
+	| {
+			readonly kind: "least"
+			readonly anchors: ReadonlyArray<number>
+			readonly columns: ReadonlyArray<number>
+	  }
+	| { readonly kind: "none" } => {
+	const point = feasible(system, system.bounds)
 	if (point === undefined) {
-		let kept = positions
-		for (const i of positions) {
-			const without = kept.filter((k) => k !== i)
-			if (
-				feasible(
-					system,
-					without.map((k) => defined(system.bounds[k], "a bound"))
-				) === undefined
-			) {
-				kept = without
-			}
-		}
-		const [first, ...rest] = kept
-		if (first === undefined) {
-			throw defect("a system holding no solution holds a bound")
-		}
-		return { kind: "crossing", bounds: [first, ...rest] }
+		return { kind: "none" }
 	}
-	const ix = indexed(system, bounds)
-	const bounded = Array.from({ length: system.columns }, (_, c) => c).filter((c) =>
-		bounds.some((b) => b.columns.includes(c))
+	const ix = indexed(system, system.bounds)
+	const bounded = Arr.filter(
+		Array.from({ length: system.columns }, (_, c) => c),
+		(c) => Arr.some(system.bounds, (b) => b.columns.includes(c))
 	)
 	const most = ceiling(system, point)
-	const lowest = Array.from({ length: system.anchors }, (_, a) =>
-		anchorFloor(ix, a, () => 1)
-	).reduce((m, v) => Math.max(m, v), 0)
+	const lowest = Arr.reduce(
+		Array.from({ length: system.anchors }, (_, a) => anchorFloor(ix, a, () => 1)),
+		0,
+		(m, v) => Math.max(m, v)
+	)
 	for (let Y = lowest; Y <= Math.max(lowest, most); Y++) {
 		const columns = leastAt(system, ix, bounded, Y)
 		if (columns !== undefined) {
@@ -388,5 +434,5 @@ export const leastExponents = (system: ExponentSystem): Least => {
 			}
 		}
 	}
-	throw defect("a system holding a rational solution holds an integer one by its scaled ceiling")
+	throw new Error("a system holding a rational solution holds an integer one by its scaled ceiling")
 }

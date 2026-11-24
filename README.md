@@ -6328,15 +6328,18 @@ statistics from the schema's facts, so the estimate is grizzle's proof order at 
   degree restored by `pg_restore_extended_stats` and its statistics target 0) prices the two at two rows, where
   PostgreSQL would multiply them below one; an anchor may be in several. So an equality on a column of many values that
   leads an index binds a number of rows the table's size does not move. A later field of the unit's key holds one value; every other column 2^x values, x ≥ 1, at most its roster's
-  handles, a boolean's 2. A column of few values is never priced by the table's size. The exponents are the least
-  integers under which every key binds one row and every set an index's equalities stop at short of a statement's
-  binding binds two rows or more, so the index a statement asks for is priced below every index binding less of it, and
-  a key's index wins every tie. A unit's key alone is no key: a unit holds more than one row.
+  handles, a boolean's 2. A column of few values is never priced by the table's size. The exponents are integers
+  under which every key binds one row and every set an index's equalities stop at short of a statement's binding binds
+  two rows or more, so the index a statement asks for is priced below every index binding less of it, and a key's index
+  wins every tie. They are found by a raise from all ones, in work polynomial in the table's keys, indexes and columns:
+  each key short of its anchor's rows raises one of its columns, round after round, until none is short. A unit's key
+  alone is no key: a unit holds more than one row.
 - **The declaration is the installation's.** `manifest.json` records each table's declaration, `grizzle drift` compares
   every column's statistics target and pg_stats, each dependency's degree, and the table's storage parameters, with it,
   so a column whose statistics an ANALYZE sampled after its target was raised is drift. A relation whose keys and indexes cross so that no
   number of distinct values per column ranks its statements (two keys each covered by sets apart of the other's
-  columns) is refused when it compiles, naming the keys and the sets.
+  columns) is refused when it compiles, naming the keys and the sets; so is one whose raise does not settle within its
+  rounds, a limitation of grizzle's, which it says to report.
 - **An empty table is priced as PostgreSQL prices one.** On a table no VACUUM has seen PostgreSQL plans ten pages, and a
   lookup at a key takes its key's index there; a read of several rows of an empty table may scan it, until the table's
   next VACUUM replans it. A table VACUUM emptied is planned holding no row until its next VACUUM, which autovacuum runs

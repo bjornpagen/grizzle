@@ -16,6 +16,7 @@ export type DeclaredFeature =
 	| "a set apart bound"
 	| "a roster column"
 	| "a crossing"
+	| "an unsettled raise"
 	| "a column beyond its values"
 	| "a pair a dependency ties"
 	| "an index led by a column of many values"
