@@ -2463,6 +2463,7 @@ class StatementAuditor {
 			case "DOMAIN":
 			case "TYPE":
 			case "INDEX":
+			case "STATISTICS":
 			case "FUNCTION":
 				this.objectName(on.name, Str.toLowerCase(on.kind), "on")
 				return

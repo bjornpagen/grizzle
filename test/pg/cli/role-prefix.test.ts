@@ -74,9 +74,9 @@ export const rolePrefix = property.explore(spacesGen, {
 		},
 		{
 			file: "packages/engine/src/deploy/render/variables.ts",
-			original: "\t\tResult.map(roleInSpace(names.roles, variable.name), quoteIdent),",
+			original: "\t\tResult.map(roleInSpace(names.roles, variable.name), quote),",
 			replacement:
-				"\t\tResult.map(Result.flatMap(roleInSpace(names.roles, variable.name), (once) => roleInSpace(names.roles, once)), quoteIdent),",
+				"\t\tResult.map(Result.flatMap(roleInSpace(names.roles, variable.name), (once) => roleInSpace(names.roles, once)), quote),",
 			why: "Migrate fills a role variable with the prefix twice, so the installation's roles are created under a name roleNameOf never gives."
 		}
 	]

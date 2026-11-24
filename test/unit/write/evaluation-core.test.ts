@@ -100,7 +100,7 @@ export const aSubQueryTheArgumentsOfACallsEvaluationReadIsComputedOnceInItsState
 			{
 				file: "packages/engine/src/lower/shapes/share/statements.ts",
 				original:
-					"\t\treturn this.#statement(read, cx, undefined, (root) => evaluationQuery(read, root, emptyEnv))\n",
+					"\t\treturn this.#statement(read, cx, undefined, wholeKeys, (root) =>\n\t\t\tevaluationQuery(read, root, emptyEnv)\n\t\t)\n",
 				replacement: "\t\treturn evaluationQuery(read, cx, emptyEnv)\n",
 				why: "Each argument of the evaluation is a statement of its own, as before: the arguments reading the core each compute their copy, and where only one member reads the call, Done is scanned once per argument."
 			},

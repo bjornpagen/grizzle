@@ -49,8 +49,10 @@ export const aDeclarationsStepsRestoreEveryDeclaredNumberOverASessionsTemporaryT
 		kills: [
 			{
 				file: "packages/engine/src/sql/print.ts",
-				original: '\t\t\t\t\t\t\ttext("schemaname"),\n\t\t\t\t\t\t\tschema,',
-				replacement: '\t\t\t\t\t\t\ttext("schemaname"),\n\t\t\t\t\t\t\ttext("public"),',
+				original:
+					'\t\t\t\t\t\tqualifiedCall("pg_catalog", "pg_restore_attribute_stats", [\n\t\t\t\t\t\t\ttext("schemaname"),\n\t\t\t\t\t\t\tschema,',
+				replacement:
+					'\t\t\t\t\t\tqualifiedCall("pg_catalog", "pg_restore_attribute_stats", [\n\t\t\t\t\t\t\ttext("schemaname"),\n\t\t\t\t\t\t\ttext("public"),',
 				why: "The restore names the table's schema by a literal of its own, never the expression the caller gives: over a session's temporary table it restores another schema's table, or none, and the steps raise."
 			}
 		]
