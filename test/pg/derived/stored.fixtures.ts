@@ -15,7 +15,7 @@ import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import { admittedIdentifier, notificationText } from "#compiler/plan/runtime.ts"
 import { Fn, Logic } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
-import { query, v } from "#compiler/public/query.ts"
+import { query, type SelfSource, v } from "#compiler/public/query.ts"
 import {
 	check,
 	contained,
@@ -71,9 +71,13 @@ const baseOf = (openness: Openness, name: string) =>
 /**
  * The stored relations, each over the document's unit: a projection, a count by document, a negation within it, and
  * the rows of a function each place's document and place are passed to, which a restriction to the written units
- * reads at the unit's channels (analysis/theory/unit.ts channelled).
+ * reads at the unit's channels (analysis/theory/unit.ts channelled); and, a level above them, Hops, the places a
+ * document reaches from its place 0 along links to placed places, a recursion whose base and step read the stored
+ * Placed, which its upkeep reads through Placed's definition, the step's among them (analysis/theory/query.ts
+ * liveQuery, theory.ts `maintained`), so it never reads Placed's table as phase A leaves it: Hops sorts before Placed,
+ * so its upkeep runs first.
  */
-const storedNames = ["Placed", "Counted", "Unlinked", "Coded"] as const
+const storedNames = ["Placed", "Counted", "Unlinked", "Coded", "Hops"] as const
 
 const topOf = (openness: Openness, name: string) => {
 	const base = baseOf(openness, name)
@@ -107,7 +111,32 @@ const topOf = (openness: Openness, name: string) => {
 			return r.match(Doc, { doc, at }).match(run, { code }).find({ doc, at, code })
 		})
 	)
-	const top = schema.extend([base], `${name}_top`, [Placed, Counted, Unlinked, Coded], [])
+	const lower = schema.extend([base], `${name}_top`, [Placed, Counted, Unlinked, Coded], [])
+	const hop = { doc: pg.integer, at: pg.integer }
+	const Hops = derived.stored(
+		"Hops",
+		query(lower).recursive("Hop", {
+			row: hop,
+			base: [
+				(r) => {
+					const { doc, at } = v(Placed, "p")
+					return r.match(Placed, { doc, at }).where(r.eq(at, 0)).find({ doc, at })
+				}
+			],
+			rec: [
+				(r, self: SelfSource<typeof hop>) => {
+					const s = v(self, "s")
+					const l = v(Link, "l")
+					return r
+						.match(self, { doc: s.doc, at: s.at })
+						.match(Link, { doc: s.doc, at: s.at, to: l.to })
+						.match(Placed, { doc: s.doc, at: l.to })
+						.find({ doc: s.doc, at: l.to })
+				}
+			]
+		})
+	)
+	const top = schema.extend([lower], `${name}_reach`, [Hops], [])
 	/** Each stored relation read whole by a query over the top level, which reads its table. */
 	const reads: Readonly<Record<(typeof storedNames)[number], unknown>> = {
 		Placed: query(top).rule((r) => {
@@ -125,6 +154,10 @@ const topOf = (openness: Openness, name: string) => {
 		Coded: query(top).rule((r) => {
 			const s = v(Coded, "s")
 			return r.match(Coded, s).find(s)
+		}),
+		Hops: query(top).rule((r) => {
+			const s = v(Hops, "s")
+			return r.match(Hops, s).find(s)
 		})
 	}
 	return { top, Placed, Counted, Unlinked, reads }

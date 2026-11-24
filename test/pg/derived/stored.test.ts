@@ -6,8 +6,9 @@
  *
  * The box: a document's places and its links, both in the unit of the document, Doc closed or open; four stored
  * relations over them, a projection, a count by document, a negation within the document, and the rows of an immutable
- * function each place's document and place are passed to, which the judge reads at each written unit's channels; and
- * a drawn sequence of transactions of the owner's direct SQL, each putting and taking places and links at two
+ * function each place's document and place are passed to, which the judge reads at each written unit's channels, and a
+ * level above them Hops, the places a document reaches from its place 0 along links to placed places, a recursion over
+ * the stored projection, which its upkeep reads through the projection's definition; and a drawn sequence of transactions of the owner's direct SQL, each putting and taking places and links at two
  * documents and three places, and changing a place's value where Doc is open, each committed before the next.
  *
  * The oracle is PostgreSQL's: after each COMMIT, in one read-only snapshot, each stored relation's rows and its
@@ -93,6 +94,12 @@ export const aStoredRelationEqualsItsDefinitionAfterEveryCommitOfEveryWriteOfIts
 				original: "\t\t\tbody: [removed, inserted]",
 				replacement: "\t\t\tbody: [inserted]",
 				why: "The upkeep inserts and never deletes: a place taken, or a link put over a place, leaves stored rows its definition no longer delivers."
+			},
+			{
+				file: "packages/engine/src/analysis/theory/query.ts",
+				original: "\t\t\t\t\t\trec: mapNonEmpty(st.recursive.rec, rule)",
+				replacement: "\t\t\t\t\t\trec: st.recursive.rec",
+				why: "A stored relation's upkeep reads a recursion's steps as written, Hops's step reading the stored Placed by its name, where an upkeep reads every derived relation through its definition so phase A has one level: no installation of Hops compiles (grizzle internal invariant: Placed, a stored relation the upkeep of Hops reads)."
 			},
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
