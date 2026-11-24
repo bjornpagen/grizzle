@@ -196,7 +196,7 @@ const fenceOf = (
 	}
 	return {
 		...scan,
-		body: { ...body, targets: [...body.targets, target(distance)] },
+		body: withTarget(body, target(distance)),
 		orderBy: [asc(distance)],
 		limit: streamBound()
 	}

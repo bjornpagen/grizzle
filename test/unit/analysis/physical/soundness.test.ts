@@ -177,8 +177,8 @@ export const everyPhysicalClaimHoldsOnTheDeliveredRowsTheSoundnessPopulationBoth
 			kills: [
 				{
 					file: "packages/engine/src/analysis/physical/rules.ts",
-					original: "\t\t\tif (!apart) {",
-					replacement: "\t\t\tif (apart || !apart) {",
+					original: "\t\t\tif (!apart && facts !== undefined) {",
+					replacement: "\t\t\tif ((apart || !apart) && facts !== undefined) {",
 					why: "A relation parameter of a float column is identified by its whole heading (analysis/physical/rules.ts InputSet), though two of its facts apart in a zero's sign alone are natively equal; the kept case fails."
 				},
 				{
