@@ -2,6 +2,7 @@ import {
 	checkoutHere,
 	type CheckoutFamily,
 	type ClusterFailed,
+	familyAsSettled,
 	familyOf,
 	homesHere,
 	type MemberTls,
@@ -10,6 +11,7 @@ import {
 	type PgMember,
 	type Platform
 } from "@bjornpagen/testing/pg"
+import { testWorkers } from "@bjornpagen/testing/workers"
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import { regex } from "arkregex"
 import { Config, Context, Data, Effect, Layer, Option } from "effect"
@@ -45,27 +47,41 @@ export const overTls = (member: PgMember): Effect.Effect<TlsMember, SocketOnlyMe
 		: Effect.fail(new SocketOnlyMember({ member: member.name }))
 
 /**
- * This checkout's family of grizzle's local cluster (pg.config.ts; @bjornpagen/testing/pg familyOf, of the checkout and
- * homes checkoutHere and homesHere read).
+ * This checkout's family of grizzle's local cluster (pg.config.ts) as a process of a run reaches it: at the run's width
+ * (@bjornpagen/testing/pg familyOf, of the checkout and homes checkoutHere and homesHere read, and the run's
+ * testWorkers, which a case's child inherits from its run with the run's CPU allowance), whose members the run's
+ * workers brought up at that width.
  */
-const clusterFamily: Effect.Effect<CheckoutFamily, ClusterFailed, Platform> = Effect.map(
+const runFamily: Effect.Effect<CheckoutFamily, ClusterFailed, Platform> = Effect.map(
 	Effect.all([checkoutHere, homesHere]),
-	([checkout, homes]) => familyOf(pgCluster, checkout, homes)
+	([checkout, homes]) => familyOf(pgCluster, checkout, homes, testWorkers)
 )
 
 /**
- * The first member of this checkout's family, which `toolchain-pg settle` brings up, as a client reaches it
- * (TlsMember: its port, socket, owner's password and CA), read writing nothing (memberRead), a member not as its spec
- * states refused, naming `toolchain-pg settle`, which gives it them.
+ * This checkout's family of grizzle's local cluster as a process no run started reaches it (a bench, a script): at the
+ * width its state was last settled for (@bjornpagen/testing/pg familyAsSettled), since such a process runs no workers
+ * and has no width of its own to settle the family at.
+ */
+const settledFamily: Effect.Effect<CheckoutFamily, ClusterFailed, Platform> = Effect.flatMap(
+	Effect.all([checkoutHere, homesHere]),
+	([checkout, homes]) => familyAsSettled(pgCluster, checkout, homes)
+)
+
+/**
+ * The first member of this checkout's family, which `toolchain-pg settle` brings up, as a process no run lent a place
+ * to reaches it (TlsMember: its port, socket, owner's password and CA), at the width the family was last settled for
+ * (settledFamily), read writing nothing (memberRead), a member not as its spec states refused, naming `toolchain-pg
+ * settle`, which gives it them.
  */
 const firstMember: Effect.Effect<TlsMember, ClusterFailed | SocketOnlyMember, Platform> =
 	Effect.flatMap(
-		Effect.flatMap(clusterFamily, (family) => memberRead(family, 0)),
+		Effect.flatMap(settledFamily, (family) => memberRead(family, 0)),
 		overTls
 	)
 
 /**
- * The member of this checkout's family at `port`, its family's claim, as a client reaches it (TlsMember), read alone,
+ * The member of this checkout's family at `port`, its family's claim, as a process of a run reaches it (runFamily: a
+ * case's runner worker or a child its case started) and a client reaches it (TlsMember), read alone,
  * writing nothing and reading no other member (memberAtPort), so a process reaches the one member its parent's case runs
  * on at the cost of that member's read: a command line child reads one member a command, where it read every member of
  * the family (commandLineWorkflow's steered case 12 at cbafe522 spent its process tree's 60 s CPU budget on those
@@ -75,7 +91,7 @@ export const memberAt = (
 	port: number
 ): Effect.Effect<TlsMember, ClusterFailed | SocketOnlyMember, Platform> =>
 	Effect.flatMap(
-		Effect.flatMap(clusterFamily, (family) => memberAtPort(family, port)),
+		Effect.flatMap(runFamily, (family) => memberAtPort(family, port)),
 		overTls
 	)
 
