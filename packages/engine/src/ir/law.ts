@@ -17,7 +17,13 @@ import {
 	nonEmptyNameSet
 } from "#compiler/core/set.ts"
 import type { CellSide } from "#compiler/ir/cells.ts"
-import type { ExprDesc, FieldDesc, PlaceOrderDesc, TermDesc } from "#compiler/ir/desc.ts"
+import {
+	descIdentity,
+	type ExprDesc,
+	type FieldDesc,
+	type PlaceOrderDesc,
+	type TermDesc
+} from "#compiler/ir/desc.ts"
 import {
 	type ExprTable,
 	fieldReads,
@@ -27,6 +33,7 @@ import {
 import type { GeneratedRead, ViewRead } from "#compiler/ir/keys.ts"
 import type { DeclaredKey, HeadingColumn } from "#compiler/ir/rel.ts"
 import {
+	baseOf,
 	isSpanCarrier,
 	type RegexRef,
 	type ScalarType,
@@ -110,6 +117,56 @@ export const generationOf = (field: Pick<LawField, "writing">): ScalarExpr | und
 		case "accumulated":
 			return undefined
 	}
+}
+
+/**
+ * A relation's declared text digests, each text field by its name with the field that is its SHA-256 (README "Keys and
+ * indexes"): a field generated, or key-generated, as sha256 of a text field, or of the very term another text field is
+ * generated as (pantry's Attribute.valueDigest, `Crypto.sha256(value)` over the term its field `value` is generated
+ * from), the term compared by its identity without source locations (ir/desc.ts descIdentity). The one reading of a
+ * declared digest: the checker states a digest's equality wherever it states its text's (check/checker.ts), the index
+ * engine admits a text of no byte bound into a lookup only beside its digest (physical/indexes/engine.ts), and a family's
+ * running value reads a digest's text (analysis/theory/families.ts runningValue).
+ */
+export const textDigestsOf = (
+	fields: ReadonlyArray<Pick<LawField, "name" | "type" | "writing">>
+): ReadonlyMap<string, string> => {
+	const identity = (desc: unknown): string | undefined => {
+		const id = descIdentity(desc)
+		return id.ok ? String(id.value) : undefined
+	}
+	const digests = new Map<string, string>()
+	for (const digest of fields) {
+		const w = digest.writing
+		if (
+			(w.kind !== "generated" && w.kind !== "keyGenerated") ||
+			w.desc.kind !== "compute" ||
+			w.desc.fn !== "sha256" ||
+			w.desc.args.length !== 1
+		) {
+			continue
+		}
+		const [read] = w.desc.args
+		const term = read === undefined ? undefined : identity(read)
+		const text = fields.find((t) => {
+			if (baseOf(t.type).carrier !== "text") {
+				return false
+			}
+			if (read?.kind === "field") {
+				return read.field === t.name
+			}
+			const tw = t.writing
+			return (
+				(tw.kind === "generated" || tw.kind === "keyGenerated") &&
+				term !== undefined &&
+				identity(tw.desc) === term
+			)
+		})
+		if (text !== undefined && !digests.has(text.name)) {
+			digests.set(text.name, digest.name)
+		}
+	}
+	return digests
 }
 
 /**

@@ -96,7 +96,7 @@ import {
 	type ScalarExpr,
 	storedColumn
 } from "#compiler/ir/expr.ts"
-import { headingColumns } from "#compiler/ir/law.ts"
+import { headingColumns, textDigestsOf } from "#compiler/ir/law.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import {
 	type AggregateCallOver,
@@ -171,6 +171,7 @@ import {
 	canonicalZeroSpec,
 	definedIdOf,
 	definedRangeOp,
+	nativeOp,
 	overloadOf
 } from "#compiler/scalar/compute/registry.ts"
 import { type Typing, typed, untyped } from "#compiler/scalar/compute/term.ts"
@@ -1142,6 +1143,8 @@ export class Checker {
 	 * for carries none (`carried`).
 	 */
 	readonly #attached = new Map<RelNode, ReadonlySet<string>>()
+	/** Each node's text digests, by the node, once read (`digestColumns`). */
+	readonly #digests = new Map<RelNode, ReadonlyMap<string, string>>()
 	/** The contracts and contexts the query declares itself, each once (DuplicateIdentity). */
 	readonly #declarations = new DeclarationTable()
 	/**
@@ -3456,6 +3459,106 @@ export class Checker {
 	}
 
 	/**
+	 * The text digests `node` delivers, each text column by its name with the column that is its SHA-256: a stored
+	 * relation's declared digests (ir/law.ts textDigestsOf); its input's through a node that delivers its input's
+	 * columns as they are, a step, a filter, a take, an order, a window, and a semi- or anti-join's left; a projection's
+	 * that delivers a text and its digest as they are; a match region's variables one occurrence binds to a text and to
+	 * its digest; a union's that every arm delivers; none of any other node, which computes what it delivers. So a rule that matches a query delivering a text
+	 * and its digest, a navigation step's import among them, states the digest's equality where it states the text's
+	 * (RuleCheck `#stateDigests`), as it does over the stored relation.
+	 */
+	digestColumns(node: RelNode, loc: SourceLoc): ReadonlyMap<string, string> {
+		const known = this.#digests.get(node)
+		if (known !== undefined) {
+			return known
+		}
+		const found = this.#digestColumnsOf(node, loc)
+		this.#digests.set(node, found)
+		return found
+	}
+
+	#digestColumnsOf(node: RelNode, loc: SourceLoc): ReadonlyMap<string, string> {
+		switch (node.kind) {
+			case "Base": {
+				if (node.relationKind !== "relation") {
+					return new Map()
+				}
+				const info = this.schema.relation(node.relation, loc)
+				return info.kind === "relation" ? textDigestsOf(info.fields) : new Map()
+			}
+			case "Step":
+			case "Filter":
+			case "Take":
+			case "OrderedResult":
+			case "Window":
+				return this.digestColumns(node.input, loc)
+			case "SemiJoin":
+			case "AntiJoin":
+				return this.digestColumns(node.left, loc)
+			case "ProjectSet": {
+				const input = this.digestColumns(node.input, loc)
+				const read = (e: ScalarExpr): string | undefined =>
+					e.kind === "column" && e.column.node === node.input.id ? e.column.name : undefined
+				const pairs = new Map<string, string>()
+				for (const text of node.out) {
+					const digest = input.get(read(text.expr) ?? "")
+					const out = node.out.find((d) => digest !== undefined && read(d.expr) === digest)
+					if (out !== undefined) {
+						pairs.set(text.name, out.name)
+					}
+				}
+				return pairs
+			}
+			case "MatchRegion": {
+				const pairs = new Map<string, string>()
+				for (const o of node.occurrences) {
+					const digests = this.digestColumns(o.source, loc)
+					for (const b of o.bindings) {
+						const digest = o.bindings.find((d) => d.column === digests.get(b.column))
+						if (digest !== undefined && !pairs.has(b.var.name)) {
+							pairs.set(b.var.name, digest.var.name)
+						}
+					}
+				}
+				return pairs
+			}
+			case "Union": {
+				const [first, ...rest] = mapNonEmpty(unionArms(node.groups), (a) =>
+					this.digestColumns(a, loc)
+				)
+				return new Map(
+					[...first].filter(([text, digest]) => rest.every((m) => m.get(text) === digest))
+				)
+			}
+			case "ApproximateNearest":
+			case "Attach":
+			case "Call":
+			case "Closed":
+			case "Context":
+			case "Delta":
+			case "Difference":
+			case "Forbid":
+			case "Group":
+			case "InputSet":
+			case "Intersect":
+			case "OrderedSetAggregate":
+			case "Produce":
+			case "Recursive":
+			case "SelfRef":
+				return new Map()
+		}
+	}
+
+	/** The SHA-256 of a text, `sha256(x)`, as a declared digest field's generation computes it (ir/law.ts textDigestsOf). */
+	textDigest(text: ScalarExpr, loc: SourceLoc): ScalarExpr {
+		const op = overloadOf("sha256", ["text"])
+		const id = op === undefined ? undefined : definedIdOf(op)
+		return id === undefined
+			? fail("UnsupportedOperation", loc, "sha256 over text")
+			: this.#opNode(id, [text], plainType("sha256"))
+	}
+
+	/**
 	 * A connective, or an equality of two operands of one type or of a plain integer or money and an exact value of its
 	 * family: the plain one widened into the exact carrier, as the comparison Logic writes is (typing.ts comparison).
 	 */
@@ -3736,6 +3839,12 @@ const sourceLabel = (src: ResolvedSource): string => {
 }
 
 /** The rule variables a term reads, at any depth of it. */
+/** Whether `e` reads the column `name` of the node `node` at any depth of it. */
+const readsColumn = (e: ScalarExpr, node: NodeId, name: string): boolean =>
+	e.kind === "column"
+		? e.column.node === node && e.column.name === name
+		: e.args.some((a) => readsColumn(a, node, name))
+
 const readVars = (e: ResolvedExpr): ReadonlyArray<string> =>
 	e.kind === "var" ? [e.var] : exprChildren(e).flatMap((c) => readVars(c.term))
 
@@ -3784,6 +3893,11 @@ class RuleCheck {
 		readonly occurrence: Occurrence
 	}> = []
 	readonly eqs: Array<PendingEquality> = []
+	/**
+	 * The region's scalar filters, lowered once its matches are resolved (`#stateDigests`): its where's scalar conditions,
+	 * the equalities its hidden variables owe, and the digest equalities those owe.
+	 */
+	#filters: ReadonlyArray<ScalarExpr> = []
 
 	constructor(cx: Checker, rule: ResolvedRule, scope: Scope, loc: SourceLoc) {
 		this.cx = cx
@@ -4502,6 +4616,216 @@ class RuleCheck {
 	}
 
 	/**
+	 * The text digests `source` delivers, each text's by its name (Checker `digestColumns`).
+	 */
+	#digestsOf(source: RelNode, loc: SourceLoc): ReadonlyMap<string, string> {
+		return this.cx.digestColumns(source, loc)
+	}
+
+	/**
+	 * The equalities the region's declared digests owe (README "Keys and indexes"): wherever the rule states a text equal
+	 * to a value, `T = X`, and T's relation declares a digest D of it, the rule states `D = sha256(X)` too, which the
+	 * generation of D makes true of every row that holds `T = X`, so a lookup that binds T by equality binds its digest,
+	 * which its index holds, and rechecks T on the rows of that digest. A constant that fixes T fixes D at its digest; a
+	 * filter of the rule, a scalar condition of its where or an equality its hidden variables owe, that equates a variable
+	 * bound to T with a term that does not read it (`#digestOf`) is joined by the digest's equality, D bound to its own
+	 * variable where the match leaves it unbound. Each filter is lowered here, once, and the region's Filter reads it
+	 * (`#filter`).
+	 */
+	#stateDigests(): void {
+		const loc = this.at("where")
+		const { scalar } = splitWhere(this.rule.where)
+		this.#filters = [
+			...scalar.map(
+				([i, e]) =>
+					unwrap(lowerPredicate(e, this.env(this.region, this.at("where", i), "filter"))).expr
+			),
+			...this.eqs.map((pending) =>
+				pending.kind === "slots"
+					? this.cx.opNamed(
+							"eq",
+							[this.#slotExpr(pending.left), this.#slotExpr(pending.right)],
+							loc
+						)
+					: this.cx.opNamed("eq", [this.#slotExpr(pending.hidden), pending.value], loc)
+			)
+		]
+		const owed: Array<ScalarExpr> = []
+		this.#occurrences = this.#occurrences.map((occ) => {
+			const digests = this.#digestsOf(occ.source, occ.loc)
+			const constants = [...occ.constants]
+			for (const c of occ.constants) {
+				const digest = digests.get(c.column)
+				if (digest === undefined || constants.some((d) => d.column === digest)) {
+					continue
+				}
+				const value = this.cx.textDigest(c.expr, occ.loc)
+				const bound = occ.bindings.find((b) => b.column === digest)
+				if (bound === undefined) {
+					constants.push({
+						column: this.#column(occ.source, occ.heading, digest, occ.loc).name,
+						expr: value
+					})
+				} else {
+					owed.push(this.cx.opNamed("eq", [this.#slotExpr(bound.var), value], occ.loc))
+				}
+			}
+			return { ...occ, constants }
+		})
+		this.#filters = [...this.#filters, ...this.#splitDigestedJoins(loc)]
+		for (const p of this.#filters) {
+			const digest = this.#digestOf(p, loc)
+			if (digest !== undefined) {
+				owed.push(digest)
+			}
+		}
+		this.#filters = [...this.#filters, ...owed]
+	}
+
+	/**
+	 * The equalities a join on a digested text becomes, so the digest's equality can be stated beside it
+	 * (`#stateDigests`): where one variable is bound to a text whose relation declares a digest of it, at one occurrence,
+	 * and to a column of another, that occurrence's text is bound to a hidden variable of its own instead, equated with the
+	 * variable by the rule's filter, as a rebinding of another type is (`#rebind`); a variable bound to digested texts
+	 * alone keeps its first binding. The filter's equality then owes `D = sha256(x)`, x read from the other occurrence,
+	 * which a variable both bind could not state: its column at either occurrence is the one value. Its occurrences bind
+	 * the same rows as before.
+	 */
+	#splitDigestedJoins(loc: SourceLoc): ReadonlyArray<ScalarExpr> {
+		const sites = new Map<Slot, Array<{ readonly at: number; readonly column: string }>>()
+		for (const [at, occ] of this.#occurrences.entries()) {
+			for (const b of occ.bindings) {
+				sites.getOrInsertComputed(b.var, () => []).push({ at, column: b.column })
+			}
+		}
+		const equalities: Array<ScalarExpr> = []
+		for (const [slot, bound] of sites) {
+			if (bound.length < 2) {
+				continue
+			}
+			const digested = bound.filter(({ at, column }) => {
+				const occ = defined(this.#occurrences[at], "an occurrence at its place")
+				const digest = this.#digestsOf(occ.source, occ.loc).get(column)
+				return digest !== undefined && !occ.constants.some((c) => c.column === digest)
+			})
+			for (const { at, column } of digested.length === bound.length
+				? digested.slice(1)
+				: digested) {
+				const occ = defined(this.#occurrences[at], "an occurrence at its place")
+				const hidden = this.#hidden(this.#column(occ.source, occ.heading, column, occ.loc))
+				this.#occurrences = this.#occurrences.with(at, {
+					...occ,
+					bindings: occ.bindings.map((b) =>
+						b.column === column && b.var === slot ? { column, var: hidden } : b
+					)
+				})
+				equalities.push(this.cx.opNamed("eq", [this.#slotExpr(slot), this.#slotExpr(hidden)], loc))
+			}
+		}
+		return equalities
+	}
+
+	/** A slot's column of the region, at its type. */
+	#slotExpr(slot: Slot): ScalarExpr {
+		return this.cx.emit(storedColumn(this.region, slot.name, this.slotType(slot)))
+	}
+
+	/**
+	 * The digest equality a filter of the region owes (`#stateDigests`), none where it owes none: of an equality of a
+	 * region variable bound to a digested text with a text term that does not read the variable, `D = sha256(X)` for each
+	 * such text it is bound to; of a membership of such a variable in text terms, D equal to one of their digests; of a
+	 * conjunction, the conjunction of what its conjuncts owe; of a disjunction whose every disjunct owes one, their
+	 * disjunction. Each D is the digest's variable at its occurrence (`#digestSlot`), and no other condition owes one.
+	 */
+	#digestOf(p: ScalarExpr, loc: SourceLoc): ScalarExpr | undefined {
+		if (p.kind !== "op") {
+			return undefined
+		}
+		const eq = (slot: Slot, x: ScalarExpr): ScalarExpr =>
+			this.cx.opNamed("eq", [this.#slotExpr(slot), this.cx.textDigest(x, loc)], loc)
+		const fn = nativeOp(p.op)?.fn
+		const owedOf = (args: ReadonlyArray<ScalarExpr>): ReadonlyArray<ScalarExpr> =>
+			args.flatMap((a) => {
+				const d = this.#digestOf(a, loc)
+				return d === undefined ? [] : [d]
+			})
+		if (fn === "and") {
+			const owed = owedOf(p.args)
+			return isNonEmpty(owed) ? this.cx.conjunction(owed, loc) : undefined
+		}
+		if (fn === "or") {
+			const owed = owedOf(p.args)
+			return isNonEmpty(owed) && owed.length === p.args.length
+				? this.cx.opNamed("or", owed, loc)
+				: undefined
+		}
+		const [x, ...values] = p.args
+		if (fn === "eq" && x !== undefined && isNonEmpty(values)) {
+			const [y] = values
+			const owed = [
+				...this.#digestSlots(x, [y]).map((slot) => eq(slot, y)),
+				...this.#digestSlots(y, [x]).map((slot) => eq(slot, x))
+			]
+			return isNonEmpty(owed) ? this.cx.conjunction(owed, loc) : undefined
+		}
+		if (fn === "in" && x !== undefined && isNonEmpty(values)) {
+			const owed = this.#digestSlots(x, values).map((slot) =>
+				this.cx.opNamed(
+					"or",
+					values.map((v) => eq(slot, v)),
+					loc
+				)
+			)
+			return isNonEmpty(owed) ? this.cx.conjunction(owed, loc) : undefined
+		}
+		return undefined
+	}
+
+	/**
+	 * The digest variables `e` owes equalities to beside the text terms `others`: where `e` is a region variable bound to a
+	 * text whose relation declares a digest of it, and no term of `others` reads the variable or is other than text, the
+	 * digest's variable at each occurrence binding it so (`#digestSlot`); none where the occurrence fixes the digest by a
+	 * constant already.
+	 */
+	#digestSlots(e: ScalarExpr, others: ReadonlyArray<ScalarExpr>): ReadonlyArray<Slot> {
+		if (e.kind !== "column" || e.column.node !== this.region) {
+			return []
+		}
+		const name = e.column.name
+		if (
+			others.some((x) => baseOf(x.type).carrier !== "text" || readsColumn(x, this.region, name))
+		) {
+			return []
+		}
+		return this.#occurrences.flatMap((occ, at) => {
+			const text = occ.bindings.find((b) => b.var.name === name)
+			const digest =
+				text === undefined ? undefined : this.#digestsOf(occ.source, occ.loc).get(text.column)
+			return digest === undefined || occ.constants.some((c) => c.column === digest)
+				? []
+				: [this.#digestSlot(at, digest)]
+		})
+	}
+
+	/**
+	 * The variable the occurrence at `at` binds its digest field `digest` to: the one its match binds it to, else a hidden
+	 * variable it is bound to from now on.
+	 */
+	#digestSlot(at: number, digest: string): Slot {
+		const occ = defined(this.#occurrences[at], "an occurrence at its place")
+		const bound = occ.bindings.find((b) => b.column === digest)
+		if (bound !== undefined) {
+			return bound.var
+		}
+		const hidden = this.#hidden(this.#column(occ.source, occ.heading, digest, occ.loc))
+		this.#occurrences = this.#occurrences.with(at, {
+			...occ,
+			bindings: [...occ.bindings, { column: digest, var: hidden }]
+		})
+		return hidden
+	}
+
+	/**
 	 * The rule's region, defined under its reserved label: its variables, each one declaration every binding of it and
 	 * its correlation hold. An unbound parent variable is correlated to its parent column, an imported parameter to its
 	 * outer value.
@@ -4510,6 +4834,7 @@ class RuleCheck {
 		readonly region: RelNode
 		readonly matches: RegionMatches
 	} {
+		this.#stateDigests()
 		for (const v of [...leaves.vars].toSorted(compareStrings)) {
 			if (!this.decls.has(v)) {
 				fail(
@@ -4586,31 +4911,12 @@ class RuleCheck {
 		return { region, matches: regionMatches({ vars, occurrences, correlated }) }
 	}
 
-	/** The rule's scalar filters, and the equalities its hidden variables owe, as one Filter over the region. */
+	/**
+	 * The rule's scalar filters, the equalities its hidden variables owe and the digest equalities those owe
+	 * (`#stateDigests`), as one Filter over the region.
+	 */
 	#filter(region: RelNode): RelNode {
-		const preds: Array<ScalarExpr> = []
-		const { scalar } = splitWhere(this.rule.where)
-		for (const [i, e] of scalar) {
-			const loc = this.at("where", i)
-			preds.push(unwrap(lowerPredicate(e, this.env(this.region, loc, "filter"))).expr)
-		}
-		const loc = this.at("where")
-		for (const pending of this.eqs) {
-			if (pending.kind === "slots") {
-				const l = this.cx.emit(
-					storedColumn(this.region, pending.left.name, this.slotType(pending.left))
-				)
-				const r = this.cx.emit(
-					storedColumn(this.region, pending.right.name, this.slotType(pending.right))
-				)
-				preds.push(this.cx.opNamed("eq", [l, r], loc))
-			} else {
-				const h = this.cx.emit(
-					storedColumn(this.region, pending.hidden.name, this.slotType(pending.hidden))
-				)
-				preds.push(this.cx.opNamed("eq", [h, pending.value], loc))
-			}
-		}
+		const preds = this.#filters
 		if (preds.length === 0) {
 			return region
 		}
@@ -4618,7 +4924,7 @@ class RuleCheck {
 			{
 				kind: "Filter",
 				input: region,
-				pred: this.cx.conjunction(preds, loc),
+				pred: this.cx.conjunction(preds, this.at("where")),
 				heading: region.heading
 			},
 			this.at("where")
@@ -4754,6 +5060,32 @@ class RuleCheck {
 				correlate
 			)
 		)
+		/**
+		 * The digest each text a constant or a filter fixes owes (`#stateDigests`): fixed at the value's digest where the
+		 * negated relation declares one of the text and the negation binds it nowhere else.
+		 */
+		const digests = this.#digestsOf(source, loc)
+		const owed = placed.flatMap((p): ReadonlyArray<NegatedBinding> => {
+			const digest =
+				p.kind === "constant" || p.kind === "filtered" ? digests.get(p.column) : undefined
+			if (digest === undefined || placed.some((q) => q.kind !== "none" && q.column === digest)) {
+				return []
+			}
+			if (p.kind === "constant") {
+				return [{ kind: "constant", column: digest, expr: this.cx.textDigest(p.expr, loc) }]
+			}
+			return p.kind === "filtered"
+				? [
+						{
+							kind: "filtered",
+							column: digest,
+							type: defined(columnOf(heading, digest), "a digest field of the negated relation")
+								.type,
+							value: this.cx.textDigest(p.value, loc)
+						}
+					]
+				: []
+		})
 		const bindings: Array<{ readonly column: string; readonly var: VarDecl }> = []
 		const constants: Array<{ readonly column: string; readonly expr: ScalarExpr }> = []
 		const vars: Array<VarDecl> = []
@@ -4764,7 +5096,7 @@ class RuleCheck {
 			readonly type: ScalarType
 			readonly value: ScalarExpr
 		}> = []
-		for (const p of placed) {
+		for (const p of [...placed, ...owed]) {
 			if (p.kind === "constant") {
 				constants.push({ column: p.column, expr: p.expr })
 				continue

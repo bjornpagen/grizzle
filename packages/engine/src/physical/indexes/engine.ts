@@ -30,7 +30,8 @@ import {
 	defaultOpclass,
 	type IndexOpclass,
 	type LawIndexRequest,
-	type NativeColumn
+	type NativeColumn,
+	textDigestsOf
 } from "#compiler/ir/law.ts"
 import {
 	type AccessUse,
@@ -667,6 +668,58 @@ const placed = (index: KeyedIndex, placement: Placement, columns: Columns): bool
 }
 
 /** A request as the engine plans it: its placements, and what its relation's columns hold. */
+/**
+ * Refuses each text of no byte bound a B-tree request binds by equality where it binds no digest of it (ir/law.ts
+ * textDigestsOf) and its other equalities bind none of its relation's keys (`keyed`), as UnrepresentableKey (KeyFault
+ * `undigestedText`), and whether it refused one: no B-tree entry holds the text, so its index could only filter it beside
+ * the columns it holds, every row those find read and compared, where the text's digest, which the read binds wherever
+ * the rule states the text's equality (check/checker.ts RuleCheck `#stateDigests`), is a 32-byte key its index holds,
+ * so the read seeks the rows of its digest and rechecks the text on them alone. A request whose other equalities bind a
+ * key reads one row, which the text's filter rechecks. A refused request plans no index.
+ */
+const refusedUndigested = (
+	b: InstallBuilder,
+	r: IndexRequest,
+	label: string,
+	o: BuiltTarget,
+	keys: NonEmptyReadonlyArray<IndexKey>,
+	roles: ReadonlyArray<EntryRole>,
+	keyed: (columns: ReadonlyArray<KeyTerm>) => boolean
+): boolean => {
+	const equalities = keys.filter((_, at) => roles[at] === "equality")
+	const unbounded = equalities.filter((k) => {
+		const field = o.field(readColumn(k.column))
+		return (
+			field !== undefined &&
+			field.desc.kind !== "bytes" &&
+			baseOf(field.type).carrier === "text" &&
+			keyDatum(o, k) === undefined
+		)
+	})
+	const digests = textDigestsOf(b.model.relations.get(r.relation)?.relation.fields ?? [])
+	const undigested = unbounded.filter((k) => {
+		const digest = digests.get(keyTermText(k.column))
+		return digest === undefined || !equalities.some((e) => keyTermText(e.column) === digest)
+	})
+	if (
+		!isNonEmpty(undigested) ||
+		keyed(equalities.filter((e) => !unbounded.some((u) => sameKey(u, e))).map((e) => e.column))
+	) {
+		return false
+	}
+	const fields = keys.map((k) => keyTermText(k.column))
+	for (const k of undigested) {
+		const field = keyTermText(k.column)
+		b.keys.refuse({
+			at: SourceLoc(label, []),
+			subject: `${label} (${r.role === "lawMaintenance" ? justificationText(r.justification) : "the workload's access"})`,
+			key: fields,
+			fault: { kind: "undigestedText", field, digest: digests.get(field) }
+		})
+	}
+	return true
+}
+
 interface Planned {
 	readonly request: IndexRequest
 	readonly placements: Placements
@@ -1171,6 +1224,14 @@ export const planIndexes = (
 			},
 			requests: []
 		}))
+		/** Whether equalities over `columns` bind every column of one of `relation`'s key indexes, which finds one row. */
+		const keyed =
+			(relation: string) =>
+			(columns: ReadonlyArray<KeyTerm>): boolean =>
+				installed.some(
+					(k) =>
+						k.relation === relation && k.columns.every((c) => columns.some((x) => sameColumn(x, c)))
+				)
 		const plan = requests
 			.flatMap((r): ReadonlyArray<Planned> => {
 				const label = requestLabel(r)
@@ -1214,6 +1275,12 @@ export const planIndexes = (
 				}
 				const placements = placementsOf(r, keys, blocks, columns, label)
 				const roles = keyRoles(r, keys)
+				if (
+					methodOf(placements.own) === "btree" &&
+					refusedUndigested(b, r, label, o, keys, roles, keyed(r.relation))
+				) {
+					return []
+				}
 				/** The keys a B-tree of its own leaves out, each a filter beside it: none for another method, or where its
 				 * entry is refused, which creating its index refuses (`createIndex`). */
 				const entry =

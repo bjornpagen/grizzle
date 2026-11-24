@@ -45,7 +45,8 @@ import {
 	type LawField,
 	type NativeColumn,
 	type RelationInfo,
-	type TheoryRelation
+	type TheoryRelation,
+	textDigestsOf
 } from "#compiler/ir/law.ts"
 import { monoidSpecs } from "#compiler/ir/monoid.ts"
 import { compatible } from "#compiler/scalar/compute/types.ts"
@@ -899,14 +900,10 @@ type RunningValue =
 
 /** The running value `named`, a field of `r` a fold's side names (RunningValue). */
 const runningValue = (r: RelationInfo, named: LawField, loc: SourceLoc): RunningValue => {
-	const w = named.writing
-	if (w.kind !== "generated" || w.desc.kind !== "compute" || w.desc.fn !== "sha256") {
-		return { kind: "value", field: named }
-	}
-	const [read, ...more] = w.desc.args
-	return read?.kind === "field" && more.length === 0
-		? { kind: "digest", field: fieldOf(r, read.field, loc), digest: named }
-		: { kind: "value", field: named }
+	const text = [...textDigestsOf(r.fields)].find(([, digest]) => digest === named.name)?.[0]
+	return text === undefined
+		? { kind: "value", field: named }
+		: { kind: "digest", field: fieldOf(r, text, loc), digest: named }
 }
 
 /**

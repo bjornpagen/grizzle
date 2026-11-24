@@ -125,6 +125,9 @@ export type RecursionRefusal =
  *
  * - `columns`: more fields than PostgreSQL admits in one index, `limit` (INDEX_MAX_KEYS).
  * - `unboundedText`: a text field whose pattern proves no byte bound, the one datum with no bound.
+ * - `undigestedText`: a lookup that binds such a text, `field`, by equality and binds no digest of it, so its index
+ *   could only filter the text beside the columns it holds, reading every row they find (physical/indexes/engine.ts
+ *   refusedUndigested): `digest` is the digest field the text's relation declares of it, none where it declares none.
  * - `storageOnly`: a bytes field, which is stored only, with no equality.
  * - `exactValue`: an exact field of any size, `type` (ir/desc.ts FieldDesc exact), numeric of no typmod at numeric's
  *   own limit, whose widest value no index entry holds: its fix is `precision`, the types of a declared precision that
@@ -151,6 +154,7 @@ export type RecursionRefusal =
 export type KeyFault =
 	| { readonly kind: "columns"; readonly limit: number }
 	| { readonly kind: "unboundedText"; readonly field: string }
+	| { readonly kind: "undigestedText"; readonly field: string; readonly digest: string | undefined }
 	| { readonly kind: "storageOnly"; readonly field: string }
 	| {
 			readonly kind: "exactValue"
@@ -470,6 +474,11 @@ export const keyFaultText = (name: string, key: ReadonlyArray<string>, fault: Ke
 			return `${name}: it has ${key.length} fields, above PostgreSQL's limit of ${fault.limit} columns in one index (INDEX_MAX_KEYS)`
 		case "unboundedText":
 			return `${name}: field ${fault.field} is text whose pattern proves no byte bound, which no B-tree entry holds; ${keyFix}`
+		case "undigestedText":
+			return fault.digest === undefined
+				? `${name}: field ${fault.field} is text whose pattern proves no byte bound, which no B-tree entry holds, and the read binds it by equality, so no index finds its rows by it; declare a byte bound (str.bytes(n)), or a digest of it, a generated Crypto.sha256(row.${fault.field}) field, which every read that binds ${fault.field} by equality seeks by, rechecking ${fault.field} on the rows of its digest`
+				: `${name}: field ${fault.field} is text whose pattern proves no byte bound, which no B-tree entry holds, and the read binds it by equality but not its digest ${fault.digest}: grizzle states ${fault.digest}'s equality wherever a rule equates ${fault.field} with a value where ${fault.digest} is in scope, a constant, a parameter, another match's column or a term of its other values, and this read fixes ${fault.field} through a query that delivers it without ${fault.digest}, an equality its reader states outside the query, which reads the query whole and joins it; it is a read bound by a coarser prefix than the value it seeks, the read the query's per-key carrying of the value closes`
+
 		case "storageOnly":
 			return `${name}: field ${fault.field} is bytes, which is stored only, with no equality, so no key or index holds it`
 		case "exactValue":

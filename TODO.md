@@ -246,12 +246,7 @@ read against main 5b049abf); a Q label points at its entry above.
 12. **A text digest:** `Crypto.sha256` over text, digesting its UTF-8 bytes; today it reads bytes only (engine
     registry.ts `bytesDigest`). Lets pantry compare free text by a digest column where it now writes query rules
     (qti-pie docs/grizzle-findings.md, found on qti-cutover-20261114b).
-13. **An unbounded text behind a digest-keyed index:** an index a rule probe needs over an unbounded text keys its
-    digest, and the probe compares the text itself after the digest; item 10 is the fold's case of it. Today making
-    ObjectTitle's title unbounded fails compile with UnrepresentableKey, because the "lom-title" probe wants
-    (package, titleValue, start). Lifts the bound on long titles, and with item 10 on an element's string value,
-    qti-value, LOM strings and whole IDREFS values (same source).
-14. **A level's snapshot built in-process:** a public `compileSnapshot(login)` on @bjornpagen/grizzle/compile, the
+13. **A level's snapshot built in-process:** a public `compileSnapshot(login)` on @bjornpagen/grizzle/compile, the
     snapshot.json value generate would write for the login's base serving the login, so compileServed can compile a
     level's login offline under its own installation. It must be the one composition generate's draft runs
     (cli/generate.ts plannedLogins), never a second copy beside test/support/compiled-served.ts compiledSnapshot.

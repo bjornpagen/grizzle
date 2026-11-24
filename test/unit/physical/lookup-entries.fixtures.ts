@@ -1,7 +1,16 @@
 /** What the property of lookup-entries.test.ts reads: its space, its model of a lookup's entry and each case's schema. */
 
 import { defined } from "@bjornpagen/testing/assert"
-import { type Aimed, aimed, array, boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
+import {
+	type Aimed,
+	aimed,
+	array,
+	boolean,
+	element,
+	type Gen,
+	int,
+	weighted
+} from "@bjornpagen/testing/gen"
 import { Array as Arr, Record as Rec } from "effect"
 import type { EntryRole } from "#compiler/core/identity.ts"
 import { defaultOpclass } from "#compiler/ir/law.ts"
@@ -84,7 +93,7 @@ const drawnGen: Gen<LookupSketch> = (source) => {
 
 /**
  * A seek whose fixed prefix leads with a text of no byte bound, then any keys it fixes or orders: no entry holds the
- * fixed text, so the index leaves it out, a filter beside it, and reads its entries in the order of the rest.
+ * fixed text, and R declares no digest of it to seek by, so the request is refused naming it.
  */
 const seekGen: Gen<LookupSketch> = (source) => {
 	const others = source.draw(array(keyFieldGen, { min: 1, max: 3 }))
@@ -122,12 +131,34 @@ const numericsGen: Gen<LookupSketch> = (source) => {
 	return { fields: all, use: "page seek", fixed: 0, keyed: false }
 }
 
-export const lookupGen: Aimed<LookupSketch, LookupFeature> = aimed(drawnGen, [
-	["refused naming an ordered text", pastGen("page seek")],
-	["refused naming a prefixed text", pastGen("prefix search")],
-	["refused naming an ordered numeric", numericsGen],
-	["a seek's fixed text left out", seekGen]
-])
+/**
+ * An equality lookup over two bounded texts whose entries fit alone and pass BTMaxItemSize together, beside any keys of
+ * fixed width: the index leaves the wider out, a filter beside it, and holds the rest.
+ */
+const wideGen: Gen<LookupSketch> = (source) => {
+	const others = source.draw(
+		array(element([{ kind: "fixed", type: "integer" } as const]), { min: 0, max: 2 })
+	)
+	const fields: Arr.NonEmptyReadonlyArray<KeyFieldSketch> = [
+		{ kind: "octet contract", bytes: source.draw(int(1400, 1600)) },
+		{ kind: "octet contract", bytes: source.draw(int(1400, 1600)) },
+		...others
+	]
+	return { fields, use: "equality lookup", fixed: fields.length, keyed: false }
+}
+
+export const lookupGen: Aimed<LookupSketch, LookupFeature> = aimed(
+	weighted([
+		[5, drawnGen],
+		[1, wideGen]
+	]),
+	[
+		["refused naming an ordered text", pastGen("page seek")],
+		["refused naming a prefixed text", pastGen("prefix search")],
+		["refused naming an ordered numeric", numericsGen],
+		["a seek's fixed text refused undigested", seekGen]
+	]
+)
 
 /** What each use does with a key past those it binds by equality, stated from the use alone. */
 const pastRole: Readonly<Record<Use, EntryRole>> = {
@@ -144,7 +175,9 @@ const rolesOf = (s: LookupSketch): ReadonlyArray<EntryRole> =>
 
 /**
  * The model's verdict on the request's created index, restated from PostgreSQL's B-tree item limit (BTMaxItemSize,
- * 2,704 bytes) and pg_type's sizes, every key as itself in any order (`btreeTupleBytes`): where its keys fit an entry,
+ * 2,704 bytes) and pg_type's sizes, every key as itself in any order (`btreeTupleBytes`): a request that binds a text of
+ * no byte bound by equality is refused naming each such text, since no entry holds one and R declares no digest of it to
+ * seek by (README "Keys and indexes"; KeyFault `undigestedText`), and it binds none of R's keys; where its keys fit an entry,
  * every key; otherwise each key it binds by equality left out, the widest first (a key of no byte bound widest of all),
  * the first of two as wide, until the rest fit, each left out a filter beside the index. One it reads in its order or
  * matches a prefix of stays: one of no byte bound is refused as unbounded, and an entry those still overfill is
@@ -152,6 +185,7 @@ const rolesOf = (s: LookupSketch): ReadonlyArray<EntryRole> =>
  * the widest it binds.
  */
 type LookupVerdict =
+	| { readonly kind: "undigested"; readonly fields: ReadonlyArray<string> }
 	| { readonly kind: "installed"; readonly held: ReadonlyArray<number> }
 	| { readonly kind: "unbounded" }
 	| { readonly kind: "ordered"; readonly fields: ReadonlyArray<string> }
@@ -163,6 +197,12 @@ const widthOf = (d: Datum | undefined): number => d?.bytes ?? Number.POSITIVE_IN
 export const lookupVerdict = (s: LookupSketch): LookupVerdict => {
 	const roles = rolesOf(s)
 	const own = Arr.map(s.fields, datumOf)
+	const undigested = Arr.flatMap(s.fields, (f, i) =>
+		roles[i] === "equality" && f.kind === "wildcard" ? [fieldName(i)] : []
+	)
+	if (undigested.length > 0) {
+		return { kind: "undigested", fields: undigested }
+	}
 	const fits = (held: ReadonlyArray<number>): boolean => {
 		const datums = Arr.map(held, (i) => own[i])
 		const bounded = Arr.filter(datums, (d): d is Datum => d !== undefined)
@@ -252,11 +292,11 @@ export const installLookup = (s: LookupSketch) => {
 export type LookupFeature =
 	| "every key held"
 	| "an equality left out"
-	| "a text of no bound left out"
+	| "a text of no bound refused undigested"
 	| "an ordered key held beside a filter"
 	| "refused naming an ordered text"
 	| "refused naming a prefixed text"
 	| "refused naming an ordered numeric"
 	| "refused as unbounded"
 	| "served by the key's index"
-	| "a seek's fixed text left out"
+	| "a seek's fixed text refused undigested"

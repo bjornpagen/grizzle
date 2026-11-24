@@ -397,15 +397,18 @@ suite's residual risk. A longer search is a fuzz run, `pnpm fuzz <suite>`.
   never installs a column over a digest of its own (no SHA-256 image of a key's text or numeric, no `md5` lookup
   expression), and never rewrites a statement to compare digests. A key whose widest entry, in any order of its
   columns, could pass PostgreSQL's B-tree limit (2,704 bytes), or that holds a text of no byte bound, is refused at
-  compile as `UnrepresentableKey`, naming the relation, the key, the field and the fix. A drafted lookup leaves a column
-  that cannot fit out of its index, a filter beside it. The rule is README "Keys and indexes". A schema sizes its keys
+  compile as `UnrepresentableKey`, naming the relation, the key, the field and the fix. A drafted lookup leaves a bounded
+  column that cannot fit out of its index, a filter beside it; one that binds a text of no byte bound by equality seeks
+  by the digest its relation declares, or is refused as `UnrepresentableKey` (`undigestedText`) unless its other
+  equalities bind a key. The rule is README "Keys and indexes". A schema sizes its keys
   from its data:
   - **Key texts are bounded at PostgreSQL's natural limits.** A key's text takes the byte bound its key's B-tree entry
     leaves it (`str.bytes(keyTextBytes(fields))`), checked against the longest value the real data holds, so almost
     every table keys by its texts as themselves.
   - **Only a field whose real data does not fit spills to an explicit digest**: a field the author declares beside it,
-    `generated(sha256, Crypto.sha256(row.text))`, SHA-256's raw 32 bytes, which the key holds like any other field. A
-    read by the text states the digest's equality itself. The digest's cost stands in the schema, where its author chose
+    `generated(sha256, Crypto.sha256(row.text))`, SHA-256's raw 32 bytes, which the key holds like any other field.
+    grizzle states the digest's equality wherever a read states the text's (check/checker.ts `#stateDigests`), so the
+    read seeks by the digest and rechecks the text. The digest's cost stands in the schema, where its author chose
     it; grizzle never derives one.
   - **Never md5.** Every digest grizzle and its tests compute is SHA-256. md5 stands only where an outside system
     defines the digest (an integration's own, such as Timeback's), never in grizzle.

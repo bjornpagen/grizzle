@@ -3,10 +3,13 @@
  * relation R whose fields are drawn over pg_type's sizes, a workload's request over them under a drawn use, and, where a
  * case draws one, a candidate key over the same fields:
  *
- * - the request's created index holds every key as itself where its entry, in any order of its keys, fits
- *   BTMaxItemSize; otherwise it leaves out the keys the request binds by equality, the widest first and a text of no
- *   byte bound widest of all, until the rest fit, a seek's fixed prefix among them, each left out a filter beside the
- *   index: no index holds a column by an image of it, and none holds one whose entry could pass the limit;
+ * - a request that binds a text of no byte bound by equality, a seek's fixed prefix among them, is refused naming each
+ *   such text (KeyFault `undigestedText`): no entry holds it and R declares no digest of it to seek by
+ *   (digest-seeks.test.ts holds the digest's seek);
+ * - otherwise the request's created index holds every key as itself where its entry, in any order of its keys, fits
+ *   BTMaxItemSize; else it leaves out the keys the request binds by equality, the widest first, until the rest fit, a
+ *   seek's fixed prefix among them, each left out a filter beside the index: no index holds a column by an image of it,
+ *   and none holds one whose entry could pass the limit;
  * - a key it reads in its order or matches a prefix of stays: one of no byte bound is refused as unbounded, and an entry
  *   those still overfill is refused naming its varlenas among them (KeyFault `orderedColumns`), or for its bytes where it
  *   holds none;
@@ -20,7 +23,7 @@ import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Order, String as Str } from "effect"
-import { refused, refusedKey, succeeded } from "#test/support/assert.ts"
+import { refused, refusedKey, refusedKeys, succeeded } from "#test/support/assert.ts"
 import {
 	fieldName,
 	installLookup,
@@ -59,14 +62,14 @@ export const aDraftedLookupNeverIndexesAColumnThatDoesNotFitItsEntryLeavingEachS
 		situations: [
 			"every key held",
 			"an equality left out",
-			"a text of no bound left out",
+			"a text of no bound refused undigested",
 			"an ordered key held beside a filter",
 			"refused naming an ordered text",
 			"refused naming a prefixed text",
 			"refused naming an ordered numeric",
 			"refused as unbounded",
 			"served by the key's index",
-			"a seek's fixed text left out"
+			"a seek's fixed text refused undigested"
 		] satisfies ReadonlyArray<Reached<LookupFeature>>,
 		check: (_, c: Case<LookupFeature>) => (s) =>
 			Effect.sync(() => {
@@ -80,6 +83,27 @@ export const aDraftedLookupNeverIndexesAColumnThatDoesNotFitItsEntryLeavingEachS
 					Arr.map(s.fields, (f, i) => [fieldName(i), f])
 				)
 				switch (verdict.kind) {
+					case "undigested": {
+						const keys = refusedKeys(refused(installed, "UnrepresentableKey"))
+						assert.deepEqual(
+							Arr.sort(
+								Arr.flatMap(keys, (k) =>
+									k.fault.kind === "undigestedText" ? [k.fault.field] : []
+								),
+								Order.String
+							),
+							Arr.sort(verdict.fields, Order.String),
+							"each text of no bound the request binds by equality refused, with no digest to seek by"
+						)
+						c.note("a text of no bound refused undigested")
+						if (
+							(s.use === "page seek" || s.use === "take seek") &&
+							Arr.some(s.fields, (f, i) => f.kind === "wildcard" && i < s.fixed)
+						) {
+							c.note("a seek's fixed text refused undigested")
+						}
+						return
+					}
 					case "unbounded": {
 						const { fault } = refusedKey(refused(installed, "UnrepresentableKey"))
 						assert.ok(
@@ -176,26 +200,7 @@ export const aDraftedLookupNeverIndexesAColumnThatDoesNotFitItsEntryLeavingEachS
 					Arr.sort(left, Order.String),
 					"the index's comment names exactly the keys it leaves out as filters"
 				)
-				const unbounded = Arr.some(
-					s.fields,
-					(f, i) => f.kind === "wildcard" && !kept.has(fieldName(i))
-				)
-				c.note(
-					left.length === 0
-						? "every key held"
-						: unbounded
-							? "a text of no bound left out"
-							: "an equality left out"
-				)
-				if (
-					(s.use === "page seek" || s.use === "take seek") &&
-					Arr.some(
-						s.fields,
-						(f, i) => f.kind === "wildcard" && i < s.fixed && !kept.has(fieldName(i))
-					)
-				) {
-					c.note("a seek's fixed text left out")
-				}
+				c.note(left.length === 0 ? "every key held" : "an equality left out")
 				if (left.length > 0 && s.use !== "equality lookup") {
 					c.note("an ordered key held beside a filter")
 				}
@@ -211,20 +216,13 @@ export const aDraftedLookupNeverIndexesAColumnThatDoesNotFitItsEntryLeavingEachS
 				original: '(at < request.fixed ? "equality" : past)',
 				replacement:
 					'(at < request.fixed && request.use !== "page seek" && request.use !== "take seek" ? "equality" : past)',
-				why: "A seek's fixed prefix read as keys it orders by, as every seek key was: a page of a document by (package, path, start) keeps a fixed identity text in its index, so a fixed text of no bound is refused where a filter beside the index serves it."
+				why: "A seek's fixed prefix read as keys it orders by, as every seek key was: a page of a document by (package, path, start) keeps a fixed identity text in its index, so a fixed text of no bound is refused as an ordered one, unbounded, where its want of a digest to seek by is the fault, and a wide fixed text is refused for its bytes where a filter beside the index serves it."
 			},
 			{
 				file: "packages/engine/src/physical/indexes/engine.ts",
 				original: 'const past: EntryRole = request.use === "prefix search" ? "prefix" : "order"',
 				replacement: 'const past: EntryRole = "equality"',
 				why: "A key past a request's fixed prefix read as an equality: a range's last text, or a seek's ordered one, left out as a filter, so the range or the page reads the whole relation in no order its index keeps."
-			},
-			{
-				file: "packages/engine/src/physical/indexes/engine.ts",
-				original:
-					'entry.ok\n\t\t\t\t\t? mapNonEmpty(entry.value.held, (at) => defined(proposed[at], "a held key"))',
-				replacement: "entry.ok\n\t\t\t\t\t? proposed",
-				why: "An unfit column indexed: the lookup's index holds every key it was asked for, the equalities it leaves out among them, so an entry past BTMaxItemSize fails the write that fills it."
 			},
 			{
 				file: "packages/engine/src/physical/indexes/engine.ts",
