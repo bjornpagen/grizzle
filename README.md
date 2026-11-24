@@ -2574,7 +2574,9 @@ definition too.
   unit-local as above, and it is refused (`UnsupportedLawFamily`) anywhere else. A migration that moves a containment
   from its foreign key to the judge checks no row: the foreign key held this very law on every write.
 - **Judged live.** A rule reads its query as the tables stand at commit, a stored derived relation's table as its
-  upkeep left it there included: the judge keeps every stored relation first, then judges the rules.
+  upkeep left it there included: the judge keeps every stored relation first, then judges the rules. A key or a check
+  over a stored relation refuses there, at its table's UNIQUE or CHECK, and a served write refused so is
+  `invariant-rejected` naming the law, as a write of the relation's holders changes the relation by its COMMIT.
 - **What PostgreSQL gets.** A rule that reads only tables is a constraint, as above. A rule that reads a query is
   judged once per transaction, over the rows it wrote: a unit-local rule over the units of those rows, any other over
   the rows themselves. On each table the query reads, an AFTER statement trigger for

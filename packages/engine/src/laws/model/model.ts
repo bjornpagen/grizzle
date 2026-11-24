@@ -491,6 +491,27 @@ export interface LawModel {
 }
 
 /**
+ * The relations a transaction that writes `written` changes by its COMMIT: they, and each stored derived relation the
+ * rule judge's phase A keeps from them in the same COMMIT, whose upkeep reads one of them, a stored relation over a
+ * stored one in turn (physical/ddl/rules.ts, each upkeep a stratum after those it reads). A write of a holder meets the
+ * native objects of the stored relations kept from it, their UNIQUE and their CHECK, as surely as its own table's: what
+ * a role's writes can raise (program/schema.ts raisableOf) is read over these.
+ */
+export const changedBy = (model: LawModel, written: ReadonlySet<string>): ReadonlySet<string> => {
+	const changed = new Set(written)
+	for (let grew = true; grew;) {
+		grew = false
+		for (const upkeep of model.theory.upkeeps) {
+			if (!changed.has(upkeep.relation) && upkeep.reads.some((r) => changed.has(r.relation))) {
+				changed.add(upkeep.relation)
+				grew = true
+			}
+		}
+	}
+	return changed
+}
+
+/**
  * The relations whose writes a judge of `rules` and `upkeeps` captures (LawModel `judged`): each relation a rule reads
  * and each an upkeep reads, in code point order.
  */

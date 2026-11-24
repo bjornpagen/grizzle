@@ -3,6 +3,7 @@
  * the stored rows against their definition's and the decoded changes against the stored rows'.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { array, boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Order, Result, type Scope, String as Str } from "effect"
@@ -14,6 +15,7 @@ import { quoteIdent } from "#compiler/core/text.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { admittedIdentifier, notificationText } from "#compiler/plan/runtime.ts"
+import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Fn, Logic } from "#compiler/public/compute.ts"
 import { closedId, pg } from "#compiler/public/fields.ts"
 import { query, type SelfSource, v } from "#compiler/public/query.ts"
@@ -36,12 +38,15 @@ import { printExpr } from "#compiler/sql/print.ts"
 import { installDerived, OracleFixtureFailed, snapshotOf } from "#test/pg/derived/oracle/harness.ts"
 import { bytesOfHex } from "#test/pg/live/source.fixtures.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
+import { writeAnswerOf, writeOnce } from "#test/support/calls.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
-import { installGenerated } from "#test/support/install-migrate.ts"
+import { installGenerated, installMigrated } from "#test/support/install-migrate.ts"
 import { standUpRelations } from "#test/support/judge.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
+import { refusedLaws } from "#test/support/refused.ts"
+import { member, withServedDb } from "#test/support/served-db.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import { roleSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { fullWorld } from "#test/support/worlds.ts"
@@ -702,7 +707,9 @@ export const watchRun = (
 	})
 
 /**
- * The lawful schema: Placed and Counted stored over the document's places, and three laws over them, each judged over
+ * The lawful schema, its level over the base named as an installation names its first level above the root (`_1`), so
+ * a login over it names the role the installation made: Placed and Counted stored over the document's places, and three
+ * laws over them, each judged over
  * the stored rows as the transaction leaves them: every link at a place (a containment into Placed, a rule reading its
  * table in phase B), no two places of a document of one value (a key over Placed that is no key it proves, its UNIQUE,
  * refusing at phase A), and at most two places a document (a check over Counted, its CHECK).
@@ -725,7 +732,7 @@ const lawfulOf = (openness: Openness, name: string) => {
 	)
 	return schema.extend(
 		[base],
-		`${name}_top`,
+		`${name}_1`,
 		[Placed, Counted],
 		[
 			contained(on(Link, "doc", "at"), on(Placed, "doc", "at")),
@@ -1015,4 +1022,84 @@ export const callsRun = (
 				Arr.map(writes, (w) => sqlOf(opened.installed.names, w))
 			)
 		}
+	})
+
+/**
+ * What a served write of the lawful schema's documents states: places of one document, each at its own place, and the
+ * law of the lawful schema they break as the stored relations leave them at COMMIT, if any (`broken`): two values alike,
+ * Placed's key; three places, Counted's check; two values apart, none.
+ */
+const servedPlaces = {
+	"two places of one value": [5, 5],
+	"three places": [1, 2, 3],
+	"two places of two values": [1, 2]
+} as const satisfies Readonly<Record<string, ReadonlyArray<number>>>
+
+export type ServedPlaces = keyof typeof servedPlaces
+
+export type ServedLawFeature =
+	| "refused for a value twice in a document"
+	| "refused for three places"
+	| "a lawful write accepted"
+
+export const servedPlacesGen: Gen<ServedPlaces> = element([
+	"two places of one value",
+	"three places",
+	"two places of two values"
+] as const)
+
+/**
+ * One case on a fresh clone: the lawful schema installed through its first migration with the full world's login over
+ * it, whose served insert of Doc places `places`' values at places 0, 1, ... of document 1, on a brand-new backend. The
+ * judge's phase A keeps Placed and Counted at its COMMIT, so a call that breaks Placed's key or Counted's check is refused
+ * there by its native object, the UNIQUE or the CHECK of the stored table, and the refusal names the law as the schema
+ * states it (adapter/outcomes/index.ts, witness/index.ts), as a write of an ordinary relation's key names its key: the
+ * stored relations a write changes at COMMIT are among those its role's refusals keep (program/schema.ts raisableOf
+ * over laws/model/model.ts changedBy), where they kept the relations its statements write alone, so the UNIQUE's 23505
+ * reached the shell unclaimed, an ExecutionFailure naming the index (edullm's pantry: trimmed_mark and id_binding).
+ */
+export const servedLawRun = (places: ServedPlaces, reached: Case<ServedLawFeature>) =>
+	Effect.gen(function* () {
+		const label = "stored_served_law"
+		const done = yield* installMigrated(lawfulOf("closed", label), {
+			ambient: ordinarySession,
+			extensions: [],
+			label,
+			logins: [fullWorld(lawfulOf("closed", label), {}).server]
+		})
+		const top = lawfulOf("closed", done.schema)
+		const values = servedPlaces[places]
+		const facts = Arr.map(values, (value, at) => ({ doc: 1, at, v: value }))
+		yield* withServedDb(done, fullWorld(top, {}).server.roles.app, {}, ({ serve }) =>
+			Effect.gen(function* () {
+				const served = yield* serve({ insert: ChangeSet.empty(top).insert(Doc, []) })
+				const outcome = yield* writeAnswerOf(
+					writeOnce(member(served, "insert"))({ params: {}, facts: { insert: { Doc: facts } } })
+				)
+				const where = `${places} (${Arr.join(Arr.map(values, String), ", ")})`
+				if (places === "two places of two values") {
+					assert.equal(outcome.kind, "accepted", `${where}: ${Formatter.format(outcome)}`)
+					reached.note("a lawful write accepted")
+					return
+				}
+				assert.ok(
+					"refused" in outcome,
+					`${where} is refused as the laws': ${Formatter.format(outcome)}`
+				)
+				const named = Arr.map(refusedLaws(outcome.refused), (law) =>
+					law.kind === "key"
+						? `key ${law.side.relation}`
+						: law.kind === "check"
+							? `check ${law.relation} ${law.name}`
+							: Formatter.format(law)
+				)
+				if (places === "two places of one value") {
+					assert.deepEqual(named, ["key Placed"], `${where} is refused by Placed's key`)
+					reached.note("refused for a value twice in a document")
+					return
+				}
+				assert.deepEqual(named, ["check Counted few"], `${where} is refused by Counted's check`)
+				reached.note("refused for three places")
+			})
+		)
 	})

@@ -43,6 +43,7 @@
  */
 
 import { type Reached } from "@bjornpagen/testing/features"
+import { finite } from "@bjornpagen/testing/gen"
 import { property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import {
@@ -50,6 +51,9 @@ import {
 	callsRun,
 	type LawfulFeature,
 	lawfulRun,
+	type ServedLawFeature,
+	servedLawRun,
+	servedPlacesGen,
 	type UpkeepFeature,
 	upkeepCase,
 	upkeepRun,
@@ -294,3 +298,51 @@ export const aLawOverAStoredRelationIsJudgedOverItsRowsAsTheTransactionLeavesThe
 			}
 		]
 	})
+
+/**
+ * A served write that breaks a law over a stored relation is refused naming the law: Placed's key and Counted's check
+ * each refuse at the judge's phase A by its stored table's native object, and the refusal names the law as the schema
+ * states it, as a key of an ordinary relation's does (stored.fixtures.ts servedLawRun), where the UNIQUE's 23505 was an
+ * ExecutionFailure naming the index (edullm's pantry, its trimmed_mark and id_binding keys and p23's KnownOperand key).
+ */
+export const aServedWriteThatBreaksALawOverAStoredRelationIsRefusedNamingTheLaw = property.exhaust(
+	finite(servedPlacesGen),
+	{
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
+		situations: [
+			"refused for a value twice in a document",
+			"refused for three places",
+			"a lawful write accepted"
+		] satisfies ReadonlyArray<Reached<ServedLawFeature>>,
+		check:
+			({ substrate }, c) =>
+			(places) =>
+				Effect.provideServiceEffect(
+					Effect.scoped(servedLawRun(places, c)),
+					Substrate,
+					Effect.map(substrate, (taken) => taken.substrate)
+				),
+		oracle: {
+			kind: "specification",
+			name: "the lawful schema's key over Placed and check over Counted over the places a call states: a value twice refused by the key, three places by the check, as the schema states each"
+		},
+		box: "a served insert of one document's places by the full world's login over the lawful schema: two places of one value, three places, two places of two values",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/program/schema.ts",
+				original: '\t\t\tr.kind === "stored" && written.has(r.name) ? [r.ident] : []\n',
+				replacement: "\t\t\t[]\n",
+				why: "The stored tables' keys and checks are left out of the role's key-law map: Placed's UNIQUE refuses at phase A and its 23505 reaches the shell unclaimed, an ExecutionFailure naming the index (edullm's pantry, trimmed_mark and id_binding)."
+			},
+			{
+				file: "packages/engine/src/laws/model/model.ts",
+				original:
+					"\t\t\tif (!changed.has(upkeep.relation) && upkeep.reads.some((r) => changed.has(r.relation))) {\n",
+				replacement:
+					"\t\t\tif (!changed.has(upkeep.relation) && upkeep.reads.some(() => false)) {\n",
+				why: "A write of Doc changes Doc alone, not the stored relations the judge keeps from it: their natives are no law the role's writes can raise, and Counted's CHECK refuses three places as an ExecutionFailure."
+			}
+		]
+	}
+)

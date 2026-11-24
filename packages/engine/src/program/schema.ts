@@ -19,7 +19,12 @@ import type { RelationInfo } from "#compiler/ir/law.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import { rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { derivedKeyConstraints } from "#compiler/laws/model/catalog.ts"
-import { compileLaws, type ConstraintLaw, type LawModel } from "#compiler/laws/model/model.ts"
+import {
+	changedBy,
+	compileLaws,
+	type ConstraintLaw,
+	type LawModel
+} from "#compiler/laws/model/model.ts"
 import { structuralRegex } from "#compiler/physical/ddl/domains.ts"
 import {
 	type InstallNames,
@@ -318,7 +323,8 @@ export interface Judged {
 
 /**
  * What the writes of a role can raise of its artifacts, by what they judge (Judged): each table constraint and rule
- * trigger on a written relation, which a write there breaks; each foreign key or PERIOD foreign key into one, which a
+ * trigger on a written relation, which a write there breaks, each stored derived relation the judge keeps from a written
+ * one at COMMIT written with it (laws/model/model.ts changedBy); each foreign key or PERIOD foreign key into one, which a
  * delete or a key's update there meets; each domain constraint whole whose domain a cast value's type meets (its
  * contract chain's domains and its pattern's), and otherwise with its uses narrowed to the written relations' columns,
  * which a value written there breaks, kept while one stays, its laws theirs; each law of the theory reading a written
@@ -436,11 +442,19 @@ export const raisableOf = (
 	>,
 	judged: Judged
 ): Raisable => {
-	const { written } = judged
+	/** The relations the writes change by their COMMIT: those their statements change, and each stored derived relation
+	 * the judge's phase A keeps from them (laws/model/model.ts changedBy), whose UNIQUE and CHECK refuse there. */
+	const written = changedBy(artifacts.laws, judged.written)
 	const relations = [...artifacts.derived.schema.relations.values()].filter((r) =>
 		written.has(r.name)
 	)
-	const tables = new Set<string>(relations.map((r) => r.ident))
+	/** The tables the writes change: each changed ordinary relation's and each changed stored derived relation's. */
+	const tables = new Set<string>([
+		...relations.map((r) => r.ident),
+		...Object.values(artifacts.laws.theory.relations).flatMap((r) =>
+			r.kind === "stored" && written.has(r.name) ? [r.ident] : []
+		)
+	])
 	const into = new Map<string, Set<string>>()
 	for (const n of artifacts.laws.natives) {
 		if (
