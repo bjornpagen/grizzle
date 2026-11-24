@@ -521,29 +521,71 @@ const sidesEnvOf = (checked: CheckedSchema): SidesEnv => {
 	}
 }
 
+/** A proven key of a derived relation (analysis/derived/analyze.ts), with its unique index's name and its proof. */
+type ProvenKey = DerivedRelationAnalysis["keys"][number]
+
 /**
- * The fields of a stored relation's primary key, its narrowest proven key `fields`: the fields of it that carry the
- * declared unit its rows sit under, `declared`, in that unit's key order, then its others in key order, so a key holding
- * the unit leads with it and the upkeep's reads of the stored rows at a unit are a range of the key's index; a key
- * holding no such field stands as proven.
+ * A stored relation's primary key, led by the fields its head delivers its unit at (ir/unit.ts StoredUnit `fields`), so
+ * the upkeep's delete of its rows at a unit, and every read of them at one, a stored relation's above it among them, is
+ * a range of the key's index: `proven`, the first of its proven keys, narrowest first, that holds every unit field, its
+ * fields reordered unit first; or `superkey`, where none holds them, the unit's fields and then the narrowest key's
+ * others, a superkey of it. `named` are the fields the key is named by (core/identity.ts derivedKey): a proven key's
+ * own, which name its unique index for every reader (laws/model/catalog.ts derivedKeyConstraints), or the superkey's in
+ * the heading's order, the code point order of their names, as a proven key's stand, so a superkey and the proven key
+ * of the same fields it stands for where a proven key narrower than both appears are one name, one installed key.
+ * Every proven key but a `proven` one keeps a unique index of its own.
  */
-const unitFirst = (
-	fields: NonEmptyReadonlyArray<string>,
-	declared: ReadonlyArray<string>
-): NonEmptyReadonlyArray<string> => {
-	const lead = declared.filter((f) => fields.includes(f))
-	const [first, ...rest] = [...lead, ...fields.filter((f) => !lead.includes(f))]
-	if (first === undefined) {
-		throw defect("a key of at least one field")
+export type StoredPrimaryKey =
+	| {
+			readonly kind: "proven"
+			readonly fields: NonEmptyReadonlyArray<string>
+			readonly named: NonEmptyReadonlyArray<string>
+			readonly key: ProvenKey
+	  }
+	| {
+			readonly kind: "superkey"
+			readonly fields: NonEmptyReadonlyArray<string>
+			readonly named: NonEmptyReadonlyArray<string>
+			readonly of: ProvenKey
+	  }
+
+/** The primary key of a stored relation of proven keys `keys`, narrowest first, at its unit's fields `unit`
+ * (StoredPrimaryKey). */
+export const storedPrimaryKey = (
+	keys: ReadonlyArray<ProvenKey>,
+	unit: NonEmptyReadonlyArray<string>
+): StoredPrimaryKey => {
+	const [narrowest] = keys
+	if (narrowest === undefined) {
+		throw defect("the proven keys of a derived relation, its heading's at least")
 	}
-	return [first, ...rest]
+	const led = (fields: ReadonlyArray<string>): NonEmptyReadonlyArray<string> => {
+		const [u0, ...us] = unit
+		return [u0, ...us, ...fields.filter((f) => !unit.includes(f))]
+	}
+	const holding = keys.find((k) => unit.every((f) => k.fields.includes(f)))
+	if (holding === undefined) {
+		const fields = led(narrowest.fields)
+		const [first, ...rest] = fields.toSorted(compareStrings)
+		if (first === undefined) {
+			throw defect("a key of at least one field")
+		}
+		return { kind: "superkey", fields, named: [first, ...rest], of: narrowest }
+	}
+	return { kind: "proven", fields: led(holding.fields), named: holding.fields, key: holding }
 }
+
+/** The proven keys of `keys` a stored relation keys by `primary` holds each a unique index of: all but its primary's. */
+export const storedSecondaryKeys = (
+	keys: ReadonlyArray<ProvenKey>,
+	primary: StoredPrimaryKey
+): ReadonlyArray<ProvenKey> => keys.filter((k) => primary.kind !== "proven" || k !== primary.key)
 
 /**
  * A stored derived relation as the theory reads it (ir/law.ts StoredDerivedRelation): its analysis `a`'s heading as its
  * fields, each named as its table's column (physical/ddl/names.ts viewColumn) and written by its upkeep alone; its
- * primary key its narrowest proven key with its unit first (`unitFirst`), and every other proven key, each named by its
- * index; its table `ident`, its level and its admitted unit.
+ * primary key led by its unit (`storedPrimaryKey`), and every other proven key, each named by its index; its table
+ * `ident`, its level and its admitted unit.
  */
 const storedRelationOf = (
 	a: DerivedRelationAnalysis,
@@ -564,11 +606,9 @@ const storedRelationOf = (
 			fields.find((f) => f.name === name),
 			`the field ${name} of stored relation ${a.name}`
 		)
-	const [primary, ...secondary] = a.keys
-	if (primary === undefined) {
-		throw defect(`the proven keys of ${a.name}, its heading's at least`)
-	}
-	const primaryKey = unitFirst(primary.fields, unit.declared.fields)
+	const primary = storedPrimaryKey(a.keys, unit.fields)
+	const secondary = storedSecondaryKeys(a.keys, primary)
+	const primaryKey = primary.fields
 	const primaryFields = mapNonEmpty(primaryKey, field)
 	const keyFields = secondary.map((k) => mapNonEmpty(k.fields, field))
 	return Object.freeze({
@@ -586,7 +626,7 @@ const storedRelationOf = (
 				fields: primaryFields,
 				span: undefined,
 				primary: true,
-				named: identity.derivedKey(a.name, primary.fields)
+				named: identity.derivedKey(a.name, primary.named)
 			},
 			...secondary.map((k, i) => ({
 				fields: defined(keyFields[i], "a proven key's fields"),

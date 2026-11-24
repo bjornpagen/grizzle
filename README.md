@@ -4295,7 +4295,9 @@ where it fails: `notUnitLocal`, with `inPlace`, `unitKey`, `split`, `negation`, 
   with it on either side is judged at COMMIT, after the upkeep, never a foreign key: a foreign key is checked by the
   statement that writes the other table, before the upkeep writes this one.
 - **Its table.** `CREATE TABLE … AS <definition> WITH NO DATA`, each column of the type its definition delivers, its
-  primary key the narrowest key the query provably has, the unit's fields first, and a unique index on each other: a choice of one key in each of its independent parts, such as one
+  primary key the narrowest key the query provably has that holds the unit's fields, those fields first (or, where
+  none holds them, the unit's fields and then the narrowest key's others), so the rows of a unit are a range of its
+  index, and a unique index on each other: a choice of one key in each of its independent parts, such as one
   of the two keys of each table it joins, one index on one key and on each key one choice away from it, so k such
   tables make k + 1 indexes, not 2^k, and every key of the product stands in a key member, a nested result or an
   order. A query of several rules, each finding a literal that tells its rows apart, is keyed the same way: its keys

@@ -14,7 +14,8 @@
  * Property: the first version drafted from no installation creates and fills every stored table, and the second, over
  * it, which changes nothing, Ones' lowering alone, Ones' installed definition to one calling a function the target no
  * longer holds, T's key of `b`, or Ones', Twos' or Fives' definition, creates again and fills exactly the tables whose
- * meaning or primary key the change changes or whose installed definition reads what is gone, and those above them, in
+ * meaning or primary key the change changes or whose installed definition reads what is gone, and those above them (a
+ * key added changes no primary key: each is the narrowest proven key holding its table's unit), in
  * install order, a fill in structure.stored; a change of nothing but a lowering drafts no step, and every table it keeps
  * is recorded as installed.
  *
@@ -139,6 +140,19 @@ export const aChangeOfAViewsMeaningCreatesExactlyThatViewAgainAndPopulatesIt = p
 				original: '\t\tcase "derived":\n\t\t\treturn { ...of, meaning: r.meaning }',
 				replacement: '\t\tcase "derived":\n\t\t\treturn of',
 				why: "The snapshot's files record no stored relation's meaning, so every draft over a committed snapshot drops and creates every stored table again and fills it over every row."
+			},
+			{
+				file: "packages/engine/src/analysis/theory/theory.ts",
+				original: "\tconst holding = keys.find((k) => unit.every((f) => k.fields.includes(f)))\n",
+				replacement: "\tconst holding = narrowest\n",
+				why: "A stored table's primary key is its narrowest proven key with its unit's fields put before it, whatever key holds the unit already: T's key of b moves Ones' and Twos' from (doc, at) to (doc, at, b), so a key added creates every stored table again."
+			},
+			{
+				file: "packages/engine/src/analysis/theory/theory.ts",
+				original:
+					'\t\treturn { kind: "superkey", fields, named: [first, ...rest], of: narrowest }\n',
+				replacement: '\t\treturn { kind: "superkey", fields, named: fields, of: narrowest }\n',
+				why: "A superkey is named by its fields in its key's order, the unit first: once T's key of b leaves Fives one fact at most, its proven keys single fields, its (doc, at) superkey takes another name than the proven (at, doc) it stood for, and a key added creates Fives again."
 			},
 			{
 				file: "packages/engine/src/deploy/render/generate.ts",

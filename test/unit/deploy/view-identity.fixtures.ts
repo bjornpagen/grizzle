@@ -39,16 +39,16 @@ export const changeGen: Gen<Change> = (s) => s.draw(element(changes))
 
 /** The stored tables a change creates again, by the schema's own reads, in install order: each whose meaning or primary
  * key it changes, or whose installed definition reads what the target no longer holds, and every one above one, whose
- * definition names it. A lowering alone changes neither; T's key of `b` yields no other row, but it is a key of Ones and
- * Twos too, narrower than their (doc, at), and a stored table's primary key is its narrowest proven key with its unit's
- * fields first, so it changes theirs. */
+ * definition names it. A lowering alone changes neither; T's key of `b` yields no other row, and though it is a key of
+ * Ones and Twos too, narrower than their (doc, at), a stored table's primary key is its narrowest proven key that holds
+ * its unit, (doc, at), the unit's fields first (analysis/theory/theory.ts storedPrimaryKey), so theirs stays and they
+ * gain b's unique index beside it. */
 export const recreatedBy = (change: Change): ReadonlyArray<View> => {
 	switch (change) {
 		case "none":
 		case "lowering":
-			return []
 		case "key":
-			return ["Ones", "Twos", "Fives"]
+			return []
 		case "gone":
 		case "Ones":
 			return ["Ones", "Fives"]

@@ -168,8 +168,10 @@
  * that held one moves, and its statements' digests with it; edullm's ledger's 04-validate.sql is 45.1 MB where it was
  * 56.9 MB, and its served statements 116 MB where they were 133 MB.
  * A stored derived relation (`derived.stored`, which replaces `derived.materialized`) is a table, one manifest object of
- * kind `storedTable`: `CREATE TABLE ... AS <definition> WITH NO DATA`, its primary key over its narrowest proven key,
- * the fields carrying its declared unit first, added by its own ALTER TABLE in the same object, then its revoke
+ * kind `storedTable`: `CREATE TABLE ... AS <definition> WITH NO DATA`, its primary key over the narrowest proven key
+ * that holds the fields its head delivers its unit at, those fields first, or where no proven key holds them, those
+ * fields and then the narrowest key's others (analysis/theory/theory.ts storedPrimaryKey), so the upkeep's delete at a
+ * unit and a read of a unit's rows are a range of its index, added by its own ALTER TABLE in the same object, then its revoke
  * (physical/derived/objects.ts), every other proven key a unique index as before; a migration that creates one fills
  * it by `INSERT INTO ... <definition>` in the slot structure.stored (physical/derived/objects.ts fillStatement), drops
  * and renames it as a TABLE, and drops and creates it again where its primary key changes, where format 7 created a

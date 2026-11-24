@@ -5,7 +5,11 @@ import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { DerivedRelationAnalysis } from "#compiler/analysis/derived/analyze.ts"
 import type { CatalogKey } from "#compiler/analysis/physical/evidence.ts"
 import { type DerivedAnalysis, derivedAnalysis } from "#compiler/analysis/schema.ts"
-import type { Theory } from "#compiler/analysis/theory/theory.ts"
+import {
+	storedPrimaryKey,
+	storedSecondaryKeys,
+	type Theory
+} from "#compiler/analysis/theory/theory.ts"
 import { catchRefusal, unwrap } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import {
@@ -138,18 +142,19 @@ const viewObjects = (
 		columns,
 		query: lowered.query
 	}
-	const [primary, ...secondary] = a.keys
-	if (primary === undefined) {
-		throw defect(`the inherited keys of ${name}, its heading's at least`)
-	}
 	const stored = storedOf(b, name)
-	/** Its primary key's fields, the theory's (analysis/theory/theory.ts storedRelationOf). */
+	/** Its primary key, led by its unit, as the theory chose it (analysis/theory/theory.ts storedPrimaryKey), and every
+	 * other proven key, each a unique index of its own. */
+	const primary = storedPrimaryKey(a.keys, stored.unit.fields)
+	const secondary = storedSecondaryKeys(a.keys, primary)
 	const keyFields = stored.primaryKey
-	/** The one name every evidence catalog gives the view's key (`derivedKeyConstraints`), which the derived analysis
-	 * names (`primary.index`): its primary key's, whose index PostgreSQL names after it, minted at the naming door. */
+	/** The name the primary key is minted by at the naming door, whose index PostgreSQL names after it: a proven key's,
+	 * the one name every evidence catalog gives that key's index (`derivedKeyConstraints`, its `index`), or the
+	 * superkey's. */
+	const primaryName = b.name(identity.derivedKey(name, primary.named))
 	const primaryKey: PrimaryKey = {
 		kind: "primaryKey",
-		name: b.name(identity.derivedKey(name, primary.fields)),
+		name: primaryName,
 		columns: mapNonEmpty(keyFields, (f) => ({
 			column: b.names.column(name, f),
 			withoutOverlaps: false
@@ -175,7 +180,14 @@ const viewObjects = (
 			ddl: [create, keyed, revoke],
 			reasons: [
 				enforcement(`derived relation ${name}`),
-				{ kind: "proof", premises: premiseLaws(b.model.theory, analysis, primary.proof.premises) }
+				{
+					kind: "proof",
+					premises: premiseLaws(
+						b.model.theory,
+						analysis,
+						(primary.kind === "proven" ? primary.key : primary.of).proof.premises
+					)
+				}
 			],
 			phase: "structure"
 		},
@@ -198,10 +210,10 @@ const viewObjects = (
 		{
 			key: {
 				relation: name,
-				fields: primary.fields,
+				fields: primary.named,
 				spans: [],
 				kind: "uniqueIndex",
-				constraint: primary.index
+				constraint: primary.kind === "proven" ? primary.key.index : primaryName
 			},
 			object: viewObject,
 			columns: keyFields
