@@ -24,10 +24,12 @@ import {
 	seatTemplate
 } from "#test/pg/fin/installed.ts"
 import {
+	capturedDeltasOf,
 	foundQueryOf,
 	judgedDeltaReadsOf,
 	judgedPlans,
-	type JudgedStatement
+	type JudgedStatement,
+	standUpJudge
 } from "#test/support/judge.ts"
 import { refusalOf } from "#test/support/substrate.ts"
 import { type RawSession } from "#test/support/substrate/session.ts"
@@ -895,16 +897,6 @@ interface Delta {
 	readonly columns: ReadonlyArray<string>
 }
 
-/** The session tables with columns a capture's body creates, at any depth: its deltas. */
-const deltasIn = (body: ReadonlyArray<PlStatement>): ReadonlyArray<Delta> =>
-	Arr.flatMap(body, (s): ReadonlyArray<Delta> =>
-		s.kind === "createSessionTable" && !isSentinel(s.columns)
-			? [{ name: s.name, columns: Arr.map(s.columns, (c) => c.name) }]
-			: s.kind === "if"
-				? [...Arr.flatMap(s.branches, (b) => deltasIn(b.body)), ...deltasIn(s.else)]
-				: []
-	)
-
 /** Whether a session table's columns are the sentinel's: its written set (physical/ddl/rules.ts arming), no delta's. */
 const isSentinel = (columns: ReadonlyArray<{ readonly name: string }>): boolean =>
 	Arr.some(columns, (c) => c.name === "__written")
@@ -923,10 +915,11 @@ const guards = (s: PlStatement, test: (inner: PlStatement) => boolean): boolean 
 
 /**
  * The statements of `table`'s capture (physical/ddl/rules.ts addCapture) that a write of a row runs around its rows,
- * each once: `standUp`, which stands up each delta of the table and the sentinel, its trigger the judge's, and writes
- * its row, naming the deltas that hold a row, none yet; and `mark`, which names in the row's written set each delta
- * that holds a row. A statement of the table that writes no row runs none of them, so the footprint runs them itself,
- * before SET CONSTRAINTS ALL IMMEDIATE, so the row's INSERT defers the judge to it.
+ * each once: `standUp`, which reads which of the session's tables stand, each the session's stand-up made
+ * (test/support/judge.ts standUpJudge), and writes the sentinel's row, naming the deltas that hold a row, none yet; and
+ * `mark`, which names in the row's written set each delta that holds a row. A statement of the table that writes no row
+ * runs none of them, so the footprint runs them itself, before SET CONSTRAINTS ALL IMMEDIATE, so the row's INSERT defers
+ * the judge to it.
  */
 const armingOf = (seat: Seat, table: Table) => {
 	const statements = everyStatement(
@@ -1007,10 +1000,7 @@ const printedPl = (statement: PlStatement): string =>
 
 /** The deltas `table`'s capture writes (physical/ddl/rules.ts addRules), deduplicated by name. */
 const deltasOf = (seat: Seat, table: Table): ReadonlyArray<Delta> =>
-	Arr.dedupeWith(
-		deltasIn(bodyOf(seat.installed.installation, identifierOf(identity.ruleCapture(table)))),
-		(a, b) => a.name === b.name
-	)
+	Arr.dedupeWith(capturedDeltasOf(seat.installed.installation, table), (a, b) => a.name === b.name)
 
 /** The PL/pgSQL body of the installation's function named `name`. */
 const bodyOf = (installation: Installation, name: string): ReadonlyArray<PlStatement> =>
@@ -1073,8 +1063,8 @@ const siReadLocks = (session: RawSession) =>
 
 /**
  * The footprint of touching `touched`, on a fresh session planning for large tables, in two transactions rolled back,
- * each writing the touch alike. A stored row stands in every delta of its table as it is stored: the capture's own
- * statements stand up the session's deltas and arm the judge (`armingOf`), which a statement that writes no row runs
+ * each writing the touch alike. A stored row stands in every delta of its table as it is stored: the session's stand-up
+ * makes the deltas, the capture's own statements arm the judge (`armingOf`), which a statement that writes no row runs
  * none of, the row's image is copied into each delta, and the capture's marks name each in the written set, so the
  * judge's region is the row and the table is not written, which would move the row's index entries. A touched row its
  * table does not store, a block, stands in each delta at its id alone, as a capture of its insert writes it. In the
@@ -1086,6 +1076,7 @@ const footprintOf = (seat: Seat, touched: Touched) =>
 	Effect.gen(function* () {
 		const substrate = yield* Substrate
 		const session = yield* substrate.session({ ...ownerSession(), label: "rule seed locality" })
+		yield* standUpJudge(session, seat.installed.installation)
 		for (const setting of largeTables) {
 			yield* session.query(setting, [])
 		}

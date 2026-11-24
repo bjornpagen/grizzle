@@ -21,6 +21,7 @@ import {
 } from "#test/pg/migrate/support.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { joined } from "#test/support/chunked.ts"
+import { standUpJudge } from "#test/support/judge.ts"
 import { atName } from "#test/support/kernel/naming.ts"
 import {
 	asDrafted,
@@ -392,6 +393,7 @@ export const runCase = (c: LiteralCase, note: (feature: LiteralFeature) => void)
 				`${file.name} holds no line boundary a text tool rewrites, so read and written back it is itself`
 			)
 		}
+		yield* standUpJudge(substrate.admin, installation)
 		const doc = `${quoteIdent(name)}.${quoteIdent("doc")}`
 		const use = `${quoteIdent(name)}.${quoteIdent("use")}`
 		const putDoc = (node: number, kind: string) =>

@@ -104,7 +104,8 @@ import {
 	flightMaxBytes,
 	messageMaxBytes,
 	nominal,
-	type ReplicationCommand
+	type ReplicationCommand,
+	type StatementName
 } from "#compiler/plan/runtime.ts"
 
 import type { ParsedConnection, ParsedTransport } from "#adapter/connection/config.ts"
@@ -607,12 +608,25 @@ export const sessionTransitions: {
 	ended: { retire: "ended", end: "ended" }
 }
 
+/**
+ * The stand-ups a session has run (engine runtime/write/flight.ts StandUp), by name (standUpName): each the session
+ * objects its committed stand-up transaction made, which the session holds until it ends (apply/stand-up.ts).
+ */
+export interface StoodUp {
+	/** Every stand-up's name the session holds. */
+	readonly held: ReadonlySet<StatementName>
+	/** Records `names`, once the stand-up transaction that ran them committed. */
+	readonly add: (names: ReadonlyArray<StatementName>) => void
+}
+
 /** One connected client in pipeline mode, with what grizzle keeps beside it. */
 export interface Session {
 	/** The login role the session logged in as, which its statements run as unless a prologue enters another. */
 	readonly role: string
 	/** The texts its transactions' controls send (ControlTexts). */
 	readonly controls: ControlTexts
+	/** The stand-ups it has run (StoodUp), none at its start. */
+	readonly stoodUp: StoodUp
 	/**
 	 * One CancelRequest for the statement the backend is running, ended once its connection closes or fails, `sent` or
 	 * `unreached` (CancelEnd): it never waits on the statement it cancels. The server ignores one that reaches the
@@ -816,6 +830,7 @@ const makeSession = (
 	key: BackendKey
 ): Session => {
 	let state: SessionState = "open"
+	const stood = new Set<StatementName>()
 	const move = (event: SessionEvent): void => {
 		state = sessionTransitions[state][event]
 	}
@@ -882,6 +897,14 @@ const makeSession = (
 	return {
 		role: spec.role,
 		controls: spec.controls,
+		stoodUp: {
+			held: stood,
+			add: (names) => {
+				for (const name of names) {
+					stood.add(name)
+				}
+			}
+		},
 		flightMaxBytes: flightMaxBytes,
 		messageMaxBytes: messageMaxBytes,
 		cancel: cancelRequest(spec, key),
@@ -1461,7 +1484,7 @@ export interface SessionPool {
  * so that a client "can be sure the backend has exited"). So once the end returns, no backend of the pool's idle
  * sessions counts against the database: a DROP DATABASE after it finds none, where it found a backend still dropping
  * its session's temporary relations, the rule judge's deltas, its sentinel and the write's carriers
- * (physical/ddl/rules.ts addRules, sql/print.ts carrierStandUp), each a table with its TOAST table and index, its row
+ * (physical/ddl/rules.ts addStandUps, sql/ast.ts CreateCarrier), each a table with its TOAST table and index, its row
  * types and its NOT NULL constraints: 150 tables, 642 objects, 1.8 s for one session of pantry's export suite and 6
  * to 13 s on its whole project (edullm P5, 2026-11-21), where DROP DATABASE waits 5 s. The wait has no deadline of
  * grizzle's: interrupting the release, or the fiber whose scope it closes, your own timeout among the ways, ends it and

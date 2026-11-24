@@ -15,6 +15,7 @@ import { str } from "#compiler/public/text.ts"
 import { readsOf, rerunsOf } from "#test/pg/laws/rule-whole.fixtures.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
+import { standUpJudge } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
@@ -307,6 +308,7 @@ export const runWritten = (
 	c: Case<TokensFeature>
 ) =>
 	Effect.gen(function* () {
+		yield* standUpJudge(connection, installed.installation)
 		const names = namesOf(installed)
 		const attribute = names.table(Attribute)
 		const target = names.table(Target)
@@ -421,6 +423,7 @@ export const runTokensLocality = (
 	c: Case<TokensLocalityFeature>
 ) =>
 	Effect.gen(function* () {
+		yield* standUpJudge(connection, installed.installation)
 		const names = namesOf(installed)
 		const statistics =
 			locality.statistics === "analyzed"

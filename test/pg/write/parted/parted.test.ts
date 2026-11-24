@@ -1,8 +1,9 @@
 /**
  * A single statement's shapes write, judge and capture as its whole statement does, and an empty part fires nothing
  * (runtime/write/parted.ts), on PostgreSQL 19: a call sends the parts its inputs may give rows, and the rows it
- * stores, its outcome, the judge's verdict at COMMIT and the rows its captures hold are the whole statement's, while
- * a part it leaves out fires no capture, so its session stands up no delta of it and the judge reads none.
+ * stores, its outcome, the judge's verdict at COMMIT and the rows its captures hold are the whole statement's; and its
+ * session stands up the judge's deltas of every relation the write writes before its first call, whatever parts that
+ * call sends (adapter/apply/stand-up.ts), so no call makes a delta.
  *
  * The box: H, a header from a scalar parameter; three sidecars S1, S2, S3 from the relation parameters p1, p2, p3; G
  * from a union of one rule over p1 and one over p2; each sidecar's and G's nonnegative values lie in a header, a whole
@@ -13,11 +14,12 @@
  * call's inputs give, every unit of its form assembled, as every call sent it before a statement was parted.
  *
  * The oracle is the whole statement (a second implementation): the stored rows of each header, the outcome and its
- * verdict, the read-back's rows and the counts are the whole statement's under its own header; and by the rule, the
- * deltas the first call's session stands up are those of the relations whose part it sent wrote a row, each holding a
- * fact, none where the judge refused and the transaction's tables went with it, each of which the whole statement's
- * session stands up too. A part the rider keeps over an empty parameter is sent and writes no row, and a statement
- * that writes none captures nothing, standing up no delta (physical/ddl/rules.ts, the capture, since bb5637a78).
+ * verdict, the read-back's rows and the counts are the whole statement's under its own header; by the box, each
+ * sidecar stores its parameter's facts where the call commits and none where the judge refuses it, which no second
+ * implementation decides, since the whole statement's units are the parts' own; and by the rule, the
+ * deltas each call's session holds are those of every relation the write writes, S1, S2, S3 and G, its stand-up's,
+ * whatever parts it sent and whether the judge refused or not, the stand-up having committed before the call
+ * (physical/ddl/rules.ts addStandUps). A part the rider keeps over an empty parameter is sent and writes no row.
  *
  * Features: a part left out, every part sent, no sidecar sent, a rider keeping S1 whose parameter is empty, a refusal
  * at COMMIT.
@@ -26,7 +28,7 @@ import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Formatter, Order, Result, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Result, String as Str } from "effect"
 import { changeApplication, variantOf } from "#adapter/db/handles.ts"
 import { openedIn } from "#test/pg/reads/support.ts"
 import {
@@ -138,23 +140,20 @@ export const aSingleStatementsShapesWriteJudgeAndCaptureAsItsWholeStatementDoesA
 						const committed =
 							Result.isSuccess(parts.outcome) && parts.outcome.success.kind === "accepted"
 						assert.equal(committed, !refused, "the judge refuses exactly an orphan's facts")
-						const sent = Arr.sort(
-							[
-								...(holds.p1 ? ["S1"] : []),
-								...(holds.p2 ? ["S2"] : []),
-								...(holds.p3 ? ["S3"] : []),
-								...(holds.p1 || holds.p2 ? ["G"] : [])
-							],
-							Order.String
+						assert.deepEqual(
+							Arr.map(Arr.take(parts.rows, 3), (stored) => stored.length),
+							committed ? [box.facts.p1, box.facts.p2, box.facts.p3] : [0, 0, 0],
+							"each sidecar stores its parameter's facts where the call commits, and none where the judge refuses it"
 						)
 						assert.deepEqual(
 							parts.deltas,
-							committed ? sent : [],
-							"its session stands up the deltas of the relations it sent a part of, and only those"
+							["G", "S1", "S2", "S3"],
+							"its session stands up the deltas of every relation the write writes, whatever parts its call sent"
 						)
-						assert.ok(
-							Arr.every(parts.deltas, (d) => Arr.contains(oracle.deltas, d)),
-							`the whole statement's session stands up every delta the call's does, ${Formatter.format(parts.deltas)}, and holds ${Formatter.format(oracle.deltas)}`
+						assert.deepEqual(
+							oracle.deltas,
+							parts.deltas,
+							`the whole statement's session stands up the deltas the call's does, ${Formatter.format(parts.deltas)}`
 						)
 						c.note(holds.p1 && holds.p2 && holds.p3 ? "every part sent" : "a part left out")
 						if (!holds.p1 && !holds.p2 && !holds.p3) {
@@ -170,7 +169,7 @@ export const aSingleStatementsShapesWriteJudgeAndCaptureAsItsWholeStatementDoesA
 				),
 		oracle: {
 			kind: "second-implementation",
-			name: "the whole statement, every unit sent: its stored rows, outcome, verdict and read-back rows; and by the rule, the deltas a call stands up are its sent parts' relations'"
+			name: "the whole statement, every unit sent: its stored rows, outcome, verdict and read-back rows; by the box, each sidecar's rows its parameter's facts; and by the rule, the deltas a call's session holds are its stand-up's, every relation the write writes"
 		},
 		kept: [],
 		kills: [

@@ -625,6 +625,7 @@ const learn = (catalogOf: LockCatalog, s: SqlStatement | RecordedStatement): voi
 		case "comment":
 		case "declareStatistics":
 		case "createCarrier":
+		case "emptyCarrier":
 		case "createDeclaredFunction":
 		case "createExtension":
 		case "createRole":
@@ -1315,6 +1316,7 @@ const lockStatement = (locks: Locks, s: SqlStatement | RecordedStatement): void 
 			return
 		}
 		case "createCarrier":
+		case "emptyCarrier":
 			locks.transient(`carrier ${s.name}`, true)
 			return
 		case "alterTable": {

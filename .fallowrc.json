@@ -90,6 +90,7 @@
 					"packages/grizzle/src/adapter/apply/readback.ts",
 					"packages/grizzle/src/adapter/apply/run.ts",
 					"packages/grizzle/src/adapter/apply/shares.ts",
+					"packages/grizzle/src/adapter/apply/stand-up.ts",
 					"packages/grizzle/src/adapter/connection/config.ts",
 					"packages/grizzle/src/adapter/connection/environment.ts",
 					"packages/grizzle/src/adapter/db/claims.ts",

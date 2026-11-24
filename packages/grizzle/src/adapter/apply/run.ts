@@ -15,6 +15,7 @@ import {
 	riddenRows
 } from "#adapter/apply/readback.ts"
 import { drawShares, sendsAlone } from "#adapter/apply/shares.ts"
+import { type StandUpFailure, standUp } from "#adapter/apply/stand-up.ts"
 import {
 	type ApplyError,
 	CommitUnknown,
@@ -24,12 +25,12 @@ import {
 } from "#adapter/errors/execution.ts"
 import {
 	type CommitRefused,
+	ConnectionLost,
 	familyRowBound,
 	type InputTooLarge,
 	type ServerError,
 	literalBound,
 	messageBound,
-	temporaryRefusal,
 	UnreadableAnswer
 } from "#adapter/errors/failures.ts"
 import {
@@ -290,7 +291,7 @@ const outcomeOf = <R>(classified: Classified): Effect.Effect<ApplyOutcome<R>, Ap
 
 /**
  * A statement a write sends, by its index in its flight: the `chunk`th execution of an artifact statement (BoundWrite
- * chunks), its `part` what the execution is: the statement itself, or one of its staged carriers' creation or fills.
+ * chunks), its `part` what the execution is: the statement itself, or one of its staged carriers' emptying or fills.
  */
 interface SentStatement {
 	readonly statement: FlightStatement
@@ -310,6 +311,40 @@ const statementOrigin = (sent: ReadonlyArray<SentStatement>, index: number): Fai
 }
 
 /**
+ * What a write's failed stand-up means (stand-up.ts): TemporaryRefused, the role's want of TEMPORARY, as the
+ * ExecutionFailure whose reason it is; the fence's refusal as StaleSnapshot; SERIALIZABLE's refusal as the
+ * TransientFailure a statement's is; a lost connection, at COMMIT too, as a TransportFailure, since the write's own
+ * statements were never sent; any other refusal as the server's.
+ */
+const standUpFailure = (failure: StandUpFailure): ApplyError => {
+	switch (failure._tag) {
+		case "TemporaryRefused":
+			return new ExecutionFailure({ reason: failure })
+		case "BatchRefused":
+		case "CommitRefused":
+			return (
+				serializationRefusal(failure.failure) ?? new ExecutionFailure({ reason: failure.failure })
+			)
+		case "PrologueRefused":
+			return (
+				serializationRefusal(failure.failure) ?? new ExecutionFailure({ reason: failure.failure })
+			)
+		case "CommitLost":
+			return new TransportFailure({
+				reason: new ConnectionLost({ operation: "commit", ended: { by: "transport" } })
+			})
+		case "ConnectionLost":
+		case "DriverFailure":
+			return new TransportFailure({ reason: failure })
+		case "UnreadableAnswer":
+		case "InputTooLarge":
+			return new ExecutionFailure({ reason: failure })
+		case "StaleSnapshot":
+			return failure
+	}
+}
+
+/**
  * What a write's failed flight means, but a refusal at COMMIT (`commitRefusal`): a refused statement is classified at
  * its origin; the fence's refusal is StaleSnapshot; a refused prologue's deadlock or serialization failure, which a fenced write's lock
  * meets where a READ COMMITTED check holds one of its tables and waits for another it locked first, is the
@@ -322,18 +357,13 @@ const flightFailure = <R>(
 	context: WitnessContext
 ): Effect.Effect<ApplyOutcome<R>, ApplyError> => {
 	switch (failure._tag) {
-		case "BatchRefused": {
-			const at = sent[failure.index]
-			const temporary = at === undefined ? undefined : temporaryRefusal(at.part, failure.failure)
-			return temporary === undefined
-				? outcomeOf(
-						classifyServerError(failure.failure, {
-							...context,
-							origin: statementOrigin(sent, failure.index)
-						})
-					)
-				: Effect.fail(new ExecutionFailure({ reason: temporary }))
-		}
+		case "BatchRefused":
+			return outcomeOf(
+				classifyServerError(failure.failure, {
+					...context,
+					origin: statementOrigin(sent, failure.index)
+				})
+			)
 		case "CommitLost":
 			return Effect.fail(new CommitUnknown())
 		case "ConnectionLost":
@@ -437,7 +467,7 @@ export interface BoundReads<R> {
 
 /**
  * A write's statements as `chunks` executes them under `transport`, in the order they are sent, each by the statement
- * it executes (SentStatement): one execution of most, a staged statement's carriers' creations and fills before it, and
+ * it executes (SentStatement): one execution of most, a staged statement's carriers' emptyings and fills before it, and
  * one of a family step per statement of its kind its family's plan cuts, each the step's one text over
  * its own rows' arrays. The read-backs' follow every write.
  */
@@ -479,7 +509,11 @@ const writeStatements = (
 	return Result.succeed({ sent, statements, cut })
 }
 
-/** The second half of an application: its statements in one transaction of `frame` on `session` (see the header). */
+/**
+ * The second half of an application: its statements in one transaction of `frame` on `session` (see the header), once
+ * they are bound, behind the session's stand-up of the write, which a session that ran it sends nothing for
+ * (stand-up.ts), so a call whose values no transport carries is refused before any SQL.
+ */
 export const runWrite = <R>(
 	session: Session,
 	frame: Frame,
@@ -524,6 +558,7 @@ export const runWrite = <R>(
 				if (Result.isFailure(writes)) {
 					return yield* Effect.fail(inputApplyError(writes.failure))
 				}
+				yield* Effect.mapError(standUp(session, frame, flight.standUps), standUpFailure)
 				const ran = yield* Effect.result(
 					runFramed(session, frame, [...writes.success.statements, ...backs.statements])
 				)
@@ -686,7 +721,8 @@ const addCounts = (
  * at once into the outcome's counts, which every share's add to, so the host holds one share's facts, parameters and
  * rows at a time; then the read-backs and COMMIT. A refusal, a statement's or COMMIT's, or a share's host refusal, sends
  * the call again whole, in a transaction of its own, the first having changed nothing, so the outcome and its witness
- * are the whole call's (`whole`); that path alone holds every fact.
+ * are the whole call's (`whole`); that path alone holds every fact. The session's stand-up of the write runs first, as
+ * for a whole call (runWrite).
  */
 export const runWriteShares = <R>(
 	session: Session,
@@ -698,6 +734,7 @@ export const runWriteShares = <R>(
 ): Effect.Effect<ApplyOutcome<R>, ApplyError> =>
 	Effect.gen(function* () {
 		const flight = entry.program
+		yield* Effect.mapError(standUp(session, frame, flight.standUps), standUpFailure)
 		const empty = drawn.empty
 		const context: WitnessContext = {
 			violation: entry.witness.classify,

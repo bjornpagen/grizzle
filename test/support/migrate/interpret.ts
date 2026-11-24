@@ -4001,6 +4001,7 @@ class Model {
 			case "delete":
 			case "merge":
 			case "createCarrier":
+			case "emptyCarrier":
 			case "stubConstant":
 			case "beginRead":
 			case "beginWrite":

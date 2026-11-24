@@ -79,7 +79,7 @@ import {
 	namesPast
 } from "#compiler/sql/naming.ts"
 import {
-	buildCreateCarrier,
+	buildEmptyCarrier,
 	buildFillCarrier,
 	type WriteCarrier,
 	carrierColumns,
@@ -101,7 +101,7 @@ import {
 
 import { type StratumAt, strataAt } from "#compiler/ir/stratum.ts"
 import type { Binding } from "#compiler/runtime/write/binding.ts"
-import { noExclusion, type WriteExclusion } from "#compiler/runtime/write/flight.ts"
+import { noExclusion, type StandUp, type WriteExclusion } from "#compiler/runtime/write/flight.ts"
 import { sentLayout } from "#compiler/runtime/write/nesting.ts"
 import type { FamilyWriteStep } from "#compiler/runtime/write/steps.ts"
 import type { UniqueAbort, WriteStep } from "#compiler/runtime/write/steps.ts"
@@ -178,6 +178,7 @@ import {
 	singleStatement
 } from "#compiler/write/program/single.ts"
 import { withStagedSlots } from "#compiler/write/program/slot-carriers.ts"
+import { writeStandUps } from "#compiler/write/program/stand-up.ts"
 import {
 	choosePutTargets,
 	type ChosenTargets,
@@ -256,6 +257,9 @@ export interface CompiledWrite extends ProgramArtifacts<WriteParamSlot> {
 	readonly plan: WritePlan
 	/** The optimized artifact, the one an application runs. */
 	readonly artifact: WriteArtifact
+	/** The session objects its artifact's flight reads and writes, which its session stands up before its first call
+	 * (write/program/stand-up.ts writeStandUps). */
+	readonly standUps: ReadonlyArray<StandUp<EmittedText>>
 	/** Where each family statement is placed in its stratum's schedule, which every realization places it by. */
 	readonly placements: ReadonlyArray<FamilyPlacement>
 	/**
@@ -1233,15 +1237,15 @@ const optimizedPlacement = (
 						: { kind: "none" }
 				)
 				break
-			case "createCarrier": {
+			case "emptyCarrier": {
 				const deps = tracker.add([], [`carrier:${step.carrier.name}`])
 				placed(
-					() => buildCreateCarrier(w, step.carrier),
+					() => buildEmptyCarrier(w, step.carrier),
 					deps,
 					() => ({
 						kind: "carrier",
 						carrier: step.carrier.name,
-						step: "create",
+						step: "empty",
 						stratum: step.stratum,
 						casts: castsNothing
 					})
@@ -1991,6 +1995,7 @@ const compileAt = (
 		choices: chosen.choices,
 		plan,
 		artifact: optimized,
+		standUps: writeStandUps(optimized, options.laws, options.names.schema),
 		placements: familyProgram(restated, lowering.w),
 		admission,
 		params: callerParams(frontend.params),

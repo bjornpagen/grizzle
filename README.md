@@ -1933,7 +1933,10 @@ schema.
   A migration's data steps on such a table run with the guard dropped and create it again in the same transaction:
   a draft's and the data step you write at its place, over every table the previous version guards and this one keeps,
   and a custom migration's (`generate --custom`) transactional file, over every guard the database holds as it runs. A
-  `-- grizzle: no-transaction` file has no transaction to do that in, so it cannot write a guarded table.
+  `-- grizzle: no-transaction` file has no transaction to do that in, so it cannot write a guarded table. Every data
+  step also stands up the rule judge's session tables first ([Rules over queries](#rules-over-queries)): a draft's by
+  the previous version's stand-ups, a custom migration's file, a no-transaction one's too, by every stand-up the
+  database holds as it runs, so a step's write of a table a rule over a query reads is judged at its COMMIT.
   An open relation is `mutable(Post)` inside a unit whose heading its key leads with ([Units](#units)): its writers hold
   UPDATE and DELETE, and its rows change in place and are deleted under the unit's exclusive borrow. A family's owner
   whose family changes after it is inserted is open too ([Families](#families)).
@@ -2582,7 +2585,11 @@ definition too.
   judged once per transaction, over the rows it wrote: a unit-local rule over the units of those rows, any other over
   the rows themselves. On each table the query reads, an AFTER statement trigger for
   each write that can break it copies the statement's rows into a temporary table of the session, `ON COMMIT PRESERVE
-  ROWS`, which the judge empties once it has read it, so no COMMIT truncates one (PostgreSQL truncates every `ON COMMIT
+  ROWS`, which the judge empties once it has read it, so no COMMIT truncates one. A session makes those tables once,
+  before its first write of the table, by the table's stand-up, a SECURITY DEFINER function every role that writes the
+  table may run ([Writes](#writes): a served write's session calls it itself; a direct writer calls it, as in
+  [Direct SQL access](#direct-sql-access)), so no write's transaction makes a relation, and the plans it makes outlive
+  it (PostgreSQL truncates every `ON COMMIT
   DELETE ROWS` table of a session at each COMMIT that touched a temporary table, a lock and invalidations each): for a containment,
   a write that adds rows to its source or takes rows from its target, and so also a delete from a table its source
   negates and an insert into one its target negates. The rows a transaction adds are kept as its net write: a delete,
@@ -2597,13 +2604,13 @@ definition too.
   violation query reads holds one, over tables that hold none its region being empty. The rules stand in parts, a
   function each, the classes of the rules that read a temporary table in common, and the judge runs a part only where
   the session holds one of its tables, so a session compiles, plans and runs only the parts of the relations it writes:
-  a learner's answers never run, plan or stand up the temporary tables of a content package's rules. Each rule's
+  a learner's answers never run or plan the rules of a content package. Each rule's
   statement over a side is a function of its own, which its part calls where a table it reads holds a row, so a
   session compiles the statements its writes run alone: a learner's save compiles its five, never the other seventy of
   the learner's part. After `SET
   CONSTRAINTS ALL IMMEDIATE` the judge runs at the end of each statement. The functions are SECURITY DEFINER on a
-  pinned `search_path`, no role may run them, and a temporary table another role made under the judge's names is
-  refused.
+  pinned `search_path`, no role may run them but a table's stand-up, which each role that writes the table may, and a
+  temporary table another role made under the judge's names is refused.
 - **Statistics.** Each lookup of a judged statement's chain, a probe's after the rows the transaction wrote and a
   unit-local rule's within its unit, is PostgreSQL's plan, a read of one table at the columns the steps before it bound,
   so no estimate turns a join the judge reads into a product it filters after; and every table's statistics are
@@ -3646,7 +3653,7 @@ A Db runs its login's served workload and nothing else: every call is a member, 
 - **`watch(input)`** is a `Stream` of the member's events: `reset`, then an `upsert` of each row as PostgreSQL delivers it, then `ready` once the read's transaction has committed, then, live, an `upsert` or a `remove` of each row whose change alters the answer. An upsert before `ready` is provisional: an `error` before it voids the rows it delivered. `once` is `watch` folded until `ready`.
 - **Windows.** A member `paged(orderedQuery)` reads a window: `window: { anchor, size }`, its anchor `{ kind: "start" }`, `{ kind: "after", key }`, `{ kind: "end" }`, `{ kind: "before", key }` or `{ kind: "at", position }`. A key is a row's `RowKey`, the values of the query's completed order, which the row's entry in a value carries. A position is the count of rows of that order before the window, 0 for its first row, any safe integer of at least 0: page `n` of size `m`, counting pages from 1, is `window: { anchor: { kind: "at", position: (n - 1) * m }, size: m }`. A window is one statement of at most `size` rows, and a window that holds no rows is past the end. A size is any safe integer of at least 1, with no default and no largest.
 - **A key or a position.** A keyset window seeks past its key in the order, through the index the order is read by, so it costs its size's rows wherever it lies. A positioned window is PostgreSQL's own `OFFSET` over the same order: its statement reads and discards every row before its position, so its cost grows with its position, and the window at position 1,000,000 reads a million rows to deliver its own. The order is total, so a position names exactly one window of one snapshot, but each call is its own snapshot: a row written or deleted before a position between two calls moves every row after it, so pages read by position across calls can repeat a row or skip one. A positioned window's entries carry their keys as every window's do, so `{ kind: "after", key }` at its last entry continues it by keyset. Keyset anchors are the scalable and stable way through an order, and position anchors exist for an API whose callers name pages by number.
-- **`explain(input)`** returns PostgreSQL's plan of each statement the member sends for that input, in the order it sends them, as data: one `{ statement, plan }` per statement, `statement` the name it is prepared under on every session (`grizzle_…`, as `pg_prepared_statements` and `pg_stat_statements` show it). Each is planned by `EXPLAIN (FORMAT JSON, VERBOSE)` over the statement's served text with the call's values, which runs nothing, in one transaction of the Db's role that is rolled back, so explaining a ChangeSet member writes nothing: its carriers are created and analyzed empty, as its apply analyzes them, and every statement after them is planned against them. The plan is the one PostgreSQL makes for those values, which a session uses for a statement's first executions; a session that has run it many times may switch to a generic plan. A plan node holds its node type, its estimated startup and total cost, rows and width, its children, and `on`, what it reads, named by the login's served file and never parsed back from PostgreSQL's names: `{ kind: "relation", relation }` for a table, or a derived relation's materialized view, read whole or written; `{ kind: "index", relation, index: { name } }` for one read through an index; `{ kind: "carrier" }` for the ChangeSet's own temporary carrier, read whole, since it holds no index; and `{ kind: "none" }` for a join, a sort or any node that reads no relation. A key member takes its key's values as its params, and a paged member explains its window's statement. A refresh member has no explain: REFRESH has no plan. A plan that reads a table or index the served file does not name is refused as unreadable. A served file names each index alone, so no running process loads what an index is: `indexesOf(snapshot)`, from `@bjornpagen/grizzle/compile`, takes the JSON value of the snapshot.json the file was generated beside and returns a `Result` of a map that holds, under each relation and then each index name, `{ columns, reasons }`. `columns` are the index's key columns in key order, each `{ kind: "field", field }`, a field of the relation by its declared name, or `{ kind: "law", holds, laws }`, a column a law adds, by the field whose values it holds and the laws it is added for, and each with its `direction`, `"asc"` or `"desc"` in a B-tree and `"none"` in an index that orders nothing; so a test holds a plan's index to "leads with `document`, then `start`" in field names. `reasons` are why the installation holds it: each law it serves by its identity, the `id` a refusal names that law by; the workload's access; or a derived relation's key.
+- **`explain(input)`** returns PostgreSQL's plan of each statement the member sends for that input, in the order it sends them, as data: one `{ statement, plan }` per statement, `statement` the name it is prepared under on every session (`grizzle_…`, as `pg_prepared_statements` and `pg_stat_statements` show it). Each is planned by `EXPLAIN (FORMAT JSON, VERBOSE)` over the statement's served text with the call's values, which runs nothing, in one transaction of the Db's role that is rolled back, so explaining a ChangeSet member writes nothing: its session stands the write up first, as its apply's does (a session's first call of a write makes its carriers and its rule tables once), each carrier is emptied as its apply empties it, and every statement after it is planned against it. The plan is the one PostgreSQL makes for those values, which a session uses for a statement's first executions; a session that has run it many times may switch to a generic plan. A plan node holds its node type, its estimated startup and total cost, rows and width, its children, and `on`, what it reads, named by the login's served file and never parsed back from PostgreSQL's names: `{ kind: "relation", relation }` for a table, or a derived relation's materialized view, read whole or written; `{ kind: "index", relation, index: { name } }` for one read through an index; `{ kind: "carrier" }` for the ChangeSet's own temporary carrier, read whole, since it holds no index; and `{ kind: "none" }` for a join, a sort or any node that reads no relation. A key member takes its key's values as its params, and a paged member explains its window's statement. A refresh member has no explain: REFRESH has no plan. A plan that reads a table or index the served file does not name is refused as unreadable. A served file names each index alone, so no running process loads what an index is: `indexesOf(snapshot)`, from `@bjornpagen/grizzle/compile`, takes the JSON value of the snapshot.json the file was generated beside and returns a `Result` of a map that holds, under each relation and then each index name, `{ columns, reasons }`. `columns` are the index's key columns in key order, each `{ kind: "field", field }`, a field of the relation by its declared name, or `{ kind: "law", holds, laws }`, a column a law adds, by the field whose values it holds and the laws it is added for, and each with its `direction`, `"asc"` or `"desc"` in a B-tree and `"none"` in an index that orders nothing; so a test holds a plan's index to "leads with `document`, then `start`" in field names. `reasons` are why the installation holds it: each law it serves by its identity, the `id` a refusal names that law by; the workload's access; or a derived relation's key.
 - **`explainAnalyze(input)`**, on a read member, runs its statement under `EXPLAIN (ANALYZE, FORMAT JSON, VERBOSE)` in the read's own transaction, rolled back, and returns each node's actual time to its first and last row, rows and loops, and the shared buffers it hit and read, beside its estimates, with the statement's planning and execution times. A ChangeSet member has none.
 
 ```text
@@ -3661,6 +3668,12 @@ yield* db.workload.postPage.explain({ params: { org, slug }, facts: {} })   // a
 
 - **A member's calls** are exactly what its program allows: a read's `once`, `watch`, `explain` and `explainAnalyze`; an answered read's, a clocked one's among them, `once`, `explain` and `explainAnalyze`; a ChangeSet's `once`, `watch` and `explain`; a refresh's `once` and `watch`. A member `refresh(tables)`, of a nonempty list of tables, is a write that refreshes its materialized tables in one transaction, lower levels first, and answers `{ kind: "refreshed" }`. A ChangeSet member with array members, facts its `insert`, `insertAll`, `delete` or `put` was given as an array, takes them as its input's `facts`: under each such member's op, `insert` (an `insertAll`'s members are inserts), `put` or `delete`, and then under its relation's name, the rows that member takes, typed and checked as its own (an owner's insert's with their families nested), as in `once({ params: {}, facts: { put: { Blob: stated }, delete: { Blob: removed } } })`. An op or relation left out, a row that is no fact of its relation and a name that is no array member's op or relation are type errors, and two array members of one op and one relation in two strata are refused where the strata meet: merge them into one. Every other member's facts are `{}`.
 - **No other program runs.** A Db holds only the members its served file holds, each prepared under the name generate gave its text. A program built at run time runs once a workload names it and generate serves it, so put every program your application runs in a workload.
+- **A session's first call of a write stands the write up.** Before a session's first call of a ChangeSet member, one
+  transaction of its own, framed as the call is, makes in the session what the write's statements read and write: each
+  carrier of its own, with the session function that empties it, and, for each table it writes that a rule over a query
+  reads, the rule judge's temporary tables, by the table's stand-up ([Rules over queries](#rules-over-queries)). The
+  session remembers what it stood up, so each is made once a session, whichever member needs it first, and a call's own
+  transaction makes no relation: the plans a brand-new backend's first call makes serve its second.
 
 ### The database's clock
 
@@ -5491,10 +5504,11 @@ A call's `CallError` is read from the reason that failed it, each reason a class
 rows one stratum adds at one key, or a nested row's generated field with no value: its `refused` and `witness` are
 that refusal's.
 
-**`TemporaryRefused`**: the write creates a temporary table, a carrier of its own (the rows of a query that two of
-its statements read, in a stratum that runs statement by statement) or one its nested rows past one Bind message
+**`TemporaryRefused`**: the write's stand-up creates a temporary table, a carrier of its own (the rows of a query that
+two of its statements read, in a stratum that runs statement by statement) or one its nested rows past one Bind message
 travel through, and the role holds no `TEMPORARY` privilege on the database, which `privilege` names; `error`
-is the server's 42501. Nothing committed. `grizzle migrate` grants the privilege to every role whose served workload
+is the server's 42501. Nothing committed: a session stands a write's carriers up in a transaction of its own before
+its first call of the write, and the call never ran. `grizzle migrate` grants the privilege to every role whose served workload
 creates one, and `grizzle drift` reports a grant revoked since.
 
 **`InputTooLarge`** is found on the host before the call's flight is sent. Its `bound`, which never counts rows:
@@ -5976,8 +5990,8 @@ checks (below). `grizzle migrate`, which runs the drift check after every apply,
   JIT among them: on a server built with LLVM, `jit_above_cost` can make a large statement compile its plan to machine
   code first.
 - **Privileges:** the login's and the role's privileges exactly as the snapshot installs them, and the policies naming
-  the role the snapshot's, by table and name. A write that creates a temporary table, a carrier of its own (the rows of
-  a query two of its statements read) or one its nested rows past one Bind message travel through, needs the `TEMPORARY` privilege on the database, so `grizzle
+  the role the snapshot's, by table and name. A write whose stand-up creates a temporary table, a carrier of its own (the
+  rows of a query two of its statements read) or one its nested rows past one Bind message travel through, needs the `TEMPORARY` privilege on the database, so `grizzle
   migrate` grants it to every role whose served workload creates one, and to no other role or login. The drift check
   judges each role's and login's own `TEMPORARY` grant exactly; `PUBLIC`'s, which PostgreSQL gives every database, is
   the database owner's, which grizzle neither relies on nor revokes. A grant revoked after the migration makes the
@@ -6085,6 +6099,7 @@ it is, read offline from the committed snapshot. PostgreSQL answers:
 | 23503               | a foreign key, a containment between sides included: at COMMIT when deferred (below), at the statement otherwise                                             |
 | 23503, 23505, 23514 | at COMMIT, a rule over a query, a containment, a key or a check, named by the rule ([Rules over queries](#rules-over-queries))                               |
 | 40001, 40P01        | a serialization failure or a deadlock: run the transaction again                                                                                             |
+| 55Z03               | a write of a table a rule over a query reads, in a session that has not stood up the rule judge's tables: call the table's stand-up once in the session first, `SELECT <schema>.<stand-up>()`, which `grizzle names` lists (`__stand_<table>_…`), as a served write's session does |
 
 - **Deferred foreign keys:** a family's key as its proof needs (a counted family's predecessor key, every last-slot
   key, an owner key a cascade feeds); a family's key a refill writes around (the owner key of every family whose
@@ -6136,6 +6151,15 @@ it is, read offline from the committed snapshot. PostgreSQL answers:
   its writes. A query entry's view, a scoped entry's among them, is a security-barrier view; a whole-table entry hides
   nothing, so its view is plain and PostgreSQL plans through it onto the table's indexes. On a table under row-level security, constraint messages
   omit row and key detail.
+- **The rule judge's session tables are its own.** A session holds the rows a transaction wrote of each table a rule
+  over a query reads in temporary tables the judge's definer makes, by the table's stand-up, before the session's first
+  write of it ([Rules over queries](#rules-over-queries)). PostgreSQL gives `PUBLIC` the `TEMPORARY` privilege on every
+  database, so any role could make a temporary table under one of the judge's names first, and empty it before COMMIT,
+  or make the table whose trigger runs the judge without the trigger, so the judge never ran. So the stand-up refuses a
+  table of the judge's names some other role made, and every capture of a write reads, once per statement, that each
+  table it writes or reads stands and is the definer's own, and refuses the write otherwise (55Z03, naming the table and
+  its stand-up). Neither reads more than one row of `pg_catalog.pg_class` a table, and neither makes or plans anything
+  after the session's first call.
 - **What a role can learn.** Rules hold across the whole database. A delete refused by a comment you cannot see, or a
   limit that counts rows outside your view, tells you such rows exist; a collision at a key tells you a row exists at
   the key you submitted (one overlapping the span you submitted, for a no-overlap key), never any of its other columns.
@@ -6175,9 +6199,11 @@ it is, read offline from the committed snapshot. PostgreSQL answers:
     index of a table it writes, a cast into a domain inside them included, and from its policies and its views; and
     the closed constants its queries read.
 - MAINTAIN on the materialized view of each derived table its `refresh` names.
-- TEMPORARY on the database, when a ChangeSet its login serves it creates a temporary table: a carrier of its own, the
-  rows of a query two of its statements read, or one its nested rows past one Bind message travel through. A
+- TEMPORARY on the database, when a ChangeSet its login serves it stands up a temporary table: a carrier of its own,
+  the rows of a query two of its statements read, or one its nested rows past one Bind message travel through. A
   read-back never needs one. No login holds it.
+- EXECUTE on the stand-up of each table it writes that a rule over a query reads, which makes the rule judge's
+  temporary tables of the session, as the judge's own definer ([Rules over queries](#rules-over-queries)).
 - Nothing else: no TRUNCATE, no sequence, and no other role's view or function.
 
 </details>
@@ -6285,7 +6311,7 @@ statistics from the schema's facts, so the estimate is grizzle's proof order at 
 
 `messageMaxBytes`, `maxStringLength`, `bytesMaxLength`, `flightMaxBytes`, `regexMaxRepeat` and `regexTextMaxBytes` are exported as `Limit` values, whose `.value` is the number.
 
-- **A `bytes` value is at most 1,073,741,819 bytes** (`bytesMaxLength`), PostgreSQL's longest bytea. A longer one is `EncodingFailure` before any SQL. It is read back in chunks of 16 MiB, one result row each, a write reads back only its SHA-256 digest, and a column's array of bytes values is sent in binary, bounded by the message alone: one copy of each value, made as the call is sent, after its member is measured from its values' lengths. A nested write's rows of one relation are no statement's bound: where their arrays would make the statement that writes them longer than one Bind message, the call creates a temporary table in the same flight, fills it with consecutive chunks of the rows, each as long as one Bind message carries, and runs the statement once over it, so what it writes and what its laws judge are one statement's. The temporary table drops at the transaction's end.
+- **A `bytes` value is at most 1,073,741,819 bytes** (`bytesMaxLength`), PostgreSQL's longest bytea. A longer one is `EncodingFailure` before any SQL. It is read back in chunks of 16 MiB, one result row each, a write reads back only its SHA-256 digest, and a column's array of bytes values is sent in binary, bounded by the message alone: one copy of each value, made as the call is sent, after its member is measured from its values' lengths. A nested write's rows of one relation are no statement's bound: where their arrays would make the statement that writes them longer than one Bind message, the call empties a temporary table its session stood up for the write, fills it with consecutive chunks of the rows, each as long as one Bind message carries, and runs the statement once over it, so what it writes and what its laws judge are one statement's.
 - **A statement's parameters are at most 1,073,741,822 bytes** (`messageMaxBytes`, PostgreSQL's `PQ_LARGE_MESSAGE_LIMIT`), **and an input column's array literal at most 536,870,888 UTF-16 code units** (`maxStringLength`, V8's longest string, 2^29 − 24). A relation input is one array per column, sent again to each statement that reads it. A call past either bound is `InputTooLarge` before anything is sent.
 - **A call's flight is at most 1,908,342,784 bytes** (`flightMaxBytes`): every message the driver writes for it, its statements' texts and parameters among them, in the one write a round trip is. Node hands that write to one `SSL_write`, whose length is a C int, and its ciphertext to one send, which macOS refuses past 2,147,483,647 bytes, so the bound is the whole TLS 1.2 records whose largest ciphertext fits one send. A longer flight is `InputTooLarge` (`flight`) before any byte is written: grizzle never splits a call into more round trips, so split the input across calls. Without the bound such a write fails whole, the connection ends with a transaction open, and a write would report `CommitLost` though nothing committed.
 - **A statement's Parse message is at most 1,073,741,822 bytes** (`messageMaxBytes`): its text and 8 bytes of fields, as the driver writes it. A longer one is `InputTooLarge` (`parse`) before any byte of its flight is written, where the server would end the connection at it.

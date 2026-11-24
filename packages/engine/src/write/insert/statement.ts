@@ -126,7 +126,7 @@ export interface AdmissionResult {
 export interface CarrierResult {
 	readonly kind: "carrier"
 	readonly carrier: string
-	readonly step: "create" | "fill"
+	readonly step: "empty" | "fill"
 }
 
 /** A query entry's check of the facts an addition is about to write: no rows, or the
@@ -321,7 +321,7 @@ export class StatementShare {
 		unshared<
 			Made<Built<DeleteResult> & { readonly ast: WithSelect; readonly returning: Returning }>
 		>()
-	readonly creations = unshared<Made<Built<CarrierResult>>>()
+	readonly emptyings = unshared<Made<Built<CarrierResult>>>()
 }
 
 /** How a statement is built: shared with every equal request of the compilation under `key` in `memo`, its spec's

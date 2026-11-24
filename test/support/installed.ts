@@ -41,6 +41,7 @@ import {
 	type Review,
 	templateInstalledOf
 } from "#test/support/install-migrate.ts"
+import { standUpSnapshot } from "#test/support/judge.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
@@ -271,6 +272,7 @@ export const migrated = (options: MigrateOptions) =>
 				{ snapshot: step.snapshot, folders: foldersThrough(steps, i) },
 				noFurther
 			)
+			yield* standUpSnapshot(session, step.snapshot)
 			yield* Option.match(options.observe, {
 				onNone: () => Effect.void,
 				onSome: (observe) => observe(i, session)

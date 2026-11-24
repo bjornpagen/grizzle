@@ -105,7 +105,10 @@ export const factInserts = (schema: string, r: Relation): ReadonlyArray<string> 
 
 /** Every table the fixture creates in `schema`, which a reset truncates together (substrate/replace.ts). */
 export const fixtureTables = (schema: string): ResetGroup =>
-	tablesGroup(Arr.map(relations, (r) => tableOf(schema, r)))
+	tablesGroup(
+		Arr.map(relations, (r) => tableOf(schema, r)),
+		[]
+	)
 
 const install = (schema: string): ReadonlyArray<string> => [
 	`CREATE DOMAIN ${rosterDomainSql(schema, "Kind")} AS smallint`,

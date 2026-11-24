@@ -18,6 +18,7 @@ import {
 	storageTemplate,
 	writesGen
 } from "#test/pg/laws/rule-storage.fixtures.ts"
+import { standUpJudge } from "#test/support/judge.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -37,6 +38,7 @@ export const aRuleJudgesDeltaHoldsItsValuesInItsRowWhereItsRelationsWidestRowFit
 					Effect.gen(function* () {
 						const { substrate, value } = yield* judged
 						const session = yield* substrate.session({ ...ownerSession(), label: "writer" })
+						yield* standUpJudge(session, value.installation)
 						yield* runWrites(value, session, k, c)
 					})
 				),

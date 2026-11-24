@@ -1,9 +1,5 @@
 import { Array as Arr, Option, Record as Rec, Result } from "effect"
-import { type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
-import { temporaryRefusal } from "#adapter/errors/failures.ts"
 import type { ExecutedPlan, ExecutedStatement, Plan, PlanTarget } from "#adapter/types/db.ts"
-import { asReadFailure, type FlightFailure } from "#adapter/wire/batch.ts"
-import type { ExecutionPart } from "#compiler/plan/change.ts"
 import { temporarySchema, trustedJson } from "#compiler/plan/runtime.ts"
 import type { ServedTable, ServedTables } from "#compiler/plan/serve.ts"
 
@@ -249,21 +245,4 @@ export const decodeExecuted = (
 		executionMs: answer["Execution Time"],
 		plan
 	}))
-}
-
-/**
- * An explain's flight failure in `frame` as its ReadError: a temporary table the role may not create, refused at the
- * statement of `explained`, each with what it does (write/program/staged.ts ExecutionPart), that creates it, as
- * TemporaryRefused (errors/failures.ts temporaryRefusal); any other as a read's (wire/batch.ts asReadFailure).
- */
-export const explainFailure = (
-	explained: ReadonlyArray<{ readonly part: ExecutionPart }>,
-	failure: FlightFailure
-): ReadError => {
-	if (failure._tag !== "BatchRefused") {
-		return asReadFailure(failure)
-	}
-	const at = explained[failure.index]
-	const temporary = at === undefined ? undefined : temporaryRefusal(at.part, failure.failure)
-	return temporary === undefined ? asReadFailure(failure) : new ReadFailure({ reason: temporary })
 }

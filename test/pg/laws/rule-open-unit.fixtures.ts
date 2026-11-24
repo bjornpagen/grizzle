@@ -22,7 +22,7 @@ import {
 import { printStatement } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
-import { foundQueryOf, judgedStatementsOf, raisedRule } from "#test/support/judge.ts"
+import { foundQueryOf, judgedStatementsOf, raisedRule, standUpJudge } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
@@ -497,6 +497,7 @@ export const runOpen = (
 	c: Case<OpenFeature>
 ) =>
 	Effect.gen(function* () {
+		yield* standUpJudge(connection, installed.installation)
 		const rules = installed.installation.laws.rules
 		const whole = drawn.shape === "one unit"
 		assert.ok(

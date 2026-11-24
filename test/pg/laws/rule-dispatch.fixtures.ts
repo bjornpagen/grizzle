@@ -25,7 +25,12 @@ import { printTableName } from "#compiler/sql/print.ts"
 import { inertVisitor, visitSelect } from "#compiler/sql/transform.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
-import { judgedStatementsOf, readersOf } from "#test/support/judge.ts"
+import {
+	judgedStatementsOf,
+	readersOf,
+	standUpJudge,
+	standUpRelations
+} from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
@@ -177,8 +182,8 @@ export const writesGen: Gen<Writes> = (s) => ({
 export type DispatchFeature =
 	| "a statement over two deltas run by a write of one of them alone"
 	| "a statement run by a side of olds alone"
-	| "a delta stood up for a statement whose transaction wrote no row of it"
-	| "a delta an earlier transaction stood up, holding no row in a later one"
+	| "a delta a statement that ran read, whose transaction wrote no row of it"
+	| "a delta an earlier transaction wrote, holding no row in a later one"
 	| "a transaction whose writes run no statement"
 
 /**
@@ -354,10 +359,21 @@ const observed = (
  * by SET CONSTRAINTS ALL IMMEDIATE, then what the session holds read, and COMMIT. The judge runs a rule statement
  * exactly where a delta it reads holds a row, which the written set names (README, Rules over queries: a rule is judged over the rows a transaction wrote, and over deltas
  * that hold none its region is empty): the stored tables the transaction holds ACCESS SHARE on are exactly those the
- * statements over its written deltas read, since nothing else of the transaction reads a stored table; and every delta
- * the session holds that it did not hold before holds a row, its capture's, or is read by a statement that ran, which
- * the judge stood it up for.
+ * statements over its written deltas read, since nothing else of the transaction reads a stored table; and the session
+ * holds no delta its stand-up did not make (physical/ddl/rules.ts addStandUps), so no transaction makes a relation.
  */
+/**
+ * The stand-ups a served write's session calls before the case's transactions, of the tables they write alone
+ * (`standUpRelations`): the judge's tables a capture of each requires, its own deltas and those its parts read beside
+ * them, and no other table's.
+ */
+export const standUpWritten = (session: RawSession, installed: Installed, drawn: Writes) =>
+	standUpRelations(
+		session,
+		installed.installation,
+		Arr.dedupe(Arr.flatMap(drawn.transactions, (writes) => Arr.map(writes, relationOf)))
+	)
+
 export const runWrites = (
 	installed: Installed,
 	admin: PgConnection,
@@ -366,6 +382,7 @@ export const runWrites = (
 	c: Case<DispatchFeature>
 ) =>
 	Effect.gen(function* () {
+		yield* standUpJudge(admin, installed.installation)
 		for (const sql of seeded(installed)) {
 			yield* admin.query(sql, [])
 		}
@@ -373,7 +390,10 @@ export const runWrites = (
 		assert.ok(statements.length > 0, "the judge holds a statement of each rule")
 		const deltas = Arr.dedupe(Arr.flatMap(statements, (s) => s.deltas))
 		const stored = Arr.map(tables, (t) => namesOf(installed).table(t))
-		let before = new Set<string>()
+		/** The deltas the session's stand-up made, before its first transaction. */
+		const stood = (yield* observed(session, deltas, stored)).standing
+		/** The deltas an earlier transaction of the session wrote a row into. */
+		const wroteBefore = new Set<string>()
 		for (const [t, writes] of drawn.transactions.entries()) {
 			const where = `transaction ${t} of ${Formatter.format(drawn)}`
 			yield* session.begin
@@ -402,10 +422,10 @@ export const runWrites = (
 				Arr.every(read, (d) => written.has(d) || stoodUp.has(d) || capturedBy(d)),
 				`${where}: the judge reads no delta but those the transaction wrote, ${listed(written)}, and those the statements that ran read, ${listed(stoodUp)}, not ${listed(read)}`
 			)
-			const added = Arr.filter([...standing], (d) => !before.has(d))
+			const added = Arr.filter([...standing], (d) => !stood.has(d))
 			assert.ok(
-				Arr.every(added, (d) => written.has(d) || stoodUp.has(d)),
-				`${where}: every delta the session newly holds, ${listed(added)}, holds a row or is read by a statement that ran, which read ${listed(stoodUp)}`
+				!Arr.isReadonlyArrayNonEmpty(added),
+				`${where}: the transaction made deltas, ${listed(added)}, beside those the session's stand-up made, ${listed(stood)}`
 			)
 			for (const s of ran) {
 				const by = Arr.filter(s.deltas, (d) => written.has(d))
@@ -416,16 +436,18 @@ export const runWrites = (
 					c.note("a statement run by a side of olds alone")
 				}
 			}
-			if (Arr.some(added, (d) => !written.has(d))) {
-				c.note("a delta stood up for a statement whose transaction wrote no row of it")
+			if (Arr.some([...stoodUp], (d) => !written.has(d))) {
+				c.note("a delta a statement that ran read, whose transaction wrote no row of it")
 			}
-			if (Arr.some([...before], (d) => !written.has(d))) {
-				c.note("a delta an earlier transaction stood up, holding no row in a later one")
+			if (Arr.some([...wroteBefore], (d) => !written.has(d))) {
+				c.note("a delta an earlier transaction wrote, holding no row in a later one")
 			}
 			if (ran.length === 0) {
 				c.note("a transaction whose writes run no statement")
 			}
 			yield* session.commit
-			before = standing
+			for (const d of written) {
+				wroteBefore.add(d)
+			}
 		}
 	})

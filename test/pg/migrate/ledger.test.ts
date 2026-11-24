@@ -94,6 +94,12 @@ export const ledgerMachine = property.explore(
 				original: '\tdigest: "digest"\n}',
 				replacement: '\tdigest: "text"\n}',
 				why: "The hex rendering restored in the ledger: a file's digest is stored as its 64 hex digits, a text, where the ledger stores its 32 bytes, so the ledger's rows read back strictly are no longer the runner's."
+			},
+			{
+				file: "packages/grizzle/src/adapter/migrate/apply.ts",
+				original: "\t\t([guards, standUps]) => dataStepBracket(guards, standUps)\n",
+				replacement: "\t\t([guards]) => dataStepBracket(guards, [])\n",
+				why: "A custom migration's data step stands up no rule judge's table before its statements: its write of a table a rule over a query reads is refused at the statement (55Z03), where the data step that breaks the rule is refused at its COMMIT."
 			}
 		]
 	}

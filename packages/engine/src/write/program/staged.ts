@@ -8,7 +8,7 @@
  * owner's insert carries the count its whole family draws, which no part's members copy, and a mutable owner's
  * recount would write a count and ends one statement never writes. So the rows are moved, not the statement cut:
  *
- *   CREATE TEMPORARY TABLE "pg_temp"."__carrier_<k>" ("c5" uuid NOT NULL, "c6" bytea NOT NULL, ...) ON COMMIT DROP
+ *   SELECT "pg_temp"."__carrier_<k>"()                       (the carrier emptied, sql/ast.ts EmptyCarrier)
  *   INSERT INTO "pg_temp"."__carrier_<k>" ("c5", "c6", ...)
  *     SELECT "r7"."c5", "r7"."c6", ... FROM (SELECT pg_catalog.unnest($1::uuid[]) AS "c5", ...) AS "r7"
  *   ... the fill again, once per chunk of the rows ...
@@ -17,15 +17,15 @@
  * The staged form (`stagedOf`) is compiled with the statement: each FROM item that reads its nested rows' arrays reads
  * a carrier of the same columns under the same alias instead, and the placeholders left are numbered again in order.
  * The runtime (`executionsOf`) sends the statement inline where its Bind message, measured from the rows' encoded
- * lengths, fits the transport, and otherwise the carriers' creations, their fills, each chunk of the rows as long as
+ * lengths, fits the transport, and otherwise the carriers' emptyings, their fills, each chunk of the rows as long as
  * one fill's Bind message carries, and the staged statement, in that order, every
  * one in the call's flight. The statement runs once over every row, so what it writes and what its laws judge are the inline
- * statement's. A carrier is the session's own, named after the program's carriers (sql/naming.ts carrierName), drops at
- * COMMIT, and a rollback drops it with the rest; the role creates it under the database's TEMPORARY privilege, without
- * which the write is TemporaryRefused.
+ * statement's. A carrier is the session's own, named after the program's carriers (sql/naming.ts carrierName), made with
+ * its emptying by the session's stand-up of the write (`table`, runtime/write/flight.ts StandUp) as every carrier of the
+ * write is, whether a call stages its rows or not; the role creates it under the database's TEMPORARY privilege, without
+ * which the stand-up is TemporaryRefused.
  *
- * No carrier is analyzed. One created in the transaction that reads it never has been, so PostgreSQL reads its size
- * from its heap alone, and a heap of under ten pages, which rows of large values stored out of line make (pantry's
+ * No carrier is analyzed, so PostgreSQL reads its size from its heap alone, and a heap of under ten pages, which rows of large values stored out of line make (pantry's
  * sixteen entries of 64 MiB are one page), is planned as ten pages of narrow rows, hundreds of them. Every stored
  * relation the statement joins is restricted to the keys of the rows it holds (write/probe.ts amongHeld), so it is
  * read by its key's index whatever that estimate, never whole, which under SERIALIZABLE takes a relation-level SIRead
@@ -146,7 +146,7 @@ const nestedSources = (
 	return found
 }
 
-/** A carrier's CREATE TEMPORARY TABLE, of its declaration. */
+/** A carrier's CREATE TEMPORARY TABLE, of its declaration, which the session's stand-up of the write sends. */
 const createOf = (source: StagedSource): CreateCarrier => ({
 	kind: "createCarrier",
 	name: source.carrier,
@@ -264,7 +264,8 @@ export const stagedOf = (
 		kind: "carriers",
 		carriers: mapNonEmpty(sources, (s) =>
 			Object.freeze({
-				create: emitText(createOf(s), emptyNameMap).text,
+				table: createOf(s),
+				empty: emitText({ kind: "emptyCarrier", name: s.carrier }, emptyNameMap).text,
 				fill: emitText(fillOf(s), emptyNameMap).text,
 				columns: mapNonEmpty(s.columns, (c) => c.array.number - 1)
 			})

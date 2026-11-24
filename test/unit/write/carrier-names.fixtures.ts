@@ -11,7 +11,9 @@ import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { mutable, relation, schema, unit } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { carrierScope } from "#compiler/sql/naming.ts"
+import { emitText } from "#compiler/sql/emit.ts"
+import { carrierScope, emptyNameMap } from "#compiler/sql/naming.ts"
+import { carrierTable } from "#compiler/write/carriers/carriers.ts"
 import { changeSetDesc } from "#compiler/write/changeset/value.ts"
 import type { WriteArtifact } from "#compiler/write/program/artifact.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
@@ -128,14 +130,20 @@ const layoutOf = (layout: Layout) => {
 	}
 }
 
-/** Every carrier an artifact creates: its name, and its CREATE TEMPORARY TABLE's text with the name set aside. */
+/**
+ * Every carrier an artifact names, each made by its write's stand-up (write/carriers/carriers.ts carrierStandUp): its
+ * name, and its CREATE TEMPORARY TABLE's text with the name set aside.
+ */
 const createdCarriers = (
 	artifact: WriteArtifact
 ): ReadonlyArray<readonly [name: string, declaration: string]> =>
-	Arr.flatMap(artifact.statements, (s) =>
-		s.step.kind === "carrier" && s.step.step === "create"
-			? [[s.step.carrier, Str.replaceAll(s.step.carrier, "?")(s.spec.sql)] as const]
-			: []
+	Arr.map(
+		artifact.carriers,
+		(carrier) =>
+			[
+				carrier.name,
+				Str.replaceAll(carrier.name, "?")(emitText(carrierTable(carrier), emptyNameMap).text)
+			] as const
 	)
 
 /** The carriers a layout's programs create, each realization's in the order its program creates them. */

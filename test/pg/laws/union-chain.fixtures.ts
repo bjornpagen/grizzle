@@ -10,7 +10,7 @@ import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
-import { foundQueryOf, judgedStatementsOf, raisedRule } from "#test/support/judge.ts"
+import { foundQueryOf, judgedStatementsOf, raisedRule, standUpJudge } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
@@ -220,6 +220,7 @@ export const runChain = (
 	c: Case<ChainFeature>
 ) =>
 	Effect.gen(function* () {
+		yield* standUpJudge(connection, installed.installation)
 		const chain = chains[drawn.chain]
 		c.note(depthFeature[chain.depth])
 		if (chain.reads === 2) {

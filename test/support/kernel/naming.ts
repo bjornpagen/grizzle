@@ -14,7 +14,7 @@ import {
 	type SchemaName
 } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { quoteIdent } from "#compiler/core/text.ts"
+import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import {
 	installationsOf,
 	type Owned,
@@ -377,6 +377,12 @@ export interface Names extends LawNames {
 	 * relation's stamps wrote: the tables a reset empties together (substrate/replace.ts installationGroup).
 	 */
 	readonly storedTables: ReadonlyArray<string>
+	/**
+	 * The call of each stand-up the installation holds (`standUpCallsOf`): what a direct writer sends once in its session
+	 * before its first write of a table the rule judge holds, and a reset on its backend before its inserts
+	 * (substrate/replace.ts installationGroup).
+	 */
+	readonly standUps: ReadonlyArray<string>
 	/** A field's column, quoted; a derived relation's view column by its head name. */
 	readonly column: <R extends AnyRelation | AnyDerived>(
 		relation: R,
@@ -1094,6 +1100,7 @@ const namesOver = (installation: Installation, schema: string): Names => {
 				return `${quoteIdent(q.schema)}.${quoteIdent(q.name)}`
 			})
 		],
+		standUps: standUpCallsOf(installation, schema),
 		column: (relation, field) => quoteIdent(names.column(relation.name, field)),
 		code: (roster, handle) => {
 			const codec = names.codes.rosters.get(parsedName(roster.name))
@@ -1178,6 +1185,29 @@ const namesOver = (installation: Installation, schema: string): Names => {
 }
 
 /** The names of a compiled installation under its declared schema. */
+/**
+ * The call of each stand-up `installation` installs under the schema `schema` (physical/ddl/rules.ts addStandUps), once,
+ * in the order the installation named them, each where the session's role may run it, a DO block whose PERFORM PostgreSQL
+ * checks the privilege of only once its IF holds, where a statement checks every function it names as it starts: what a writer outside grizzle
+ * sends before its first write of a table the rule judge holds, so the session's sentinel and every delta a capture of
+ * the tables its role writes requires stand, as a served write's session stands them up before its first call (adapter
+ * apply/stand-up.ts). Each stand-up's EXECUTE is granted to the roles that write its table, and the owner holds every
+ * one, so the calls one role sends are exactly those of the tables it writes. A capture refuses a writer that sent none
+ * (core/sqlstate.ts grizzleUnstood).
+ */
+export const standUpCallsOf = (installation: Installation, schema: string): ReadonlyArray<string> =>
+	Arr.dedupe(
+		Arr.flatMap(installation.identities, (named) => {
+			if (named.kind !== "ruleStandUp") {
+				return []
+			}
+			const standUp = `${quoteIdent(schema)}.${quoteIdent(identifierOf(named))}`
+			return [
+				`DO $stand$BEGIN IF pg_catalog.has_function_privilege(${quoteString(`${standUp}()`)}, 'EXECUTE') THEN PERFORM ${standUp}(); END IF; END$stand$`
+			]
+		})
+	)
+
 export const installationNamesOf = (installation: Installation): Names =>
 	namesOver(installation, installation.names.schema)
 

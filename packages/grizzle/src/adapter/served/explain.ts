@@ -1,14 +1,16 @@
 import { Array as Arr, Effect, Result, type Scope } from "effect"
 import { type HostCall, hostInputs, sessionTransport, valuesFailure } from "#adapter/apply/run.ts"
+import { type StandUpFailure, standUp } from "#adapter/apply/stand-up.ts"
 import type { ServedDbContext } from "#adapter/db/context.ts"
 import { type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
 import { InputRejected, UnreadableAnswer } from "#adapter/errors/failures.ts"
-import { decodeExecuted, decodePlan, explainFailure } from "#adapter/explain/plan.ts"
+import { decodeExecuted, decodePlan } from "#adapter/explain/plan.ts"
 import { programStatement } from "#adapter/reader/run.ts"
 import type { ReadCall } from "#adapter/reader/stream.ts"
 import type { LoadedChange } from "#adapter/served/load.ts"
 import type { ExecutedStatement, StatementPlan } from "#adapter/types/db.ts"
 import {
+	asReadFailure,
 	type BatchOutcome,
 	type BatchStatement,
 	excludesNothing,
@@ -17,10 +19,11 @@ import {
 	type PreparedStatement,
 	preparedStatement,
 	runFramed,
-	type Transaction
+	type Transaction,
+	writeFrame
 } from "#adapter/wire/batch.ts"
 import type { Session } from "#adapter/wire/session.ts"
-import type { ExecutionPart } from "#compiler/plan/change.ts"
+import type { ExecutionPart, ServedStandUp } from "#compiler/plan/change.ts"
 import { explainAnalyzeOf, explainOf } from "#compiler/plan/runtime.ts"
 import type { ServedTables } from "#compiler/plan/serve.ts"
 
@@ -31,8 +34,9 @@ import type { ServedTables } from "#compiler/plan/serve.ts"
  *
  * Each planned statement is sent as its EXPLAIN, PostgreSQL's unnamed statement over the served statement's text
  * (sql/emit.ts explainOf), with the parameters the application binds to the named prepared statement, and is reported
- * under that statement's name. A carrier's stand-up (sql/print.ts carrierStandUp), a DO block that creates or empties
- * it and has no plan, runs as the application runs it, so every statement after it plans against the carrier.
+ * under that statement's name. A change's session stands its write up first, as an application's does (apply/stand-up.ts),
+ * so every carrier and judge's table its statements name stands; a carrier's emptying, which has no plan of its own,
+ * runs as the application runs it, so every statement after it plans against the carrier.
  */
 
 /** One statement an explain sends: planned, for the served statement it names, or run as it is, with what it does. */
@@ -89,16 +93,31 @@ const decodedPlans = <P>(
 }
 
 /**
+ * An explain's stand-up failure (apply/stand-up.ts) as its ReadError: a carrier's table the role may not create as
+ * TemporaryRefused (errors/failures.ts temporaryRefusal); any other as a read's (wire/batch.ts asReadFailure).
+ */
+const standUpReadError = (failure: StandUpFailure): ReadError =>
+	failure._tag === "TemporaryRefused"
+		? new ReadFailure({ reason: failure })
+		: asReadFailure(failure)
+
+/**
  * Sends the statements `made` makes for the session it leases from the context's pool, in one flight on that session
- * in `frame`, and decodes the plan of each planned one by `decode`.
+ * in `frame`, once the session has stood up `standUps` (apply/stand-up.ts), and decodes the plan of each planned one by
+ * `decode`.
  */
 const plansOf = Effect.fn("plansOf")(function* <P>(
 	ctx: ServedDbContext,
 	frame: Transaction,
+	standUps: ReadonlyArray<ServedStandUp>,
 	made: (session: Session) => Result.Result<ReadonlyArray<Explained>, ReadFailure>,
 	decode: (name: string, cell: string | undefined) => Result.Result<P, string>
 ): Effect.fn.Return<ReadonlyArray<P>, ReadError, Scope.Scope> {
 	const session = yield* Effect.mapError(ctx.pool.lease, (reason) => new ReadFailure({ reason }))
+	yield* Effect.mapError(
+		standUp(session, writeFrame(ctx.prologue, ctx.isolation, excludesNothing), standUps),
+		standUpReadError
+	)
 	const statements = yield* Effect.fromResult(made(session))
 	const outcomes = yield* Effect.mapError(
 		runFramed(
@@ -106,7 +125,7 @@ const plansOf = Effect.fn("plansOf")(function* <P>(
 			{ ...frame, prologue: ctx.prologue, exclusion: excludesNothing },
 			Arr.map(statements, (e) => e.statement)
 		),
-		(failure) => explainFailure(statements, failure)
+		asReadFailure
 	)
 	return yield* Effect.fromResult(decodedPlans(statements, outcomes, decode))
 }, Effect.scoped)
@@ -137,6 +156,7 @@ export const explainRead = (
 		plansOf(
 			ctx,
 			readFrame,
+			[],
 			() => Result.succeed([statement]),
 			(name, cell) => Result.map(decodePlan(cell, installed), (plan) => ({ statement: name, plan }))
 		)
@@ -155,6 +175,7 @@ export const explainReadAnalyzed = (
 		plansOf(
 			ctx,
 			readFrame,
+			[],
 			() => Result.succeed([statement]),
 			(name, cell) =>
 				Result.map(decodeExecuted(cell, installed), (executed) => ({
@@ -214,7 +235,7 @@ export const explainChange = (
 				}
 				for (const execution of executions.value) {
 					statements.push(
-						execution.part === "create"
+						execution.part === "empty"
 							? {
 									kind: "run",
 									statement: preparedStatement(execution.text, execution.params),
@@ -226,7 +247,11 @@ export const explainChange = (
 			}
 			return Result.succeed(Arr.appendAll(statements, backs))
 		}
-		return yield* plansOf(ctx, changeFrame, explainedOf, (statement, cell) =>
-			Result.map(decodePlan(cell, installed), (plan) => ({ statement, plan }))
+		return yield* plansOf(
+			ctx,
+			changeFrame,
+			entry.program.standUps,
+			explainedOf,
+			(statement, cell) => Result.map(decodePlan(cell, installed), (plan) => ({ statement, plan }))
 		)
 	})

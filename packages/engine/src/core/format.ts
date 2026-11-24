@@ -162,7 +162,7 @@
  * 56.9 MB, and its served statements 116 MB where they were 133 MB.
  *
  * Format 7 (pin+1): a session table, a rule judge's delta (physical/ddl/rules.ts
- * emptied) or a write program's carrier (sql/print.ts carrierStandUp), is emptied by DELETE, and by TRUNCATE only once
+ * emptied) or a write program's carrier (sql/print.ts carrierEmptying), is emptied by DELETE, and by TRUNCATE only once
  * its heap or its TOAST table's heap holds more than its one page (sql/print.ts sessionTableEmptied), where format 6
  * truncated each written delta at every judged COMMIT and each carrier at every use, so each judge function's body and
  * each served carrier stand-up read the table's size before they empty it. A whole rule's judged statement spells each
@@ -341,6 +341,16 @@
  * it holds SELECT and INSERT on its table and no UPDATE or DELETE (physical/ddl/roles.ts entryPrivileges), where format
  * 8 granted DELETE on every table a role wrote; open, mutable(R) inside a unit whose heading its primary key leads with,
  * its writers holding UPDATE and DELETE as before. A world's grants move for every closed table a role writes.
+ * A session stands up the objects a write's flight reads and writes once, before its first call of the write, in one
+ * transaction of its own (adapter apply/stand-up.ts): a served write holds its stand-ups (runtime/write/flight.ts
+ * ServedWrite `standUps`), each carrier's CREATE TEMPORARY TABLE with its emptying, a pg_temp session function of the
+ * carrier's own name (sql/print.ts carrierEmptying), and the call of each written judged table's stand-up, a SECURITY
+ * DEFINER function per judged table (physical/ddl/rules.ts addStandUps) that the installation grants every role writing
+ * the table and a migration's Structure calls before its data steps (deploy/diff/diff.ts standUps); a carrier step's
+ * `create` is `empty`, the call of its session function (sql/ast.ts EmptyCarrier), and a staged carrier holds its
+ * `empty` beside its fill, where format 8 stood each carrier up by a DO block at every use and each capture and part
+ * stood its deltas and the sentinel up inside the write's transaction; a capture requires its tables and refuses a
+ * session that stood none up (core/sqlstate.ts grizzleUnstood, 55Z03).
  */
 export const artifactFormat = 8
 

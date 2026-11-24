@@ -298,7 +298,7 @@ export const baselineSchema = Effect.fn("baselineSchema")(function* (
  */
 export type StatementLabel =
 	| WriteLabel
-	| { readonly kind: "carrier"; readonly position: number; readonly step: "create" | "fill" }
+	| { readonly kind: "carrier"; readonly position: number; readonly step: "empty" | "fill" }
 	| { readonly kind: "readBack"; readonly position: number; readonly name: string }
 	| { readonly kind: "check"; readonly position: number; readonly entry: string }
 	| { readonly kind: "admission"; readonly position: number }
@@ -687,8 +687,10 @@ const constraintOf = (name: string | undefined): ReportedConstraint =>
 
 /**
  * A session whose flights note their first refused query into `log`, by the program statement it was, and, with a
- * probe, run it in front of COMMIT: the flight is sent without its COMMIT, the probe runs, and COMMIT follows in a
- * flight of its own whose answer is the held-back query's.
+ * probe, run it in front of the COMMIT of the attempt's own transaction, a flight that carries a statement of the
+ * program: the flight is sent without its COMMIT, the probe runs, and COMMIT follows in a flight of its own whose answer
+ * is the held-back query's. The session's stand-up of the write (adapter/apply/stand-up.ts), a transaction of its own
+ * that carries none of the program's statements, runs as it is.
  */
 const observedSession = (
 	session: Session,
@@ -726,7 +728,8 @@ const observedSession = (
 			beforeCommit.kind === "none" ||
 			last?._tag !== "control" ||
 			last.control.kind !== "end" ||
-			last.control.end !== "COMMIT"
+			last.control.end !== "COMMIT" ||
+			!Arr.some(pipeline, (query) => query._tag !== "control" && attribute(query).kind === "label")
 		) {
 			return session.send(
 				pipeline,
@@ -1037,10 +1040,11 @@ const observedArtifact = (
 	)
 
 /**
- * A session whose closing flight, the one that ends its transaction by COMMIT, sends each query whose text is one of
- * `texts` under EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, SETTINGS, FORMAT JSON) with its own parameters, noting each plan
- * into `plans`, and ends by ROLLBACK: the statements run where they would, over the state the attempt finds, and leave
- * nothing. Every other flight is sent as it is.
+ * A session whose closing flight of the attempt, the one that carries a query whose text is one of `texts` and ends its
+ * transaction by COMMIT, sends each such query under EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, SETTINGS, FORMAT JSON) with
+ * its own parameters, noting each plan into `plans`, and ends by ROLLBACK: the statements run where they would, over the
+ * state the attempt finds, and leave nothing. Every other flight is sent as it is, the session's stand-up of the write
+ * among them (adapter/apply/stand-up.ts), which commits its session objects.
  */
 const explainingSession = (
 	session: Session,
@@ -1051,7 +1055,15 @@ const explainingSession = (
 	send: (pipeline, onAnswer, onEnd, onCut) => {
 		const last = pipeline[pipeline.length - 1]
 		const closing =
-			last?._tag === "control" && last.control.kind === "end" && last.control.end === "COMMIT"
+			last?._tag === "control" &&
+			last.control.kind === "end" &&
+			last.control.end === "COMMIT" &&
+			Arr.some(
+				pipeline,
+				(query) =>
+					query._tag !== "control" &&
+					texts.has(query._tag === "prepared" ? query.text.sql : query.sql)
+			)
 		if (!closing) {
 			return session.send(pipeline, onAnswer, onEnd, onCut)
 		}
@@ -1094,16 +1106,17 @@ const explainingSession = (
 })
 
 /**
- * Whether EXPLAIN plans a statement of `label`: every statement but a carrier's creation, which names no plan and runs
- * as it is, so the statements after it read the carrier it makes (write/program/slot-carriers.ts).
+ * Whether EXPLAIN plans a statement of `label`: every statement but a carrier's emptying, a call of the carrier's
+ * session function (sql/ast.ts EmptyCarrier), whose plan is no statement of the write's, which runs as it is, so the
+ * statements after it read the carrier it empties (write/program/slot-carriers.ts).
  */
 const explainPlans = (label: StatementLabel): boolean =>
-	!(label.kind === "carrier" && label.step === "create")
+	!(label.kind === "carrier" && label.step === "empty")
 
 /**
  * The plans of one application of a ChangeSet value on the Db `opened`, as observedChange applies it, its program's
  * statements each run under EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, SETTINGS, FORMAT JSON) in its place in the
- * transaction that writes, a carrier's creation as it is (`explainPlans`), which ends by ROLLBACK
+ * transaction that writes, a carrier's emptying as it is (`explainPlans`), which ends by ROLLBACK
  * (explainingSession), with no parameters but the ChangeSet's own facts.
  * The attempt's outcome is no ChangeSet's: its statements answered plans, which it cannot read, so it is not kept.
  */

@@ -157,6 +157,7 @@ import {
 
 import { dropLiveSlot } from "#compiler/physical/ddl/live.ts"
 import {
+	calledAlone,
 	cast,
 	columnKey,
 	functionNameOf,
@@ -437,6 +438,24 @@ const heldBefore = (
 		case "migration":
 			return false
 	}
+}
+
+/**
+ * The stand-ups `snapshot`'s installation holds (physical/ddl/rules.ts addStandUps), in its install order: each function
+ * of its manifest named as a relation of its theory's stand-up (identity.ruleStandUp), which a session calls before its
+ * first write of the relation.
+ */
+export const standUpsOf = (snapshot: DeploySnapshot): ReadonlyArray<ObjectName> => {
+	const named = new Set<string>(
+		Object.keys(snapshot.theory.relations).map((r) => identifierOf(identity.ruleStandUp(r)))
+	)
+	return snapshot.manifest.objects.flatMap((o): ReadonlyArray<ObjectName> => {
+		if (o.kind !== "lawFunction") {
+			return []
+		}
+		const v = installed(o)
+		return v.kind === "lawFunction" && named.has(v.create.name.name) ? [v.create.name] : []
+	})
 }
 
 /** A drop drafted with its kind's place in the drop order. */
@@ -1552,6 +1571,7 @@ class Differ {
 		}
 		const written = this.dataSteps(this.backfill())
 		if (isNonEmpty(written)) {
+			this.standUps()
 			this.push("structure.immediate", statement(checkedAtOnce))
 			this.unguard()
 		}
@@ -2816,6 +2836,20 @@ class Differ {
 	 * other transaction sees a table without its guard, nor any committed state holds one so. A table the previous
 	 * installation does not guard takes its guard in Validate, after every data step.
 	 */
+	/**
+	 * The previous installation's stand-up of each table its rule judge holds (`standUpsOf`), each called once just
+	 * before SET CONSTRAINTS ALL IMMEDIATE (checkedAtOnce) where Structure holds a data step: a data step's write of
+	 * such a table runs the table's capture, which requires the judge's session tables and never makes one, so the
+	 * migration's session stands them up first, as a served write's session does before its first call. A table whose
+	 * capture stands during Structure has its stand-up there too, both the previous installation's.
+	 */
+	standUps(): void {
+		this.sql(
+			"structure.immediate",
+			standUpsOf(this.input.previous).map((fn): SqlStatement => calledAlone(fn))
+		)
+	}
+
 	unguard(): void {
 		const kept = new Set(
 			[...this.next.values()].flatMap((o) => {

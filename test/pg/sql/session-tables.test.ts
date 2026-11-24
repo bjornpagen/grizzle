@@ -1,13 +1,14 @@
 /**
- * A session table's emptying on PostgreSQL 19 (sql/print.ts sessionTableEmptied), through a write's carrier, whose
- * every use stands it up (carrierStandUp): over drawn sequences of two to six uses on one session, each writing no row,
- * one, or more than the carrier's one page holds, narrow in its heap or wide in its TOAST table, and ending in COMMIT or
- * ROLLBACK, a carrier keyed or not, every stand-up after the first leaves the carrier with no row; keeps its file, so it
- * sent no invalidation, where the use before left its heap and its TOAST table's each within one page; gives it back
- * where either held more; and leaves each within one page.
+ * A session table's emptying on PostgreSQL 19 (sql/print.ts sessionTableEmptied), through a write's carrier, which the
+ * session stands up once and every use empties by its session function (sql/print.ts carrierEmptying): over drawn
+ * sequences of two to six uses on one session, each writing no row, one, or more than the carrier's one page holds,
+ * narrow in its heap or wide in its TOAST table, and ending in COMMIT or ROLLBACK, a carrier keyed or not, every
+ * emptying leaves the carrier with no row; keeps its file, so it sent no invalidation, where the use before left its
+ * heap and its TOAST table's each within one page; gives it back where either held more; and leaves each within one
+ * page.
  *
- * Features: a carrier that kept its file and one that gave it back, outgrown in its heap and in its TOAST table, and a
- * stand-up after a rollback.
+ * Features: a carrier that kept its file and one that gave it back, outgrown in its heap and in its TOAST table, and an
+ * emptying after a rollback.
  */
 
 import type { Reached } from "@bjornpagen/testing/features"
@@ -70,7 +71,7 @@ export const aSessionTablesEmptyingKeepsItsFileWhileItHoldsItsOnePageAndGivesThe
 				),
 		oracle: {
 			kind: "postgresql",
-			name: "the carrier's rows, file and heap and TOAST bytes at each stand-up, against the bytes the use before left: none holds a row, a file within its page kept, one past it given back, each within its page after"
+			name: "the carrier's rows, file and heap and TOAST bytes at each emptying, against the bytes the use before left: none holds a row, a file within its page kept, one past it given back, each within its page after"
 		},
 		budget: { runs: 1, steered: 200 },
 		kept: [],
@@ -80,7 +81,7 @@ export const aSessionTablesEmptyingKeepsItsFileWhileItHoldsItsOnePageAndGivesThe
 				original:
 					'\t\t{ condition: sessionTableOvergrown(name), body: [{ kind: "truncateSessionTable", name }] }',
 				replacement:
-					'\t\t{ condition: not(sessionTableStands(name)), body: [{ kind: "truncateSessionTable", name }] }',
+					'\t\t{ condition: lit.bool(false), body: [{ kind: "truncateSessionTable", name }] }',
 				why: "The emptying never truncates, a DELETE at every use as e8de84026's judge did: a carrier refilled past its page keeps every page, and a session's carriers grow by each use."
 			},
 			{
@@ -88,8 +89,8 @@ export const aSessionTablesEmptyingKeepsItsFileWhileItHoldsItsOnePageAndGivesThe
 				original:
 					'\t\t{ condition: sessionTableOvergrown(name), body: [{ kind: "truncateSessionTable", name }] }',
 				replacement:
-					'\t\t{ condition: sessionTableStands(name), body: [{ kind: "truncateSessionTable", name }] }',
-				why: "The emptying truncates at every use, as carrierStandUp did: a carrier within its page gets a new file at each use, and every backend of the database walks every plan it holds for the invalidations."
+					'\t\t{ condition: lit.bool(true), body: [{ kind: "truncateSessionTable", name }] }',
+				why: "The emptying truncates at every use: a carrier within its page gets a new file at each use, and every backend of the database walks every plan it holds for the invalidations."
 			}
 		]
 	})

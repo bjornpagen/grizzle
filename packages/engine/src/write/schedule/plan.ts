@@ -120,7 +120,8 @@ export type PlannedWrite = {
 } & WriteOpStep
 
 /** One step of a write plan:
- * - `createCarrier`, a carrier created at the start of its stratum: a member's or a shared sub-query's;
+ * - `emptyCarrier`, a carrier emptied at the start of its stratum, a member's or a shared sub-query's, which the
+ *   session's stand-up of the write made (runtime/write/flight.ts StandUp);
  * - `fillMember`, a member's carrier, filled from its node: the facts its action writes into `relation`, cast into its
  *   columns' types;
  * - `fillShare`, the carrier of a sub-query several statements of the stratum read, filled from the share's copy;
@@ -134,7 +135,7 @@ export type PlannedWrite = {
  *   the stratum's writes. */
 export type PlanStep =
 	| {
-			readonly kind: "createCarrier"
+			readonly kind: "emptyCarrier"
 			readonly carrier: WriteCarrier
 			readonly stratum: StratumAt
 	  }
@@ -604,7 +605,7 @@ const sequentialSteps = (
 			share.node.heading.map((c) => ({ name: c.name, type: c.type })),
 			undefined
 		)
-		steps.push({ kind: "createCarrier", carrier, stratum })
+		steps.push({ kind: "emptyCarrier", carrier, stratum })
 		steps.push({ kind: "fillShare", carrier, share, stratum })
 	}
 	const carried = new Set(shares.flatMap((share) => share.copies))
@@ -631,7 +632,7 @@ const sequentialSteps = (
 		)
 		const heading = action.op === "delete" ? compareHeading(fields) : factHeading(fields)
 		const carrier = supply.next(heading, undefined)
-		steps.push({ kind: "createCarrier", carrier, stratum })
+		steps.push({ kind: "emptyCarrier", carrier, stratum })
 		steps.push({ kind: "fillMember", carrier, node: reads.node, relation: relation.name, stratum })
 		return { kind: "reread", draft, input: { kind: "carrier", carrier, proof } }
 	}
@@ -694,7 +695,7 @@ const stepWrites = (step: PlanStep): ReadonlyArray<string> => {
 			return step.writes.map((w) => w.relation.name)
 		case "family":
 			return familyNodeRelations(step.node)
-		case "createCarrier":
+		case "emptyCarrier":
 		case "fillMember":
 		case "fillShare":
 		case "check":
@@ -821,7 +822,7 @@ const stepSides = (step: PlanStep): ReadonlyArray<SideWrite> => {
 					stratum: step.stratum
 				}))
 			)
-		case "createCarrier":
+		case "emptyCarrier":
 		case "fillMember":
 		case "fillShare":
 		case "check":

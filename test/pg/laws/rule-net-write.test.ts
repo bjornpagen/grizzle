@@ -35,6 +35,7 @@ import {
 	runTie,
 	tieGen
 } from "#test/pg/laws/rule-net-write.fixtures.ts"
+import { standUpJudge } from "#test/support/judge.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -52,6 +53,7 @@ export const aRuleOverAQueryJudgesTheTransactionsNetWriteAsTheRulesWholeCheckJud
 				Effect.gen(function* () {
 					const { substrate, value } = yield* net
 					const session = yield* substrate.session({ ...ownerSession(), label: "net write" })
+					yield* standUpJudge(session, value.installation)
 					yield* runSchedule(value, substrate.admin, session, schedule, c)
 				}).pipe(Effect.scoped),
 		oracle: {

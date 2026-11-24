@@ -825,7 +825,7 @@ const variantWrites = (variants: ServableVariants): ReadonlyArray<ServableWrite>
 
 /**
  * The roles of `served`, each login's ChangeSets in the forms their certificates serve them by role, any of whose served
- * ChangeSets may create a carrier (write/program/artifact.ts createsCarrier, ServableWrite `carriers`), with the type of
+ * ChangeSets stand a carrier up (runtime/write/flight.ts StandUp, ServableWrite `carriers`), with the type of
  * each column of every program carrier they create, in login then role order: the roles a write may refuse for want of
  * TEMPORARY on the database (adapter TemporaryRefused), or of USAGE on a domain a carrier's column is typed by.
  */

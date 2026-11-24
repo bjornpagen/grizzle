@@ -29,6 +29,8 @@ import { installationsOf } from "#compiler/schema/own.ts"
 import { ownLogin, rostersOf } from "#compiler/schema/own.ts"
 import type { Expr, Select, SqlStatement } from "#compiler/sql/ast.ts"
 import { and, eq, lit, types } from "#compiler/sql/build.ts"
+import { carrierEmptying } from "#compiler/sql/print.ts"
+import { carrierTable } from "#compiler/write/carriers/carriers.ts"
 import { ledger } from "#test/pg/laws/alternatives/schemas.ts"
 import {
 	batches,
@@ -669,27 +671,48 @@ const changeSetOf = (w: WriteSketch) => {
 	return w.described ? value.put(Stock, relabel("a", "b")) : value
 }
 
-/**
- * Every statement a write compilation places, its optimized artifact's and then its conservative realization's
- * (write/program/compile.ts conservativeWrite).
- */
-const writtenStatements = (w: WriteSketch) => {
+/** The optimized and conservative compilations of the write a sketch states (write/program/compile.ts conservativeWrite). */
+const writtenArtifacts = (w: WriteSketch) => {
 	const mutable = w.crew === "mutable"
 	const compiled = (mutable ? mutableCrewCompiled : shopCompiled)(changeSetOf(w), {
 		...shopCompile,
 		level: w.level
 	})
 	const conservative = (mutable ? mutableCrewConservative : shopConservative)(compiled)
-	return [...compiled.artifact.statements, ...conservative.artifact.statements]
+	return [compiled.artifact, conservative.artifact] as const
+}
+
+/** Every statement a write compilation places, its optimized artifact's and then its conservative realization's. */
+const writtenStatements = (w: WriteSketch) =>
+	Arr.flatMap(writtenArtifacts(w), (artifact) => artifact.statements)
+
+/**
+ * What a session stands up before its first call of the write a sketch states, each beside its twin built apart: each
+ * carrier of its artifacts, then its emptying (write/carriers/carriers.ts carrierStandUp).
+ */
+export const writtenStandUps = (w: WriteSketch): ReadonlyArray<Twinned> => {
+	const stoodUp = (): ReadonlyArray<SqlStatement> =>
+		Arr.flatMap(writtenArtifacts(w), (artifact) =>
+			Arr.flatMap(artifact.carriers, (carrier): ReadonlyArray<SqlStatement> => {
+				const table = carrierTable(carrier)
+				return [table, carrierEmptying(table.name)]
+			})
+		)
+	const [statements, twins] = [stoodUp(), stoodUp()]
+	if (statements.length !== twins.length) {
+		throw new Error(
+			`a twin built apart stands up ${twins.length} statements, not ${statements.length}`
+		)
+	}
+	return Arr.zipWith(statements, twins, (statement, twin): Twinned => ({ statement, twin }))
 }
 
 const writtenLive = (w: WriteSketch): Live => {
 	const placed = writtenStatements(w)
-	const statements = Arr.map(placed, (s) => s.ast)
 	return {
 		label: "written",
 		statements: twinned(
-			statements,
+			Arr.map(placed, (s) => s.ast),
 			Arr.map(writtenStatements(w), (s) => s.ast)
 		),
 		features: [
@@ -789,10 +812,10 @@ export const liveSketchGen: Gen<LiveSketch> = weighted([
 ])
 
 /** A written draw: a generated write program over the shop fixture. */
-export const writtenSketchGen: Gen<LiveSketch> = map(writeSketchGen, (sketch): LiveSketch => ({
-	kind: "written",
-	sketch
-}))
+export const writtenSketchGen: Gen<Extract<LiveSketch, { readonly kind: "written" }>> = map(
+	writeSketchGen,
+	(sketch) => ({ kind: "written", sketch }) as const
+)
 
 /**
  * A Live draw for the break suites: real output carries the DDL, PL/pgSQL and drafted forms a generated statement

@@ -171,7 +171,9 @@ export const clusterNetwork = { kind: "tls", from: 20_000 } as const
  * (~/Documents/beefy-workspace/workbench/parts/postgres), each member listening on localhost at a port it claims from
  * clusterNetwork's over verify-full TLS alone, which grizzle's client demands, the server's certificate the
  * workbench's, signed by the CA PGSSLROOTCERT names; owned by grizzle_dev, the migration identity, its template
- * grizzle_template carrying pgvector in vector_ext, throwaway, its members each serving workersPerMember of a run's
+ * grizzle_template carrying pgvector in vector_ext, every member preloading pg_stat_statements inert, which a test of
+ * what a backend plans turns on in its own clone (test/pg/adapter/second-call.test.ts), the owner setting its three
+ * parameters there, throwaway, its members each serving workersPerMember of a run's
  * workers, each member admitting as many connections as the machine's memory holds of busy backends (busyBackendBytes),
  * a replication slot and a WAL sender for each, a live source's leader holding one of each, each worker's largest
  * database in shared buffers, and a predicate lock table of its workers' room (predicateRoomPerWorker). `pnpm pg
@@ -185,7 +187,14 @@ export default localCluster({
 	owner: "grizzle_dev",
 	template: "grizzle_template",
 	extensions: [{ name: "vector", schema: "vector_ext" }],
-	ownerParameters: ["deadlock_timeout", "session_replication_role"],
+	preload: ["pg_stat_statements"],
+	ownerParameters: [
+		"deadlock_timeout",
+		"session_replication_role",
+		"compute_query_id",
+		"pg_stat_statements.track",
+		"pg_stat_statements.track_planning"
+	],
 	durability: "throwaway",
 	sizing: {
 		kind: "workers",

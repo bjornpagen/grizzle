@@ -20,6 +20,7 @@ import { query } from "#compiler/public/query.ts"
 import { login, relation, role, schema } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
 import {
+	callStandUps,
 	callStatements,
 	certifiedShapeTemplate,
 	type Certifier,
@@ -305,6 +306,11 @@ export const runRace = (s: InstalledShape, race: StampRace, level: Isolation) =>
 				)
 			)
 			const actorOf = (i: number): DirectActor => defined(actors[`s${i}`], `session s${i}`)
+			for (const [i] of sessions.entries()) {
+				for (const sql of callStandUps(s, { role: "writer", member: "append" })) {
+					yield* actorOf(i).perform({ _tag: "Sql", sql })
+				}
+			}
 			const sent = yield* Effect.forEach(race.calls, (c, i) =>
 				callStatements(s, {
 					kind: "change",

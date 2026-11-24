@@ -149,7 +149,14 @@ export const sqlstates = {
 	 * complete target is not the Db's snapshot. Neither is of class 40: the same call on the same Db meets it again.
 	 */
 	grizzleMigrating: brand("55Z02"),
-	grizzleMigrated: brand("55Z01")
+	grizzleMigrated: brand("55Z01"),
+	/**
+	 * grizzle's own, of class 55 (object not in prerequisite state), which a rule capture raises (physical/ddl/rules.ts
+	 * addCapture): a write of a table the rule judge captures in a session that has not stood up the judge's tables the
+	 * write needs (physical/ddl/rules.ts addStandUps), which a served write's session does before its first call of the
+	 * write (runtime/write/flight.ts StandUp). Only a writer outside grizzle meets it.
+	 */
+	grizzleUnstood: brand("55Z03")
 } as const
 
 /**

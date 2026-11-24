@@ -44,7 +44,8 @@ import {
 	type InstalledAt,
 	installationNamesOf,
 	installationOf,
-	parsedSchemaName
+	parsedSchemaName,
+	standUpCallsOf
 } from "#test/support/kernel/naming.ts"
 import {
 	type DecoderCredential,
@@ -1045,7 +1046,8 @@ const worldOver = (
 				},
 				function: (fn) => functionOf(v, fn),
 				codes: v.installation.names.codes,
-				contexts: v.spec.base.contexts
+				contexts: v.spec.base.contexts,
+				standUps: standUpCallsOf(v.installation, v.installation.names.schema)
 			}
 		}
 

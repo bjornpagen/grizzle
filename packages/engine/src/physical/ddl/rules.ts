@@ -2,7 +2,6 @@ import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	appendNonEmpty,
-	flatMapNonEmpty,
 	headNonEmpty,
 	isNonEmpty,
 	mapNonEmpty,
@@ -32,6 +31,7 @@ import { type Identity, identifierOf, identity } from "#compiler/core/identity.t
 import type { LawId } from "#compiler/core/ids.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
+import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { noClock } from "#compiler/ir/clock.ts"
 import type { InferredQuery } from "#compiler/ir/desc.ts"
 import {
@@ -67,6 +67,7 @@ import {
 	sessionDeltaOf,
 	sessionTable
 } from "#compiler/physical/ddl/deltas.ts"
+import type { JudgeStandUp } from "#compiler/physical/ddl/roles.ts"
 import { unaliased } from "#compiler/physical/derived/definition.ts"
 import { enforcement, type Node } from "#compiler/physical/obligations/graph.ts"
 import type {
@@ -480,15 +481,12 @@ const catalogTable = (name: string, alias: string): FromSource => ({
 })
 
 /**
- * A session table a site of the judge stands up or reads (`standing`): its name, the statements that make it, none
- * where the site only asks whether the session holds it, and the condition, beside the session holding none, it is
- * made under, none where each run of the site makes it.
+ * A session table of the judge a site stands up or requires (`standing`): its name, the statements that make it, and
+ * what more its pg_class row under `alias` holds where it is the judge's own, beside its owner.
  */
 interface Stood {
 	readonly name: string
-	readonly create: ReadonlyArray<PlStatement>
-	readonly when: Expr | undefined
-	/** What more its pg_class row under `alias` holds where it is the judge's own, beside its owner (`standing`). */
+	readonly create: NonEmptyReadonlyArray<PlStatement>
 	readonly owned: (alias: string) => ReadonlyArray<Expr>
 }
 
@@ -511,7 +509,6 @@ const sentinelStood = (sentinel: string, judge: ObjectName): Stood => ({
 		},
 		{ kind: "createSessionTrigger", name: sentinel, table: sentinel, function: judge }
 	],
-	when: undefined,
 	owned: (alias) => [
 		exists(
 			simpleSelect(
@@ -529,49 +526,86 @@ const sentinelStood = (sentinel: string, judge: ObjectName): Stood => ({
 	]
 })
 
-/** The side of news as a DELETE's site reads it (addCapture `removedFromNews`): asked after, never made. */
-const newsReadOf = (news: JudgedSide): Stood => ({
-	name: news.delta.name,
-	create: [],
-	when: undefined,
-	owned: () => []
-})
-
-/** A delta as a site stands it up (`standing`), under `when`. */
-const deltaStood = (delta: SessionDelta, when: Expr | undefined): Stood => ({
+/** A delta as a site stands it up (`standing`). */
+const deltaStood = (delta: SessionDelta): Stood => ({
 	name: delta.name,
 	create: [deltaTable(delta)],
-	when,
 	owned: () => []
 })
 
 /**
- * Each of a site's session tables `tables` stood up where the session holds none and its condition holds, read by one
- * statement over the catalog for them all (sql/print.ts sessionTablesStanding), so a site plans one read of
- * pg_catalog.pg_class however many tables it stands up, where each table's stand-up planned two of its own, a fresh
- * backend's first write planning every one: a save's 23 at 10x, 10.5 ms. A table that stands but is not the definer's
- * own temporary table, or a sentinel whose trigger runs no judge of this installation (a sentinel left without its
- * trigger, by a DROP ... CASCADE of the judge, would arm nothing), is refused (deltas.ts foreignOf): a login that made
- * one first could empty it before COMMIT.
+ * What a site does with a table of its `standing` the session holds none of: a table's stand-up makes it (`made`,
+ * addStandUps); a capture refuses its statement (`required`), the session not having stood up the judge's tables a
+ * write of `relation` needs, naming the relation and `standUp`, the function that makes them (`unstood`).
+ */
+type Absent =
+	| { readonly kind: "made" }
+	| {
+			readonly kind: "required"
+			readonly relation: { readonly schema: string; readonly name: string }
+			readonly standUp: ObjectName
+	  }
+
+/**
+ * The refusal of a write of `relation` in a session that has not stood up the judge's tables it needs (`Absent`
+ * `required`): grizzle's own 55Z03 (core/sqlstate.ts grizzleUnstood), naming the table, its hint the stand-up a served
+ * write's session calls before its first call of the write. A capture makes no table: one made inside a write's
+ * transaction is a catalog change its session reads at its next transaction, which makes every plan over it again.
+ */
+const unstood = (absent: Extract<Absent, { readonly kind: "required" }>): PlStatement => ({
+	kind: "raise",
+	message: "a write of a table the rule judge holds in a session that has not stood up its tables",
+	using: [
+		{ option: "ERRCODE", value: lit.text(sqlstates.grizzleUnstood, types.text) },
+		{ option: "SCHEMA", value: lit.text(absent.relation.schema, types.text) },
+		{ option: "TABLE", value: lit.text(absent.relation.name, types.text) },
+		{
+			option: "HINT",
+			value: lit.text(
+				`write it through a served program of grizzle, whose session stands the tables up first, or call ${printTableName(absent.standUp)}() before the write`,
+				types.text
+			)
+		}
+	]
+})
+
+/**
+ * Each of a site's session tables `tables` read by one statement over the catalog for them all (sql/print.ts
+ * sessionTablesStanding), so a site plans one read of pg_catalog.pg_class however many tables it reads, once in a
+ * session. A table that stands but is not the definer's own temporary table, or a sentinel whose trigger runs no judge
+ * of this installation (a sentinel left without its trigger, by a DROP ... CASCADE of the judge, would arm nothing), is
+ * refused (deltas.ts foreignOf): a login that made one first could empty it before COMMIT. A table the session holds
+ * none of is made where the site is a stand-up, and refuses the statement where it is a capture (`Absent`).
  *
  *   __stood := <which of the tables stand, each the definer's own or marked apart (sessionTablesStanding)>
  *   IF __stood && '{!<table>,...}' THEN <refused> END IF
- *   IF NOT __stood @> '{<table>}' [AND <condition>] THEN <made> END IF ...
+ *   IF NOT __stood @> '{<table>}' THEN <made> END IF ...           (a stand-up)
+ *   IF NOT __stood @> '{<table>,...}' THEN <unstood> END IF        (a capture)
  */
-const standing = (tables: NonEmptyReadonlyArray<Stood>): NonEmptyReadonlyArray<PlStatement> => {
+const standing = (
+	stood: NonEmptyReadonlyArray<Stood>,
+	absent: Absent
+): NonEmptyReadonlyArray<PlStatement> => {
+	const [first, ...more] = stood
+	const tables: NonEmptyReadonlyArray<Stood> = [
+		first,
+		...more.filter(
+			(t, at) => t.name !== first.name && more.findIndex((u) => u.name === t.name) === at
+		)
+	]
 	const names = mapNonEmpty(tables, (t) => t.name)
-	const stood: Expr = { kind: "plVar", name: stoodName }
+	const set: Expr = { kind: "plVar", name: stoodName }
 	const apart = mapNonEmpty(names, (n) => `${stoodApart}${n}`)
 	/** Each table's own condition, where it is the row's table. */
 	const owned = (alias: string): ReadonlyArray<Expr> =>
 		tables.flatMap((t) => {
-			const [first, ...rest] = t.owned(alias)
-			return first === undefined
+			const [o, ...os] = t.owned(alias)
+			return o === undefined
 				? []
 				: [
 						or([
 							ne(cast(col(alias, "relname"), types.text), lit.text(t.name, types.text)),
-							and([first, ...rest])
+							and([o, ...os])
 						])
 					]
 		})
@@ -579,11 +613,25 @@ const standing = (tables: NonEmptyReadonlyArray<Stood>): NonEmptyReadonlyArray<P
 		kind: "case",
 		operand: undefined,
 		whens: mapNonEmpty(names, (n) => ({
-			when: contains(stood, [`${stoodApart}${n}`]),
+			when: contains(set, [`${stoodApart}${n}`]),
 			result: lit.text(n, types.text)
 		})),
 		else: lit.text(headNonEmpty(names), types.text)
 	}
+	const absentOnes: ReadonlyArray<PlStatement> =
+		absent.kind === "made"
+			? tables.map((t): PlStatement => ({
+					kind: "if",
+					branches: [{ condition: not(contains(set, [t.name])), body: t.create }],
+					else: []
+				}))
+			: [
+					{
+						kind: "if",
+						branches: [{ condition: not(contains(set, names)), body: [unstood(absent)] }],
+						else: []
+					}
+				]
 	return [
 		{ kind: "assign", target: stoodName, value: sessionTablesStanding(names, owned) },
 		{
@@ -593,7 +641,7 @@ const standing = (tables: NonEmptyReadonlyArray<Stood>): NonEmptyReadonlyArray<P
 					condition: {
 						kind: "binary",
 						op: "&&",
-						left: stood,
+						left: set,
 						right: namesOf(apart),
 						schema: undefined
 					},
@@ -602,31 +650,9 @@ const standing = (tables: NonEmptyReadonlyArray<Stood>): NonEmptyReadonlyArray<P
 			],
 			else: []
 		},
-		...tables.flatMap((t): ReadonlyArray<PlStatement> => {
-			const [first, ...rest] = t.create
-			return first === undefined
-				? []
-				: [
-						{
-							kind: "if",
-							branches: [
-								{
-									condition: and([
-										not(contains(stood, [t.name])),
-										...(t.when === undefined ? [] : [t.when])
-									]),
-									body: [first, ...rest]
-								}
-							],
-							else: []
-						}
-					]
-		})
+		...absentOnes
 	]
 }
-
-/** That a site's stand-up found the session holding the table `name` (`standing`). */
-const standingHolds = (name: string): Expr => contains({ kind: "plVar", name: stoodName }, [name])
 
 /** That the text[] `set` holds every one of `names`. */
 const contains = (set: Expr, names: NonEmptyReadonlyArray<string>): Expr => ({
@@ -935,6 +961,35 @@ const partsOf = (judged: ReadonlyArray<Judged>): ReadonlyArray<JudgePart> => {
 }
 
 /**
+ * The deltas the judge's blocks read beside each delta, by its name: for a delta, every other delta a block that reads
+ * it reads, in name order, none where every block that reads it reads it alone. A whole rule's region reads the delta of
+ * each side it reads of each holder of its unit, and a transaction that wrote one of them need not have written the
+ * others: the stand-up of a table makes its deltas and the deltas read beside them (addStandUps), and the capture of a
+ * statement requires them, so a block a delta's row runs finds every delta it reads (`partBody`).
+ */
+const besidesOf = (
+	judged: ReadonlyArray<Judged>
+): ReadonlyMap<string, ReadonlyArray<SessionDelta>> => {
+	const out = new Map<string, Array<SessionDelta>>()
+	for (const j of judged) {
+		for (const d of j.reads) {
+			const held = out.get(d.name) ?? []
+			for (const e of j.reads) {
+				if (e !== d && !held.includes(e)) {
+					held.push(e)
+				}
+			}
+			out.set(d.name, held)
+		}
+	}
+	return new Map(
+		[...out].map(
+			([name, held]) => [name, held.toSorted((x, y) => compareStrings(x.name, y.name))] as const
+		)
+	)
+}
+
+/**
  * A part's body, run where the transaction wrote a row into one of its deltas, `written` the names of those it wrote
  * (`marked`):
  *
@@ -942,11 +997,9 @@ const partsOf = (judged: ReadonlyArray<Judged>): ReadonlyArray<JudgePart> => {
  *   (`netted`), so it holds delta.added, and read again, since the images it held may all cancel; a side of olds holds
  *   the rows it was marked for. A delta the transaction did not write is never read: a session's deltas of every
  *   relation an earlier transaction wrote hold no row of this one;
- * - each delta a block reads beside the one that ran it, stood up where such a block runs (`standing`, which refuses a
- *   table another role made under its name): a whole rule's region reads the delta of each side it reads of each holder
- *   of its unit, and a transaction that wrote one of them need not have written the others, which the session then may
- *   not hold. A delta every block that reads it runs on alone stands wherever one of them runs, its own row having run
- *   it;
+ * - each delta a block reads beside the one that ran it stands: the stand-up of each table a write writes makes the
+ *   deltas the judge reads beside its own (`besidesOf`, addStandUps), and the capture that wrote the delta that ran the
+ *   block required them (addCapture);
  * - each block, where a delta it reads holds a row: over deltas that hold none its region is empty, and every statement
  *   of it finds no row. A block is a function of its own (`blockOf`, identity.ruleJudgeBlock), the part's statement a
  *   call of it: PostgreSQL compiles a PL/pgSQL function's whole text at its first call in a session and plans each
@@ -989,45 +1042,12 @@ const partBody = (
 			else: []
 		}
 	})
-	/** Each delta a block reads beside another, stood up where a delta read beside it holds a row. */
-	const besidesOf = part.deltas.flatMap((delta) => {
-		const besides = [
-			...new Set(
-				part.blocks.flatMap((j) =>
-					j.reads.includes(delta) ? j.reads.filter((d) => d !== delta) : []
-				)
-			)
-		].toSorted((x, y) => compareStrings(x.name, y.name))
-		return isNonEmpty(besides) ? [{ delta, besides }] : []
-	})
-	const [s0, ...ss] = besidesOf
-	const stoodUp: ReadonlyArray<PlStatement> =
-		s0 === undefined
-			? []
-			: [
-					{
-						kind: "if",
-						branches: [
-							{
-								condition: anyRowed(flatMapNonEmpty([s0, ...ss], (x) => x.besides)),
-								body: standing(
-									mapNonEmpty([s0, ...ss], (x) => deltaStood(x.delta, anyRowed(x.besides)))
-								)
-							}
-						],
-						else: []
-					}
-				]
 	return {
-		declare: [
-			{ name: rowedName, type: namesType },
-			...(isNonEmpty(stoodUp) ? [{ name: stoodName, type: namesType }] : [])
-		],
+		declare: [{ name: rowedName, type: namesType }],
 		body: [
 			{ kind: "assign", target: rowedName, value: lit.text("{}", namesType) },
 			headNonEmpty(flags),
 			...flags.slice(1),
-			...stoodUp,
 			...part.blocks.map((j): PlStatement => ({
 				kind: "if",
 				branches: [{ condition: anyRowed(j.reads), body: [performed(blockOf(j), [])] }],
@@ -1084,14 +1104,15 @@ const emptiedWhereWritten = (delta: SessionDelta): PlStatement => ({
  *
  * - Capture: on each table, an AFTER statement trigger per event its rules read (sql/ast.ts CreateTransitionTrigger):
  *   INSERT where a rule reads NEW, DELETE where one reads either side, UPDATE where one reads a column on either side.
- *   A statement that wrote no row captures nothing: its function reads its transition table first, and stands up no
+ *   A statement that wrote no row captures nothing: its function reads its transition table first, and requires no
  *   delta and arms no judge where it is empty. Otherwise it writes the rows the statement wrote into the session's delta
  *   of each side (`captured`), every column of
  *   the relation's heading, typed by its base type, an UPDATE's only where it changed the row's image, its key or a
  *   column the side reads: into the side of olds, delta.removed, the rows as the statement found them; into the side of
  *   news, the transaction's net write, each image the statement put counted 1 and each it removed counted -1. Each delta
- *   is a table of pg_temp, created at the session's first capture of that side, ON COMMIT PRESERVE ROWS, so it lives
- *   as long as the session, and holds one transaction's rows: the judge empties each delta it reads, once its part
+ *   is a table of pg_temp, made by the stand-up of each table whose writes need it (`addStandUps`), which a session
+ *   calls once before its first write of the table, ON COMMIT PRESERVE ROWS, so it lives as long as the session, and
+ *   holds one transaction's rows; a capture requires it and makes none, so no write's transaction makes a relation: the judge empties each delta it reads, once its part
  *   has read them (`emptied`), and a rolled-back write's go with it. No COMMIT truncates a delta or the sentinel:
  *   PostgreSQL truncates every ON COMMIT DELETE ROWS table of a session at each COMMIT of a transaction that touched a
  *   temporary relation (tablecmds.c PreCommit_on_commit_actions), whether it wrote the table or not, each truncation an
@@ -1100,7 +1121,8 @@ const emptiedWhereWritten = (delta: SessionDelta): PlStatement => ({
  *   would block DROP DOMAIN and ALTER DOMAIN ... ADD CONSTRAINT in every other session while it lives.
  * - Arming: a capture that writes the rows a statement put, or those it found into the side of olds, writes them, marks
  *   each delta it wrote in the sentinel's row where it stands (`marked`), and last inserts the one row of the session's
- *   sentinel where none stands, a table of pg_temp created with it, naming the deltas it wrote (`arming`). Its
+ *   sentinel where none stands, a table of pg_temp every stand-up makes with its trigger, naming the deltas it wrote
+ *   (`arming`). Its
  *   DEFERRABLE INITIALLY DEFERRED constraint trigger runs the judge, so the judge runs once, at COMMIT, or at SET
  *   CONSTRAINTS ALL IMMEDIATE and after each statement from then on, there at the end of the capture's insert of the
  *   row, after its rows. A sentinel that holds its row arms nothing more. The row holds the transaction's written set,
@@ -1111,7 +1133,7 @@ const emptiedWhereWritten = (delta: SessionDelta): PlStatement => ({
  *   rules' blocks under reading a delta in common, so a part's rules read only its deltas, and the judge runs a part
  *   only where the transaction wrote one of them; each block a function of its own too (identity.ruleJudgeBlock), which
  *   its part calls where a delta it reads holds a row, so a session compiles the statement of a block its transactions
- *   run alone. A transaction reads, judges and compiles only the parts of the relations it wrote: a learner's write never reads a content package's rules, nor stands up their deltas, nor
+ *   run alone. A transaction reads, judges and compiles only the parts of the relations it wrote: a learner's write never reads a content package's rules, nor requires their deltas, nor
  *   compiles their PL/pgSQL, and no COMMIT reads a catalog, or a delta of a relation another transaction of its
  *   session wrote, which holds none of its rows. A part reads each of its written deltas once, netting a side of news
  *   to delta.added first (`netted`), the images the transaction leaves that it did not find; then, for each
@@ -1136,10 +1158,11 @@ const emptiedWhereWritten = (delta: SessionDelta): PlStatement => ({
  * subset at every row of the delta. A probe's lookup of any other table at its key remains PostgreSQL's choice, which
  * statistics make (README, Rules over queries).
  * - Tamper: pg_temp is one namespace per session, which every role of it writes, so a login could create a delta or the
- *   sentinel first, own it and empty it before COMMIT. Every capture checks the sentinel and the deltas it writes, and a
- *   part every delta it stands up, each site in one read of the catalog (`standing`): each must be the definer's own
- *   temporary table, the sentinel's trigger the judge, or the statement is refused, insufficient_privilege naming the
- *   table (deltas.ts foreignOf). The judge reads only the
+ *   sentinel first, own it and empty it before COMMIT. Every stand-up checks the tables it makes, and every capture the
+ *   sentinel and the deltas it writes and reads, each site in one read of the catalog (`standing`): each must be the
+ *   definer's own temporary table, the sentinel's trigger the judge, or the statement is refused,
+ *   insufficient_privilege naming the table (deltas.ts foreignOf); a capture that finds one missing refuses the
+ *   statement as grizzle's own 55Z03 (`unstood`). The judge reads only the
  *   deltas the written set names, each checked by the capture that marked it, and the set itself the sentinel's row,
  *   which no other role may write. Every function is SECURITY
  *   DEFINER under closedSearchPath, every name it reads schema-qualified, EXECUTE revoked from PUBLIC.
@@ -1162,6 +1185,8 @@ export const addRules = (
 ): {
 	readonly requests: ReadonlyArray<IndexRequest>
 	readonly checks: ReadonlyMap<LawId, OperandSelect>
+	/** Each judged table's stand-up, by its relation's name (`addStandUps`). */
+	readonly standUps: ReadonlyMap<string, JudgeStandUp>
 } => {
 	const catalog = evidenceCatalog({ laws: b.model, views: [] })
 	const tables = judgedTables(b)
@@ -1558,20 +1583,98 @@ export const addRules = (
 		},
 		[...tablesOf(b.model.rules), ...parts.map((p) => p.node)]
 	)
+	const besides = besidesOf(judged)
+	const standUps = addStandUps(b, tables, besides, judge, sentinel, judgeNode)
 	const events = new Set<TransitionEvent>()
 	for (const t of tables) {
-		addCapture(b, t, judge, sentinel, judgeNode, events)
+		addCapture(
+			b,
+			t,
+			judge,
+			sentinel,
+			judgeNode,
+			events,
+			besides,
+			defined(standUps.get(t.relation.name), "a judged table's stand-up").name
+		)
 	}
 	for (const event of events) {
 		b.name(identity.captureTrigger(event))
 	}
-	return { requests, checks }
+	return { requests, checks, standUps }
 }
 
 /**
- * A table's capture (`addRules`): its function, which checks the sentinel, writes the statement's rows into the delta of
- * each side its event reads and arms the sentinel, and its transition triggers, one per event, each recorded in
- * `events`.
+ * The stand-up of each judged table (identity.ruleStandUp), by its relation's name: a function of no argument, SECURITY
+ * DEFINER under the closed search path as every function of the judge, its EXECUTE revoked from PUBLIC and granted to
+ * each role that writes the table (physical/ddl/roles.ts addWorlds), which makes, as the judge's definer, the session's
+ * sentinel with its trigger, the table's deltas and the deltas the judge reads beside them (`besidesOf`), each where the
+ * session holds none, and refuses a table of their names some other role made (`standing`). A session calls it once,
+ * before its first write of the table: a served write's session in its stand-up (runtime/write/flight.ts StandUp), a
+ * migration's Structure before its data steps (deploy/diff/diff.ts checkedAtOnce). So no capture or part makes a table
+ * inside a write's transaction, a catalog change its session reads at its next transaction, which made every plan over
+ * the tables again: metis's assign planned its second call's 70 statements in functions again for it.
+ *
+ *   __stood := <which of the tables stand (sessionTablesStanding)>; <a foreign one refused>
+ *   IF NOT __stood @> '{<sentinel>}' THEN CREATE TEMPORARY TABLE pg_temp.<sentinel> ...; CREATE CONSTRAINT TRIGGER ... END IF
+ *   IF NOT __stood @> '{<delta>}' THEN CREATE TEMPORARY TABLE pg_temp.<delta> ... END IF ...
+ */
+const addStandUps = (
+	b: InstallBuilder,
+	tables: ReadonlyArray<JudgedTable>,
+	besides: ReadonlyMap<string, ReadonlyArray<SessionDelta>>,
+	judge: ObjectName,
+	sentinel: string,
+	judgeNode: Node<"validate">
+): ReadonlyMap<string, JudgeStandUp> =>
+	new Map(
+		tables.map((t) => {
+			const named = identity.ruleStandUp(t.relation.name)
+			const fn = objectName(b.schema, b.name(named))
+			const own = mapNonEmpty(t.sides, (s) => s.delta)
+			const ddl: readonly [PlFunction, Revoke] = [
+				{
+					kind: "createFunction",
+					language: "plpgsql",
+					name: fn,
+					params: [],
+					returns: "void",
+					volatility: "VOLATILE",
+					parallel: "UNSAFE",
+					security: "DEFINER",
+					body: {
+						declare: [{ name: stoodName, type: namesType }],
+						body: standing(
+							[
+								sentinelStood(sentinel, judge),
+								...own.map(deltaStood),
+								...own.flatMap((d) => besides.get(d.name) ?? []).map(deltaStood)
+							],
+							{ kind: "made" }
+						)
+					}
+				},
+				revokeOf(fn, [])
+			]
+			const node = b.add(
+				{
+					kind: "lawFunction",
+					ident: b.qualified("function", named),
+					ddl,
+					reasons: t.rules.map(({ rule }) => ({ kind: "law" as const, law: rule.law.id })),
+					phase: "validate"
+				},
+				[judgeNode, b.table(t.relation.name)]
+			)
+			return [t.relation.name, { node, name: { ...fn, args: [] } }] as const
+		})
+	)
+
+/**
+ * A table's capture (`addRules`): its function, which requires the session's sentinel and the deltas its event writes
+ * and reads (`standing`, `required`), writes the statement's rows into the delta of each side its event reads and arms
+ * the sentinel, and its transition triggers, one per event, each recorded in `events`. A statement in a session that
+ * has not stood the table up (`standUp`, addStandUps) is refused, never stands anything up itself.
  */
 const addCapture = (
 	b: InstallBuilder,
@@ -1579,7 +1682,9 @@ const addCapture = (
 	judge: ObjectName,
 	sentinel: string,
 	judgeNode: Node<"validate">,
-	events: Set<TransitionEvent>
+	events: Set<TransitionEvent>,
+	besides: ReadonlyMap<string, ReadonlyArray<SessionDelta>>,
+	standUp: ObjectName
 ): void => {
 	const relation = t.relation
 	const named = identity.ruleCapture(relation.name)
@@ -1587,22 +1692,31 @@ const addCapture = (
 	const side = (s: ProbeSide): JudgedSide | undefined => t.sides.find((x) => x.side === s)
 	const news = side("added")
 	const olds = side("removed")
+	const required: Absent = {
+		kind: "required",
+		relation: b.names.relation(relation.name),
+		standUp
+	}
 	/**
-	 * The sentinel and `deltas`, the deltas the writes write, stood up in one read of the catalog beside the tables
-	 * `read` the writes only ask after (`standing`), then the writes, each of which marks the deltas it writes in the
-	 * standing row (`marked`), then the row written where none stands, naming `deltas` that hold a row (`arming`):
-	 * last, so the judge it fires reads this capture's rows.
+	 * The sentinel, `deltas`, the deltas the writes write, the deltas the judge reads beside them and the tables `read`
+	 * the writes only read, required in one read of the catalog (`standing`), then the writes, each of which marks the
+	 * deltas it writes in the standing row (`marked`), then the row written where none stands, naming `deltas` that hold
+	 * a row (`arming`): last, so the judge it fires reads this capture's rows.
 	 */
 	const armed = (
 		deltas: NonEmptyReadonlyArray<SessionDelta>,
 		read: ReadonlyArray<Stood>,
 		writes: ReadonlyArray<PlStatement>
 	): ReadonlyArray<PlStatement> => [
-		...standing([
-			sentinelStood(sentinel, judge),
-			...deltas.map((d) => deltaStood(d, undefined)),
-			...read
-		]),
+		...standing(
+			[
+				sentinelStood(sentinel, judge),
+				...deltas.map(deltaStood),
+				...deltas.flatMap((d) => besides.get(d.name) ?? []).map(deltaStood),
+				...read
+			],
+			required
+		),
 		...writes,
 		...arming(sentinel, deltas)
 	]
@@ -1625,32 +1739,16 @@ const addCapture = (
 					]
 				: into(s, transitionTables.olds, transitionTables.news)
 	)
-	/** The rows a DELETE removed counted out of the side of news, where the session holds that delta, which the site
-	 * reads (`newsRead`) and never makes: a transaction that wrote no image of the relation has none to cancel, and a
-	 * removal is counted only once the delta holds a row (deltas.ts captured). */
+	/** The rows a DELETE removed counted out of the side of news, which the site requires (`newsRead`): a removal is
+	 * counted only once the delta holds a row (deltas.ts captured), so a transaction that wrote no image of the relation
+	 * cancels none. */
 	const removedFromNews: ReadonlyArray<PlStatement> =
-		news === undefined
-			? []
-			: [
-					{
-						kind: "if",
-						branches: [
-							{
-								condition: standingHolds(news.delta.name),
-								body: [captured(relation, news, transitionTables.olds, undefined)]
-							}
-						],
-						else: []
-					}
-				]
-	/** The side of news as a DELETE's site reads it (`removedFromNews`): asked after, never made. */
-	const newsRead: ReadonlyArray<Stood> =
-		news === undefined
-			? []
-			: [{ name: news.delta.name, create: [], when: undefined, owned: () => [] }]
+		news === undefined ? [] : [captured(relation, news, transitionTables.olds, undefined)]
+	/** The side of news as a DELETE's site reads it (`removedFromNews`). */
+	const newsRead: ReadonlyArray<Stood> = news === undefined ? [] : [deltaStood(news.delta)]
 	/**
 	 * `body` where the statement wrote a row, its transition table `rows` holding one: a statement that wrote none
-	 * captures nothing, stands up no delta and arms no judge, so a part of a write whose input held no fact, or whose
+	 * captures nothing, requires no delta and arms no judge, so a part of a write whose input held no fact, or whose
 	 * every row met a stored one, costs its capture one read of an empty transition table.
 	 */
 	const whereRowed = (
@@ -1704,7 +1802,7 @@ const addCapture = (
 						{
 							event: "delete" as const,
 							body: whereRowed(transitionTables.olds, [
-								...standing([newsReadOf(news)]),
+								...standing([deltaStood(news.delta)], required),
 								...removedFromNews
 							])
 						}

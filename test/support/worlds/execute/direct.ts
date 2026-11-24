@@ -79,7 +79,18 @@ export interface DirectNames {
 	readonly codes: Codebook
 	/** The base's contexts, whose fields' types a facts setting's claims are spelled by. */
 	readonly contexts: ReadonlyArray<ContextSpec>
+	/** The call of each stand-up of the installation, each where the role may run it (kernel/naming.ts standUpCallsOf). */
+	readonly standUps: ReadonlyArray<string>
 }
+
+/**
+ * Whether `statement` makes the session act as another role, after which its writer sends the stand-ups the role may
+ * run (DirectNames standUps), as the README tells a writer outside grizzle (Direct SQL access): each makes what the
+ * session holds none of, so a transaction begun again, whose statements are sent again, makes only what the
+ * rolled-back one took with it.
+ */
+export const takesRole = (statement: DirectStatement): boolean =>
+	statement.kind === "set-role" || statement.kind === "set-session-authorization"
 
 /** What a statement reads back: nothing, or rows of the fields named, each read by its domain. */
 export type Reads =

@@ -24,6 +24,7 @@ import { property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { commitsGen, runCommits } from "#test/pg/laws/rule-commit.fixtures.ts"
 import { judgeTemplates } from "#test/pg/laws/rule-whole.fixtures.ts"
+import { standUpJudge } from "#test/support/judge.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -40,6 +41,7 @@ export const aJudgedCommitLeavesEverySessionTableItWroteEmptyEachDeltaOfThemWith
 			Effect.gen(function* () {
 				const judge = yield* judges[`${k.judge} ${k.shape}`]
 				const session = yield* judge.substrate.session({ ...ownerSession(), label: "writer" })
+				yield* standUpJudge(session, judge.value.installation)
 				yield* runCommits(judge.value, session, k, c)
 			}).pipe(Effect.scoped),
 		oracle: {

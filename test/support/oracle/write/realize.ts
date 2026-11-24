@@ -19,7 +19,7 @@ import { roleUpdates } from "#compiler/physical/ddl/roles.ts"
 import type { CarrierCasts } from "#compiler/runtime/write/steps.ts"
 import { type CarrierScope, freshNames } from "#compiler/sql/naming.ts"
 import {
-	buildCreateCarrier,
+	buildEmptyCarrier,
 	buildFillCarrier,
 	carrierField,
 	type WriteCarrier,
@@ -63,7 +63,7 @@ import { buildUpdateFrom, type PutStatement } from "#compiler/write/put/statemen
 import { breachGuard } from "#compiler/write/refusal.ts"
 
 /** One step of the conservative realization:
- * - `carrier`, a carrier's creation or fill: a member's, at the start of its stratum, or, with no stratum, a snapshot
+ * - `carrier`, a carrier's emptying or fill: a member's, at the start of its stratum, or, with no stratum, a snapshot
  *   or a delta around the strata;
  * - `action`, a statement of an action of a stratum, `action` its index there (ir.strata[stratum].actions): its insert
  *   or deletion, whose rows are its changes (`changeTags`);
@@ -160,7 +160,7 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 		steps.push(
 			Object.freeze({
 				kind: "carrier",
-				statement: buildCreateCarrier(w, carrier),
+				statement: buildEmptyCarrier(w, carrier),
 				stratum,
 				casts: castsNothing
 			})
@@ -342,7 +342,7 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 			steps.push(
 				Object.freeze({
 					kind: "carrier",
-					statement: buildCreateCarrier(w, carrier),
+					statement: buildEmptyCarrier(w, carrier),
 					stratum: undefined,
 					casts: castsNothing
 				})

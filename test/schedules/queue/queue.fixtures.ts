@@ -18,7 +18,12 @@ import { replaceMigrated } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { openFixture } from "#test/support/open-fixture.ts"
 import type { SqlError } from "#test/support/pg.ts"
-import { grizzleActor, openActors, textOfValue } from "#test/support/schedules/actors.ts"
+import {
+	grizzleActor,
+	openActors,
+	standUpActor,
+	textOfValue
+} from "#test/support/schedules/actors.ts"
 import { every, everyRelation, exploreEnv } from "#test/support/schedules/interleave.ts"
 import {
 	type Explained,
@@ -229,6 +234,8 @@ export const runRace = (
 							e: { kind: "psql", as: f.installed.world(worlds.enqueuer) },
 							w: { kind: "psql", as: f.installed.world(worlds.worker) }
 						})
+						yield* standUpActor(direct.e, names.standUps)
+						yield* standUpActor(direct.w, names.standUps)
 						const writeOf = (
 							session: "g" | "h",
 							db: typeof first.db

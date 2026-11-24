@@ -37,6 +37,7 @@ export const catalogRelations = [
 	"pg_db_role_setting",
 	"pg_default_acl",
 	"pg_depend",
+	"pg_description",
 	"pg_enum",
 	"pg_extension",
 	"pg_index",

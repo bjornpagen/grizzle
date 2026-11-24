@@ -21,7 +21,7 @@ import {
 	type HostOp
 } from "#test/support/laws/model.ts"
 import type { SqlError } from "#test/support/pg.ts"
-import { type Actors, openActors } from "#test/support/schedules/actors.ts"
+import { type Actors, openActors, standUpActor } from "#test/support/schedules/actors.ts"
 import {
 	type ActionStep,
 	allowed,
@@ -72,9 +72,10 @@ export type LawTxn = (
 }
 
 /**
- * The actors of a law exploration: psql children `a`, `b` and `c` that have taken on the role `direct`, and the
- * grizzle writers `g` and `h`, whose backend is the one session each Db's pool holds (one operation runs at a time on
- * each), resolved when the environment opened them.
+ * The actors of a law exploration: psql children `a`, `b` and `c` that have taken on the role `direct`, each having
+ * stood up the rule judge's session tables its role writes (schedules/actors.ts standUpActor), as a writer outside
+ * grizzle does first, and the grizzle writers `g` and `h`, whose backend is the one session each Db's pool holds (one
+ * operation runs at a time on each), resolved when the environment opened them.
  */
 export const lawActors = (
 	env: HistoryEnv
@@ -86,14 +87,15 @@ export const lawActors = (
 	Effect.gen(function* () {
 		const s = yield* Substrate
 		const direct = env.rig.direct
-		return {
-			direct: yield* openActors(s, {
-				a: { kind: "psql", as: direct },
-				b: { kind: "psql", as: direct },
-				c: { kind: "psql", as: direct }
-			}),
-			grizzle: env.rig.actors
+		const actors = yield* openActors(s, {
+			a: { kind: "psql", as: direct },
+			b: { kind: "psql", as: direct },
+			c: { kind: "psql", as: direct }
+		})
+		for (const actor of [actors.a, actors.b, actors.c]) {
+			yield* standUpActor(actor, env.names.standUps)
 		}
+		return { direct: actors, grizzle: env.rig.actors }
 	})
 
 /** The relations `relations` reach through the laws: closed under every law whose participants they meet. */

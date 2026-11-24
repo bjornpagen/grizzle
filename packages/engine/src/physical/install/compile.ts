@@ -519,7 +519,8 @@ const installationIn = (
 					fencedOnce(
 						plan,
 						options.extensions.flatMap((e) => e.fences)
-					)
+					),
+					rules.standUps
 				)
 				addLiveSource(b, live)
 				const identities = [...ownedIdentities(owned), ...model.identities, ...b.named()]

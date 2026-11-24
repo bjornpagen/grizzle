@@ -846,6 +846,13 @@ const mint = <K extends IdentityKind>(
 	})
 }
 
+/**
+ * What the COMMENT of every judged table's stand-up begins with (identity.ruleStandUp's display, displayOf), and the
+ * COMMENT of no other object: by it a custom migration's data step finds the stand-ups the catalog holds where it runs
+ * (adapter/migrate/apply.ts installedStandUps), as it finds the guards by their trigger's one name.
+ */
+export const standUpDisplayLead = "the stand-up of the rule judge's session tables a write of "
+
 export const identifierOf = <K extends IdentityKind>(identity: Identity<K>): Identifier<K> =>
 	identity.identifier
 
@@ -1857,6 +1864,21 @@ export const identity = Object.freeze({
 			[relation],
 			["capture", ...nameSegments(relation)],
 			`rule capture of ${relation}`,
+			hashed
+		),
+	/**
+	 * The stand-up of the rule judge's session tables a write of `relation` needs (physical/ddl/rules.ts addStandUps):
+	 * the function a session calls once, before its first write of the relation, which makes the session's sentinel, the
+	 * relation's deltas and the deltas the judge reads beside them where the session holds none, as the judge's definer.
+	 * Its body names the deltas, so it is replaced in place whenever they change, and a rename of the relation names
+	 * another.
+	 */
+	ruleStandUp: (relation: string): Identity<"ruleStandUp"> =>
+		mint(
+			"ruleStandUp",
+			[relation],
+			["stand", ...nameSegments(relation)],
+			`${standUpDisplayLead}${relation} needs`,
 			hashed
 		),
 	/**

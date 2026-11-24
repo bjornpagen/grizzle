@@ -1121,6 +1121,7 @@ export class Walk<Top extends Arrival> {
 		}
 		if (
 			s.kind === "createCarrier" ||
+			s.kind === "emptyCarrier" ||
 			s.kind === "beginRead" ||
 			s.kind === "beginWrite" ||
 			s.kind === "commit" ||

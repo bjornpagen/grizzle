@@ -15,6 +15,7 @@ import {
 	sessionTransitions,
 	type TxControl
 } from "#adapter/wire/session.ts"
+import type { StatementName } from "#compiler/core/prepared.ts"
 import { flightMaxBytes, messageMaxBytes } from "#compiler/core/wire.ts"
 import { servedSession } from "#compiler/program/served.ts"
 import { nothingReported, serverError } from "#test/support/server-error.ts"
@@ -229,6 +230,7 @@ export const scriptedSession = (script: Script, options: ScriptedOptions): Scrip
 	 * ended once the client read the connection's end, or destroyed it.
 	 */
 	let state: SessionState = "open"
+	const stood = new Set<StatementName>()
 	const move = (event: SessionEvent): void => {
 		state = sessionTransitions[state][event]
 	}
@@ -547,6 +549,14 @@ export const scriptedSession = (script: Script, options: ScriptedOptions): Scrip
 	return {
 		role: scriptedRole,
 		controls: servedSession,
+		stoodUp: {
+			held: stood,
+			add: (names) => {
+				for (const name of names) {
+					stood.add(name)
+				}
+			}
+		},
 		flightMaxBytes: flightMaxBytes,
 		messageMaxBytes: messageMaxBytes,
 		cancel,

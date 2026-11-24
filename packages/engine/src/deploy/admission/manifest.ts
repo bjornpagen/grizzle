@@ -153,6 +153,7 @@ const manifestStatement = (s: SqlStatement): ManifestStatement => {
 		case "setConstraintsImmediate":
 		case "refresh":
 		case "createCarrier":
+		case "emptyCarrier":
 			return refuse(`a manifest of installation statements, not ${s.kind}`)
 	}
 }

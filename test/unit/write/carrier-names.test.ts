@@ -80,8 +80,8 @@ export const aWriteProgramsCarriersNameOneDeclarationEachAcrossEveryProgramASess
 
 /**
  * Two roles of one login never name one carrier: a login's pooled session runs every role of the login, each
- * transaction under one, and a carrier is a session table every COMMIT keeps (sql/print.ts carrierStandUp), owned by the
- * role whose transaction made it, which alone may truncate it. So the put of each layout compiled for two roles of one
+ * transaction under one, and a carrier is a session table every COMMIT keeps (sql/ast.ts CreateCarrier), owned by the
+ * role whose stand-up made it, which alone may truncate it. So the put of each layout compiled for two roles of one
  * login, the same program and the same declaration at every position, names each position's carrier apart by role, and
  * alike within a role, in both realizations; where the names were one, the second role's stand-up met the first role's
  * table and its TRUNCATE was refused with 42501 (den's worker login, 24 roles on one pool, at grizzle 28ffbfcdc).

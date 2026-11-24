@@ -16,6 +16,7 @@ import { property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { immediateGen, runImmediate } from "#test/pg/laws/rule-immediate.fixtures.ts"
 import { judgeTemplates } from "#test/pg/laws/rule-whole.fixtures.ts"
+import { standUpJudge } from "#test/support/judge.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -38,6 +39,7 @@ export const everyWriteIsJudgedInItsTransactionAtItsStatementAfterSetConstraints
 			Effect.gen(function* () {
 				const judge = yield* judges[`whole ${k.shape}`]
 				const session = yield* judge.substrate.session({ ...ownerSession(), label: "writer" })
+				yield* standUpJudge(session, judge.value.installation)
 				yield* runImmediate(judge.value, session, k, c)
 			}).pipe(Effect.scoped),
 		oracle: {
@@ -49,9 +51,9 @@ export const everyWriteIsJudgedInItsTransactionAtItsStatementAfterSetConstraints
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
 				original:
-					"\t): ReadonlyArray<PlStatement> => [\n\t\t...standing([\n\t\t\tsentinelStood(sentinel, judge),\n\t\t\t...deltas.map((d) => deltaStood(d, undefined)),\n\t\t\t...read\n\t\t]),\n\t\t...writes,\n\t\t...arming(sentinel, deltas)\n\t]",
+					"\t): ReadonlyArray<PlStatement> => [\n\t\t...standing(\n\t\t\t[\n\t\t\t\tsentinelStood(sentinel, judge),\n\t\t\t\t...deltas.map(deltaStood),\n\t\t\t\t...deltas.flatMap((d) => besides.get(d.name) ?? []).map(deltaStood),\n\t\t\t\t...read\n\t\t\t],\n\t\t\trequired\n\t\t),\n\t\t...writes,\n\t\t...arming(sentinel, deltas)\n\t]",
 				replacement:
-					"\t): ReadonlyArray<PlStatement> => [\n\t\t...standing([\n\t\t\tsentinelStood(sentinel, judge),\n\t\t\t...deltas.map((d) => deltaStood(d, undefined)),\n\t\t\t...read\n\t\t]),\n\t\t...arming(sentinel, deltas),\n\t\t...writes\n\t]",
+					"\t): ReadonlyArray<PlStatement> => [\n\t\t...standing(\n\t\t\t[\n\t\t\t\tsentinelStood(sentinel, judge),\n\t\t\t\t...deltas.map(deltaStood),\n\t\t\t\t...deltas.flatMap((d) => besides.get(d.name) ?? []).map(deltaStood),\n\t\t\t\t...read\n\t\t\t],\n\t\t\trequired\n\t\t),\n\t\t...arming(sentinel, deltas),\n\t\t...writes\n\t]",
 				why: "The capture inserts the sentinel's row before its rows, as before, so after SET CONSTRAINTS ALL IMMEDIATE the judge fires inside the capture over a written set naming no delta that holds a row yet: a breaking insert and a breaking delete run past their statements and commit, and their rows stand in the deltas after COMMIT."
 			},
 			{

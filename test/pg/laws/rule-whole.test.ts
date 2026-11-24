@@ -49,6 +49,7 @@ import {
 	wholeFeatures,
 	wholeSpace
 } from "#test/pg/laws/rule-whole.fixtures.ts"
+import { standUpJudge } from "#test/support/judge.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -66,7 +67,9 @@ export const aUnitLocalRuleIsJudgedWholeOverTheUnitsATransactionWroteAsItsWholeC
 				const w = yield* judges[`whole ${schedule.shape}`]
 				const p = yield* judges[`probed ${schedule.shape}`]
 				const ws = yield* w.substrate.session({ ...ownerSession(), label: "whole judge" })
+				yield* standUpJudge(ws, w.value.installation)
 				const ps = yield* p.substrate.session({ ...ownerSession(), label: "probed judge" })
+				yield* standUpJudge(ps, p.value.installation)
 				yield* runEquivalence(
 					{ installed: w.value, session: ws },
 					{ installed: p.value, session: ps },
@@ -199,7 +202,9 @@ export const twoTransactionsEachWritingAUnitOfItsOwnBothCommitAndNeithersJudgeLo
 			Effect.gen(function* () {
 				const w = yield* judges[`whole ${drawn.shape}`]
 				const first = yield* w.substrate.session({ ...ownerSession(), label: "first unit" })
+				yield* standUpJudge(first, w.value.installation)
 				const second = yield* w.substrate.session({ ...ownerSession(), label: "second unit" })
+				yield* standUpJudge(second, w.value.installation)
 				yield* runCommute(w.value, first, second, drawn, c)
 			}).pipe(Effect.scoped),
 		oracle: {

@@ -2394,6 +2394,8 @@ class StatementAuditor {
 					this.createCarrier(statement)
 				})
 				return
+			case "emptyCarrier":
+				return
 			case "createSchema":
 			case "createTable":
 			case "alterTable":
@@ -3573,8 +3575,9 @@ const endsColumnDefinition = (before: Token | undefined): boolean => {
 
 /**
  * Whether NULL at `i`, in a PL/pgSQL body, ends a column constraint NOT NULL of a session table's CREATE TEMPORARY
- * TABLE "pg_temp".<name> (<columns>) the body runs: a write program's carrier, stood up in a DO block (sql/print.ts
- * carrierStandUp), at the level of the table's element list, after a predecessor that ends a column's definition.
+ * TABLE "pg_temp".<name> (<columns>) the body runs: a rule judge's delta or sentinel, stood up by a table's stand-up
+ * (physical/ddl/rules.ts addStandUps), at the level of the table's element list, after a predecessor that ends a column's
+ * definition.
  */
 const isSessionTableNotNull = (
 	tokens: ReadonlyArray<Token>,

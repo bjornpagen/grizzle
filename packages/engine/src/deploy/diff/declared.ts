@@ -1950,6 +1950,7 @@ const withColumns = (
 		case "createExtension":
 		case "lockTable":
 		case "createCarrier":
+		case "emptyCarrier":
 		case "beginRead":
 		case "beginWrite":
 		case "commit":
@@ -2037,6 +2038,7 @@ const withRoles = (s: WholeStatement, roles: ReadonlyMap<string, string>): Whole
 		case "declareStatistics":
 		case "lockTable":
 		case "createCarrier":
+		case "emptyCarrier":
 		case "beginRead":
 		case "beginWrite":
 		case "commit":

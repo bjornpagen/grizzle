@@ -180,7 +180,7 @@ type OriginKind =
 	| "a write statement"
 	| "a single statement"
 	| "a family write"
-	| "a carrier's create"
+	| "a carrier's emptying"
 	| "a member's carrier fill"
 	| "a read-back step"
 	| "an entry's precheck"
@@ -283,7 +283,7 @@ const originGen: Gen<OriginSketch> = (source) => ({
 			"a write statement",
 			"a single statement",
 			"a family write",
-			"a carrier's create",
+			"a carrier's emptying",
 			"a member's carrier fill",
 			"a read-back step",
 			"an entry's precheck",
@@ -549,12 +549,12 @@ export const originOf = (
 				},
 				[first]
 			)
-		case "a carrier's create":
+		case "a carrier's emptying":
 			return statement(
 				{
 					kind: "carrier",
 					carrier: "Carrier",
-					step: "create",
+					step: "empty",
 					stratum: undefined,
 					casts: { kind: "none" }
 				},

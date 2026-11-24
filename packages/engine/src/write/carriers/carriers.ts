@@ -16,9 +16,12 @@ import type { Heading, HeadingColumn, RelNode } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { type ColumnMap, columnIn, emptyEnv } from "#compiler/lower/conservative/context.ts"
 import { columnType } from "#compiler/runtime/lower/columns.ts"
+import type { StandUp } from "#compiler/runtime/write/flight.ts"
 import {
 	type ColumnDef,
 	type CreateCarrier,
+	type EmittedText,
+	type EmptyCarrier,
 	type Expr,
 	type FromItem,
 	type Insert,
@@ -45,7 +48,7 @@ import {
 	carrierName,
 	emptyNameMap
 } from "#compiler/sql/naming.ts"
-import { printTableName } from "#compiler/sql/print.ts"
+import { carrierEmptying, printTableName } from "#compiler/sql/print.ts"
 import {
 	buildStatement,
 	type CarrierResult,
@@ -87,24 +90,23 @@ export interface CarrierColumn extends HeadingColumn {
  * relation. No carrier holds a
  * delta: a read-back is evaluated inside the statement that makes its delta (write/readback/deltas.ts). A carrier is a
  * temporary relation, so it lives in pg_temp and is never schema-qualified, and every column is NOT NULL. It is the
- * session's own: each use stands it up (sql/print.ts carrierStandUp), making it where the session holds none, ON
- * COMMIT PRESERVE ROWS, and truncating it where it stands, so it holds that use's rows alone and no COMMIT drops it,
- * and it lives until the session ends. A carrier of a relation's facts, the write oracle's state snapshot, is keyed by
- * the relation's primary key (`relationCarrier`):
+ * session's own: the session's stand-up of the write makes it, ON COMMIT PRESERVE ROWS, with its emptying, a session
+ * function of its own name (`carrierStandUp`, runtime/write/flight.ts StandUp), once, before the session's first call
+ * of the write, and each use empties it before it fills it (`buildEmptyCarrier`), so it holds that use's rows alone and
+ * no COMMIT drops it, and it lives until the session ends. A carrier of a relation's facts, the write oracle's state
+ * snapshot, is keyed by the relation's primary key (`relationCarrier`):
  *
- *   DO $$BEGIN IF NOT EXISTS (<"pg_temp"."__carrier_<k>" stands>) THEN
- *     CREATE TEMPORARY TABLE "pg_temp"."__carrier_<k>" ("c1" uuid NOT NULL, "c2" uuid NOT NULL,
- *       "c3" "work"."kind" NOT NULL) ON COMMIT PRESERVE ROWS;
- *   ELSIF <it is not the role's own> THEN RAISE ... insufficient_privilege;
- *   ELSE TRUNCATE "pg_temp"."__carrier_<k>"; END IF; END$$
+ *   CREATE TEMPORARY TABLE "pg_temp"."__carrier_<k>" ("c1" uuid NOT NULL, "c2" uuid NOT NULL,
+ *     "c3" "work"."kind" NOT NULL) ON COMMIT PRESERVE ROWS                        (the stand-up)
+ *   SELECT "pg_temp"."__carrier_<k>"()                                            (each use: its emptying)
  *   INSERT INTO "pg_temp"."__carrier_<k>" ("c1", "c2", "c3") SELECT ... FROM (<member query>) AS "r0"(...)
  *
  * and a keyed one's CREATE ends its columns with PRIMARY KEY ("c1") DEFERRABLE INITIALLY IMMEDIATE.
  *
  * Carriers are named `__carrier_<k>_<digest>`, k the carrier's ordinal among its program's carriers from 1 and the
  * digest its declaration's, and their columns c1 to cn (sql/naming.ts CarrierName): a session keeps each served
- * statement under its text (core/prepared.ts), and PostgreSQL plans it again over the carrier its next call stands up,
- * so the name a text reads a carrier by fixes the carrier's declaration, its row type among it. A column
+ * statement under its text (core/prepared.ts), so the name a text reads a carrier by fixes the carrier's declaration,
+ * its row type among it. A column
  * is typed as the value it carries is written: a contract's domain, a refinement's `__text_` domain, a
  * roster's domain, or the builtin with its typmod, a builtin text column naming pg_catalog.pg_c_utf8 like every stored column,
  * so a statement reading the carrier sees the types a stored column of the relation has. A deletion's
@@ -206,10 +208,11 @@ export const carrierScan = (carrier: WriteCarrier, alias: string): FromItem => (
 })
 
 /**
- * A carrier's CREATE TEMPORARY TABLE, refused as ResourceBound (tableColumns) for a heading wider than a table of
- * PostgreSQL holds, tableMaxColumns.
+ * A carrier's CREATE TEMPORARY TABLE, which the session's stand-up of the write sends (runtime/write/flight.ts
+ * StandUp), refused as ResourceBound (tableColumns) for a heading wider than a table of PostgreSQL holds,
+ * tableMaxColumns.
  */
-const createAst = (carrier: WriteCarrier): CreateCarrier => {
+export const carrierTable = (carrier: WriteCarrier): CreateCarrier => {
 	if (carrier.heading.length > tableMaxColumns) {
 		throw new Refusal(
 			resourceBound(SourceLoc("write lowering", ["carriers", carrier.name]), {
@@ -235,11 +238,28 @@ const columnDefOf = (column: string, type: TypeRef): ColumnDef =>
 		: { name: column, type, collation: undefined, generated: undefined }
 
 /**
- * A carrier's CREATE TEMPORARY TABLE as a statement of its own, which no lowering builds or shares: a staged member
- * slot's carrier's (write/program/slot-carriers.ts), placed after the statements are built.
+ * A carrier's stand-up (runtime/write/flight.ts StandUp): its table, and its emptying, the session function of its own
+ * name in pg_temp (sql/print.ts carrierEmptying), each made as the write's role by the session's stand-up of the write,
+ * once, so each use empties it by a call PostgreSQL plans once in the session.
  */
-export const carrierCreation = (carrier: WriteCarrier): WriteStatement<CarrierResult> => {
-	const ast = createAst(carrier)
+export const carrierStandUp = (table: CreateCarrier): StandUp<EmittedText> => ({
+	kind: "carrier",
+	table: emitText(table, emptyNameMap).text,
+	emptying: emitText(carrierEmptying(table.name), emptyNameMap).text
+})
+
+/** A carrier's emptying before a use fills it (sql/ast.ts EmptyCarrier). */
+const emptyAst = (carrier: WriteCarrier): EmptyCarrier => ({
+	kind: "emptyCarrier",
+	name: carrier.name
+})
+
+/**
+ * A carrier's emptying as a statement of its own, which no lowering builds or shares: a staged member slot's carrier's
+ * (write/program/slot-carriers.ts), placed after the statements are built.
+ */
+export const carrierEmptied = (carrier: WriteCarrier): WriteStatement<CarrierResult> => {
+	const ast = emptyAst(carrier)
 	return Object.freeze({
 		role: "carrier" as const,
 		ast,
@@ -248,20 +268,21 @@ export const carrierCreation = (carrier: WriteCarrier): WriteStatement<CarrierRe
 		result: Object.freeze({
 			kind: "carrier" as const,
 			carrier: carrier.name,
-			step: "create" as const
+			step: "empty" as const
 		}),
 		needs: always
 	})
 }
 
-export const buildCreateCarrier = (
+/** A carrier's emptying at the start of its stratum (write/schedule/plan.ts `emptyCarrier`). */
+export const buildEmptyCarrier = (
 	w: WriteContext,
 	carrier: WriteCarrier
 ): WriteStatement<CarrierResult> =>
-	buildStatement(w, { kind: "shared", memo: w.share.creations, key: [carrier] }, () => ({
-		ast: createAst(carrier),
+	buildStatement(w, { kind: "shared", memo: w.share.emptyings, key: [carrier] }, () => ({
+		ast: emptyAst(carrier),
 		role: "carrier",
-		result: { kind: "carrier", carrier: carrier.name, step: "create" },
+		result: { kind: "carrier", carrier: carrier.name, step: "empty" },
 		needs: always
 	}))
 

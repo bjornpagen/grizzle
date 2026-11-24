@@ -331,6 +331,13 @@ export const installedScope = (
 	/** Each function the manifest's objects of `kind` create, as `what`. */
 	const functionsOf = (kind: PhysicalKind, what: InstalledFunction) =>
 		Arr.map([...created(snapshot, kind, functionOf)], (name) => [name, what] as const)
+	/** The judged tables' stand-ups (physical/ddl/rules.ts addStandUps), law functions every role writing their table
+	 * executes, by name. */
+	const standUps = new Set<string>(
+		Arr.flatMap(installation.identities, (named) =>
+			named.kind === "ruleStandUp" ? [identifierOf(named)] : []
+		)
+	)
 	/** Each trigger the manifest's objects of `kind` create, as `what`. */
 	const triggersOf = (
 		kind: PhysicalKind,
@@ -424,7 +431,11 @@ export const installedScope = (
 				...functionsOf("borrowFunction", { kind: "borrow" }),
 				...functionsOf("isolationFunction", { kind: "isolationGuard" }),
 				...functionsOf("ruleJudge", { kind: "rule" }),
-				...functionsOf("lawFunction", { kind: "rule" }),
+				...Arr.map(
+					functionsOf("lawFunction", { kind: "rule" }),
+					([name, what]) =>
+						[name, standUps.has(name) ? ({ kind: "standUp" } as const) : what] as const
+				),
 				...functionsOf("immutableGuard", { kind: "immutableGuard" }),
 				...functionsOf("snapshotGuard", { kind: "snapshotGuard" }),
 				...functionsOf("worldFunction", { kind: "world" }),

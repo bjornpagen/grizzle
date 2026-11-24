@@ -13,7 +13,7 @@ import type {
 	Revoke,
 	SqlStatement
 } from "#compiler/sql/ast.ts"
-import { call, lit, objectName, types } from "#compiler/sql/build.ts"
+import { call, calledAlone, lit, objectName, types } from "#compiler/sql/build.ts"
 import { emitText } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 
@@ -59,14 +59,18 @@ export interface InstalledGuard {
 }
 
 /**
- * A custom migration's data step's bracket (guardBracket) as the runner sends it (adapter/migrate/apply.ts), over the
- * guards the catalog holds where the step runs, each created again over the function its trigger calls.
+ * A custom migration's data step's bracket as the runner sends it (adapter/migrate/apply.ts), over what the catalog
+ * holds where the step runs: `before` its statements, the call of each judged table's stand-up `standUps` names
+ * (physical/ddl/rules.ts addStandUps), so a statement that writes a table the rule judge holds finds the session's
+ * tables standing and is judged at its COMMIT, then each guard dropped (guardBracket); `after` them, each guard created
+ * again over the function its trigger calls.
  */
 export const dataStepBracket = (
-	guards: ReadonlyArray<InstalledGuard>
+	guards: ReadonlyArray<InstalledGuard>,
+	standUps: ReadonlyArray<ObjectName>
 ): {
-	readonly drop: ReadonlyArray<EmittedText>
-	readonly create: ReadonlyArray<EmittedText>
+	readonly before: ReadonlyArray<EmittedText>
+	readonly after: ReadonlyArray<EmittedText>
 } => {
 	const { drop, create } = guardBracket(
 		guards.map((g): CreateUpdateGuardTrigger => ({
@@ -78,8 +82,16 @@ export const dataStepBracket = (
 	)
 	const texts = (statements: ReadonlyArray<SqlStatement>): ReadonlyArray<EmittedText> =>
 		statements.map((statement) => emitText(statement, emptyNameMap).text)
-	return { drop: texts(drop), create: texts(create) }
+	return { before: [...standUpCalls(standUps), ...texts(drop)], after: texts(create) }
 }
+
+/**
+ * The call of each stand-up of `standUps`, a statement of its own (sql/build.ts calledAlone): what a custom migration's
+ * data step runs before its statements, inside its bracket (`dataStepBracket`) or, for a file that runs outside a
+ * transaction, alone before them, each committing its session's tables for every statement after.
+ */
+export const standUpCalls = (standUps: ReadonlyArray<ObjectName>): ReadonlyArray<EmittedText> =>
+	standUps.map((standUp) => emitText(calledAlone(standUp), emptyNameMap).text)
 
 /** The fields of `relation` its guard holds fixed: every field its rows never change in place, but a generated one. */
 const fixedFields = (relation: RelationInfo): ReadonlyArray<string> =>

@@ -96,6 +96,7 @@ export type IdentityKind =
 	| "lawTrigger"
 	| "lawFunction"
 	| "ruleCapture"
+	| "ruleStandUp"
 	| "captureTrigger"
 	| "ruleJudge"
 	| "ruleJudgePart"

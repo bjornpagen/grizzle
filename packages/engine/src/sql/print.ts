@@ -40,7 +40,6 @@ import {
 	type CreateCarrier,
 	type DeclareStatistics,
 	type DeclaredDistinct,
-	type FromSource,
 	type StoredGeneration,
 	type CommentTarget,
 	type ContextSource,
@@ -77,6 +76,7 @@ import {
 	type PerformQuery,
 	type PlBlock,
 	type PlDeclaration,
+	type PlFunction,
 	type PlStatement,
 	type SessionTableStorage,
 	type PublishedTable,
@@ -140,6 +140,7 @@ import {
 	databaseLock
 } from "#compiler/sql/catalog.ts"
 import { lineFeedsEscaped } from "#compiler/sql/escape.ts"
+import type { CarrierName } from "#compiler/sql/naming.ts"
 import { identityHooks, statementParams, Transform } from "#compiler/sql/transform.ts"
 
 /**
@@ -1636,7 +1637,7 @@ const sessionColumnText = (column: ColumnDefinition, storage: SessionTableStorag
 
 /** A session table's CREATE (PlStatement createSessionTable): the statement that stands up a judge's delta or sentinel,
  * as a test that stands one up before the judge runs spells it too, or a write program's carrier. */
-export const sessionTableCreate = (
+const sessionTableCreate = (
 	table: Extract<PlStatement, { readonly kind: "createSessionTable" }>
 ): string => {
 	const columns = table.columns.map((c) =>
@@ -1672,23 +1673,6 @@ const ownedSessionTable = (alias: string): NonEmptyReadonlyArray<Expr> => [
 	}),
 	eq(col(alias, "relpersistence"), lit.text("t", types.text))
 ]
-
-/**
- * That the session's relation named `name` is a temporary table CURRENT_USER owns (`ownedSessionTable`), read with
- * `from` beside its pg_class row, r2, where each of `more` holds of it.
- */
-const sessionTableOurs = (
-	name: string,
-	from: ReadonlyArray<FromSource>,
-	more: ReadonlyArray<Expr>
-): Expr =>
-	exists(
-		simpleSelect(
-			[],
-			[{ kind: "table", table: objectName("pg_catalog", "pg_class"), alias: "r2" }, ...from],
-			and([eq(col("r2", "oid"), sessionRegclass(name)), ...ownedSessionTable("r2"), ...more])
-		)
-	)
 
 /**
  * Which of the session's tables `names` stand: each as its name where it is a temporary table CURRENT_USER owns
@@ -1736,16 +1720,6 @@ export const sessionTablesStanding = (
 /** The mark a session table's name takes in `sessionTablesStanding` where some other role made it. */
 export const stoodApart = "!"
 
-/** That the session's temporary schema holds a relation named `name`: what a session table's stand-up asks. */
-const sessionTableStands = (name: string): Expr =>
-	exists(
-		simpleSelect(
-			[],
-			[{ kind: "table", table: objectName("pg_catalog", "pg_class"), alias: "r1" }],
-			eq(col("r1", "oid"), sessionRegclass(name))
-		)
-	)
-
 /**
  * The most bytes a session table's heap, and its TOAST table's heap, hold that its emptying keeps rather than gives back
  * (`sessionTableEmptied`): one page, the page every insert into it reuses. An insert goes to the relation's target page,
@@ -1757,12 +1731,27 @@ const sessionTableStands = (name: string): Expr =>
  * page holds nothing a TRUNCATE would give back, and every page of a longer one before its last is space no insert
  * reaches again, which only a TRUNCATE gives back.
  *
+ * When it is overgrown, from the leak: every row a use inserts takes a line pointer of its page, which the emptying's
+ * DELETE leaves dead, and pruning on access marks it dead, never unused, whether or not the table has an index
+ * (src/backend/access/heap/pruneheap.c 358-363, heap_page_prune_opt's options), so only a VACUUM, which no session
+ * table meets, would free it for another row. A page holds MaxHeapTuplesPerPage line pointers, (BLCKSZ -
+ * SizeOfPageHeaderData) / (MAXALIGN(SizeofHeapTupleHeader) + sizeof(ItemIdData)) = (8192 - 24) / (24 + 4) = 291
+ * (src/include/access/htup_details.h 769-771). So a table its uses fill with n rows each outgrows its page within its
+ * first 291 rows, after 291 / n uses at most, and its emptying truncates it once in each 291 rows its uses wrote: the
+ * use after its 291st row truncates it, and the 291 after begin again on its new file. Measured with DELETE alone
+ * (PROLOGUE, 2026-11-23, postgres-ram@seriesplan, PostgreSQL 19rc1): a keyed carrier of 5 rows a use, each use its own
+ * transaction, held 16 KB of heap after 100 uses, 147 KB after 1,000 and 1.41 MB after 10,000 (172 pages, 291 rows a
+ * page), its key's index flat at 16 KB, and a scan of it read its 172 pages in 0.09 ms against 0.015 ms fresh: the
+ * leak grows without bound for the session's life, which the TRUNCATE stops at two pages.
+ *
  * @limitKind derived
  * @owner PostgreSQL 19.0
  * @unit bytes
  * @scope the heap of one session table, a rule judge's delta or a write's carrier, and its TOAST table's heap, each as
  *   one of its uses ends
- * @derivation one page: the target page every insert reuses, past which no page is reused (hio.c's choice of a page)
+ * @derivation one page: the target page every insert reuses, past which no page is reused (hio.c's choice of a page);
+ *   with 291 line pointers a page (htup_details.h MaxHeapTuplesPerPage at blockSize), the emptying truncates a table
+ *   once in each 291 rows its uses wrote
  * @from {@link blockSize}
  */
 const sessionTableKeptBytes = blockSize
@@ -1794,7 +1783,7 @@ const sessionTableOvergrown = (name: string): Expr => {
 
 /**
  * The session's table `name` emptied of its rows, a rule judge's delta once its part has read them (physical/ddl/rules.ts
- * emptied) or a write's carrier before its use fills it (`carrierStandUp`): by DELETE while its heap and its TOAST
+ * emptied) or a write's carrier before its use fills it (`carrierEmptying`): by DELETE while its heap and its TOAST
  * table's each hold one page at most (sessionTableKeptBytes), and by TRUNCATE once either holds more.
  *
  *   IF <it holds more than its page (sessionTableOvergrown)> THEN TRUNCATE pg_temp.<name>;
@@ -1834,17 +1823,6 @@ export const sessionTableEmptied = (name: string): PlStatement => ({
 })
 
 /**
- * A write program's carrier stood up for its use, as one DO block: made where the session holds none, ON COMMIT
- * PRESERVE ROWS, every column NOT NULL and its key its own, and emptied where it stands (`sessionTableEmptied`), so the
- * use's fills meet no row of an earlier one; a write's transaction past the session's first therefore makes and drops
- * no relation, whose catalog rows, a carrier's columns, type and key, overflowed PostgreSQL's shared invalidation queue
- * (4096 messages) at every COMMIT that dropped them and reset every cache of the session, the rule judge's cached plans
- * among them, which the next COMMIT made again. A carrier holds no row its use did not write: the use empties it first,
- * a transaction that rolls back takes its rows and its emptying with it, and one that commits leaves its rows to the
- * next use, which empties them. The emptying keeps the carrier's file while it holds its one reused page, so a use
- * sends no invalidation, and gives the file back once it holds more: a session's carriers hold at most one use's rows
- * and a page.
- */
 /**
  * The most changed rows autovacuum_analyze_threshold admits, reloptions.c's maximum, which a table's declared
  * statistics set as its storage parameter beside autovacuumAnalyzeScaleMax: autovacuum then analyzes the table only past
@@ -1986,47 +1964,43 @@ export const declaredStatisticsSteps = (
 	return extendNonEmpty(steps(first), rest.flatMap(steps))
 }
 
-const carrierStandUp = (carrier: CreateCarrier): PlBlock => ({
-	declare: [],
-	body: [
-		{
-			kind: "if",
-			branches: [
-				{
-					condition: not(sessionTableStands(carrier.name)),
-					body: [
-						{
-							kind: "createSessionTable",
-							name: carrier.name,
-							columns: carrier.columns.map((c) => ({
-								name: c.name,
-								type: c.type,
-								collation: c.collation
-							})),
-							notNull: true,
-							primaryKey: carrier.primaryKey,
-							storage: "toasted"
-						}
-					]
-				},
-				{
-					condition: not(sessionTableOurs(carrier.name, [], [])),
-					body: [
-						{
-							kind: "raise",
-							message: "a session carrier of the write that another role made",
-							using: [
-								{ option: "ERRCODE", value: lit.text("insufficient_privilege", types.text) },
-								{ option: "SCHEMA", value: lit.text(temporarySchema, types.text) },
-								{ option: "TABLE", value: lit.text(carrier.name, types.text) }
-							]
-						}
-					]
-				}
-			],
-			else: [sessionTableEmptied(carrier.name)]
-		}
-	]
+/**
+ * A write program's carrier as the session's stand-up makes it (sql/ast.ts CreateCarrier): a session table, ON COMMIT
+ * PRESERVE ROWS, every column NOT NULL and its key its own, owned by the role whose stand-up made it, which alone may
+ * empty it. Toasted, as a carrier's value may be one of no bound.
+ */
+const carrierTable = (carrier: CreateCarrier): string =>
+	sessionTableCreate({
+		kind: "createSessionTable",
+		name: carrier.name,
+		columns: carrier.columns.map((c) => ({ name: c.name, type: c.type, collation: c.collation })),
+		notNull: true,
+		primaryKey: carrier.primaryKey,
+		storage: "toasted"
+	})
+
+/**
+ * A carrier's emptying (sql/ast.ts EmptyCarrier), the session function of the carrier's own name the session's stand-up
+ * makes beside it, in pg_temp: the carrier emptied as every session table is (`sessionTableEmptied`), so a use's fills
+ * meet no row of an earlier one. Its owner is the role that made the carrier, so as its definer it empties the
+ * carrier only that role may truncate. PostgreSQL plans each statement of a PL/pgSQL function once in a session and keeps
+ * the plan, where a DO block, compiled anew at every run, planned them at every call; a TRUNCATE of the carrier makes
+ * its own DELETE's plan and every plan over the carrier again, once.
+ *
+ *   CREATE OR REPLACE FUNCTION "pg_temp"."<carrier>"() RETURNS void LANGUAGE plpgsql ... AS $$BEGIN
+ *     IF <it holds more than its page> THEN TRUNCATE pg_temp.<carrier>; ELSE DELETE FROM pg_temp.<carrier> AS r1; END IF;
+ *   END$$
+ */
+export const carrierEmptying = (name: CarrierName): PlFunction => ({
+	kind: "createFunction",
+	language: "plpgsql",
+	name: objectName(temporarySchema, name),
+	params: [],
+	returns: "void",
+	volatility: "VOLATILE",
+	parallel: "UNSAFE",
+	security: "DEFINER",
+	body: { declare: [], body: [sessionTableEmptied(name)] }
 })
 
 const columnHead = (column: ColumnDef): string => {
@@ -2732,7 +2706,9 @@ const writeCommand = (out: Lines, statement: SqlStatement): void => {
 			])
 			return out.line(")")
 		case "createCarrier":
-			return writeDoBlock(out, carrierStandUp(statement))
+			return out.line(carrierTable(statement))
+		case "emptyCarrier":
+			return out.line(`SELECT ${printObjectName(objectName(temporarySchema, statement.name))}()`)
 		case "alterTable": {
 			const head = `ALTER TABLE ${printObjectName(statement.table)}`
 			if (statement.actions.length === 1) {
@@ -3013,6 +2989,7 @@ export const commandsOf = (statement: SqlStatement): NonEmptyReadonlyArray<Comma
 		case "createSchema":
 		case "createTable":
 		case "createCarrier":
+		case "emptyCarrier":
 		case "alterTable":
 		case "rename":
 		case "replaceConstant":

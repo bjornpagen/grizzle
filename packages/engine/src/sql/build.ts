@@ -891,6 +891,18 @@ export const provedSelect = (
 ): Select => select(provedCore(rows, targets, from, where))
 
 /**
+ * SELECT <fn>(): the call of the function `fn` of no argument as a statement of its own, its one row its result, as a
+ * session calls a judged table's stand-up (physical/ddl/rules.ts addStandUps).
+ */
+export const calledAlone = (fn: ObjectName): Select =>
+	provedSelect(
+		"oneRow",
+		[{ expr: qualifiedCall(fn.schema, fn.name, []), alias: undefined }],
+		[],
+		undefined
+	)
+
+/**
  * PERFORM 1 FROM (<query>) AS "found"; IF FOUND THEN <body> END IF: `body` run when `query` returns a row, the query
  * planned for all its rows (sql/ast.ts PlStatement whenFound), as a probe whose row refuses is, whose rows are none
  * wherever what it refuses holds. Any query stands under it, its WITH and its set operations included.

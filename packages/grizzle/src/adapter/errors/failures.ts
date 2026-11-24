@@ -2,14 +2,7 @@ import * as Arr from "effect/Array"
 import * as Data from "effect/Data"
 import type { RefusedVariable } from "#adapter/connection/environment.ts"
 import type { CredentialError } from "#adapter/errors/credential.ts"
-import type {
-	ExecutionPart,
-	FamilyRowBound,
-	Law,
-	BrokenLaws,
-	Unsendable,
-	Witness
-} from "#compiler/plan/change.ts"
+import type { FamilyRowBound, Law, BrokenLaws, Unsendable, Witness } from "#compiler/plan/change.ts"
 import type {
 	ColumnIdent,
 	ConstraintName,
@@ -813,24 +806,17 @@ export class TemporaryRefused extends Data.TaggedError("TemporaryRefused")<{
 	readonly error: ServerError
 }> {
 	override get message(): string {
-		return `the write creates a temporary table, and the role holds no ${this.privilege} privilege on the database, which grizzle migrate grants it and grizzle drift reports missing`
+		return `the write's stand-up creates a temporary table, and the role holds no ${this.privilege} privilege on the database, which grizzle migrate grants it and grizzle drift reports missing`
 	}
 }
 
 /**
- * The refusal of an execution that creates a temporary table (ExecutionPart "create"), for the role's want of the
+ * The refusal of a session's CREATE of a carrier's table (adapter apply/stand-up.ts), for the role's want of the
  * TEMPORARY privilege on the database (42501, naming no table: the privilege is the database's), as TemporaryRefused;
- * none for any other execution or refusal, a carrier's stand-up that met a table of its name another role made among
- * them, which names the table (sql/print.ts carrierStandUp). The one
- * reading of it, every flight that creates one shares (apply/run.ts, explain).
+ * none for any other refusal. The one reading of it, every stand-up's.
  */
-export const temporaryRefusal = (
-	part: ExecutionPart,
-	error: ServerError
-): TemporaryRefused | undefined =>
-	part === "create" &&
-	error.sqlstate === sqlstates.insufficientPrivilege &&
-	error.table === undefined
+export const temporaryRefusal = (error: ServerError): TemporaryRefused | undefined =>
+	error.sqlstate === sqlstates.insufficientPrivilege && error.table === undefined
 		? new TemporaryRefused({ privilege: "TEMPORARY", error })
 		: undefined
 

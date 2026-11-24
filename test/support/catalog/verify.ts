@@ -34,6 +34,13 @@ export type InstalledFunction =
 	| { readonly kind: "isolationGuard" }
 	| { readonly kind: "immutableGuard" }
 	| { readonly kind: "rule" }
+	| {
+			/**
+			 * A judged table's stand-up of the rule judge's session tables (physical/ddl/rules.ts addStandUps), SECURITY
+			 * DEFINER, which every role that writes the table executes.
+			 */
+			readonly kind: "standUp"
+	  }
 	| { readonly kind: "stamp" }
 	| { readonly kind: "names" }
 	| { readonly kind: "live"; readonly domains: ReadonlyArray<string> }
@@ -812,6 +819,7 @@ const functionProblems = (j: Judging, f: Fn): ReadonlyArray<ErasureProblem> => {
 		case "refusal":
 		case "borrow":
 		case "stamp":
+		case "standUp":
 			return [...definer, ...grantProblems(j, held, allowed.function, allowed.none)]
 		case "snapshotGuard":
 			return [

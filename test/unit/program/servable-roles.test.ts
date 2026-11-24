@@ -66,6 +66,7 @@ const servableFields = [
 	"level",
 	"params",
 	"readBacks",
+	"standUps",
 	"statements"
 ] as const
 

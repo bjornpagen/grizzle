@@ -444,7 +444,7 @@ export const writtenSituations: Situations<AuditLiveFeature> = [
 	"a member deleted under a mutable owner",
 	"statement select",
 	"statement insert",
-	"statement createCarrier",
+	"statement emptyCarrier",
 	"cte insert",
 	"cte delete",
 	"from arrays",

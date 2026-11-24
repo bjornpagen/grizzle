@@ -166,8 +166,7 @@ export type Feature =
 	| "an owner of no member"
 	| "a row past one fill alone"
 	| "a flight past one write"
-	| "a staged write without TEMPORARY"
-	| "a carrier of the program's own without TEMPORARY"
+	| "a write without TEMPORARY"
 	| "a carrier of the program's own"
 
 const binId = (bin: 0 | 1) => uuidOf(2_000 + bin)
@@ -338,9 +337,9 @@ export const stagedOn = (taken: SubstrateCase<Generated>) =>
 				}
 				/**
 				 * Without TEMPORARY, the staged arm runs on a served Db of its own, opened for it: a carrier is the
-				 * session's, kept by every COMMIT (sql/print.ts carrierStandUp), so on the inline arm's session the write
-				 * would truncate the carriers that arm stood up and create none, and TEMPORARY, which only a CREATE asks,
-				 * would never be read.
+				 * session's, made by the session's stand-up of the write and kept by every COMMIT (sql/ast.ts
+				 * CreateCarrier), so on the inline arm's session the write would find the carriers that arm stood up and
+				 * create none, and TEMPORARY, which only a CREATE asks, would never be read.
 				 */
 				const staged = yield* Effect.scoped(
 					Effect.gen(function* () {
@@ -379,11 +378,11 @@ export const stagedOn = (taken: SubstrateCase<Generated>) =>
 				const carriers = Arr.flatMap(statements, (st) =>
 					st.kind === "whole" && st.staged.kind === "carriers" ? st.staged.carriers : []
 				)
-				const created = Arr.filter(carriers, (k) => Arr.contains(texts, k.create.sql))
+				const created = Arr.filter(carriers, (k) => Arr.contains(texts, k.empty.sql))
 				const temporary = Arr.some(texts, Str.includes("CREATE TEMPORARY TABLE "))
 				const own = Arr.some(
 					statements,
-					(st) => st.step.kind === "carrier" && st.step.step === "create"
+					(st) => st.step.kind === "carrier" && st.step.step === "empty"
 				)
 				const past = Arr.some(Arr.flatten(sketch.packages), (m) => m.kind === "past")
 				if (sketch.flight === "past any flight") {
@@ -407,11 +406,7 @@ export const stagedOn = (taken: SubstrateCase<Generated>) =>
 					return
 				}
 				if (!sketch.temporary && temporary) {
-					c.note(
-						Arr.isReadonlyArrayNonEmpty(created)
-							? "a staged write without TEMPORARY"
-							: "a carrier of the program's own without TEMPORARY"
-					)
+					c.note("a write without TEMPORARY")
 					assert.ok(
 						Result.isFailure(staged) && staged.failure.kind === "failed",
 						`${label}: a temporary table the role may not create fails the write, not ${shown(staged)}`

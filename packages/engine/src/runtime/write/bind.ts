@@ -1208,7 +1208,7 @@ const batchCuts = (
 const partOf = (step: OwnStep): ExecutionPart => {
 	switch (step.kind) {
 		case "carrier":
-			return step.step === "create" ? "create" : "fill"
+			return step.step
 		case "write":
 		case "check":
 		case "single":

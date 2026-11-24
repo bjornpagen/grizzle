@@ -9,8 +9,7 @@
  * (the member placeholders of its forms), so it decides which travel once: a slot read by two or more statements is
  * staged, and a slot read by one stays that statement's arrays.
  *
- *   CREATE TEMPORARY TABLE "pg_temp"."__carrier_<k>" ("c1" text COLLATE "pg_catalog"."pg_c_utf8" NOT NULL,
- *     "c2" bytea NOT NULL, ...) ON COMMIT DROP
+ *   SELECT "pg_temp"."__carrier_<k>"()                       (the carrier emptied, sql/ast.ts EmptyCarrier)
  *   INSERT INTO "pg_temp"."__carrier_<k>" ("c1", "c2", ...)
  *     SELECT "r1"."c1", "r1"."c2", ... FROM (SELECT pg_catalog.unnest($1::text[]) AS "c1", ...) AS "r1"
  *   ... every reader, each FROM item of the slot's arrays read from the carrier under its own alias and columns:
@@ -20,8 +19,9 @@
  * (insert/input.ts inputColumns), and the carrier declares each field's column so, its fill binding the slot's arrays as
  * a reader did, each through its check: the carrier holds exactly the rows each reader's arrays held, the slot's normal
  * facts, a set the host made, which the reader keeps reading as a relation input's (sql/ast.ts RowsProof `input`). A
- * reader's other placeholders are numbered again in order. The carriers are created and filled after the admission,
- * before any stratum, and belong to none; never analyzed, since every stored relation a reader joins is restricted to
+ * reader's other placeholders are numbered again in order. The carriers are made by the session's stand-up of the
+ * write, as every carrier of it is (write/carriers/carriers.ts carrierStandUp), and emptied and filled after the
+ * admission, before any stratum, and belong to none; never analyzed, since every stored relation a reader joins is restricted to
  * the keys of the rows it holds (write/probe.ts amongHeld). A slot of no column, read through its count,
  * carries nothing to stage.
  */
@@ -71,7 +71,7 @@ import {
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
 import {
 	type CarrierColumn,
-	carrierCreation,
+	carrierEmptied,
 	carrierScan,
 	type WriteCarrier
 } from "#compiler/write/carriers/carriers.ts"
@@ -445,7 +445,7 @@ const restaged = (
 
 /**
  * The statements `placed` with every member slot two or more of them read staged into a carrier (see the header), the
- * carriers numbered after the program's own, `carriers`: each carrier created and filled after the admission, every
+ * carriers numbered after the program's own, `carriers`: each carrier emptied and filled after the admission, every
  * position after it moved past them, and every reader depending on the fills of the slots it reads.
  */
 export const withStagedSlots = (
@@ -464,7 +464,7 @@ export const withStagedSlots = (
 	const move = (position: number): number => (position < at ? position : position + inserted)
 	const fillAt = new Map(staged.map((s, i) => [s.first.slot, at + 2 * i + 1] as const))
 	const carrierSteps = staged.flatMap((s, i): ReadonlyArray<PlacedStatement> => {
-		const create = carrierCreation(s.carrier)
+		const empty = carrierEmptied(s.carrier)
 		const fill = fillOf(s)
 		const name = s.carrier.name
 		return [
@@ -473,15 +473,15 @@ export const withStagedSlots = (
 				step: Object.freeze({
 					kind: "carrier",
 					carrier: name,
-					step: "create",
+					step: "empty",
 					stratum: undefined,
 					casts: castsNothing
 				}),
-				spec: writeStatementSpec(create, []),
-				ast: create.ast,
+				spec: writeStatementSpec(empty, []),
+				ast: empty.ast,
 				text: wholeText,
 				forms: oneForm,
-				names: create.sql.nameMap,
+				names: empty.sql.nameMap,
 				riders: []
 			},
 			{

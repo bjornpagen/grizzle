@@ -104,7 +104,7 @@ const entryRelation = StoredRelationName("Entry")
 /** The texts of the statement the cases stage, each named as a served write's are. */
 const stagedTexts = Object.freeze({
 	inline: prepared(testSql("inline")),
-	create: prepared(testSql("create")),
+	empty: prepared(testSql("empty")),
 	fill: prepared(testSql("fill")),
 	staged: prepared(testSql("staged"))
 })
@@ -134,7 +134,7 @@ export const resolved = (sketch: Sketch) => {
 			kind: "carriers",
 			carriers: [
 				{
-					create: stagedTexts.create,
+					empty: stagedTexts.empty,
 					fill: stagedTexts.fill,
 					columns: [defined(firstColumn, "a nested column"), ...restColumns]
 				}
@@ -187,7 +187,7 @@ export const expected = (r: Resolved): Result.Result<ReadonlyArray<Execution>, N
 	if (bindOf(inline) <= r.transport.messageBytes) {
 		return Result.ok([{ text: stagedTexts.inline, params: inline, part: "statement" }])
 	}
-	const out: Array<Execution> = [{ text: stagedTexts.create, params: [], part: "create" }]
+	const out: Array<Execution> = [{ text: stagedTexts.empty, params: [], part: "empty" }]
 	let from = 0
 	while (from < all.length) {
 		const alone = bindOf(written(r, all.slice(from, from + 1)))

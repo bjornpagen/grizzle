@@ -1478,6 +1478,8 @@ export class Transform {
 				const view = this.name(s.view, "relation")
 				return view === s.view ? s : { ...s, view }
 			}
+			case "emptyCarrier":
+				return s
 			case "createCarrier": {
 				const columns = mapList(s.columns, (c) => this.columnDef(c))
 				return columns === s.columns ? s : { ...s, columns }

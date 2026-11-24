@@ -17,7 +17,7 @@ import { printExpr } from "#compiler/sql/print.ts"
 import { suffixRange } from "#compiler/sql/suffix.ts"
 import { type Seat, type SeatTemplate, seatTemplate } from "#test/pg/fin/installed.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { judgedDeltaReadsOf, plannedQueryOf } from "#test/support/judge.ts"
+import { judgedDeltaReadsOf, plannedQueryOf, standUpJudge } from "#test/support/judge.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -123,6 +123,7 @@ const footprintOf = (seat: Seat, key: number) =>
 	Effect.gen(function* () {
 		const substrate = yield* Substrate
 		const session = yield* substrate.session({ ...ownerSession(), label: "rule suffix locality" })
+		yield* standUpJudge(session, seat.installed.installation)
 		for (const setting of largeTables) {
 			yield* session.query(setting, [])
 		}

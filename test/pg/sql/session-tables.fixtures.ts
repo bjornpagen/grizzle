@@ -13,7 +13,7 @@ import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import type { CreateCarrier } from "#compiler/sql/ast.ts"
 import { cUtf8Collation, types } from "#compiler/sql/build.ts"
 import { carrierName, carrierScope } from "#compiler/sql/naming.ts"
-import { printStatement } from "#compiler/sql/print.ts"
+import { carrierEmptying, printStatement } from "#compiler/sql/print.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 
 /**
@@ -86,7 +86,7 @@ const rowsOf = (width: Width, fill: Fill): number => {
 	}
 }
 
-/** The carrier every use stands up: two columns, a key over the first where the case keys it. */
+/** The carrier every use empties: two columns, a key over the first where the case keys it. */
 const carrierOf = (keyed: boolean): CreateCarrier => {
 	const columns = [
 		{ name: "c1", type: types.bigint, collation: undefined, generated: undefined },
@@ -132,21 +132,26 @@ const stoodOf = (session: RawSession, table: string) =>
 class Emptied extends Data.TaggedError("Emptied")<{ readonly message: string }> {}
 
 /**
- * Runs the case's uses of one carrier on `session`, each in a transaction of its own: its stand-up (sql/print.ts
- * carrierStandUp, the printed DO block), then its rows, then its COMMIT or ROLLBACK. At every stand-up after the first,
- * which makes the carrier: it holds no row, whatever the use before it wrote and however that use ended; where the use
- * before left its heap and its TOAST table's heap each within one page, it keeps its file, so it sent no invalidation;
- * where either held more, it has a new file, empty; and either way each holds one page at most.
+ * Runs the case's uses of one carrier on `session`, after its stand-up in a transaction of its own (the carrier's table
+ * and its emptying, the session function of its name, sql/print.ts carrierEmptying), each use in a transaction of its
+ * own: its emptying (sql/ast.ts EmptyCarrier), then its rows, then its COMMIT or ROLLBACK. At every emptying: the
+ * carrier holds no row, whatever the use before it wrote and however that use ended; where the use before left its heap
+ * and its TOAST table's heap each within one page, it keeps its file, so it sent no invalidation; where either held
+ * more, it has a new file, empty; and either way each holds one page at most.
  */
 export const runUses = (session: RawSession, k: Uses, c: Case<SessionTableFeature>) =>
 	Effect.gen(function* () {
 		const carrier = carrierOf(k.keyed)
-		const standUp = printStatement(carrier)
+		yield* session.begin
+		yield* session.query(printStatement(carrier), [])
+		yield* session.query(printStatement(carrierEmptying(carrier.name)), [])
+		yield* session.commit
+		const emptying = printStatement({ kind: "emptyCarrier", name: carrier.name })
 		for (const [at, use] of k.uses.entries()) {
 			const where = `use ${String(at)} of ${Formatter.format(k)}`
 			yield* session.begin
 			const before = yield* stoodOf(session, carrier.name)
-			yield* session.query(standUp, [])
+			yield* session.query(emptying, [])
 			const stood = yield* stoodOf(session, carrier.name)
 			if (Option.isNone(stood)) {
 				return yield* new Emptied({ message: `the stand-up made no carrier, ${where}` })
@@ -159,7 +164,7 @@ export const runUses = (session: RawSession, k: Uses, c: Case<SessionTableFeatur
 				))[0]?.[0]
 			)
 			if (held !== 0) {
-				return yield* new Emptied({ message: `the stand-up left ${String(held)} rows, ${where}` })
+				return yield* new Emptied({ message: `the emptying left ${String(held)} rows, ${where}` })
 			}
 			if (Option.isSome(before)) {
 				const was = before.value
@@ -185,7 +190,7 @@ export const runUses = (session: RawSession, k: Uses, c: Case<SessionTableFeatur
 			}
 			if (after.heap > blockSize || after.toast > blockSize) {
 				return yield* new Emptied({
-					message: `the stand-up left the carrier past its page (${Formatter.format(after)}), ${where}`
+					message: `the emptying left the carrier past its page (${Formatter.format(after)}), ${where}`
 				})
 			}
 			const rows = rowsOf(use.width, use.fill)

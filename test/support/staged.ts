@@ -24,7 +24,7 @@ const textsOf = (
 	]),
 	run: Arr.flatMap(flight.statements, (s) =>
 		s.kind === "whole" && s.staged.kind === "carriers"
-			? Arr.map(s.staged.carriers, (k) => k.create)
+			? Arr.map(s.staged.carriers, (k) => k.empty)
 			: []
 	)
 })

@@ -27,6 +27,7 @@ import {
 	installMigrated,
 	seededTemplate
 } from "#test/support/install-migrate.ts"
+import { standUpJudge } from "#test/support/judge.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { type Attempted, attempt, attemptChecked, type Checked } from "#test/support/substrate.ts"
 import type { PgErrorFields, TransactionRolledBack } from "#test/support/substrate/errors.ts"
@@ -326,6 +327,7 @@ export const seatOfInstalled = (
 			]
 		})
 		const session = yield* substrate.session({ ...ownerSession(), label })
+		yield* standUpJudge(session, installed.installation)
 		const columnOf = (relation: string, role: string): string => {
 			const byColumn = rolesByColumn.get(relation) ?? new Map<string, string>()
 			const found = Arr.findFirst([...byColumn], ([, r]) => r === role)
@@ -383,7 +385,7 @@ const cleared = (
 	seat: Seat,
 	relations: Arr.NonEmptyReadonlyArray<string>
 ): Effect.Effect<void, SqlError> =>
-	clearRows(seat.session, tablesGroup(Arr.map(relations, seat.table)))
+	clearRows(seat.session, tablesGroup(Arr.map(relations, seat.table), []))
 
 /**
  * Replaces every row of the relations with what `statements` write: the relations emptied (cleared), then one

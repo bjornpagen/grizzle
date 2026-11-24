@@ -19,6 +19,7 @@ import { str } from "#compiler/public/text.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
+import { standUpJudge } from "#test/support/judge.ts"
 import { lawIdOf, namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
@@ -348,6 +349,7 @@ export const runWritten = (
 				c.note(feature)
 			}
 		}
+		yield* standUpJudge(connection, installed.installation)
 		yield* connection.query("SET CONSTRAINTS ALL DEFERRED", [])
 		for (const [element, drawn] of written.inline.entries()) {
 			const refused = yield* refusalOf(

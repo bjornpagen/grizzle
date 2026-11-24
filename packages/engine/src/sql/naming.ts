@@ -80,10 +80,10 @@ const CarrierName = nominal<string, CarrierName>()
 
 /**
  * Whose session tables a program's carriers are: the role it runs as, or reality's. A login's pooled session runs every
- * role of the login, each transaction under one, and a carrier, a session table every COMMIT keeps (sql/print.ts
- * carrierStandUp), is owned by the role whose transaction made it, which alone may truncate it, as the next use's
- * stand-up does: so a carrier's name digests its scope beside its declaration, and two roles' programs of one
- * declaration never meet one table, where the second's TRUNCATE of the first's was refused (42501).
+ * role of the login, each transaction under one, and a carrier, a session table every COMMIT keeps (sql/ast.ts
+ * CreateCarrier), is owned by the role whose stand-up made it, which alone may truncate it, as a use's emptying does
+ * (sql/print.ts carrierEmptying): so a carrier's name digests its scope beside its declaration, and two roles' programs
+ * of one declaration never meet one table, where the second's TRUNCATE of the first's was refused (42501).
  */
 export type CarrierScope = string & { readonly [carrierScopeBrand]: true }
 declare const carrierScopeBrand: unique symbol

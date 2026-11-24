@@ -19,7 +19,8 @@ import {
 	judgedStatementsOf,
 	lookupSettings,
 	scannedRowsOf,
-	scannedTableOf
+	scannedTableOf,
+	standUpJudge
 } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
@@ -129,6 +130,7 @@ export const runConcatProbe = (
 	c: Case<ConcatProbeFeature>
 ) =>
 	Effect.gen(function* () {
+		yield* standUpJudge(connection, installed.installation)
 		const names = namesOf(installed)
 		const ref = names.table(Ref)
 		const variable = names.table(Var)

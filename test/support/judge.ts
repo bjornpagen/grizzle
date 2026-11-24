@@ -1,15 +1,20 @@
 /** The rule judge's PL/pgSQL, as an installation creates it (physical/ddl/rules.ts addRules). */
 
-import { assert, defined } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import { Array as Arr, Effect, Option, String as Str } from "effect"
 import { type PlanNode, parsePlan, planNodes } from "#bench/harness/explain.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
+import { temporarySchema } from "#compiler/core/temporary.ts"
 import { quoteIdent, quoteString } from "#compiler/core/text.ts"
+import { standUpsOf } from "#compiler/deploy/diff/diff.ts"
+import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import type { OperandSelect, PlStatement } from "#compiler/sql/ast.ts"
-import { printExpr, sessionTableCreate } from "#compiler/sql/print.ts"
+import { printExpr } from "#compiler/sql/print.ts"
 import { identityHooks, Transform } from "#compiler/sql/transform.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { standUpCallsOf } from "#test/support/kernel/naming.ts"
+import type { CaseSession } from "#test/support/substrate/session.ts"
 
 /**
  * The bodies of the judge and of each of its parts, each a function of its own: the judge runs a part where the session
@@ -26,6 +31,112 @@ export const judgeBodiesOf = (installation: Installation): ReadonlyArray<PlState
 			: []
 	)
 }
+
+/**
+ * The stand-ups of `installation` (kernel/naming.ts standUpCallsOf) sent on `session`: outside a transaction each commits alone, so
+ * the session holds the judge's tables for every transaction after; inside one they are that transaction's, as a case on
+ * a rolled-back transaction needs (substrate.ts Substrate.rolledBack).
+ */
+export const standUpJudge = (session: Pick<CaseSession, "query">, installation: Installation) =>
+	Effect.forEach(
+		standUpCallsOf(installation, installation.names.schema),
+		(sql) => session.query(sql, []),
+		{
+			discard: true
+		}
+	)
+
+/**
+ * The stand-ups of `relations` alone, each a table the rule judge holds, by its declared name, sent on `session`: what a
+ * served write's session calls before its first write of them (adapter apply/stand-up.ts), the session tables a capture
+ * of each requires and no other, where `standUpJudge` stands up every table's.
+ */
+export const standUpRelations = (
+	session: Pick<CaseSession, "query">,
+	installation: Installation,
+	relations: ReadonlyArray<string>
+) =>
+	Effect.forEach(
+		relations,
+		(relation) =>
+			session.query(
+				`SELECT ${quoteIdent(installation.names.schema)}.${quoteIdent(identifierOf(identity.ruleStandUp(relation)))}()`,
+				[]
+			),
+		{ discard: true }
+	)
+
+/**
+ * A delta a table's capture writes (physical/ddl/rules.ts addCapture): its name, and the columns its INSERT names, a
+ * side of news's count among them.
+ */
+export interface CapturedDelta {
+	readonly name: string
+	readonly columns: ReadonlyArray<string>
+}
+
+/** Every INSERT of `body` into a table of pg_temp, at any depth of the conditions it stands under, as a delta's write. */
+const sessionInserts = (body: ReadonlyArray<PlStatement>): ReadonlyArray<CapturedDelta> =>
+	Arr.flatMap(body, (s): ReadonlyArray<CapturedDelta> => {
+		switch (s.kind) {
+			case "if":
+				return [
+					...Arr.flatMap(s.branches, (b) => sessionInserts(b.body)),
+					...sessionInserts(s.else)
+				]
+			case "modify":
+				return s.statement.kind === "insert" &&
+					typeof s.statement.table !== "string" &&
+					s.statement.table.schema === temporarySchema
+					? [{ name: s.statement.table.name, columns: s.statement.columns }]
+					: []
+			case "assign":
+			case "case":
+			case "createSessionTable":
+			case "createSessionTrigger":
+			case "forQuery":
+			case "perform":
+			case "raise":
+			case "return":
+			case "returnQuery":
+			case "truncateSessionTable":
+			case "whenFound":
+				return []
+		}
+	})
+
+/**
+ * The deltas `relation`'s capture writes (physical/ddl/rules.ts addCapture), each once, in the order its body writes
+ * them: every INSERT of its body into a table of pg_temp but the sentinel's, whose one column is the written set.
+ */
+export const capturedDeltasOf = (
+	installation: Installation,
+	relation: string
+): ReadonlyArray<CapturedDelta> => {
+	const capture = identifierOf(identity.ruleCapture(relation))
+	return Arr.dedupeWith(
+		Arr.filter(
+			Arr.flatMap(installation.statements, (s) =>
+				s.kind === "createFunction" && s.language === "plpgsql" && s.name.name === capture
+					? sessionInserts(s.body.body)
+					: []
+			),
+			(d) => !Arr.contains(d.columns, "__written")
+		),
+		(a, b) => a.name === b.name
+	)
+}
+
+/**
+ * The stand-ups of the installation `snapshot` records (deploy/diff/diff.ts standUpsOf) sent on `session`, as
+ * `standUpJudge` sends an installation's: a writer outside grizzle's first statements over a migrated installation.
+ */
+export const standUpSnapshot = (session: Pick<CaseSession, "query">, snapshot: DeploySnapshot) =>
+	Effect.forEach(
+		standUpsOf(snapshot),
+		(fn) => session.query(`SELECT ${quoteIdent(fn.schema)}.${quoteIdent(fn.name)}()`, []),
+		{ discard: true }
+	)
 
 /** A RAISE of PL/pgSQL. */
 type Raise = Extract<PlStatement, { readonly kind: "raise" }>
@@ -180,38 +291,12 @@ const readsDeltaRow = (
 			n.actualLoops * scannedRowsOf(n) > 0
 	)
 
-/** Each delta the judge's parts stand up, by name: its CREATE, as the part runs it where the session holds none. */
-const standUpsOf = (body: ReadonlyArray<PlStatement>): ReadonlyArray<readonly [string, string]> =>
-	Arr.flatMap(body, (s): ReadonlyArray<readonly [string, string]> => {
-		switch (s.kind) {
-			case "createSessionTable":
-				return Arr.isReadonlyArrayNonEmpty(s.columns) ? [[s.name, sessionTableCreate(s)]] : []
-			case "if":
-				return [...Arr.flatMap(s.branches, (b) => standUpsOf(b.body)), ...standUpsOf(s.else)]
-			case "forQuery":
-			case "whenFound":
-				return standUpsOf(s.body)
-			case "case":
-				return Arr.flatMap(s.whens, (w) => standUpsOf(w.body))
-			case "assign":
-			case "perform":
-			case "modify":
-			case "returnQuery":
-			case "truncateSessionTable":
-			case "createSessionTrigger":
-			case "raise":
-			case "return":
-				return []
-		}
-	})
-
 /**
  * Each of `statements` the judge runs over the transaction's deltas, explained (EXPLAIN ANALYZE) as it would run it:
  * each statement that reads a delta holding a row (`sessionTablesOf`), one a capture of the transaction wrote into
  * (physical/ddl/rules.ts addCapture), as the judge runs a probe of a side and a whole rule's violation only where a
- * delta it reads holds one (rules.ts partBody), every other delta it reads stood up empty first, as the judge's
- * part stands up the deltas a whole rule's region reads beside the written ones (`standUpsOf`), explained before
- * anything runs the judge, SET CONSTRAINTS ALL IMMEDIATE or COMMIT, which truncates each delta it reads
+ * delta it reads holds one (rules.ts partBody), every other delta it reads standing empty, as the session's stand-up
+ * made it (`standUpJudge`, rules.ts addStandUps), explained before anything runs the judge, SET CONSTRAINTS ALL IMMEDIATE or COMMIT, which truncates each delta it reads
  * (rules.ts emptied), so a statement explained after it reads no row. A statement reads a delta through its reader
  * (`readersOf`), and so does each count of the rows it read. A case writes through the captures of
  * `installation`, explains, and only then runs the judge, or defers it to a COMMIT it never reaches. The one measurement
@@ -228,7 +313,6 @@ export const judgedPlans = <E>(
 			"SELECT relname::text FROM pg_catalog.pg_class WHERE relnamespace = pg_catalog.pg_my_temp_schema()"
 		)
 		const standing = new Set(Arr.map(temporary, (row) => String(row[0])))
-		const standUps = new Map(standUpsOf(judgeBodiesOf(installation)))
 		const readers = readersOf(installation)
 		/** The standing deltas that hold a row: those the transaction's captures wrote, which the judge reads. */
 		const candidates = Arr.filter(
@@ -254,13 +338,6 @@ export const judgedPlans = <E>(
 			Arr.isReadonlyArrayNonEmpty(judged),
 			"a judged statement reads a delta the transaction's captures wrote a row into"
 		)
-		for (const delta of new Set(Arr.flatMap(judged, (s) => sessionTablesOf(s.query, readers)))) {
-			if (!standing.has(delta)) {
-				yield* values(
-					defined(standUps.get(delta), `the judge stands up the delta ${delta} a statement reads`)
-				)
-			}
-		}
 		const plans = yield* Effect.forEach(judged, (statement) =>
 			Effect.map(
 				values(

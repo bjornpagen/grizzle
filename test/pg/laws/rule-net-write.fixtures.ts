@@ -5,7 +5,6 @@ import { aimed, array, boolean, element, type Gen, int, weighted } from "@bjornp
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Data, Effect, Formatter, Option, String as Str } from "effect"
 import { rowsRead } from "#bench/harness/explain.ts"
-import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import { baselineRuleChecks, lawChecks } from "#compiler/deploy/snapshot/violation.ts"
@@ -22,13 +21,15 @@ import { printStatement } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
 import {
+	capturedDeltasOf,
 	foundQueryOf,
 	judgeBodiesOf,
 	judgedPlans,
-	readersOf,
 	type JudgedStatement,
 	judgedStatementsOf,
-	plannedQueryOf
+	plannedQueryOf,
+	readersOf,
+	standUpJudge
 } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
@@ -142,33 +143,13 @@ export const netWriteTemplate = migratedTemplate({
 
 class Disagreed extends Data.TaggedError("Disagreed")<{ readonly message: string }> {}
 
-/** The PL/pgSQL body of the installation's function named `name`. */
-const bodyOf = (installation: Installation, name: string): ReadonlyArray<PlStatement> =>
-	Arr.flatMap(installation.statements, (s) =>
-		s.kind === "createFunction" && s.language === "plpgsql" && s.name.name === name
-			? s.body.body
-			: []
-	)
-
-/** The session tables a capture's body creates, at any depth, by name and columns: its deltas. */
-const deltasIn = (
-	body: ReadonlyArray<PlStatement>
-): ReadonlyArray<{ readonly name: string; readonly columns: ReadonlyArray<string> }> =>
-	Arr.flatMap(body, (s): ReturnType<typeof deltasIn> =>
-		s.kind === "createSessionTable" && s.columns.length > 0
-			? [{ name: s.name, columns: Arr.map(s.columns, (c) => c.name) }]
-			: s.kind === "if"
-				? [...Arr.flatMap(s.branches, (b) => deltasIn(b.body)), ...deltasIn(s.else)]
-				: []
-	)
-
 /**
  * The probes of the facts the rows written of A add: each statement the judge tests a rule by that reads A's side of
  * news, the delta A's capture creates with a count of each image (physical/ddl/rules.ts addRules).
  */
 const newsProbesOfA = (installation: Installation): ReadonlyArray<JudgedStatement> => {
 	const news = defined(
-		Arr.findFirst(deltasIn(bodyOf(installation, identifierOf(identity.ruleCapture("A")))), (d) =>
+		Arr.findFirst(capturedDeltasOf(installation, "A"), (d) =>
 			Arr.contains(d.columns, countColumn)
 		).pipe(Option.getOrUndefined),
 		"A's side of news"
@@ -185,7 +166,7 @@ const newsProbesOfA = (installation: Installation): ReadonlyArray<JudgedStatemen
  */
 const newsOfA = (installation: Installation) => {
 	const news = defined(
-		Arr.findFirst(deltasIn(bodyOf(installation, identifierOf(identity.ruleCapture("A")))), (d) =>
+		Arr.findFirst(capturedDeltasOf(installation, "A"), (d) =>
 			Arr.contains(d.columns, countColumn)
 		).pipe(Option.getOrUndefined),
 		"A's side of news"
@@ -755,6 +736,7 @@ export const runSchedule = (
 	c: Case<NetFeature>
 ) =>
 	Effect.gen(function* () {
+		yield* standUpJudge(admin, installed.installation)
 		const names = namesOf(installed)
 		yield* admin.query(
 			`ALTER TABLE ${names.table(A)} ADD FOREIGN KEY (package) REFERENCES ${names.table(P)} (package) ON DELETE CASCADE`,
@@ -867,6 +849,7 @@ export const runTie = (
 	c: Case<TieFeature>
 ) =>
 	Effect.gen(function* () {
+		yield* standUpJudge(connection, installed.installation)
 		const names = namesOf(installed)
 		const a = names.table(A)
 		const statistics = tie.statistics === "analyzed" ? [`ANALYZE ${a}`] : []

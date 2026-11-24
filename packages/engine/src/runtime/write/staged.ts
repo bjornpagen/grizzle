@@ -1,6 +1,6 @@
 /**
  * A statement's executions in the call's one flight: its one, inline, or, where its nested rows' arrays are past one
- * Bind message, its staged form's, its carriers created and filled chunk by chunk and the staged statement
+ * Bind message, its staged form's, its carriers emptied and filled chunk by chunk and the staged statement
  * (write/program/staged.ts, which compiles the staged form and says why).
  */
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
@@ -19,14 +19,16 @@ import { typedColumnArray } from "#compiler/runtime/write/arrays.ts"
 import type { MemberCell } from "#compiler/runtime/write/draw.ts"
 import type { WriteText } from "#compiler/runtime/write/parted.ts"
 import type { Transport } from "#compiler/runtime/write/transport.ts"
-import type { EmittedText } from "#compiler/sql/ast.ts"
+import type { CreateCarrier, EmittedText } from "#compiler/sql/ast.ts"
 
 /**
- * One carrier of a staged statement: its creation, its fill, and the positions among the inline form's placeholders
- * of the columns its fill carries, in the order of the fill's own, one source of nested rows.
+ * One carrier of a staged statement: its table, which the session's stand-up of the write makes (flight.ts StandUp),
+ * its emptying, its fill, and the positions among the inline form's placeholders of the columns its fill carries, in the
+ * order of the fill's own, one source of nested rows.
  */
 export interface StagedCarrier {
-	readonly create: EmittedText
+	readonly table: CreateCarrier
+	readonly empty: EmittedText
 	readonly fill: EmittedText
 	readonly columns: NonEmptyReadonlyArray<number>
 }
@@ -45,9 +47,10 @@ export type Staged =
 			readonly kept: ReadonlyArray<number>
 	  }
 
-/** A staged carrier as a served write holds it: its creation and its fill each named (core/prepared.ts). */
+/** A staged carrier as a served write holds it: its emptying and its fill each named (core/prepared.ts); its table is
+ * the write's stand-up's (flight.ts ServedWrite `standUps`). */
 export interface PreparedCarrier {
-	readonly create: Prepared<EmittedText>
+	readonly empty: Prepared<EmittedText>
 	readonly fill: Prepared<EmittedText>
 	readonly columns: NonEmptyReadonlyArray<number>
 }
@@ -63,12 +66,11 @@ export type PreparedStaged =
 	  }
 
 /**
- * What one execution of an artifact statement does: `create`, a CREATE TEMPORARY TABLE, a carrier step's of the
- * program's own or a staged carrier's, the one kind a role without TEMPORARY on the database is refused; `fill`, a
- * carrier's fill, a staged one's of a chunk of its rows among them; or `statement`, any other, a staged statement and a
- * chunk of a family step among them.
+ * What one execution of an artifact statement does: `empty`, a carrier's emptying before a use fills it, a carrier step's
+ * of the program's own or a staged carrier's; `fill`, a carrier's fill, a staged one's of a chunk of its rows among
+ * them; or `statement`, any other, a staged statement and a chunk of a family step among them.
  */
-export type ExecutionPart = "statement" | "create" | "fill"
+export type ExecutionPart = "statement" | "empty" | "fill"
 
 /** One execution of an artifact statement: its prepared text, its placeholders' values and what it is. */
 export interface Execution {
@@ -375,7 +377,7 @@ export const executionsOf = (
 		const [{ source }] = slots
 		const { cells } = source
 		const parts = mapNonEmpty(slots, (slot) => slot.part)
-		out.push({ text: carrier.create, params: [], part: "create" })
+		out.push({ text: carrier.empty, params: [], part: "empty" })
 		const chunks = chunksOf(cells, parts, transport)
 		if (!chunks.ok) {
 			return chunks

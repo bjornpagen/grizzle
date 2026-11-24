@@ -1,8 +1,8 @@
 /**
  * A session's writes stand on its first write's carriers, and hold no more than one write's rows in them, on PostgreSQL
- * 19: a carrier is a session table, made ON COMMIT PRESERVE ROWS where the session holds none and truncated where it
- * does, before each use fills it (sql/print.ts carrierStandUp). So a write's transaction past the session's first makes
- * and drops no relation: a carrier made and dropped by every transaction wrote catalog rows, a wide carrier's columns,
+ * 19: a carrier is a session table, made ON COMMIT PRESERVE ROWS by the session's stand-up of the write, once, and
+ * emptied by each use before it fills it (sql/print.ts carrierEmptying). So no write's transaction makes or drops a
+ * relation: a carrier made and dropped by every transaction wrote catalog rows, a wide carrier's columns,
  * type and key, past what PostgreSQL's shared invalidation queue holds (4096 messages), and every COMMIT that dropped
  * them reset every cache of the session, the rule judge's cached plans among them, which the next COMMIT made again
  * (pantry's package write, 43 carriers: a statement cached at 39 ms took 152 ms after one such transaction). And a

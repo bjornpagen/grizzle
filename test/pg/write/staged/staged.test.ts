@@ -25,11 +25,12 @@
  *   and nothing stored.
  * - **A row no fill carries even alone** fails as `input` (InputTooLarge of Entry's fill, its Bind message past the
  *   planted bound), before any SQL: nothing sent and nothing stored.
- * - **A write that creates a temporary table on a role without TEMPORARY**, a staged carrier or a carrier of the
- *   program's own, which a put of Tags from a query over the call's relation parameter needs, fails as `failed`
- *   (TemporaryRefused, naming the privilege, with the server's 42501), and stores nothing. A carrier is the session's,
- *   made by its first use and kept by every COMMIT (sql/print.ts carrierStandUp), so such a write runs on a served Db
- *   opened for it, whose session holds no carrier yet. The put is a displacing
+ * - **A write that creates a temporary table on a role without TEMPORARY**, its staged carriers and its carriers of the
+ *   program's own, which a put of Tags from a query over the call's relation parameter needs, all made by the one
+ *   stand-up before its first call, fails as `failed` (TemporaryRefused, naming the privilege, with the server's
+ *   42501), and stores nothing. A carrier is the session's,
+ *   made by the session's stand-up of the write, before its first call, and kept by every COMMIT (sql/ast.ts
+ *   CreateCarrier), so such a write runs on a served Db opened for it, whose session holds no carrier yet. The put is a displacing
  *   deletion and an insert (write/put/choose.ts), and both read the query's rows, which the program carries from one
  *   to the other (write/schedule/plan.ts).
  * - **Any other write is the inline write**: it leaves the same rows of every table, every column of each row read as
@@ -43,8 +44,8 @@
  * Kept: pantry's import, a fresh immutable Package whose Entry bytes pass the bound in several fills.
  *
  * Features: inline under the planted bound, staged in several fills, a stored mutable shelf recounted, a refusal the
- * staged statement judges, an owner of no member, a row past one fill alone, a flight past one write, a staged write
- * and a carrier of the program's own without TEMPORARY, and a carrier of the program's own.
+ * staged statement judges, an owner of no member, a row past one fill alone, a flight past one write, a write without
+ * TEMPORARY, and a carrier of the program's own.
  */
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
@@ -74,8 +75,7 @@ export const leavesThroughItsCarriersWhatItLeavesInlineAndRefusesARowAFlightOrAC
 			"an owner of no member",
 			"a row past one fill alone",
 			"a flight past one write",
-			"a staged write without TEMPORARY",
-			"a carrier of the program's own without TEMPORARY",
+			"a write without TEMPORARY",
 			"a carrier of the program's own"
 		] satisfies ReadonlyArray<Reached<Feature>>,
 		check:

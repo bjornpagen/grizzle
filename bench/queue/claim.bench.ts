@@ -803,11 +803,11 @@ export default defineGate({
 						kind: "none"
 					})
 					/**
-					 * The claim's statements, which the probed claim's program holds alike: a carrier's creation has no plan to
-					 * explain.
+					 * The claim's statements, which the probed claim's program holds alike: a carrier's emptying has no plan of
+					 * the write's to explain.
 					 */
 					const explained = Arr.flatMap(plainClaim.statements, (statement, i) =>
-						statement.label.kind === "carrier" && statement.label.step === "create"
+						statement.label.kind === "carrier" && statement.label.step === "empty"
 							? []
 							: [{ number: i + 1, sql: statement.sql }]
 					)

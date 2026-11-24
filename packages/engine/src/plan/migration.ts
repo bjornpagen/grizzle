@@ -28,7 +28,8 @@ export { proofsTableName } from "#compiler/physical/ddl/ledger.ts"
 export {
 	dataStepBracket,
 	immutableTriggerName,
-	type InstalledGuard
+	type InstalledGuard,
+	standUpCalls
 } from "#compiler/physical/ddl/immutable.ts"
 export {
 	type GraphIdent,
@@ -155,7 +156,8 @@ export {
 	liveSlotOf,
 	type InstalledRoleTooLong,
 	roleInSpace,
-	type RoleSpace
+	type RoleSpace,
+	standUpDisplayLead
 } from "#compiler/core/identity.ts"
 export {
 	type InstallationNames,

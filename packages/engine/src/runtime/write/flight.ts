@@ -9,7 +9,7 @@
  * in process as much as a served one, so what the file holds is exactly what an application reads.
  */
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
-import { type Prepared, prepared } from "#compiler/core/prepared.ts"
+import { type Prepared, prepared, type StatementName } from "#compiler/core/prepared.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { NeededInput } from "#compiler/ir/needs.ts"
 import type { CallerParamDecl, WriteSlot } from "#compiler/ir/products.ts"
@@ -101,15 +101,46 @@ export type WriteExclusion =
 export const noExclusion: WriteExclusion = Object.freeze({ kind: "none" })
 
 /**
+ * A session object a write's flight reads or writes, which the session's stand-up of the write makes, `T` each of its
+ * texts: `carrier`, a carrier's table and its emptying, a session function of the carrier's own name
+ * (write/carriers/carriers.ts carrierStandUp), each made as the write's role, which alone may empty it; or `judged`, the
+ * call of the rule judge's stand-up of a table the write writes (physical/ddl/rules.ts addStandUps), which makes the
+ * judge's session tables a write of the table needs, as the judge's definer.
+ *
+ * A session runs a write's stand-ups once, in one transaction of its own before its first call of the write, the ones it
+ * has not run yet (adapter apply/stand-up.ts): no transaction of a call makes a relation, so the plans its statements
+ * make outlive their call, where a relation made inside the call's transaction is a catalog change the session reads
+ * at its next transaction, which made every plan over it again (metis's assign planned 98 statements again at its second
+ * call). A session keeps the stand-ups it ran by their first text's name (`standUpName`), so one two writes share runs
+ * once a session.
+ */
+export type StandUp<T> =
+	| { readonly kind: "carrier"; readonly table: T; readonly emptying: T }
+	| { readonly kind: "judged"; readonly call: T }
+
+/** A stand-up as a served write holds it (StandUp), every text named (core/prepared.ts). */
+export type ServedStandUp = StandUp<Prepared<EmittedText>>
+
+/** The texts a stand-up sends, in order: a carrier's table, then its emptying; a judged table's call. */
+export const standUpTexts = <T>(standUp: StandUp<T>): NonEmptyReadonlyArray<T> =>
+	standUp.kind === "carrier" ? [standUp.table, standUp.emptying] : [standUp.call]
+
+/** The name a session keeps a stand-up it ran by: its first text's (`standUpTexts`). */
+export const standUpName = (standUp: ServedStandUp): StatementName => standUpTexts(standUp)[0].name
+
+/**
  * A write as its flight runs it, as data: its declared parameters, which an application admits and its read-backs
  * read; what binding an application reads besides its values (binding.ts Binding); what its transaction locks before
- * its snapshot; its statements, in the order the flight sends them; and the relations it writes, in code point order,
- * whose facts its rows net by identity.
+ * its snapshot; the session objects its flight reads and writes, which its session stands up once before its first call
+ * (StandUp), carriers first, in the order its statements name them, then the judged tables it writes, in code point
+ * order; its statements, in the order the flight sends them; and the relations it writes, in code point order, whose
+ * facts its rows net by identity.
  */
 export interface ServedWrite {
 	readonly params: ReadonlyArray<CallerParamDecl>
 	readonly binding: Binding
 	readonly exclusion: WriteExclusion
+	readonly standUps: ReadonlyArray<ServedStandUp>
 	readonly statements: ReadonlyArray<ServedStatement>
 	readonly written: ReadonlyArray<WrittenHeading>
 }
@@ -185,12 +216,14 @@ export type FlightStatement =
 /**
  * A ServedWrite loaded under the installation's codes: its declared parameters, its binding and the binding's closures
  * (binding.ts prepareBinding), the codes its values are parsed and encoded under, what its transaction locks before its
- * snapshot, its statements with their encoders, and what reads its rows.
+ * snapshot, the session objects its session stands up before its first call (StandUp), its statements with their
+ * encoders, and what reads its rows.
  */
 export interface FlightWrite {
 	readonly params: ReadonlyArray<CallerParamDecl>
 	readonly binding: Binding
 	readonly exclusion: WriteExclusion
+	readonly standUps: ReadonlyArray<ServedStandUp>
 	readonly prepared: PreparedBinding
 	readonly codes: Codebook
 	readonly statements: ReadonlyArray<FlightStatement>
@@ -250,6 +283,7 @@ export const loadWrite = (
 		params: served.params,
 		binding: served.binding,
 		exclusion: served.exclusion,
+		standUps: served.standUps,
 		prepared: prepareBinding(served.binding, codes, closed, patterns),
 		codes,
 		statements: Object.freeze(served.statements.map(loadedStatement)),

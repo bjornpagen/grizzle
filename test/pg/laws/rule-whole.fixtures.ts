@@ -33,7 +33,8 @@ import {
 	judgedPlans,
 	type JudgedStatement,
 	judgedStatementsOf,
-	raisedRule
+	raisedRule,
+	standUpJudge
 } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
@@ -1372,6 +1373,7 @@ export const runLocality = (
 	c: Case<LocalityFeature>
 ) =>
 	Effect.gen(function* () {
+		yield* standUpJudge(connection, installed.installation)
 		const tables = tablesOf(installed, locality.shape)
 		const statistics =
 			locality.statistics === "analyzed" ? [`ANALYZE ${tables.node}`, `ANALYZE ${tables.expr}`] : []
@@ -1527,6 +1529,7 @@ export const runNarrowed = (
 	c: Case<"documents written whole beside a few tags">
 ) =>
 	Effect.gen(function* () {
+		yield* standUpJudge(connection, installed.installation)
 		const tables = tablesOf(installed, narrowed.shape)
 		for (const sql of [
 			...writtenWhole(tables, 1, narrowed.documents),

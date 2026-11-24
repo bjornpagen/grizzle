@@ -793,6 +793,7 @@ export const reportable = (installation: Installation): ReadonlyArray<Identified
 			case "delete":
 			case "merge":
 			case "createCarrier":
+			case "emptyCarrier":
 			case "beginRead":
 			case "beginWrite":
 			case "commit":

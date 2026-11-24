@@ -23,7 +23,7 @@ import { str } from "#compiler/public/text.ts"
 import { wholeStatementsOf } from "#test/pg/laws/rule-whole.fixtures.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
-import { judgedPlans } from "#test/support/judge.ts"
+import { judgedPlans, standUpJudge } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
@@ -149,6 +149,7 @@ export const runConfined = (
 	c: Case<ConfinedFeature>
 ) =>
 	Effect.gen(function* () {
+		yield* standUpJudge(connection, installed.installation)
 		const names = namesOf(installed)
 		const node = names.table(Node)
 		const typed = names.table(Typed)

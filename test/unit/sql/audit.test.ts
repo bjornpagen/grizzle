@@ -72,7 +72,8 @@ import {
 	breakSketchGen,
 	liveSketchGen,
 	resolveLive,
-	writtenSketchGen
+	writtenSketchGen,
+	writtenStandUps
 } from "#test/unit/sql/audit/live.ts"
 import {
 	auditRuleReason,
@@ -127,7 +128,8 @@ export const everyLiveStatementPassesBothAuditsPrintsAsItsTwinDoesSurvivesTheSna
 
 /**
  * Every statement a generated write program places passes both audits, prints as its twin does, survives the
- * snapshot's codec and emit, and compiles deterministically.
+ * snapshot's codec and emit, and compiles deterministically; and so does every statement its session stands up before
+ * its first call, each carrier and its emptying, whose kinds and shapes the case does not note, so they steer nothing.
  *
  * Budget: 60 runs and 60 steered cases, what its suite stated before it became a property
  * (test/unit/sql/audit.test.ts:486 at 8cad5bce, its runs and its coverage's cases).
@@ -148,6 +150,9 @@ export const everyStatementAGeneratedWriteProgramPlacesPassesBothAuditsPrintsAsI
 					if (writesWhere(twinned.statement, marksMet)) {
 						c.note("old under IS TRUE in an INSERT's RETURNING")
 					}
+				}
+				for (const stood of writtenStandUps(sketch.sketch)) {
+					universal(stood)
 				}
 				for (const { ast, text } of live.emitted) {
 					assert.equal(text, printStatement(ast), "the placed text is its AST's print")

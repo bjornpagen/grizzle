@@ -1391,9 +1391,11 @@ export const tableConstraints = (t: CreateTable): NonEmptyReadonlyArray<TableCon
 
 /**
  * A write program's carrier, a session table of pg_temp, the session's own temporary schema, by which it prints
- * qualified, stood up where the session holds none and emptied where it does, before each use fills it (sql/print.ts
- * carrierStandUp): made once in a session, ON COMMIT PRESERVE ROWS, and truncated by every later use, so a write's
- * transaction makes and drops no relation. Its one constraint is its primary key, if it has one.
+ * qualified: CREATE TEMPORARY TABLE pg_temp.<name> (...) ON COMMIT PRESERVE ROWS, made once in a session by the
+ * session's stand-up of the write (runtime/write/flight.ts StandUp), never by a write's own transaction, so no
+ * transaction of a write makes or drops a relation, and no plan it makes meets a catalog change of its own session at
+ * the next call. Its one constraint is its primary key, if it has one. Its emptying (`EmptyCarrier`) is a session
+ * function made beside it (sql/print.ts carrierEmptying).
  */
 export interface CreateCarrier {
 	readonly kind: "createCarrier"
@@ -1407,6 +1409,17 @@ export interface CreateCarrier {
 	 * carrier must be a set by its key wherever a later statement reads it.
 	 */
 	readonly primaryKey: NonEmptyReadonlyArray<string> | undefined
+}
+
+/**
+ * SELECT pg_temp.<name>(): a write program's carrier emptied before a use fills it, by the session function of the
+ * carrier's own name the session's stand-up made beside it (sql/print.ts carrierEmptying), whose body empties it as
+ * every session table is emptied (sql/print.ts sessionTableEmptied). A PL/pgSQL function plans its statements once a
+ * session, where a DO block of the same body planned them at every call. It reads and writes the carrier alone.
+ */
+export interface EmptyCarrier {
+	readonly kind: "emptyCarrier"
+	readonly name: CarrierName
 }
 
 export type AlterTableAction =
@@ -2204,14 +2217,14 @@ export type PlStatement =
 			/**
 			 * CREATE TEMPORARY TABLE pg_temp.<name> (<columns>[, PRIMARY KEY (<key>) DEFERRABLE INITIALLY IMMEDIATE]) ON
 			 * COMMIT PRESERVE ROWS: a table of the session's own temporary schema, made once in a session and kept by every
-			 * COMMIT, owned by the role the block runs as, so no COMMIT truncates or drops it (tablecmds.c
+			 * COMMIT, owned by the role that runs the statement, so no COMMIT truncates or drops it (tablecmds.c
 			 * PreCommit_on_commit_actions truncates every ON COMMIT DELETE ROWS table of a session at each COMMIT of a
 			 * transaction that touched any temporary relation, each truncation an ACCESS EXCLUSIVE lock and an invalidation
 			 * every backend reads; a table dropped at COMMIT is made again by the next transaction, whose catalog rows
 			 * overflow the shared invalidation queue and reset every cache of the session, its cached plans among them): a
-			 * rule judge's delta or sentinel (physical/ddl/rules.ts judged), its columns nullable, its definer the
-			 * function's, or a write program's carrier (sql/print.ts carrierStandUp), every column NOT NULL and its key its
-			 * own. A table of no column is the sentinel's, or the unit relation's carrier.
+			 * rule judge's delta or sentinel (physical/ddl/rules.ts addStandUps), its columns nullable, its owner the
+			 * stand-up's definer, or a write program's carrier (sql/ast.ts CreateCarrier), every column NOT NULL and its key
+			 * its own. A table of no column is the sentinel's, or the unit relation's carrier.
 			 */
 			readonly kind: "createSessionTable"
 			readonly name: string
@@ -2592,7 +2605,7 @@ export type Ddl =
 	| LockTable
 	| Comment
 
-export type SqlStatement = Dml | Ddl | CreateCarrier | TransactionControl | Refresh
+export type SqlStatement = Dml | Ddl | CreateCarrier | EmptyCarrier | TransactionControl | Refresh
 
 /** SQL text printed from a statement's AST: emit (sql/emit.ts) spells it, and nothing else. */
 export type EmittedText = string & { readonly [emittedTextBrand]: true }

@@ -24,6 +24,7 @@ import {
 	type FlightWrite,
 	loadWrite,
 	type ServedPartedForm,
+	type ServedStandUp,
 	type ServedStatement,
 	type ServedWrite,
 	type ServedWriteChoice,
@@ -38,12 +39,11 @@ import { servedReadBacks } from "#compiler/served/spine.ts"
 import type { EmittedText, SqlStatement } from "#compiler/sql/ast.ts"
 import type { CarrierColumn } from "#compiler/write/carriers/carriers.ts"
 import type { WriteFrontend } from "#compiler/write/frontend/compile.ts"
-import {
-	type ArtifactForms,
-	type ArtifactStatement,
-	createsCarrier,
-	type FormText,
-	type SentForm
+import type {
+	ArtifactForms,
+	ArtifactStatement,
+	FormText,
+	SentForm
 } from "#compiler/write/program/artifact.ts"
 import type { CompiledWrite } from "#compiler/write/program/compile.ts"
 import { decideBinding } from "#compiler/write/program/decide.ts"
@@ -73,7 +73,7 @@ const preparedStaged = (staged: Staged): PreparedStaged =>
 				kind: "carriers",
 				carriers: mapNonEmpty(staged.carriers, (carrier) =>
 					Object.freeze({
-						create: prepared(carrier.create),
+						empty: prepared(carrier.empty),
 						fill: prepared(carrier.fill),
 						columns: carrier.columns
 					})
@@ -196,8 +196,8 @@ const servedStatements = (
  * servedCarriers) and its role's classifier (adapter/served/project.ts refusalsOf). Its level and its
  * exclusion; its statements as its application runs them at that level, but the read-backs', which their own programs
  * run, each step with the aborts it meets there, every form its text, parts and slots (ServedStatement); its read-backs
- * as its served file holds them (served/spine.ts servedReadBacks); whether its flight may create a carrier
- * (write/program/artifact.ts createsCarrier) and the columns of its program carriers; its declared and clocked
+ * as its served file holds them (served/spine.ts servedReadBacks); its stand-ups, every text named
+ * (runtime/write/flight.ts StandUp), whether one makes a carrier and the columns of its program carriers; its declared and clocked
  * parameters, its binding; and of its front end the schema it compiled against, the relations it writes and the codes it reads. A compiled write's
  * artifact holds each statement's SQL AST beside its text, which its certification's facts read and nothing after
  * (program/isolation/member-facts.ts), so the servable write holds no AST, no schedule, no placement and no analysis.
@@ -207,6 +207,7 @@ export interface ServableWrite {
 	readonly exclusion: WriteExclusion
 	readonly statements: ReadonlyArray<ServedStatement>
 	readonly readBacks: ReadonlyArray<ServedReadBack>
+	readonly standUps: ReadonlyArray<ServedStandUp>
 	readonly carriers: {
 		readonly creates: boolean
 		readonly columns: ReadonlyArray<CarrierColumn>
@@ -220,6 +221,17 @@ export interface ServableWrite {
 /** `compiled` as everything past its compile reads it (ServableWrite), its statements projected at its level. */
 export const servableWrite = (compiled: CompiledWrite): ServableWrite => {
 	const { artifact } = compiled
+	const standUps = Object.freeze(
+		compiled.standUps.map((s): ServedStandUp =>
+			s.kind === "carrier"
+				? Object.freeze({
+						kind: "carrier",
+						table: prepared(s.table),
+						emptying: prepared(s.emptying)
+					})
+				: Object.freeze({ kind: "judged", call: prepared(s.call) })
+		)
+	)
 	return Object.freeze({
 		level: compiled.level,
 		exclusion: compiled.exclusion,
@@ -227,8 +239,9 @@ export const servableWrite = (compiled: CompiledWrite): ServableWrite => {
 			artifact.statements.flatMap((s) => servedStatements(s, compiled.level))
 		),
 		readBacks: Object.freeze(servedReadBacks(artifact.readBacks)),
+		standUps,
 		carriers: Object.freeze({
-			creates: createsCarrier(artifact),
+			creates: standUps.some((s) => s.kind === "carrier"),
 			columns: Object.freeze(artifact.carriers.flatMap((c) => c.heading))
 		}),
 		params: compiled.params,
@@ -244,7 +257,8 @@ export const servableWrite = (compiled: CompiledWrite): ServableWrite => {
 
 /**
  * The data an application of `compiled` reads (`ServedWrite`) at the level it was compiled for (ServableWrite
- * `level`): its declared parameters, its binding, what its transaction locks before its snapshot, its statements but the
+ * `level`): its declared parameters, its binding, what its transaction locks before its snapshot, its stand-ups, its
+ * statements but the
  * read-backs', which the read-backs' own programs run, each step with the aborts it meets at that level, and its written
  * relations' headings.
  */
@@ -253,6 +267,7 @@ export const projectWrite = (compiled: ServableWrite): ServedWrite =>
 		params: compiled.params,
 		binding: compiled.binding,
 		exclusion: compiled.exclusion,
+		standUps: compiled.standUps,
 		statements: compiled.statements,
 		written: Object.freeze(
 			compiled.frontend.written.map((r) =>

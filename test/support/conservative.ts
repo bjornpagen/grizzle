@@ -43,6 +43,7 @@ import {
 	uniqueAbortsOf
 } from "#compiler/write/program/compile.ts"
 import { flightOf, servableWrite } from "#compiler/write/program/served.ts"
+import { writeStandUps } from "#compiler/write/program/stand-up.ts"
 import { type ConservativeWrite, realizeConservative } from "#test/support/oracle/write/realize.ts"
 
 /**
@@ -307,7 +308,8 @@ export const conservativeWrite = (
 					...program,
 					optimized: artifact.specs,
 					certificates: [],
-					artifact
+					artifact,
+					standUps: writeStandUps(artifact, program.frontend.laws, options.names.schema)
 				}
 			})
 	)

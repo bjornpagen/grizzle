@@ -12,6 +12,7 @@ import { check, contained, derived, on, relation, schema } from "#compiler/publi
 import { printStatement } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
+import { standUpJudge } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
@@ -216,13 +217,16 @@ export const runGuard = (
 	learner: Learner,
 	c: Case<GuardFeature>
 ) =>
-	learner === "another package's, read past the unit"
-		? runCross(installed, connection, c)
-		: learner === "an unresolved part, no session" ||
-			  learner === "an unresolved part beside a session" ||
-			  learner === "another package's template withdrawn beside a session"
-			? runReady(installed, connection, learner, c)
-			: runWithin(installed, connection, learner, c)
+	Effect.andThen(
+		standUpJudge(connection, installed.installation),
+		learner === "another package's, read past the unit"
+			? runCross(installed, connection, c)
+			: learner === "an unresolved part, no session" ||
+				  learner === "an unresolved part beside a session" ||
+				  learner === "another package's template withdrawn beside a session"
+				? runReady(installed, connection, learner, c)
+				: runWithin(installed, connection, learner, c)
+	)
 
 /**
  * A case of Ready (`Item`, `Doc`, `Sess`), in its one transaction, every row but the written one loaded with the
@@ -509,6 +513,8 @@ export const runRace = (
 			...ownerSession(),
 			label: "rule guard race learner"
 		})
+		yield* standUpJudge(publisher, installation)
+		yield* standUpJudge(learner, installation)
 		yield* publisher.begin
 		yield* publisher.query(`INSERT INTO ${item} (${i("pkg")}, ${i("item")}) VALUES (1, 2)`, [])
 		if (race.standing) {

@@ -199,6 +199,28 @@ const psqlActor = (name: string, writer: PsqlWriter): DirectActor =>
 	})
 
 /**
+ * `actor` stands up the rule judge's session tables: it sends `calls`, its installation's stand-ups (kernel/naming.ts
+ * standUpCallsOf), each alone, as a writer outside grizzle does before its first write of a table a rule over a query
+ * reads (README, Direct SQL access), so its writes are judged at their COMMIT. A call that does not succeed is a defect.
+ */
+export const standUpActor = (
+	actor: DirectActor,
+	calls: ReadonlyArray<string>
+): Effect.Effect<void> =>
+	Effect.forEach(
+		calls,
+		(sql) =>
+			Effect.flatMap(actor.perform({ _tag: "Sql", sql }), (outcome) =>
+				outcome._tag === "Ok"
+					? Effect.void
+					: Effect.die(
+							new Error(`${actor.name}'s stand-up ${sql} answered ${Formatter.format(outcome)}`)
+						)
+			),
+		{ discard: true }
+	)
+
+/**
  * One direct actor to open: a raw session or a psql writer, logged in as `as`: a role's credentials (the owner), or a
  * world, whose login it logs in as and whose role it takes on before its first statement.
  */

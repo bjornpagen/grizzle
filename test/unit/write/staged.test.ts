@@ -1,7 +1,7 @@
 /**
  * A statement's nested rows past one Bind message (write/program/staged.ts executionsOf): the statement goes inline
  * while its Bind message, every array of its nested rows written whole, fits the transport, and otherwise its carriers
- * are created, filled chunk by chunk, and the staged statement sent, each
+ * are emptied, filled chunk by chunk, and the staged statement sent, each
  * fill as long as one Bind message carries. The cut is measured from the cells' lengths, none of an array written to
  * measure it.
  *

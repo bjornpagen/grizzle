@@ -55,9 +55,13 @@ export type WriteStep =
 			readonly uniqueAborts: ReadonlyArray<UniqueAbort>
 	  }
 	| {
+			/**
+			 * A carrier's statement: its emptying before a use fills it (`empty`, sql/ast.ts EmptyCarrier), or a fill.
+			 * The carrier itself is made once in the session, by its stand-up (flight.ts StandUp), never by a step.
+			 */
 			readonly kind: "carrier"
 			readonly carrier: string
-			readonly step: "create" | "fill"
+			readonly step: "empty" | "fill"
 			/** Its stratum, none for a carrier around the strata. */
 			readonly stratum: StratumAt | undefined
 			/** What its statement casts into a stored relation's types (CarrierCasts). */

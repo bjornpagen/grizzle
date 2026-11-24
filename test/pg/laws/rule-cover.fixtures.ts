@@ -4,7 +4,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
 import { aimed, array, boolean, element, type Gen, weighted } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Data, Effect, Formatter, Option, String as Str } from "effect"
-import { identifierOf, identity } from "#compiler/core/identity.ts"
+import { identifierOf } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { baselineRuleChecks } from "#compiler/deploy/snapshot/violation.ts"
 import { lawsOfConstraint } from "#compiler/ir/products.ts"
@@ -22,11 +22,15 @@ import {
 	schema,
 	unit
 } from "#compiler/public/schema.ts"
-import type { PlStatement } from "#compiler/sql/ast.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
-import { judgedDeltaReadsOf, raisedRule } from "#test/support/judge.ts"
+import {
+	capturedDeltasOf,
+	judgedDeltaReadsOf,
+	raisedRule,
+	standUpJudge
+} from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
@@ -520,32 +524,11 @@ const judged = (installed: Installed, session: RawSession, where: string) =>
 		})
 	})
 
-/** The PL/pgSQL body of the installation's function named `name`. */
-const bodyOf = (installation: Installation, name: string): ReadonlyArray<PlStatement> =>
-	Arr.flatMap(installation.statements, (s) =>
-		s.kind === "createFunction" && s.language === "plpgsql" && s.name.name === name
-			? s.body.body
-			: []
-	)
-
-/** The session tables a capture's body creates, at any depth, by name and columns: its deltas. */
-const deltasIn = (
-	body: ReadonlyArray<PlStatement>
-): ReadonlyArray<{ readonly name: string; readonly columns: ReadonlyArray<string> }> =>
-	Arr.flatMap(body, (s): ReturnType<typeof deltasIn> =>
-		s.kind === "createSessionTable" && s.columns.length > 0
-			? [{ name: s.name, columns: Arr.map(s.columns, (c) => c.name) }]
-			: s.kind === "if"
-				? [...Arr.flatMap(s.branches, (b) => deltasIn(b.body)), ...deltasIn(s.else)]
-				: []
-	)
-
 /** The side of news of `relation`: the delta its capture creates with a count of each image (rules.ts addRules). */
 const newsOf = (installation: Installation, relation: Written): string =>
 	defined(
-		Arr.findFirst(
-			deltasIn(bodyOf(installation, identifierOf(identity.ruleCapture(relation)))),
-			(d) => Arr.contains(d.columns, countColumn)
+		Arr.findFirst(capturedDeltasOf(installation, relation), (d) =>
+			Arr.contains(d.columns, countColumn)
 		).pipe(Option.getOrUndefined),
 		`${relation}'s side of news`
 	).name
@@ -676,6 +659,8 @@ export const runSchedule = (
 	c: Case<CoverFeature>
 ) =>
 	Effect.gen(function* () {
+		yield* standUpJudge(admin, installed.installation)
+		yield* standUpJudge(session, installed.installation)
 		const names = namesOf(installed)
 		yield* admin.query(`INSERT INTO ${names.table(Lim)} (grp, max) VALUES (1, ${bound})`, [])
 		for (const [at, ops] of schedule.transactions.entries()) {

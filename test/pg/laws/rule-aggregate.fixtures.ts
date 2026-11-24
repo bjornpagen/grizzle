@@ -5,7 +5,6 @@ import { boolean, element, type Gen, int, subset } from "@bjornpagen/testing/gen
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Data, Effect, Formatter, Option, Order, Record as Rec } from "effect"
 import { parsePlan, type PlanNode, rowsGenerated, rowsRead } from "#bench/harness/explain.ts"
-import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { natural, pg } from "#compiler/public/fields.ts"
 import type { AnyDerived, AnySchema, Relation, Statement } from "#compiler/public/schema.ts"
@@ -29,7 +28,13 @@ import { ordinarySession } from "#test/support/ambient.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { writeAnswerOf, writeOnce } from "#test/support/calls.ts"
 import { installMigrated, type Installed } from "#test/support/install-migrate.ts"
-import { judgedDeltaReadsOf, type JudgedStatement, plannedQueryOf } from "#test/support/judge.ts"
+import {
+	capturedDeltasOf,
+	judgedDeltaReadsOf,
+	type JudgedStatement,
+	plannedQueryOf,
+	standUpJudge
+} from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { argumentsOf } from "#test/support/list.ts"
 import { opened } from "#test/support/open.ts"
@@ -1511,7 +1516,6 @@ const probesOfAttempt = (
 	installation: Installation,
 	held: ReadonlySet<string>
 ): ReadonlyArray<JudgedStatement> => {
-	const capture = identifierOf(identity.ruleCapture("Attempt"))
 	const createdBy = (named: (name: string) => boolean): ReadonlyArray<string> =>
 		Arr.dedupe(
 			Arr.flatMap(installation.statements, (s) =>
@@ -1520,7 +1524,7 @@ const probesOfAttempt = (
 					: []
 			)
 		)
-	const ofAttempt = createdBy((name) => name === capture)
+	const ofAttempt = Arr.map(capturedDeltasOf(installation, "Attempt"), (d) => d.name)
 	const every = createdBy(() => true)
 	return Arr.flatMap(judgedDeltaReadsOf(installation), (r) => {
 		const reads = (d: string): boolean => r.deltas.has(d)
@@ -1606,6 +1610,7 @@ export const runLocality = (d: LocalityCase, note: Case<"measured">["note"]) =>
 			...ownerSession(),
 			label: "rule aggregate locality"
 		})
+		yield* standUpJudge(session, done.installation)
 		yield* committed(session, [
 			...Arr.map(touchedBase(shape), (op) => insertSql(shape, done, built, op)),
 			...untouchedSql(shape, done, built, 0, d.before - 1)
