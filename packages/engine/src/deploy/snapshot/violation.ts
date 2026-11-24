@@ -3,6 +3,7 @@ import { unwrap } from "#compiler/core/canonical.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { refuseLaw } from "#compiler/deploy/snapshot/objects.ts"
 import { meaningDigestWithin, rooted, StatedFacts, topoOrder } from "#compiler/ir/dag.ts"
+import { servedDag } from "#compiler/ir/derived.ts"
 import { makePassContext } from "#compiler/ir/pass.ts"
 import type { RelNode } from "#compiler/ir/rel.ts"
 import { evidenceCatalog } from "#compiler/laws/model/catalog.ts"
@@ -211,4 +212,35 @@ export const baselineRuleChecks = (installation: Installation): ReadonlyArray<Mi
 	const violations = violationsOf(installation)
 	const stated = new StatedFacts(installation.checked.closed)
 	return installation.laws.rules.map((r) => checkOf(installation, violations, stated, r.law.id))
+}
+
+/** A rule's violation query over every row as its definitions state it (`definedRuleChecks`). */
+export interface DefinedCheck {
+	readonly law: LawId
+	readonly query: Select
+}
+
+/**
+ * Each rule over a query's violation query over every row, every derived relation it reads, at any depth, read through
+ * its definition (analysis/schema.ts CheckedSchema expanded, ir/derived.ts servedDag), lowered by the oracle baseline:
+ * the state the judge judges, which its upkeep makes every stored relation's table hold before any rule reads it
+ * (physical/ddl/rules.ts, phase A), read at any point of a transaction, where baselineRuleChecks reads a stored
+ * relation's table as the last COMMIT left it. The judge's suites hold its verdicts to these, and the migration's check
+ * over every row (lawChecks), which reads the tables, to baselineRuleChecks; the two agree wherever no stored relation a
+ * rule reads has a holder the transaction wrote.
+ */
+export const definedRuleChecks = (installation: Installation): ReadonlyArray<DefinedCheck> => {
+	const violations = violationsOf(installation)
+	const definitions = installation.checked.expanded()
+	return installation.laws.rules.map((r): DefinedCheck => {
+		const violation = violations.forbids.get(r.law.id)
+		if (violation === undefined) {
+			throw defect(`the violation queries hold the law ${r.law.id} of the theory`)
+		}
+		const served = servedDag(rooted([violation]), definitions).of(violation)
+		return {
+			law: r.law.id,
+			query: violationQuery(installation, r.law.id, readsOf(installation, served))
+		}
+	})
 }

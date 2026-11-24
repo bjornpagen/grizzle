@@ -464,6 +464,9 @@ export interface OwnedUnit {
 	readonly loc: SourceLoc
 	/** Each relation under it, in relation name order. */
 	readonly members: ReadonlyArray<UnitMember>
+	/** Whether it is sealed at founding: every row of a relation under it at a key is inserted by the transaction that
+	 * inserted the unit's root there, its relations closed (analysis/theory/frozen.ts foundedAt). */
+	readonly sealed: boolean
 }
 
 /**
@@ -590,7 +593,8 @@ const ownUnits = (
 				heading: st.heading,
 				level,
 				loc: st.loc,
-				members: Object.freeze(members)
+				members: Object.freeze(members),
+				sealed: false
 			})
 		)
 	}

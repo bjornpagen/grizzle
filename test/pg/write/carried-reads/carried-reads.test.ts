@@ -8,7 +8,9 @@
  *
  * Schema: Attempt(child, n), keyed by both, under the unit of its child; Graded(child, n, score), the grade, contained in
  * Attempt at its key; and Status(child, n, status), derived from both, 0 for an attempt with no grade and 1 for one with
- * one. Stored: child 1's attempts 1, graded, and 2, and child 2's attempt 1.
+ * one. Stored: child 1's attempts 1, graded, and 2, and child 2's attempt 1, by the owner's direct writes, its session
+ * standing up the judge's tables first: Status, unit-local at (child, n), is stored, so Attempt and Graded are tables
+ * its upkeep reads, whose captures refuse a write of a session that stood none up (physical/ddl/rules.ts addCapture).
  *
  * The box, exhausted: where the call grades, in a stratum after the attempts' (edullm's), in their own stratum, where
  * the containment orders the grades after the attempts, or in a stratum before them; what it records, child 1's third
@@ -57,6 +59,7 @@ import {
 	storedGrades
 } from "#test/pg/write/carried-reads/carried-reads.fixtures.ts"
 import { carrierFills } from "#test/support/carrier-reads.ts"
+import { standUpJudge } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
@@ -101,6 +104,7 @@ export const aWritesReadBackOfItsOwnDeltaReadsItAsTheWholeWriteLeavesTheStateCar
 							const names = namesOf(fx.installed)
 							const column = (relation: typeof Attempt | typeof Graded, field: string) =>
 								quoteIdent(names.columnIdent(relation, field))
+							yield* standUpJudge((yield* Substrate).admin, fx.installed.installation)
 							yield* owner(
 								`INSERT INTO ${names.table(Attempt)} (${column(Attempt, "child")}, ${column(Attempt, "n")}) VALUES ${Arr.join(
 									Arr.map(storedAttempts, (a) => `(${a.child}, ${a.n})`),

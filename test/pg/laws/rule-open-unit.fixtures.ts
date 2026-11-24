@@ -89,6 +89,10 @@ const schemaOf = (shape: Shape) => {
 					)
 				]
 			)
+			/** Each presence's score beside its seat's cap, by its child alone: a unit no wider than the learner's, so its
+			 * upkeep would re-derive a learner's whole unit at each write and it is live (analysis/derived/storage.ts), and
+			 * Capped, a check of each row, is judged whole over its definition, which reads every presence beside its seat
+			 * as the slot-keyed join did. */
 			const Over = derived(
 				"Over",
 				query(Base).rule((r) => {
@@ -97,7 +101,7 @@ const schemaOf = (shape: Shape) => {
 					return r
 						.match(Presence, { child, slot, score })
 						.match(Seat, { child, slot, cap })
-						.find({ child, slot, score, cap })
+						.find({ child, score, cap })
 				})
 			)
 			return schema.extend(

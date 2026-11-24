@@ -1189,11 +1189,19 @@ const compileErrorMessage = (reason: CompileReason): string => {
  * - `notUnitLocal`: its definition lacks a condition of unit-locality (`lacks`, the first analysis/theory/unit.ts
  *   storedUnit met): a fact of it may join rows of several units, which two writers may write at once, each blind to the
  *   other's, so no upkeep at one written unit could keep it exact;
+ * - `unboundedUpkeep`: its upkeep at a written unit would re-derive its whole declared unit (`unit`), a delta of one row
+ *   reading every row of the unit: its unit's key (`fields`) is no wider than the declared unit's, and that unit is not
+ *   sealed, so no write is known to write the whole unit (analysis/theory/frozen.ts foundedAt);
  * - `unrepresentable`: its table could not hold its rows: derived analysis refused its heading or its keys
  *   (`refusal`), a refusal its definition's reading never meets.
  */
 export type LiveReason =
 	| { readonly kind: "notUnitLocal"; readonly lacks: UnitLocality }
+	| {
+			readonly kind: "unboundedUpkeep"
+			readonly unit: string
+			readonly fields: NonEmptyReadonlyArray<string>
+	  }
 	| { readonly kind: "unrepresentable"; readonly refusal: CompileError }
 
 export class CompileError extends Error {

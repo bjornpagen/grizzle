@@ -44,10 +44,15 @@ const judgedKinds: ReadonlyArray<Kind> = [1, 2, 3]
 /** The kind of U's rows the stored relation keeps. */
 const keptKind: Kind = 4
 
-/** T's facts of kind `k` by document and place with their `b`. */
+/**
+ * The `b` of T's facts of kind `k` by document: a projection no wider than the document's unit, whose upkeep would
+ * re-derive a document's facts at every write of it, so it is live (analysis/derived/storage.ts, `unboundedUpkeep`)
+ * and the check over it a rule the judge holds over T's delta under its kind's selection; a check of each row, which
+ * the projection keeps, is the law it was over T's facts by place.
+ */
 const ofKind = (k: number) => (r: Rule<typeof Base>) => {
 	const { doc, at, b } = v(T, "t")
-	return r.match(T, { doc, at, kind: k, b }).find({ doc, at, b })
+	return r.match(T, { doc, at, kind: k, b }).find({ doc, b })
 }
 
 const one = derived("Kind1", query(Base).rule(ofKind(1)))
@@ -56,7 +61,7 @@ const three = derived("Kind3", query(Base).rule(ofKind(3)))
 
 /** U's facts of the kept kind by document and place, stored at the document's unit: its upkeep's region reads U's
  * deltas under the selection of that kind. */
-const kept = derived.stored(
+const kept = derived(
 	"Kept",
 	query(Base).rule((r) => {
 		const { doc, at } = v(U, "u")

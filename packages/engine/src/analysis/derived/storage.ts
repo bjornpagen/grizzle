@@ -13,12 +13,20 @@
  *   at READ COMMITTED;
  * - every declared function it calls is immutable throughout, and no field it reads is one grizzle rewrites in place, a
  *   fold's accumulator, so no change of its rows escapes its unit's writes;
+ * - its upkeep costs what the delta that runs it bounds (`deltaBounded`): at each key a write touched it reads a bounded
+ *   number of rows of each holder, its unit narrower than its declared unit, its key wider than the declared unit's, so a
+ *   write re-derives the stored rows at the keys it touched alone, never the rest of the unit it borrows, or its unit's
+ *   key holding a declared key of every holder it reads, so it reads one row of each at a key; or its declared unit is
+ *   sealed (schema/own.ts OwnedUnit `sealed`), so every row of every holder at a key is written by the one transaction
+ *   that founds the key (analysis/theory/frozen.ts foundedAt), and the upkeep runs at that founding write alone, whose
+ *   delta is the whole unit;
  * - its table can hold its rows: derived analysis admits its heading and its keys (analysis/derived/analyze.ts).
  *
- * Whether the relations it reads are closed decides nothing: a definition over closed relations alone that joins rows
- * of two units could lose a fact two writers inserted into the two at once, each blind to the other's, so it is live,
- * and one over an open relation inside its unit is kept under the borrow its writers hold. Every other derived relation
- * is live (`LiveReason`). One rule decides it, once, where the checked schema reads its derived relations level by
+ * Whether the relations it reads are closed decides nothing alone: a definition over closed relations alone that joins
+ * rows of two units could lose a fact two writers inserted into the two at once, each blind to the other's, so it is
+ * live; one over an open relation inside its unit is kept under the borrow its writers hold; and one whose upkeep
+ * re-derives its whole declared unit at every write of it, a learner's whole history at each answer, is live, its
+ * readers reading its definition at the keys they bind. Every other derived relation is live (`LiveReason`). One rule decides it, once, where the checked schema reads its derived relations level by
  * level (analysis/schema.ts CheckedSchema), so a stored relation is one of the relations the levels above it read, and
  * every reader, a query, a rule, an upkeep and a role, reads the one decision.
  */
@@ -26,7 +34,7 @@ import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { DerivedRelationAnalysis, OwnedDerived } from "#compiler/analysis/derived/analyze.ts"
-import { frozenAt } from "#compiler/analysis/theory/frozen.ts"
+import { foundedAt, frozenAt } from "#compiler/analysis/theory/frozen.ts"
 import { type DeclaredMember, storedUnit } from "#compiler/analysis/theory/unit.ts"
 import type { CompileError, LiveReason } from "#compiler/core/errors.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
@@ -34,7 +42,7 @@ import { type RelationIdent, StoredRelationName } from "#compiler/core/ids.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import type { InferredQuery } from "#compiler/ir/desc.ts"
 import type { LawField, StoredDerivedRelation, TheoryRelation } from "#compiler/ir/law.ts"
-import type { StoredHolding } from "#compiler/ir/unit.ts"
+import type { StoredHolding, StoredUnit } from "#compiler/ir/unit.ts"
 import type { Owned } from "#compiler/schema/own.ts"
 
 /**
@@ -85,6 +93,9 @@ export const derivedHolding = (input: HoldingInput): DerivedHolding => {
 	if ("condition" in unit) {
 		return live({ kind: "notUnitLocal", lacks: unit })
 	}
+	if (unit.kind === "unit" && !deltaBounded(owned, unit, input.known)) {
+		return live({ kind: "unboundedUpkeep", unit: unit.declared.unit, fields: unit.fields })
+	}
 	const analyzed = input.analyze()
 	if (!analyzed.ok) {
 		return live({ kind: "unrepresentable", refusal: analyzed.error })
@@ -95,6 +106,33 @@ export const derivedHolding = (input: HoldingInput): DerivedHolding => {
 		relation: storedRelationOf(analyzed.value, relation.ident, relation.desc.level, unit)
 	})
 }
+
+/**
+ * Whether the upkeep of a stored relation admitted at `unit` costs what its delta bounds (see the header), its region
+ * (analysis/theory/unit.ts StoredUpkeep) the keys a write touched at the unit's width: it reads a bounded number of rows
+ * of each holder at each, its unit's key wider than its declared unit's, or holding a declared key of every holder it
+ * reads, a primary key or any other (`keyedAt`), so it reads at most one row of each; or its declared unit is founded
+ * (analysis/theory/frozen.ts foundedAt), so the one write that runs its upkeep at a key wrote every row there.
+ */
+const deltaBounded = (
+	owned: Owned,
+	unit: StoredUnit,
+	known: ReadonlyMap<string, TheoryRelation>
+): boolean =>
+	unit.fields.length > unit.declared.fields.length ||
+	keyedAt(unit, known) ||
+	foundedAt(owned, unit.declared.unit)
+
+/** Whether the unit key of `unit` holds a declared key of every holder its definition reads, the fields of each that
+ * carry the unit key: at one key the upkeep reads at most one row of each. */
+const keyedAt = (unit: StoredUnit, known: ReadonlyMap<string, TheoryRelation>): boolean =>
+	unit.unit.holders.every((h) => {
+		const r = known.get(h.relation)
+		return (
+			r !== undefined &&
+			[r.primaryKey, ...r.keys].some((key) => key.every((f) => h.fields.includes(f)))
+		)
+	})
 
 /**
  * The ordinary relations `relation`'s definition reads at any depth, in name order: each it matches or filters by, and

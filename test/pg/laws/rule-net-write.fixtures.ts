@@ -7,7 +7,11 @@ import { Array as Arr, Data, Effect, Formatter, Option, String as Str } from "ef
 import { rowsRead } from "#bench/harness/explain.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { quoteIdent, quoteString } from "#compiler/core/text.ts"
-import { baselineRuleChecks, lawChecks } from "#compiler/deploy/snapshot/violation.ts"
+import {
+	baselineRuleChecks,
+	definedRuleChecks,
+	lawChecks
+} from "#compiler/deploy/snapshot/violation.ts"
 import { lawsOfConstraint } from "#compiler/ir/products.ts"
 import { countColumn } from "#compiler/physical/ddl/deltas.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
@@ -184,7 +188,9 @@ const newsOfA = (installation: Installation) => {
 					? [...Arr.flatMap(s.branches, (b) => nettings(b.body)), ...nettings(s.else)]
 					: []
 		)
-	const [netting, ...others] = nettings(judgeBodiesOf(installation))
+	/** Each part that reads A's side of news nets it first, by the one statement: Named's rules' part and Media's
+	 * upkeep's, phase A's, which reads it beside A's side of olds. */
+	const [netting, ...others] = Arr.dedupe(nettings(judgeBodiesOf(installation)))
 	assert.ok(
 		netting !== undefined && others.length === 0,
 		"the judge nets A's side of news by one statement"
@@ -644,7 +650,11 @@ const reachedBy = (
 	return reached
 }
 
-/** Every law a refusal's constraint serves, through the installation's constraint map: none for another table's. */
+/**
+ * Every law a refusal's constraint serves, through the installation's constraint map: none for another table's. A
+ * rule's raise names the table of the relation its trigger stands on: a stored relation's own, Media's, whose rule
+ * reads its table and its deltas.
+ */
 const refusedLaws = (
 	installation: Installation,
 	fields: { readonly table: Option.Option<string>; readonly constraint: string | undefined }
@@ -654,7 +664,7 @@ const refusedLaws = (
 	}
 	const table = fields.table.value
 	const owner = Arr.findFirst(
-		["P", "A", "R", "Q"],
+		["P", "A", "R", "Q", "Media"],
 		(r) => installation.names.relation(r).name === table
 	)
 	return Option.isNone(owner)
@@ -669,23 +679,38 @@ const refusedLaws = (
 /**
  * Judges the state `session`'s transaction leaves against every rule's whole check, then runs the judge (SET
  * CONSTRAINTS ALL IMMEDIATE): it must refuse exactly when a whole check finds the state broken, under 23503 naming a
- * rule it finds broken. Answers whether it refused.
+ * rule it finds broken. Answers whether it refused. The whole check the judge is held to reads every derived relation
+ * through its definition (deploy/snapshot/violation.ts definedRuleChecks), the state the judge judges once its upkeep
+ * made Media's table its definition's rows (Media is stored, its unit A's whole key, wider than its package); each
+ * rule's check over every row reads Media's table as the last COMMIT left it, as the migration that adds the rule runs
+ * it over tables its fill made current, so it is held to its violation query read as installed (baselineRuleChecks),
+ * which reads the same tables.
  */
 const judged = (installed: Installed, session: RawSession, where: string) =>
 	Effect.gen(function* () {
 		const installation = installed.installation
+		const foundBy = (query: Parameters<typeof printStatement>[0]) =>
+			Effect.map(
+				session.values(`SELECT EXISTS (${printStatement(query)})`, []),
+				(found) => found[0]?.[0] === true
+			)
 		const broken = new Set<LawId>()
-		for (const check of baselineRuleChecks(installation)) {
-			const found = yield* session.values(`SELECT EXISTS (${printStatement(check.query)})`, [])
-			if (found[0]?.[0] === true) {
+		for (const check of definedRuleChecks(installation)) {
+			if (yield* foundBy(check.query)) {
 				broken.add(check.law)
+			}
+		}
+		const installedBroken = new Set<LawId>()
+		for (const check of baselineRuleChecks(installation)) {
+			if (yield* foundBy(check.query)) {
+				installedBroken.add(check.law)
 			}
 		}
 		for (const check of lawChecks(installation).rules) {
 			const found = yield* session.values(foundQueryOf(check.query), [])
-			if ((found[0]?.[0] === true) !== broken.has(check.law)) {
+			if ((found[0]?.[0] === true) !== installedBroken.has(check.law)) {
 				return yield* new Disagreed({
-					message: `the check over every row of ${check.law} finds ${found[0]?.[0] === true ? "a row" : "none"} where its whole check finds ${broken.has(check.law) ? "the rule broken" : "nothing"}, ${where}`
+					message: `the check over every row of ${check.law} finds ${found[0]?.[0] === true ? "a row" : "none"} where its whole check as installed finds ${installedBroken.has(check.law) ? "the rule broken" : "nothing"}, ${where}`
 				})
 			}
 		}

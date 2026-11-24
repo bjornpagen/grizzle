@@ -2,8 +2,11 @@
  * Where a derived relation's rows live is the installation's inference, never its author's declaration
  * (analysis/derived/storage.ts): stored, in a table grizzle keeps equal to its definition at every COMMIT, exactly where
  * its definition is unit-local within one declared unit, every declared function it calls immutable throughout, at the
- * widest unit its head delivers, and its table can hold its rows; live otherwise, by the first condition of
- * unit-locality it lacks or for its table. Whether the relations it reads are closed decides nothing: an open relation
+ * widest unit its head delivers, that unit wider than the declared one, so its upkeep re-derives the keys a write
+ * touched alone, or its key holding a key of every relation it reads, so its upkeep reads one row of each at a key (or
+ * the declared unit sealed at founding, which no unit of the box is), and its table can hold its rows;
+ * live otherwise, by the first condition of unit-locality it lacks, for its upkeep, which would re-derive the whole
+ * declared unit at every write, or for its table. Whether the relations it reads are closed decides nothing: an open relation
  * inside its unit is kept under the borrow its writers hold. A read of a stored relation reads its table, a write of one
  * of the relations its definition reads reads its definition, whose table the write's own COMMIT replaces
  * (analysis/schema.ts CheckedSchema serves, ir/derived.ts servedQuery), and a read of a live one reads the relations
@@ -44,6 +47,7 @@ type StorageFeature =
 	| `${"stored" | "live"} ${Shape}`
 	| "live for its borrow, no unit declared"
 	| "live for its borrow, a unit wider than its own"
+	| "live for its upkeep, a unit no wider than the declared one"
 	| "stored over an open relation"
 
 /**
@@ -57,9 +61,9 @@ export const aDerivedRelationIsStoredExactlyWhereItsDefinitionIsUnitLocalWithinO
 		situations: [
 			"stored projection",
 			"stored renamed",
-			"stored by document",
+			"live by document",
 			"live hidden",
-			"stored counted by document",
+			"live counted by document",
 			"live counted across documents",
 			"live joined across documents",
 			"stored negated within",
@@ -72,6 +76,7 @@ export const aDerivedRelationIsStoredExactlyWhereItsDefinitionIsUnitLocalWithinO
 			"stored closed alone",
 			"live for its borrow, no unit declared",
 			"live for its borrow, a unit wider than its own",
+			"live for its upkeep, a unit no wider than the declared one",
 			"stored over an open relation"
 		] satisfies ReadonlyArray<Reached<StorageFeature>>,
 		check: (_, c: Case<StorageFeature>) => (stored) =>
@@ -124,6 +129,9 @@ export const aDerivedRelationIsStoredExactlyWhereItsDefinitionIsUnitLocalWithinO
 					)
 					return
 				}
+				if (expected.kind === "live" && expected.lacks === "unboundedUpkeep") {
+					c.note("live for its upkeep, a unit no wider than the declared one")
+				}
 				if (expected.kind === "stored" && stored.mutability === "Doc open") {
 					c.note("stored over an open relation")
 				}
@@ -131,7 +139,7 @@ export const aDerivedRelationIsStoredExactlyWhereItsDefinitionIsUnitLocalWithinO
 			}),
 		oracle: {
 			kind: "specification",
-			name: "analysis/derived/storage.ts: a derived relation is stored at the widest unit its head delivers where its definition is unit-local within one declared unit, calls only immutable functions and its table holds its rows, else live by the first condition it lacks; a read of a stored one reads its table, a write of a relation it reads its definition"
+			name: "analysis/derived/storage.ts: a derived relation is stored at the widest unit its head delivers where its definition is unit-local within one declared unit narrower than that unit, calls only immutable functions and its table holds its rows, else live by the first condition it lacks; a read of a stored one reads its table, a write of a relation it reads its definition"
 		},
 		box: "every shape of fifteen, every relation closed under no unit declared, a unit of the document or one of the document and its place, or Doc open inside either",
 		kept: [
@@ -232,6 +240,24 @@ export const aDerivedRelationIsStoredExactlyWhereItsDefinitionIsUnitLocalWithinO
 				original: "\t\tif (!correlated) {",
 				replacement: "\t\tif (correlated === !correlated) {",
 				why: "A negation of another document stored, so a stored relation's rows at one document would change with another's."
+			},
+			{
+				file: "packages/engine/src/analysis/derived/storage.ts",
+				original: "\tunit.fields.length > unit.declared.fields.length ||\n",
+				replacement: "\tunit.fields.length >= unit.declared.fields.length ||\n",
+				why: "A relation whose unit is no wider than its declared unit stored: its upkeep re-derives the whole unit at every write of it, as edullm's TestAttempt would read a learner's every attempt at each answer."
+			},
+			{
+				file: "packages/engine/src/analysis/derived/storage.ts",
+				original: "\tkeyedAt(unit, known) ||\n\tfoundedAt(owned, unit.declared.unit)\n",
+				replacement: "\tkeyedAt(unit, known) ||\n\ttrue\n",
+				why: "Every declared unit read as sealed at founding: a relation over a unit later writes add to stored at the whole unit, its upkeep re-deriving the unit at each of them."
+			},
+			{
+				file: "packages/engine/src/analysis/derived/storage.ts",
+				original: "\tkeyedAt(unit, known) ||\n",
+				replacement: "",
+				why: "A relation whose unit key holds a key of every relation it reads kept live, though its upkeep reads one row of each at a key: the places' projection under the unit of the document and its place, as rewrite-checks' XsView over T1(doc) under its document, is read through its definition by every reader."
 			},
 			{
 				file: "packages/engine/src/analysis/derived/storage.ts",

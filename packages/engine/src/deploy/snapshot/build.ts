@@ -900,11 +900,14 @@ export const derivedOf = (installation: Installation): SnapshotDerived => ({
 })
 
 /** Why a derived relation is live, as snapshot.json records it (types.ts LiveDerived): the condition of unit-locality
- * its definition lacks, or the refusal of its table as its reason's text alone. */
+ * its definition lacks, the unit its upkeep would re-derive whole, or the refusal of its table as its reason's text
+ * alone. */
 const liveDerivedOfReason = (why: LiveReason): LiveDerived => {
 	switch (why.kind) {
 		case "notUnitLocal":
 			return { kind: "notUnitLocal", condition: why.lacks.condition, detail: why.lacks.detail }
+		case "unboundedUpkeep":
+			return { kind: "unboundedUpkeep", unit: why.unit, fields: why.fields }
 		case "unrepresentable":
 			return { kind: "unrepresentable", detail: compileReasonText(why.refusal.reason) }
 	}

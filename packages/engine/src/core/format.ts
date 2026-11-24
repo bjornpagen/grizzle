@@ -521,9 +521,11 @@
  * Where a derived relation's rows live is the installation's inference, never its declaration's
  * (analysis/derived/storage.ts): `derived.stored` is gone, and a derived relation's Description states no `storage`. Every
  * derived relation whose definition is unit-local within one declared unit, every function it calls immutable, no field
- * it reads one grizzle rewrites in place, and whose table can hold its rows is stored, kept at every COMMIT by the
- * judge's upkeep as format 8 kept a declared one, whether the relations it reads are closed or open; every other is
- * live, and snapshot.json's derived facts record each live one with why (types.ts SnapshotDerived `liveDerived`). So an
+ * it reads one grizzle rewrites in place, whose upkeep costs what its delta bounds (its unit wider than its declared
+ * unit, so a write re-derives the keys it touched alone, or its declared unit sealed at founding), and whose table can
+ * hold its rows is stored, kept at every COMMIT by the judge's upkeep as format 8 kept a declared one, whether the
+ * relations it reads are closed or open; every other is live, one whose upkeep would re-derive its whole declared unit
+ * recorded as `unboundedUpkeep`, and snapshot.json's derived facts record each live one with why (types.ts SnapshotDerived `liveDerived`). So an
  * installation gains a stored table, its unique indexes, its fill, its upkeep blocks and its holders' captures for every
  * such relation format 8 read live, every statement that read its definition reads its table, and its laws become its
  * table's natives as a declared stored relation's were. A query names every derived relation by its name, the checker

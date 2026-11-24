@@ -175,7 +175,6 @@ export const theJudgeNetsEachSideOfNewsARuleReadsOnceInItsRunBeforeAnyPartReadsI
 		needs: {},
 		situations: [
 			"A's news read by an upkeep and a rule",
-			"A's news read by rules alone",
 			"A's news read by an upkeep alone",
 			"a stored relation's news read above it"
 		] satisfies ReadonlyArray<ReachedOf<NettedReached>>,
@@ -184,7 +183,7 @@ export const theJudgeNetsEachSideOfNewsARuleReadsOnceInItsRunBeforeAnyPartReadsI
 			kind: "specification",
 			name: "the Z-set's one netting (core/zset.ts): a side of news netted once holds delta.added, which a rule judges, and a second netting deletes nothing, while an upkeep reads the units a side's rows name, which netting only narrows to units it reads again to the same rows; so the judge's PL/pgSQL nets each side of news of a table that a rule reads by one statement of its own body, before it calls any part, one only an upkeep reads by none, and no other function nets one; a stored relation's side of news, which its upkeep writes once, by none"
 		},
-		box: "Media over A, derived, stored, or stored beneath a stored relation over it, held in R; Named over A held in Q, or none: A's side of news read by rules alone, by an upkeep alone, or by both",
+		box: "Media over A, stored, or stored beneath a stored relation over it, held in R (no live Media over A in a unit can be stated: its key holds A's); Named over A held in Q, or none: A's side of news read by an upkeep alone, or by an upkeep and a rule",
 		kept: [],
 		kills: [
 			{

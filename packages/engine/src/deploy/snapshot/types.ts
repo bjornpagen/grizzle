@@ -373,13 +373,19 @@ export interface SnapshotDerived extends CompileFacts {
 
 /**
  * Why the installation keeps a derived relation live (analysis/derived/storage.ts LiveReason), as snapshot.json records
- * it: `notUnitLocal`, the condition of unit-locality its definition lacks, with where; or `unrepresentable`, why its
- * table could not hold its rows, as the refusal of its table states it.
+ * it: `notUnitLocal`, the condition of unit-locality its definition lacks, with where; `unboundedUpkeep`, the declared
+ * unit its upkeep would re-derive whole and the fields of its unit's key; or `unrepresentable`, why its table could not
+ * hold its rows, as the refusal of its table states it.
  */
 export type LiveDerived =
 	| {
 			readonly kind: "notUnitLocal"
 			readonly condition: UnitLocalityCondition
 			readonly detail: string
+	  }
+	| {
+			readonly kind: "unboundedUpkeep"
+			readonly unit: string
+			readonly fields: ReadonlyArray<string>
 	  }
 	| { readonly kind: "unrepresentable"; readonly detail: string }

@@ -83,7 +83,8 @@ const wrapped = fn("wrapped", {
  * - `cast value`: each place with its value cast, a column no table of the base holds, which a reader looks it up by:
  *   edullm's NamedDeclaration, a declaration's identifier a cast of its attribute's text, which the judge of
  *   PlacedVariableRefDeclaration's reference rule read by filtering every identifier attribute of a document per key;
- * - `unrepresentable`: each document's note texts, whose one key, its whole heading, holds a text of no byte bound;
+ * - `unrepresentable`: each place's note text, from two arms, so no key narrower than its whole heading is proven and
+ *   its one key holds a text of no byte bound;
  * - `closed alone`: a closed relation's handles, no relation a write changes.
  */
 export type Shape =
@@ -172,7 +173,10 @@ export type Holding =
 			readonly declared: { readonly unit: string; readonly fields: ReadonlyArray<string> }
 	  }
 	| { readonly kind: "frozen" }
-	| { readonly kind: "live"; readonly lacks: UnitLocalityCondition | "representability" }
+	| {
+			readonly kind: "live"
+			readonly lacks: UnitLocalityCondition | "unboundedUpkeep" | "representability"
+	  }
 
 /** Each shape's own verdict before its declared unit (`holdingOf`): the unit its definition delivers, whether its table
  * could hold its rows, or the condition of unit-locality it lacks. */
@@ -205,9 +209,12 @@ const ownVerdict: { readonly [S in Shape]: Local } = {
 	"stable call": { kind: "lacks", lacks: "call" },
 	"call of a stable call": { kind: "lacks", lacks: "call" },
 	"cast value": local(["doc", "at"]),
-	unrepresentable: { kind: "local", fields: ["doc"], representable: false },
+	unrepresentable: { kind: "local", fields: ["doc", "at"], representable: false },
 	"closed alone": { kind: "frozen" }
 }
+
+/** The width of every relation of the box's key, (doc, at): a unit key of that width holds the key of each. */
+const holdersKeyWidth = 2
 
 /** Each declared unit's name and key, its fields. */
 const declaredUnits = {
@@ -221,7 +228,10 @@ const declaredUnits = {
  * every negation correlated at them, every aggregate grouping by them and every function it calls immutable throughout,
  * or live by the first of these it lacks at the narrowest unit, the document; it sits in one declared unit whose key
  * leads its own, whether Doc is closed or open, its fields carrying that unit's key its first, or is live for its
- * borrow; and it is stored where its table holds its rows, live otherwise.
+ * borrow; its unit is wider than that declared unit, so its upkeep re-derives the keys a write touched alone, or its
+ * unit's key holds the key of every relation it reads, (doc, at), every relation of the box's, so it reads one row of
+ * each at a key, or it is live for its upkeep, which would re-derive the whole declared unit (no unit of the box is
+ * sealed); and it is stored where its table holds its rows, live otherwise.
  */
 export const holdingOf = (c: StorageCase): Holding => {
 	const own = ownVerdict[c.shape]
@@ -237,6 +247,9 @@ export const holdingOf = (c: StorageCase): Holding => {
 	const declared = declaredUnits[c.declared]
 	if (declared.key.length > own.fields.length) {
 		return { kind: "live", lacks: "borrow" }
+	}
+	if (declared.key.length === own.fields.length && own.fields.length < holdersKeyWidth) {
+		return { kind: "live", lacks: "unboundedUpkeep" }
 	}
 	return own.representable
 		? {
@@ -372,10 +385,15 @@ const derivedOf = (shape: Shape, base: ReturnType<typeof baseOf>) => {
 		case "unrepresentable":
 			return derived(
 				derivedName,
-				query(base).rule((r) => {
-					const { doc, at, body } = v(Note, "n")
-					return r.match(Note, { doc, at, body }).find({ doc, body })
-				})
+				query(base)
+					.rule((r) => {
+						const { doc, at, body } = v(Note, "n")
+						return r.match(Note, { doc, at, body }).find({ doc, at, body })
+					})
+					.rule((r) => {
+						const { doc, at, body } = v(Note, "linked")
+						return r.match(Note, { doc, at, body }).where(r.ge(at, 0)).find({ doc, at, body })
+					})
 			)
 		case "closed alone":
 			return derived(
@@ -462,7 +480,11 @@ export const holdingStated = (artifacts: SchemaArtifacts): Holding | `other ${st
 			return {
 				kind: "live",
 				lacks:
-					holding.why.kind === "notUnitLocal" ? holding.why.lacks.condition : "representability"
+					holding.why.kind === "notUnitLocal"
+						? holding.why.lacks.condition
+						: holding.why.kind === "unboundedUpkeep"
+							? "unboundedUpkeep"
+							: "representability"
 			}
 	}
 }

@@ -4,7 +4,6 @@ import { assert } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, String as Str } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
-import { withDerivedRelations } from "#compiler/physical/derived/objects.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
@@ -534,7 +533,7 @@ const upkeptSchemaOf = (shape: Upkept) => {
 	const second = first.rule(arm(2))
 	const third = second.rule(arm(3))
 	const fourth = third.rule(arm(4))
-	const D = derived.stored(
+	const D = derived(
 		"D",
 		shape.arms === 1 ? first : shape.arms === 2 ? second : shape.arms === 3 ? third : fourth
 	)
@@ -550,9 +549,7 @@ const upkeptSchemaOf = (shape: Upkept) => {
  */
 export const upkept = (shape: Upkept, note: (r: UpkeepReached) => void): void => {
 	const owned = owning(upkeptSchemaOf(shape))
-	const installation = succeeded(
-		compileInstallation(owned, withDerivedRelations(installOptions(owned)))
-	)
+	const installation = succeeded(compileInstallation(owned, installOptions(owned)))
 	const tReaders = tReadersIn(installation)
 	const readers = deltaReadersIn(installation)
 	const statements = upkeepReadsOf(installation, "D")
@@ -612,23 +609,25 @@ export const upkept = (shape: Upkept, note: (r: UpkeepReached) => void): void =>
 }
 
 /**
- * One judge of A's facts: Media, A's facts of governor 1, a derived relation, a stored one, or a stored one a stored
- * relation reads in turn, each held in R by a containment; and Named, the names of A's facts of governor 2, held in Q
- * by a rule over A, or none.
+ * One judge of A's facts: Media, A's facts of governor 1, stored, or stored with a stored relation reading it in turn,
+ * held in R by a containment; and Named, the names of A's facts of governor 2, held in Q by a rule over A, or none.
+ * Media is stored in every case: its unit's key holds A's key, so its upkeep reads one row of A at a key
+ * (analysis/derived/storage.ts keyedAt); a live Media over A in a unit cannot be stated, so A's side of news read by
+ * rules alone is no case of this box (JUDGEDELTA2's netting census: a live arm needs a definition that is not
+ * unit-local).
  */
 interface Netted {
-	readonly media: "derived" | "stored" | "stored beneath another"
+	readonly media: "stored" | "stored beneath another"
 	readonly named: boolean
 }
 
 export const nettedGen: Gen<Netted> = (s) => ({
-	media: s.draw(element<Netted["media"]>(["derived", "stored", "stored beneath another"])),
+	media: s.draw(element<Netted["media"]>(["stored", "stored beneath another"])),
 	named: s.draw(element([false, true]))
 })
 
 export type NettedReached =
 	| "A's news read by an upkeep and a rule"
-	| "A's news read by rules alone"
 	| "A's news read by an upkeep alone"
 	| "a stored relation's news read above it"
 
@@ -668,8 +667,7 @@ const nettedSchemaOf = (shape: Netted) => {
 			.match(A, { package: p, path, start, name, governor: 1 })
 			.find({ package: p, path, start, name })
 	})
-	const Media =
-		shape.media === "derived" ? derived("Media", mediaQuery) : derived.stored("Media", mediaQuery)
+	const Media = derived("Media", mediaQuery)
 	const Named = derived(
 		"Named",
 		query(Base).rule((r) => {
@@ -690,7 +688,7 @@ const nettedSchemaOf = (shape: Netted) => {
 	if (shape.media !== "stored beneath another") {
 		return First
 	}
-	const Placed = derived.stored(
+	const Placed = derived(
 		"Placed",
 		query(First).rule((r) => {
 			const { package: p, path, start } = v(Media, "m")
@@ -740,22 +738,14 @@ const callsAPart = (body: ReadonlyArray<PlStatement>): boolean =>
  */
 export const nettedOnce = (shape: Netted, note: (r: NettedReached) => void): void => {
 	const owned = owning(nettedSchemaOf(shape))
-	const installation = succeeded(
-		compileInstallation(owned, withDerivedRelations(installOptions(owned)))
-	)
+	const installation = succeeded(compileInstallation(owned, installOptions(owned)))
 	const judge = identifierOf(identity.ruleJudge())
 	const functions = Arr.flatMap(installation.statements, (st) =>
 		st.kind === "createFunction" && st.language === "plpgsql" ? [st] : []
 	)
 	const [judgeFn] = Arr.filter(functions, (f) => f.name.name === judge)
 	assert.ok(judgeFn !== undefined, "the installation holds the rule judge")
-	note(
-		shape.media === "derived"
-			? "A's news read by rules alone"
-			: shape.named
-				? "A's news read by an upkeep and a rule"
-				: "A's news read by an upkeep alone"
-	)
+	note(shape.named ? "A's news read by an upkeep and a rule" : "A's news read by an upkeep alone")
 	if (shape.media === "stored beneath another") {
 		note("a stored relation's news read above it")
 	}
@@ -772,7 +762,7 @@ export const nettedOnce = (shape: Netted, note: (r: NettedReached) => void): voi
 	const body = judgeFn.body.body
 	const nets = nettedIn(body)
 	const aNews = Arr.filter(nets, Str.startsWith("__delta_news_a_"))
-	const ruled = shape.media === "derived" || shape.named
+	const ruled = shape.named
 	assert.equal(
 		aNews.length,
 		ruled ? 1 : 0,
