@@ -219,8 +219,8 @@ export const aParameterRelationsFactsAreStoredWithTheBitsTheyWereWrittenWithByBo
 			},
 			{
 				file: "packages/engine/src/write/carriers/carriers.ts",
-				original: "\t\treturn select(factSet(columns, [wrapped.item], where))",
-				replacement: "\t\treturn select(distinctCore(targets, [wrapped.item], where))",
+				original: "\t\treturn select(factSet(columns, [wrapped.item], undefined))",
+				replacement: "\t\treturn select(distinctCore(targets, [wrapped.item], undefined))",
 				why: "A put's carrier holds its member's rows under PostgreSQL's equality, so two facts at one key that differ in a zero's sign are one, accepted."
 			},
 			{

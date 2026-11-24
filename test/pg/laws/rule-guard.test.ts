@@ -61,9 +61,9 @@ export const aProbeOfTheContentRunsOnlyWhereALearnersRowStandsAtItsUnit = proper
 			{
 				file: "packages/engine/src/analysis/theory/query.ts",
 				original:
-					'\t\t\t\t\t\t\t\tsource: { kind: "relation", name: guard.relation },\n\t\t\t\t\t\t\t\tbindings: Object.fromEntries(\n\t\t\t\t\t\t\t\t\tguard.fields.map((f, k) => [f, varRef(guardId(k))] as const)\n\t\t\t\t\t\t\t\t),',
+					'\t\t\t\t\t\t\t\tsource: { kind: "relation", name: guard.relation },\n\t\t\t\t\t\t\t\tbindings: Object.fromEntries(\n\t\t\t\t\t\t\t\t\tguard.fields.map(\n',
 				replacement:
-					'\t\t\t\t\t\t\t\tsource: { kind: "relation", name: guard.relation },\n\t\t\t\t\t\t\t\tbindings: {},',
+					'\t\t\t\t\t\t\t\tsource: { kind: "relation", name: guard.relation },\n\t\t\t\t\t\t\t\tbindings: Object.fromEntries(\n\t\t\t\t\t\t\t\t\tguard.fields.filter(() => false).map(\n',
 				why: "The guard reads the relation without the written rows' units, any row of it anywhere: a write of one package's content beside another package's value runs the probe, which reads Node."
 			},
 			{
@@ -130,10 +130,8 @@ export const aGuardedPublishRacingALearnersWriteAtItsUnitNeverCommitsBesideItInt
 			},
 			{
 				file: "packages/engine/src/analysis/theory/query.ts",
-				original:
-					"\t\t\t\t\t\t\t\t\tguard.fields.map((f, k) => [f, varRef(guardId(k))] as const)\n\t\t\t\t\t\t\t\t),",
-				replacement:
-					"\t\t\t\t\t\t\t\t\tguard.fields.toReversed().map((f, k) => [f, varRef(guardId(k))] as const)\n\t\t\t\t\t\t\t\t),",
+				original: "\t\t\t\t\t\t\t\t\t\t\t\t\tvarRef(guardId(k)),\n",
+				replacement: "\t\t\t\t\t\t\t\t\t\t\t\t\tvarRef(guardId(guard.fields.length - 1 - k)),\n",
 				why: "The guard reads Sess with the unit's fields crossed, package 2's item 1 where the part is package 1's item 2: it finds no session where one stands, skips the probe whose learner's row exists, and commits it beside an unready item."
 			}
 		]
