@@ -53,6 +53,8 @@ import {
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { type CharSet, single } from "@bjornpagen/grizzle-text/regex/charset"
+import type { PatternSource } from "@bjornpagen/grizzle-text/regex/parse"
 import type { MemberRelation, SchemaReading } from "#compiler/check/schema.ts"
 import type { CheckSession } from "#compiler/check/session.ts"
 import { allenMaskMax } from "#compiler/core/allen.ts"
@@ -118,7 +120,10 @@ import {
 	semiJoinRight,
 	seriesArguments,
 	seriesHeading,
-	splitArgument,
+	piecesHeading,
+	restHeading,
+	separatorPoint,
+	splitArguments,
 	type TakeBound,
 	type TextSplit,
 	tokensHeading,
@@ -189,6 +194,7 @@ import {
 } from "#compiler/scalar/compute/typing.ts"
 import { type PlainCarrier, plainType } from "#compiler/scalar/native.ts"
 import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
+import { stretchSource } from "#compiler/scalar/regex/stretch.ts"
 import { tokenSource } from "#compiler/scalar/regex/whitespace.ts"
 import { hasCapability, spanType } from "#compiler/scalar/registry.ts"
 /**
@@ -686,6 +692,20 @@ const columnOf = (heading: Heading, name: string): HeadingColumn | undefined =>
 	heading.find((c) => c.name === name)
 
 const hasColumn = (heading: Heading, name: string): boolean => heading.some((c) => c.name === name)
+
+/** The builder each split is called by (ir/rel.ts TextSplit), as a refusal of its arguments names it. */
+const splitBuilders: { readonly [K in TextSplit["kind"]]: string } = {
+	tokens: "r.tokens",
+	pieces: "r.split",
+	rest: "r.rest"
+}
+
+/** Each split as a source of a rule, as a refusal of a match of it names it (sourceLabel). */
+const splitSources: { readonly [K in TextSplit["kind"]]: string } = {
+	tokens: "the tokens of a text",
+	pieces: "the pieces of a text between its separators",
+	rest: "the rest of a text after a prefix"
+}
 
 /** The lowering environment of a query expression, whose parameters are its rule's scope. */
 type QueryEnv = Extract<LowerEnv<Resolved>, { readonly mode: "query" }> & {
@@ -2565,67 +2585,121 @@ export class Checker {
 	}
 
 	/**
-	 * A split of a text (ir/rel.ts TextSplit), a call of one of grizzle's splits (CallFunction `split`). Its one
-	 * argument is bound as a call's value argument is (`bind`), a text: a variable at its own type, a parameter or a
-	 * constant at any text's. Its heading is its split's (#splitHeading).
+	 * A split of a text (ir/rel.ts TextSplit), a call of one of grizzle's splits (CallFunction `split`). Its arguments
+	 * are its kind's (splitArguments), every one and none other, each bound as a call's value argument is (`bind`), a
+	 * text: a variable at its own type, a parameter or a constant at any text's. Its heading is its split's over its
+	 * text, the first of them (#splitHeading).
 	 */
 	#splitSource(
 		src: Extract<ResolvedSource, { readonly kind: "split" }>,
 		loc: SourceLoc,
 		bind: Binder
 	): RelNode {
-		const at = childLoc(loc, splitArgument)
-		const value = bind(src.text, splitArgument, at)
-		const type = value.kind === "column" ? value.type : wildcardText
-		const text = textOf(type)
-		if (text === undefined) {
-			return fail(
+		const builder = splitBuilders[src.split.kind]
+		const names: NonEmptyReadonlyArray<string> = splitArguments[src.split.kind]
+		const named = (problem: string): never =>
+			fail(
 				"MalformedDescription",
-				at,
-				`a text for r.${src.split}; the variable bound to it is ${typeLabel(type)}`
+				childLoc(loc, "args"),
+				`the arguments of ${builder}, ${names.join(", ")}; ${problem}`
 			)
+		const stray = Object.keys(src.args).filter((name) => !names.includes(name))
+		if (stray.length > 0) {
+			named(`${stray.join(", ")} ${stray.length === 1 ? "is" : "are"} none of them`)
 		}
+		const args = mapNonEmpty(names, (name) => {
+			const at = childLoc(loc, name)
+			const value = bind(src.args[name] ?? named(`${name} is missing`), name, at)
+			const type = value.kind === "column" ? value.type : wildcardText
+			const text =
+				textOf(type) ??
+				fail(
+					"MalformedDescription",
+					at,
+					`a text for ${builder}'s ${name}; the variable bound to it is ${typeLabel(type)}`
+				)
+			const arg: CallArg<LiveRefs> = {
+				kind: "value",
+				name,
+				expr: this.#boundArgument(value, type, name, at),
+				type
+			}
+			return { arg, text }
+		})
 		return this.node(
 			{
 				kind: "Call",
 				function: { kind: "split", split: src.split },
-				args: [
-					{
-						kind: "value",
-						name: splitArgument,
-						expr: this.#boundArgument(value, type, splitArgument, at),
-						type
-					}
-				],
-				heading: this.#splitHeading(src.split, text, loc)
+				args: args.map((a) => a.arg),
+				heading: this.#splitHeading(src.split, args[0].text, loc)
 			},
 			loc
 		)
 	}
 
 	/**
-	 * A split's heading over a text of refinement `text`: a token split's (`tokensHeading`), `at`, a token's place, the
-	 * count of the tokens before it, of a count's type, natural, and `token`, a run of the text's characters but XML
-	 * whitespace within the text's byte bound, the one its refinement proves (#tokenType).
+	 * A split's heading over a text of refinement `text`, its kind's:
+	 *
+	 * - a token split's (`tokensHeading`): `at`, a token's place, the count of the tokens before it, of a count's type,
+	 *   natural, and `token`, a run of the text's characters but XML whitespace within the text's byte bound, the one its
+	 *   refinement proves (#tokenType);
+	 * - a separator split's (`piecesHeading`): `at`, a piece's place, as a token's, and `piece`, a stretch of the text's
+	 *   characters but its separator, one Unicode scalar value but U+0000 (separatorPoint), refused as any other;
+	 * - a rest's (`restHeading`): `rest`, a stretch of the text's characters (#stretchType).
 	 */
 	#splitHeading(split: TextSplit, text: TextInfo, loc: SourceLoc): Heading {
-		const headings: { readonly [K in TextSplit]: () => Heading } = {
-			tokens: () => [
-				{ name: tokensHeading.at, type: countOverload().result },
-				{ name: tokensHeading.token, type: this.#tokenType(text, loc) }
-			]
+		switch (split.kind) {
+			case "tokens":
+				return [
+					{ name: tokensHeading.at, type: countOverload().result },
+					{ name: tokensHeading.token, type: this.#tokenType(text, loc) }
+				]
+			case "pieces": {
+				const point =
+					separatorPoint(split.separator) ??
+					fail(
+						"MalformedDescription",
+						childLoc(loc, "separator"),
+						`a separator of r.split, one Unicode scalar value but U+0000; ${JSON.stringify(split.separator)} is not one`
+					)
+				return [
+					{ name: piecesHeading.at, type: countOverload().result },
+					{ name: piecesHeading.piece, type: this.#stretchType(text, single(point), loc) }
+				]
+			}
+			case "rest":
+				return [{ name: restHeading.rest, type: this.#stretchType(text, [], loc) }]
 		}
-		return headings[split]()
 	}
 
 	/**
 	 * A token's type over a text of refinement `text`: a run of the characters its language holds but XML whitespace
 	 * (scalar/regex/whitespace.ts tokenSource), within the text's byte bound where its refinement proves one, since a
-	 * token is a stretch of it, typed as str.bytes declares it, so a token is a text of a bound wherever its text is,
-	 * inside every pattern that holds a run of those characters, and a query's Text.matches reads it there.
+	 * token is a stretch of it (#stretchedType).
 	 */
 	#tokenType(text: TextInfo, loc: SourceLoc): ScalarType {
-		const source = tokenSource(textPatterns(text), this.patterns)
+		return this.#stretchedType(tokenSource(textPatterns(text), this.patterns), text, loc)
+	}
+
+	/**
+	 * A piece's or a rest's type over a text of refinement `text`: a stretch of the characters its language holds but
+	 * `excluded` (scalar/regex/stretch.ts stretchSource), within the text's byte bound where its refinement proves one
+	 * (#stretchedType).
+	 */
+	#stretchType(text: TextInfo, excluded: CharSet, loc: SourceLoc): ScalarType {
+		return this.#stretchedType(
+			stretchSource(textPatterns(text), this.patterns, excluded),
+			text,
+			loc
+		)
+	}
+
+	/**
+	 * The type of a stretch of a text of refinement `text` that `source` states: the source's language within the text's
+	 * byte bound where its refinement proves one, typed as str.bytes declares it, so a stretch is a text of a bound
+	 * wherever its text is, inside every pattern that holds its characters, and a query's Text.matches reads it there.
+	 */
+	#stretchedType(source: PatternSource, text: TextInfo, loc: SourceLoc): ScalarType {
 		const pattern = unwrap(this.patterns.language([source]))
 		const bytes = textInfoBounds(text)?.bytes
 		const language = bytes === undefined ? pattern : languageWithin(pattern, bytes)
@@ -3556,7 +3630,7 @@ const sourceLabel = (src: ResolvedSource): string => {
 		case "callField":
 			return `the rows of field ${src.field} of function ${src.function}`
 		case "split":
-			return `the ${src.split} of a text`
+			return splitSources[src.split.kind]
 		case "series":
 			return "a series"
 	}
@@ -4458,9 +4532,10 @@ class RuleCheck {
 	 * head is a plain projection; otherwise undefined, and every filter applies over the region. Either filter keeps or
 	 * drops a row by the columns it correlates alone, so it keeps the same set over the projection that delivers them.
 	 *
-	 * A filtered import whose bind map reads the rule's region (a rule or parent variable, or a parameter an enclosing
-	 * import binds to an outer value) is correlated with each binding of the region: it applies over the region, where
-	 * those values are still in scope.
+	 * A filtered source whose terms read the rule's region (#readsRegion) is correlated with each binding of the region:
+	 * an import whose bind map reads it, and a call, a split or a series whose arguments do, such as r.not(r.rest(text,
+	 * prefix), {}) over a text the head does not deliver. It applies over the region, where those values are still in
+	 * scope.
 	 */
 	#lateFilters(): ReadonlyArray<LateFilter> | undefined {
 		const { relational } = splitWhere(this.rule.where)
@@ -4491,15 +4566,7 @@ class RuleCheck {
 		}
 		const late: Array<LateFilter> = []
 		for (const [index, filter] of relational) {
-			const readsRegion =
-				(filter.source.kind === "query" || filter.source.kind === "step") &&
-				entries(filter.source.bind).some(
-					([, term]) =>
-						term.kind === "var" ||
-						term.kind === "parent" ||
-						(term.kind === "param" && this.paramSlots.has(term.cell.name))
-				)
-			if (readsRegion) {
+			if (bindTerms(filter.source).some(([, term]) => this.#readsRegion(term))) {
 				return undefined
 			}
 			const correlated = new Map<string, NegatedCorrelation>()
@@ -4520,6 +4587,20 @@ class RuleCheck {
 			late.push({ index, filter, correlated })
 		}
 		return late
+	}
+
+	/**
+	 * Whether a term reads the rule's region at any depth of it: a rule variable, a parent variable, or a parameter an
+	 * enclosing import binds to an outer value (paramSlots), each a column of the region alone, which no node over the
+	 * head delivers under its slot's name.
+	 */
+	#readsRegion(e: ResolvedExpr): boolean {
+		return (
+			e.kind === "var" ||
+			e.kind === "parent" ||
+			(e.kind === "param" && this.paramSlots.has(e.cell.name)) ||
+			exprChildren(e).some((c) => this.#readsRegion(c.term))
+		)
 	}
 
 	/** Each relational filter over the region `input`, in order, each correlated binding on its slot's own column. */

@@ -1,6 +1,7 @@
 import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { ReadonlyTupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
+import { isAdmittedCodePoint } from "@bjornpagen/grizzle-text/regex/charset"
 import { nominal } from "#compiler/core/brand.ts"
 import { canonicalTextOf } from "#compiler/core/canonical.ts"
 import type {
@@ -900,21 +901,45 @@ export type CallArg<R extends RefKinds> =
 	  }
 
 /**
- * grizzle's splits of a text into rows, each a source a rule matches (CallFunction `split`), each by its name:
- * `tokens`, a whitespace-separated list's tokens (r.tokens), the text collapsed and split at its spaces, each token at
- * its place from 0, under `tokensHeading`.
+ * grizzle's splits of a text into rows, each a source a rule matches (CallFunction `split`), each by its kind, of the
+ * arguments its kind names (splitArguments):
+ *
+ * - `tokens`, a whitespace-separated list's tokens (r.tokens): the text collapsed and split at its spaces, each token
+ *   at its place from 0, under `tokensHeading`, none of a text of whitespace alone (XML Schema's empty list).
+ * - `pieces`, the text split at each occurrence of `separator`, one Unicode scalar value but U+0000 (r.split): n
+ *   occurrences give n + 1 pieces, each at its place from 0, the empty ones kept, so the empty text is one empty piece
+ *   and the text is always its pieces joined by the separator, under `piecesHeading`.
+ * - `rest`, the text after its prefix (r.rest): one row, the text's code points past the prefix's, where the text
+ *   starts with the prefix, and none where it does not, under `restHeading`; the empty prefix is a prefix of every
+ *   text, and a text is a prefix of itself, its rest the empty text.
+ *
+ * The separator is the split's own, a constant of its description, never an argument: a piece is typed as a text
+ * that holds no separator, which only a constant states (check/checker.ts #pieceType).
  */
-export const textSplits = ["tokens"] as const
-export type TextSplit = (typeof textSplits)[number]
+export type TextSplit =
+	| { readonly kind: "tokens" }
+	| { readonly kind: "pieces"; readonly separator: string }
+	| { readonly kind: "rest" }
+
+/**
+ * The code point a separator split's separator is (TextSplit `pieces`): its text's one Unicode scalar value, which is
+ * no U+0000, PostgreSQL's text holding none; none where the text is empty, holds two code points or more, or a lone
+ * surrogate.
+ */
+export const separatorPoint = (separator: string): number | undefined => {
+	const [first, ...more] = Array.from(separator)
+	const point = first?.codePointAt(0)
+	return more.length === 0 && point !== undefined && isAdmittedCodePoint(point) ? point : undefined
+}
 
 /**
  * The function a Call reads the rows of: a declared function that returns rows (Fn.rows); a field of the one row
  * a declared function returns (Fn.row), `field`, one of the row's fields `row`, in its row type's attribute
  * order, which holds rows of a heading of values; each of which PostgreSQL alone evaluates, so no host evaluator reads
- * one but through a model of the function it is given; or one of grizzle's splits of its one value argument,
- * `splitArgument` (TextSplit), which the host evaluates as PostgreSQL does. Every read of a field of one call of an
- * immutable or stable function at one argument tuple reads one evaluation of the call, whose row holds every field:
- * the lowering evaluates it once for all of them (lower/conservative/call).
+ * one but through a model of the function it is given; or one of grizzle's splits (TextSplit) of the value arguments
+ * its kind names (splitArguments), which the reference evaluator evaluates as PostgreSQL does. Every read of a field of
+ * one call of an immutable or stable function at one argument tuple reads one evaluation of the call, whose row holds
+ * every field: the lowering evaluates it once for all of them (lower/conservative/call).
  */
 export type CallFunction =
 	| ({ readonly kind: "declared" } & CalledFunction)
@@ -926,8 +951,15 @@ export type CallFunction =
 	| { readonly kind: "split"; readonly split: TextSplit }
 	| { readonly kind: "series" }
 
-/** The one argument of a split (CallFunction `split`): the text it splits. */
-export const splitArgument = "text"
+/**
+ * Each split's value arguments (CallFunction `split`), by name, in the order a call passes them: every split's text,
+ * `text`, a text of the scope the match stands in, and a rest's prefix, `prefix`, another.
+ */
+export const splitArguments = {
+	tokens: ["text"],
+	pieces: ["text"],
+	rest: ["text", "prefix"]
+} as const satisfies { readonly [K in TextSplit["kind"]]: NonEmptyReadonlyArray<string> }
 
 /**
  * The two arguments of a series (CallFunction `series`, r.series): its low end and its high end, each included, each a
@@ -944,26 +976,44 @@ export const seriesHeading = { at: "at" } as const
 /** A token split's heading (TextSplit `tokens`): each token's place among them, from 0, and the token. */
 export const tokensHeading = { at: "at", token: "token" } as const
 
-/** Each split's ordinal (callOrdinal): a token split's place, the count of the tokens before it. */
-const splitOrdinals: { readonly [K in TextSplit]: string } = { tokens: tokensHeading.at }
+/** A separator split's heading (TextSplit `pieces`): each piece's place among them, from 0, and the piece. */
+export const piecesHeading = { at: "at", piece: "piece" } as const
+
+/** A rest's heading (TextSplit `rest`): the text after the prefix. */
+export const restHeading = { rest: "rest" } as const
 
 /**
- * The column of a call's heading that numbers its rows within one evaluation, no two of them alike (CallFunction): a
- * split's ordinal (splitOrdinals), each piece's place among the pieces, and a series' element, each integer from its low
- * end to its high end once; none for a declared function's rows or a field's of its row, which PostgreSQL alone
- * evaluates, a set of rows nothing numbers. It keys the call's rows at its arguments, the rows of one evaluation, as a
- * row number keys the rows of its partition (logical/props.ts, ir/keys.ts numberedRow): a split's rows are keyed by
- * what keys its text and its ordinal.
+ * How the rows of one evaluation of a call stand among themselves (CallFunction), which keys them at its arguments, the
+ * rows of one evaluation, as a row number keys the rows of its partition (logical/props.ts, ir/keys.ts numberedRow):
+ *
+ * - `numbered`: a column numbers them, no two alike: a token or separator split's place, the count of the pieces before
+ *   it, and a series' element, each integer from its low end to its high end once; a split's rows are keyed by what
+ *   keys its text and its ordinal.
+ * - `one`: there is one row or none, a rest's, so what keys its arguments keys its row (ir/keys.ts atMostOneRow).
+ * - `set`: nothing numbers them, a declared function's rows or a field's of its row, which PostgreSQL alone evaluates.
  */
-export const callOrdinal = (called: CallFunction): string | undefined => {
+export type CallNumbering =
+	| { readonly kind: "numbered"; readonly ordinal: string }
+	| { readonly kind: "one" }
+	| { readonly kind: "set" }
+
+/** Each split's rows within one evaluation (CallNumbering). */
+const splitRows: { readonly [K in TextSplit["kind"]]: CallNumbering } = {
+	tokens: { kind: "numbered", ordinal: tokensHeading.at },
+	pieces: { kind: "numbered", ordinal: piecesHeading.at },
+	rest: { kind: "one" }
+}
+
+/** How the rows of one evaluation of `called` stand among themselves (CallNumbering). */
+export const callNumbering = (called: CallFunction): CallNumbering => {
 	switch (called.kind) {
 		case "declared":
 		case "field":
-			return undefined
+			return { kind: "set" }
 		case "split":
-			return splitOrdinals[called.split]
+			return splitRows[called.split.kind]
 		case "series":
-			return seriesHeading.at
+			return { kind: "numbered", ordinal: seriesHeading.at }
 	}
 }
 

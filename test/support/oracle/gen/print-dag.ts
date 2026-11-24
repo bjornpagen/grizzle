@@ -3,6 +3,7 @@ import { defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Formatter } from "effect"
 import { canonicalTag } from "#compiler/core/canonical.ts"
 import type { VarId } from "#compiler/core/ids.ts"
+import { jsonText } from "#compiler/core/trusted.ts"
 import { freeVars, nodeScopes, nodesByLabel, topoOrder } from "#compiler/ir/dag.ts"
 import { decimalPayload } from "#compiler/ir/decimal.ts"
 import { describeOp, exprClosure, type ScalarExpr, type TypedLiteral } from "#compiler/ir/expr.ts"
@@ -186,7 +187,9 @@ const calledName = (called: CallFunction): string => {
 		case "field":
 			return `${called.name}.${called.field}`
 		case "split":
-			return called.split
+			return called.split.kind === "pieces"
+				? `pieces ${jsonText(called.split.separator)}`
+				: called.split.kind
 		case "series":
 			return "series"
 	}

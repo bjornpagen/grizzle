@@ -71,14 +71,14 @@ export const aRuleOverATextsTokensIsJudgedAsXMLReadsTheListItsTokensSplitAtEachR
 			},
 			{
 				file: "packages/engine/src/lower/conservative/call/index.ts",
-				original: "\t\t\t\tcollapsedText(lowerExpr(cx, text.expr, env)),",
-				replacement: "\t\t\t\tlowerExpr(cx, text.expr, env),",
+				original: '\t\t\t\tcollapsedText(splitArgument(node, "text", cx, env)),',
+				replacement: '\t\t\t\tsplitArgument(node, "text", cx, env),',
 				why: "The text is split at each space as written, uncollapsed: a run of two spaces is an empty token, which no target is, a tab, LF or CR stays inside a token, and a leading space is an empty first token, so a list XML reads as targets alone is refused by Idref target."
 			},
 			{
 				file: "packages/engine/src/lower/conservative/call/index.ts",
-				original: '\t\t\treturn binary("-", col(alias, number), lit.int(1, types.bigint))',
-				replacement: "\t\t\treturn col(alias, number)",
+				original: '\t\t\t\treturn binary("-", read(1), lit.int(1, types.bigint))',
+				replacement: "\t\t\t\treturn read(1)",
 				why: "A token's place is its ordinality, from 1, so a list of exactly three tokens holds one at place 3 and is refused by Short list, which admits places 0 to 2."
 			},
 			{

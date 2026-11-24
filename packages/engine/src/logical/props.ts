@@ -70,7 +70,7 @@ import {
 
 import {
 	type Card,
-	callOrdinal,
+	callNumbering,
 	closedColumn,
 	edgesOf,
 	type Heading,
@@ -2700,10 +2700,14 @@ export const logicalPropsOf = (node: RelNode, reading: PropsReading, env: PropsE
 			)
 		}
 		case "Call": {
-			const ordinal = callOrdinal(reading.function)
+			const rows = callNumbering(reading.function)
 			return finish(
 				subject,
-				ordinal === undefined ? [] : [numberedRow([], ordinal, all)],
+				rows.kind === "numbered"
+					? [numberedRow([], rows.ordinal, all)]
+					: rows.kind === "one"
+						? [atMostOneRow(all, { kind: "partialSplit" })]
+						: [],
 				oneGroup(
 					{ exactlyOne: false, provenance: noProvenance, context: "queryLocal", equal: [] },
 					[]

@@ -641,6 +641,43 @@ type RuleTokens = <const X extends CallArgs<TokensArgs>["text"]>(
 type TokensArgs = { readonly text: TextField<string> }
 
 /**
+ * Rule.split: the pieces of a text between the occurrences of its separator, a term of any text, a parameter or a
+ * JavaScript string, as a call's value argument of a text field is (types/compute/call.ts CallArgs): a source a rule
+ * matches as it matches a call's rows (CallSource), its facts each piece's place and the piece, needing what its text
+ * needs. The separator is a string literal, one Unicode scalar value but U+0000, which the builder holds it to.
+ */
+type RuleSplit = <const X extends CallArgs<TokensArgs>["text"]>(
+	text: X,
+	separator: string
+) => CallSource<
+	FactOfFields<PieceFields>,
+	BindMapParams<{ readonly text: X }>,
+	PieceFields,
+	CallReads<{ readonly text: X }>
+>
+
+/**
+ * Rule.rest: the text after a prefix, each a term of any text, a parameter or a JavaScript string, as a call's value
+ * argument of a text field is: a source a rule matches as it matches a call's rows (CallSource), one fact, the rest,
+ * where the text starts with the prefix and none where it does not, needing what its text and prefix need.
+ */
+type RuleRest = <
+	const X extends CallArgs<RestArgs>["text"],
+	const P extends CallArgs<RestArgs>["prefix"]
+>(
+	text: X,
+	prefix: P
+) => CallSource<
+	FactOfFields<RestFields>,
+	BindMapParams<{ readonly text: X; readonly prefix: P }>,
+	RestFields,
+	CallReads<{ readonly text: X; readonly prefix: P }>
+>
+
+/** A rest's two arguments (RuleRest): its text and its prefix, each of any text. */
+type RestArgs = { readonly text: TextField<string>; readonly prefix: TextField<string> }
+
+/**
  * Rule.series: each integer from `low` to `high`, both included, a source the rule matches as it matches a call's rows
  * (CallSource), of SeriesFields, needing what its ends need. Each end is a term, a parameter or a typed constant of an
  * integer type (SeriesEnd); every element lies between the least value `low` takes and the greatest `high` takes,
@@ -670,6 +707,12 @@ type SeriesFields = { readonly at: ExactIntegerField }
 
 /** A token split's heading (RuleTokens): each token's place from 0, and the token, a record of carriers. */
 type TokenFields = { readonly at: NaturalField; readonly token: TextField<string> }
+
+/** A separator split's heading (RuleSplit): each piece's place from 0, and the piece, a record of carriers. */
+type PieceFields = { readonly at: NaturalField; readonly piece: TextField<string> }
+
+/** A rest's heading (RuleRest): the text after the prefix. */
+type RestFields = { readonly rest: TextField<string> }
 
 /** Rule.not: a relational negation over a source of the schema of the rule it is called on (Rule). */
 type RuleNot = <
@@ -758,6 +801,17 @@ export interface Rule<S, Params = unknown, Sole = "no match", Facts = NoFacts, C
 	 * and split at its spaces, none of a text of whitespace alone (RuleTokens).
 	 */
 	readonly tokens: RuleTokens
+	/**
+	 * The pieces of a text between the occurrences of its separator, a source the rule matches: `at`, each piece's place
+	 * from 0, a natural, and `piece`, a text that holds no separator, n occurrences giving n + 1 pieces, the empty ones
+	 * kept, so the empty text is one empty piece (RuleSplit).
+	 */
+	readonly split: RuleSplit
+	/**
+	 * The text after a prefix, a source the rule matches: one fact, `rest`, the text past the prefix, where the text
+	 * starts with the prefix, and none where it does not (RuleRest).
+	 */
+	readonly rest: RuleRest
 	/**
 	 * Each integer from `low` to `high`, both included, none where `low` lies above `high`, a source the rule matches:
 	 * `at`, each integer, of the ends' common type, every one between the least value `low` takes and the greatest

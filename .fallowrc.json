@@ -278,7 +278,7 @@
 				"patterns": [
 					"packages/engine/src/scalar/{aggregate,bytes,closed-id,contract,date,exact,instant,lexical,literal,minted,native,natural,pg,registry,search,sha256,span,uuid,vector}.ts",
 					"packages/engine/src/scalar/compute/{bounds,builders,cast,closed,evaluate,float,literal,native,numeric,registry,spelling,tables,term,types,typing}.ts",
-					"packages/engine/src/scalar/regex/{admit,matcher,pattern,patterns,translate,whitespace}.ts",
+					"packages/engine/src/scalar/regex/{admit,matcher,pattern,patterns,stretch,translate,whitespace}.ts",
 					"packages/engine/src/scalar/values/{bits,bytes,convert,identity,integer,sha256}.ts"
 				]
 			},

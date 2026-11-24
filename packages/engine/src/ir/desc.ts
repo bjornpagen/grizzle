@@ -49,13 +49,7 @@ import type { CalendarDate } from "#compiler/ir/date.ts"
 import { decimalTag, isDecimalPayload } from "#compiler/ir/decimal.ts"
 import type { PatternValue } from "#compiler/ir/pattern.ts"
 import { type Fact, factNames, factsSorted } from "#compiler/ir/proof.ts"
-import {
-	type DeltaSide,
-	seriesArguments,
-	splitArgument,
-	type TextSplit,
-	textSplits
-} from "#compiler/ir/rel.ts"
+import { type DeltaSide, seriesArguments, type TextSplit } from "#compiler/ir/rel.ts"
 import {
 	calendarDateShape,
 	patternValueShape,
@@ -758,7 +752,7 @@ export const bindTerms = <L, R extends Refs>(
 				a.kind === "rows" ? scalar(a.bind, (param) => `${arg}.${param}`) : [[arg, a] as const]
 			)
 		case "split":
-			return [[splitArgument, s.text]]
+			return Object.entries(s.args)
 		case "series":
 			return [
 				[seriesArguments.low, s.low],
@@ -900,7 +894,7 @@ export const mapBindTerms = <L, R extends Refs>(
 				)
 			}
 		case "split":
-			return { ...s, text: f(s.text) }
+			return { ...s, args: mapRecord(s.args, f) }
 		case "series":
 			return { ...s, low: f(s.low), high: f(s.high) }
 		case "relation":
@@ -1060,14 +1054,15 @@ export type SourceDesc<L = Located, R extends Refs = Spelled> =
 			/**
 			 * One of grizzle's splits of a text into rows (ir/rel.ts TextSplit): r.tokens(text), the tokens of a
 			 * whitespace-separated list (XML Schema Part 2 §3.3.10, a list's lexical space), each a fact of
-			 * `tokensHeading`, `at` its place from 0 and `token` its run of no XML whitespace, the text collapsed and
-			 * split at its spaces, none of a text of whitespace alone. `text` is a term of the scope the match stands in,
-			 * a variable, a parent variable, a parameter or a typed constant, as a call's value argument is, so the facts
-			 * are a function of the binding the match stands at.
+			 * `tokensHeading`; r.split(text, separator), the text's pieces between its separators, each a fact of
+			 * `piecesHeading`; and r.rest(text, prefix), the text after its prefix, one fact of `restHeading` or none.
+			 * `args` holds the split's arguments by name (ir/rel.ts splitArguments), each a term of the scope the match
+			 * stands in, a variable, a parent variable, a parameter or a typed constant, as a call's value argument is, so
+			 * the facts are a function of the binding the match stands at.
 			 */
 			readonly kind: "split"
 			readonly split: TextSplit
-			readonly text: ExprDesc<L, R>
+			readonly args: Readonly<Record<string, ExprDesc<L, R>>>
 	  }
 	| {
 			/**
@@ -2388,7 +2383,11 @@ class ParamWalk<P extends object, T> {
 					args: mapRecord(s.args, (a) => (a.kind === "rows" ? this.rows(a) : this.expr(a)))
 				})
 			case "split":
-				return this.kept(s, { kind: "split", split: s.split, text: this.expr(s.text) })
+				return this.kept(s, {
+					kind: "split",
+					split: s.split,
+					args: mapRecord(s.args, (a) => this.expr(a))
+				})
 			case "series":
 				return this.kept(s, { kind: "series", low: this.expr(s.low), high: this.expr(s.high) })
 			case "relation":
@@ -2564,7 +2563,9 @@ class ParamReads<T> {
 				}
 				return
 			case "split":
-				this.expr(s.text)
+				for (const a of Object.values(s.args)) {
+					this.expr(a)
+				}
 				return
 			case "series":
 				this.expr(s.low)
@@ -3391,8 +3392,15 @@ const sourceDescBody: S.Shape<SourceDesc> = S.tagged("kind", {
 		field: name
 	}),
 	split: S.struct({
-		split: S.literalsShape(textSplits),
-		text: S.ref("an expression", () => exprDescShape)
+		split: S.tagged("kind", {
+			tokens: S.struct({}),
+			pieces: S.struct({ separator: S.nonEmptyString }),
+			rest: S.struct({})
+		}),
+		args: S.recordShape(
+			S.ref("an expression", () => exprDescShape),
+			S.nonEmptyString
+		)
 	}),
 	series: S.struct({
 		low: S.ref("an expression", () => exprDescShape),

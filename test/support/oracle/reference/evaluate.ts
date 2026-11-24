@@ -25,6 +25,7 @@ import {
 	type NodeOf,
 	type RelDag,
 	type RelNode,
+	piecesHeading,
 	seriesArguments,
 	type TextSplit,
 	tokensHeading,
@@ -81,19 +82,38 @@ import {
 const xmlSpaceRuns = regex("[\\t\\n\\r ]+", "u")
 
 /**
- * Each split's rows over the text `value`, in `heading`'s order: a token split's by XML's own reading of a
- * whitespace-separated list (XML Schema Part 2 §4.3.6 whiteSpace collapse, §3.3.10's lists), each maximal run of no XML
- * whitespace (S: tab, LF, CR, space) a token, at its place among them from 0, none of a text of whitespace alone.
+ * A split's rows over its arguments `args`, its texts by name (ir/rel.ts splitArguments), in `heading`'s order, by its
+ * own reading of each kind: a token split's by XML's reading of a whitespace-separated list (XML Schema Part 2 §4.3.6
+ * whiteSpace collapse, §3.3.10's lists), each maximal run of no XML whitespace (S: tab, LF, CR, space) a token, at its
+ * place among them from 0, none of a text of whitespace alone; a separator split's by JavaScript's own split at its
+ * separator, n occurrences n + 1 pieces, the empty text one empty piece; and a rest's, the text's code points past the
+ * prefix's where the text starts with it, none where it does not.
  */
-const splits: {
-	readonly [K in TextSplit]: (value: string, heading: Heading) => ReadonlyArray<Row>
-} = {
-	tokens: (value, heading) =>
-		Arr.map(
-			Arr.filter(Str.split(value, xmlSpaceRuns), (token) => token !== ""),
-			(token, at) =>
-				Arr.map(heading, (c): Value => (c.name === tokensHeading.at ? BigInt(at) : token))
+const splitRows = (
+	split: TextSplit,
+	args: (name: string) => string,
+	heading: Heading
+): ReadonlyArray<Row> => {
+	const numbered = (pieces: ReadonlyArray<string>, at: string): ReadonlyArray<Row> =>
+		Arr.map(pieces, (piece, place) =>
+			Arr.map(heading, (c): Value => (c.name === at ? BigInt(place) : piece))
 		)
+	switch (split.kind) {
+		case "tokens":
+			return numbered(
+				Arr.filter(Str.split(args("text"), xmlSpaceRuns), (token) => token !== ""),
+				tokensHeading.at
+			)
+		case "pieces":
+			return numbered(Str.split(args("text"), split.separator), piecesHeading.at)
+		case "rest": {
+			const text = args("text")
+			const prefix = args("prefix")
+			return Str.startsWith(prefix)(text)
+				? [Arr.map(heading, (): Value => Str.slice(prefix.length)(text))]
+				: []
+		}
+	}
 }
 
 /** A value as the double precision an ordered-set aggregate interpolates it as: an integer or a numeric cast to float8. */
@@ -1132,17 +1152,19 @@ export class Reference {
 					`a row holding NULL in field ${called.field}`
 				)
 			}
-			case "split": {
-				const [text] = node.args
-				if (text?.kind !== "value" || node.args.length !== 1) {
-					throw referenceUnsupported("a split of other arguments than its one text")
-				}
-				const value = this.expr(text.expr, scope)
-				if (typeof value !== "string") {
-					throw referenceUnsupported("a split of a value that is no text")
-				}
-				return splits[called.split](value, node.heading)
-			}
+			case "split":
+				return splitRows(
+					called.split,
+					(name) => {
+						const a = Option.getOrUndefined(Arr.findFirst(node.args, (x) => x.name === name))
+						const value = a?.kind === "value" ? this.expr(a.expr, scope) : undefined
+						if (typeof value !== "string") {
+							throw referenceUnsupported(`a split's ${name} that is no text`)
+						}
+						return value
+					},
+					node.heading
+				)
 			case "series": {
 				const end = (name: string): bigint => {
 					const a = Option.getOrUndefined(Arr.findFirst(node.args, (x) => x.name === name))

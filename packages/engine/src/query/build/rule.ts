@@ -24,7 +24,7 @@ import {
 	statedDelivery
 } from "#compiler/query/build/attach.ts"
 
-import { seriesRows, tokensRows } from "#compiler/query/build/call.ts"
+import { piecesRows, restRows, seriesRows, tokensRows } from "#compiler/query/build/call.ts"
 import { type Heading, heading, withAttachment } from "#compiler/query/build/heading.ts"
 import { hostArguments } from "#compiler/query/build/host.ts"
 import {
@@ -121,6 +121,8 @@ export interface RuleRun<F> {
  * - `param(name, descriptor)` is a scalar parameter, a term of the descriptor's type; `relation(name, heading)` and
  *   `relation(name, Relation)` are relation-valued parameters.
  * - `tokens(text)` is a source: the tokens of a whitespace-separated list (query/build/call.ts tokensRows).
+ * - `split(text, separator)` is a source: the pieces of a text between its separator's occurrences (piecesRows).
+ * - `rest(text, prefix)` is a source: the text after a prefix, one fact or none (restRows).
  * - `series(low, high)` is a source: each integer from low to high (query/build/call.ts seriesRows).
  * - The comparisons, in, and, or, not, allen, pointIn, the producers and the aggregates are terms.ts's.
  *
@@ -421,6 +423,8 @@ export interface RuleValue {
 	readonly param: (name: unknown, type: unknown, ...extra: ReadonlyArray<unknown>) => Built
 	readonly relation: (name: unknown, heading: unknown, ...extra: ReadonlyArray<unknown>) => Built
 	readonly tokens: (text: unknown) => Built
+	readonly split: (text: unknown, separator: unknown) => Built
+	readonly rest: (text: unknown, prefix: unknown) => Built
 	readonly series: (low: unknown, high: unknown) => Built
 	readonly eq: (a: unknown, b: unknown) => PredicateValue
 	readonly ne: (a: unknown, b: unknown) => PredicateValue
@@ -569,6 +573,9 @@ const ruleValue = <S, Params, Sole, Facts, Cx>(
 			return relationParam(n, given, carriers, ctx.schema.env, `r.relation(${n})`)
 		},
 		tokens: (text) => guarded("r.tokens", [text], () => tokensRows(text)),
+		split: (text, separator) =>
+			guarded("r.split", [text, separator], () => piecesRows(text, separator)),
+		rest: (text, prefix) => guarded("r.rest", [text, prefix], () => restRows(text, prefix)),
 		series: (low, high) => guarded("r.series", [low, high], () => seriesRows(low, high)),
 		eq: (a, b) => guarded("r.eq", [a, b], () => T.compare("eq")(a, b)),
 		ne: (a, b) => guarded("r.ne", [a, b], () => T.compare("ne")(a, b)),

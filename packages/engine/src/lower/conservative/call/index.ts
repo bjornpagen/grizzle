@@ -11,6 +11,8 @@ import {
 	type CallFunction,
 	type Heading,
 	type NodeOf,
+	piecesHeading,
+	restHeading,
 	seriesArguments,
 	seriesHeading,
 	type TextSplit,
@@ -32,7 +34,7 @@ import {
 import type { ParentRows } from "#compiler/lower/conservative/deliver.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
 import { collapsedText } from "#compiler/lower/conservative/expr/ops.ts"
-import type { Cte, Expr, FromSource, OperandSelect, Select } from "#compiler/sql/ast.ts"
+import type { Call, Cte, Expr, FromSource, OperandSelect, Select } from "#compiler/sql/ast.ts"
 import {
 	binary,
 	call,
@@ -540,6 +542,66 @@ const fieldRows = (
 	return calledRows(node, reads, [...evaluated.from, rows], [...evaluated.where, noNullRow], cx)
 }
 
+/** A split's value argument `name`, lowered in the scope its call stands in (ir/rel.ts splitArguments). */
+const splitArgument = (node: NodeOf<"Call">, name: string, cx: LowerContext, env: Env): Expr => {
+	const a = node.args.find((x) => x.name === name)
+	if (a?.kind !== "value") {
+		throw defect(`a split's ${name}, a value argument`)
+	}
+	return lowerExpr(cx, a.expr, env)
+}
+
+/**
+ * The columns of a split's FROM item, minted for its call's node before its arguments are lowered: the alias they are
+ * read under, and `count` columns, each read by its place.
+ */
+const splitColumns = (node: NodeOf<"Call">, count: number, cx: LowerContext) => {
+	const origin = originOf(node)
+	const alias = cx.relationAlias(origin)
+	const names = Array.from({ length: count }, () => cx.supply.column(origin))
+	return {
+		alias,
+		names,
+		read: (i: number): Expr => col(alias, defined(names[i], "a split's column"))
+	}
+}
+
+/** A split's FROM item: `fn`'s rows under its columns, numbered by a last one where `ordinality` holds. */
+const splitItem = (
+	fn: Call,
+	columns: { readonly alias: string; readonly names: ReadonlyArray<string> },
+	ordinality: boolean
+): FromSource => ({
+	kind: "function",
+	call: fn,
+	alias: columns.alias,
+	columns: columns.names,
+	lateral: false,
+	ordinality
+})
+
+/** A split's rows: each column of its heading as `delivered` reads it, from `item`, where `where` holds. */
+const splitRows = (
+	node: NodeOf<"Call">,
+	item: FromSource,
+	where: Expr | undefined,
+	delivered: (name: string) => Expr,
+	what: string
+): OperandSelect => {
+	const heading = node.heading
+	if (!isNonEmpty(heading)) {
+		throw defect(`${what}, a heading of one column or more`)
+	}
+	return select(
+		keyedSet(
+			mapNonEmpty(heading, (c) => target(delivered(c.name))),
+			[item],
+			where,
+			what
+		)
+	)
+}
+
 /**
  * A token split's call (r.tokens): the tokens of its text, each numbered by its place from 0.
  *
@@ -554,49 +616,136 @@ const fieldRows = (
  * token is NULL.
  */
 const lowerTokens = (node: NodeOf<"Call">, cx: LowerContext, env: Env): OperandSelect => {
-	const [text, ...more] = node.args
-	if (text?.kind !== "value" || more.length > 0) {
-		throw defect("a token split's one argument, its text")
-	}
-	const origin = { kind: "node", node: node.id } as const
-	const alias = cx.relationAlias(origin)
-	const piece = cx.supply.column(origin)
-	const number = cx.supply.column(origin)
-	const item: FromSource = {
-		kind: "function",
-		call: call("unnest", [
+	const columns = splitColumns(node, 2, cx)
+	const { read } = columns
+	const item = splitItem(
+		call("unnest", [
 			call("string_to_array", [
-				collapsedText(lowerExpr(cx, text.expr, env)),
+				collapsedText(splitArgument(node, "text", cx, env)),
 				lit.text(" ", types.text)
 			])
 		]),
-		alias,
-		columns: [piece, number],
-		lateral: false,
-		ordinality: true
-	}
-	/** A column of the split's heading: a token's place, its number less 1, or the token, its piece. */
-	const delivered = (name: string): Expr => {
-		if (name === tokensHeading.at) {
-			return binary("-", col(alias, number), lit.int(1, types.bigint))
-		}
-		if (name === tokensHeading.token) {
-			return col(alias, piece)
-		}
-		throw defect(`a token split's heading of its place and its token, not ${name}`)
-	}
-	const heading = node.heading
-	if (!isNonEmpty(heading)) {
-		throw defect("a token split's heading, its place and its token")
-	}
-	return select(
-		keyedSet(
-			mapNonEmpty(heading, (c) => target(delivered(c.name))),
-			[item],
-			undefined,
-			"a token split's rows"
-		)
+		columns,
+		true
 	)
+	return splitRows(
+		node,
+		item,
+		undefined,
+		(name) => {
+			if (name === tokensHeading.at) {
+				return binary("-", read(1), lit.int(1, types.bigint))
+			}
+			if (name === tokensHeading.token) {
+				return read(0)
+			}
+			throw defect(`a token split's heading of its place and its token, not ${name}`)
+		},
+		"a token split's rows"
+	)
+}
+
+/**
+ * A separator split's call (r.split): the pieces of its text between its separator's occurrences, each numbered by its
+ * place from 0.
+ *
+ *   SELECT r3.c4 - 2, r3.c3
+ *     FROM pg_catalog.string_to_table(<separator> || <the text>, <separator>) WITH ORDINALITY AS r3(c3, c4)
+ *    WHERE r3.c4 > 1
+ *
+ * string_to_table splits its text at each occurrence of the separator, the empty pieces kept, and yields no piece of
+ * the empty text ("If the input string is empty, ... no rows"), where the split's own reading is one empty piece. The
+ * separator written before the text makes it never empty and its first piece the empty one before that separator,
+ * which the WHERE drops, so the pieces that stay are the text's: n occurrences give n + 1, the empty text one empty
+ * piece, as JavaScript's String.prototype.split reads it. The separator is one Unicode scalar value, so an occurrence of
+ * its UTF-8 bytes is the character itself, never bytes inside another. WITH ORDINALITY numbers each piece from 1, so a
+ * kept piece's place is its number less 2; two pieces never share one, so the rows are a set its place keys.
+ */
+const lowerPieces = (
+	node: NodeOf<"Call">,
+	separator: string,
+	cx: LowerContext,
+	env: Env
+): OperandSelect => {
+	const columns = splitColumns(node, 2, cx)
+	const { read } = columns
+	const written = lit.text(separator, types.text)
+	const item = splitItem(
+		call("string_to_table", [binary("||", written, splitArgument(node, "text", cx, env)), written]),
+		columns,
+		true
+	)
+	return splitRows(
+		node,
+		item,
+		binary(">", read(1), lit.int(1, types.bigint)),
+		(name) => {
+			if (name === piecesHeading.at) {
+				return binary("-", read(1), lit.int(2, types.bigint))
+			}
+			if (name === piecesHeading.piece) {
+				return read(0)
+			}
+			throw defect(`a separator split's heading of its place and its piece, not ${name}`)
+		},
+		"a separator split's rows"
+	)
+}
+
+/**
+ * A rest's call (r.rest): the text after its prefix, one row where the text starts with the prefix, none where it does
+ * not.
+ *
+ *   SELECT r3.c3
+ *     FROM pg_catalog."substring"(<the text>, pg_catalog.char_length(<the prefix>) + 1) AS r3(c3)
+ *    WHERE pg_catalog.starts_with(<the text>, <the prefix>)
+ *
+ * starts_with compares code points under the database's C.UTF-8 collation, and substring from the prefix's length in
+ * code points, plus 1, is every code point past it: the text itself after the empty prefix, the empty text after the
+ * text. The one row is the rest, which the call's arguments determine.
+ */
+const lowerRest = (node: NodeOf<"Call">, cx: LowerContext, env: Env): OperandSelect => {
+	const columns = splitColumns(node, 1, cx)
+	const { read } = columns
+	const text = splitArgument(node, "text", cx, env)
+	const prefix = splitArgument(node, "prefix", cx, env)
+	const item = splitItem(
+		call("substring", [
+			text,
+			binary("+", call("char_length", [prefix]), lit.int(1, types.integer))
+		]),
+		columns,
+		false
+	)
+	return splitRows(
+		node,
+		item,
+		call("starts_with", [text, prefix]),
+		(name) => {
+			if (name === restHeading.rest) {
+				return read(0)
+			}
+			throw defect(`a rest's heading of its rest, not ${name}`)
+		},
+		"a rest's rows"
+	)
+}
+
+/** A split's rows (ir/rel.ts TextSplit), by its kind. */
+const lowerSplit = (
+	node: NodeOf<"Call">,
+	split: TextSplit,
+	cx: LowerContext,
+	env: Env
+): OperandSelect => {
+	switch (split.kind) {
+		case "tokens":
+			return lowerTokens(node, cx, env)
+		case "pieces":
+			return lowerPieces(node, split.separator, cx, env)
+		case "rest":
+			return lowerRest(node, cx, env)
+	}
 }
 
 /**
@@ -636,15 +785,10 @@ const lowerSeries = (node: NodeOf<"Call">, cx: LowerContext, env: Env): OperandS
 	return select(keyedSet([target(col(alias, element))], [item], undefined, "a series' rows"))
 }
 
-/** Each split's rows (ir/rel.ts TextSplit): a token split's (lowerTokens). */
-const splitLowerings: {
-	readonly [K in TextSplit]: (node: NodeOf<"Call">, cx: LowerContext, env: Env) => OperandSelect
-} = { tokens: lowerTokens }
-
 /**
  * Call: the rows a function returns for its arguments, a set, by its function (ir/rel.ts CallFunction): a declared
- * function's (lowerDeclared), a field's of a declared function's one row (lowerField), or one of grizzle's splits'
- * (splitLowerings).
+ * function's (lowerDeclared), a field's of a declared function's one row (lowerField), one of grizzle's splits'
+ * (lowerSplit), or a series' (lowerSeries).
  */
 const lowerCall: NodeLowerer<"Call"> = (node, cx, env) => {
 	const called = node.function
@@ -654,7 +798,7 @@ const lowerCall: NodeLowerer<"Call"> = (node, cx, env) => {
 		case "field":
 			return lowerField(node, called, cx, env)
 		case "split":
-			return splitLowerings[called.split](node, cx, env)
+			return lowerSplit(node, called.split, cx, env)
 		case "series":
 			return lowerSeries(node, cx, env)
 	}

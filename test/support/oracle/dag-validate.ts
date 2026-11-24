@@ -82,7 +82,6 @@ import {
 	type TableRefs,
 	type TakeBound,
 	type TerminationCert,
-	textSplits,
 	type ValidDag,
 	type VarDecl,
 	type WindowFn,
@@ -2324,6 +2323,7 @@ const atMostOneWitnessShape: S.Shape<AtMostOneWitness> = S.tagged("kind", {
 	context: S.struct({}),
 	row: S.struct({}),
 	singleFact: S.struct({}),
+	partialSplit: S.struct({}),
 	takeOne: S.struct({}),
 	nearestOne: S.struct({}),
 	falseConjunct: S.struct({ expr: exprIdShape })
@@ -2691,7 +2691,13 @@ const tableNodeShape: S.Shape<TableNode> = S.tagged("kind", {
 			...common,
 			function: S.tagged("kind", {
 				declared: calledFunctionShape,
-				split: S.struct({ split: S.literalsShape(textSplits) })
+				split: S.struct({
+					split: S.tagged("kind", {
+						tokens: S.struct({}),
+						pieces: S.struct({ separator: S.nonEmptyString }),
+						rest: S.struct({})
+					})
+				})
 			}),
 			args: S.array(
 				S.tagged("kind", {

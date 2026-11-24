@@ -115,7 +115,9 @@ const sourceLeaves = <P extends object, T>(
 			}
 		}
 	} else if (s.kind === "split") {
-		exprLeaves(s.text, into)
+		for (const a of Object.values(s.args)) {
+			exprLeaves(a, into)
+		}
 	}
 }
 

@@ -1,3 +1,4 @@
+import { domain, single } from "@bjornpagen/grizzle-text/regex/charset"
 import type { Built } from "#compiler/core/phantom.ts"
 import { isPlainRecord } from "#compiler/core/record.ts"
 import {
@@ -9,8 +10,14 @@ import {
 	valueHeading
 } from "#compiler/ir/desc.ts"
 import type { OpenCallArg, OpenExpr } from "#compiler/ir/open.ts"
-import { seriesHeading, tokensHeading } from "#compiler/ir/rel.ts"
-import { tokenPattern } from "#compiler/ir/scalar.ts"
+import {
+	piecesHeading,
+	restHeading,
+	separatorPoint,
+	seriesHeading,
+	tokensHeading
+} from "#compiler/ir/rel.ts"
+import { tokenPattern, wildcardPattern } from "#compiler/ir/scalar.ts"
 import { fieldTyping, heading } from "#compiler/query/build/heading.ts"
 import {
 	callSourceValue,
@@ -29,12 +36,13 @@ import {
 } from "#compiler/scalar/compute/term.ts"
 import { exactIntegerDescriptor } from "#compiler/scalar/exact.ts"
 import { naturalDescriptor } from "#compiler/scalar/natural.ts"
+import { stretchOver } from "#compiler/scalar/regex/stretch.ts"
 import { bareEnv, type SqlTag } from "#compiler/scalar/registry.ts"
 import { functionDescOf } from "#compiler/schema/function.ts"
 import { untypedLiteral } from "#compiler/schema/literal.ts"
 import { describedField, malformed, ownedEntry } from "#compiler/schema/protocol.ts"
 import { calledFields } from "#compiler/schema/record.ts"
-import { regexField } from "#compiler/text/field.ts"
+import { type RegexText, regexField } from "#compiler/text/field.ts"
 import type {
 	CallArgs,
 	CalledTerm,
@@ -306,7 +314,11 @@ const tokenCarriers = Object.freeze({ at: naturalDescriptor, token: tokenField }
 export const tokensRows = (text: unknown): Built & Headed<typeof tokenCarriers> => {
 	const label = "r.tokens"
 	return callSourceValue(
-		{ kind: "split", split: "tokens", text: valueArgument(text, `${label} text`) },
+		{
+			kind: "split",
+			split: { kind: "tokens" },
+			args: { text: valueArgument(text, `${label} text`) }
+		},
 		heading(
 			[
 				[tokensHeading.at, typed(describedField(naturalDescriptor, `${label} at`).scalar)],
@@ -317,6 +329,85 @@ export const tokensRows = (text: unknown): Built & Headed<typeof tokenCarriers> 
 		tokenCarriers,
 		[],
 		"a text's tokens"
+	)
+}
+
+/**
+ * A piece's descriptor as the builder types a separator split's `piece` over a separator of code point `point`
+ * (piecesRows): a stretch of any characters but the separator, the pattern the checker types it by over any text
+ * (scalar/regex/stretch.ts stretchSource), which types it within its text's byte bound and alphabet too.
+ */
+const pieceField = (point: number): RegexText<string> =>
+	regexField<string>(stretchOver(domain, single(point)).source, [])
+
+/**
+ * r.split(text, separator): the pieces of a text between the occurrences of its separator, a source a rule matches as
+ * it matches a call's rows, of `piecesHeading`: `at`, each piece's place from 0, and `piece`, a text that holds no
+ * separator, n occurrences giving n + 1 pieces, the empty ones kept, so the empty text is one empty piece (ir/rel.ts
+ * TextSplit `pieces`). `text` is a term, a parameter or a JavaScript value, as a call's value argument is
+ * (`valueArgument`), which the checker holds to a text; `separator` is a JavaScript string of one Unicode scalar value
+ * but U+0000 (separatorPoint), the split's own constant, never an argument.
+ */
+export const piecesRows = (
+	text: unknown,
+	separator: unknown
+): Built & Headed<{ readonly at: typeof naturalDescriptor; readonly piece: RegexText<string> }> => {
+	const label = "r.split"
+	const point = typeof separator === "string" ? separatorPoint(separator) : undefined
+	if (typeof separator !== "string" || point === undefined) {
+		throw malformed(
+			`${label} separator`,
+			"a string of one Unicode scalar value but U+0000, the character the text is split at"
+		)
+	}
+	const piece = pieceField(point)
+	return callSourceValue(
+		{
+			kind: "split",
+			split: { kind: "pieces", separator },
+			args: { text: valueArgument(text, `${label} text`) }
+		},
+		heading(
+			[
+				[piecesHeading.at, typed(describedField(naturalDescriptor, `${label} at`).scalar)],
+				[piecesHeading.piece, typed(describedField(piece, `${label} piece`).scalar)]
+			],
+			[]
+		),
+		Object.freeze({ at: naturalDescriptor, piece }),
+		[],
+		"a text's pieces"
+	)
+}
+
+/** A rest's descriptor as the builder types it (restRows): any text, the checker typing it within its text's bound. */
+const restField = regexField<string>(wildcardPattern.source, ["su"])
+
+/** A rest's heading's descriptors: the text after the prefix (restField). */
+const restCarriers = Object.freeze({ rest: restField })
+
+/**
+ * r.rest(text, prefix): the text after a prefix, a source a rule matches as it matches a call's rows, of `restHeading`:
+ * one fact, `rest`, the text's code points past the prefix's, where the text starts with the prefix, and none where it
+ * does not (ir/rel.ts TextSplit `rest`), so a rule that matches it keeps only the bindings whose text has the prefix.
+ * `text` and `prefix` are each a term, a parameter or a JavaScript value, as a call's value argument is
+ * (`valueArgument`), which the checker holds to a text.
+ */
+export const restRows = (text: unknown, prefix: unknown): Built & Headed<typeof restCarriers> => {
+	const label = "r.rest"
+	return callSourceValue(
+		{
+			kind: "split",
+			split: { kind: "rest" },
+			args: {
+				text: valueArgument(text, `${label} text`),
+				prefix: valueArgument(prefix, `${label} prefix`)
+			}
+		},
+		heading([[restHeading.rest, typed(describedField(restField, `${label} rest`).scalar)]], []),
+		restCarriers,
+		[],
+		"the rest of a text"
 	)
 }
 

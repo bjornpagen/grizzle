@@ -24,7 +24,13 @@ import {
 	type Rule,
 	type Separation
 } from "#compiler/ir/keys.ts"
-import type { KeySet, NodeOf, RelDag, RelNode } from "#compiler/ir/rel.ts"
+import {
+	callNumbering,
+	type KeySet,
+	type NodeOf,
+	type RelDag,
+	type RelNode
+} from "#compiler/ir/rel.ts"
 import { sameScalarType } from "#compiler/ir/scalar.ts"
 import { nativeOp } from "#compiler/scalar/compute/registry.ts"
 
@@ -1435,6 +1441,8 @@ export class KeyKernel {
 				return n.kind === "InputSet" && n.input.kind === "row"
 			case "singleFact":
 				return n.kind === "Closed" && n.rows.length <= 1
+			case "partialSplit":
+				return n.kind === "Call" && callNumbering(n.function).kind === "one"
 			case "takeOne":
 				return n.kind === "Take" && n.bound.kind === "literal" && n.bound.k === 1n
 			case "nearestOne":

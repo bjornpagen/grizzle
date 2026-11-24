@@ -117,11 +117,16 @@ export type EqualWitness =
 			readonly fixed: Implication
 	  }
 
-/** Why a node has at most one row. */
+/**
+ * Why a node has at most one row: among the rest, a call of a split that returns one row or none at its arguments
+ * (`partialSplit`, ir/rel.ts CallNumbering `one`, r.rest), which holds of each evaluation, so by its arguments wherever it
+ * runs.
+ */
 export type AtMostOneWitness =
 	| { readonly kind: "context" }
 	| { readonly kind: "row" }
 	| { readonly kind: "singleFact" }
+	| { readonly kind: "partialSplit" }
 	| { readonly kind: "takeOne" }
 	| { readonly kind: "nearestOne" }
 	| { readonly kind: "falseConjunct"; readonly expr: ExprId }
@@ -586,6 +591,7 @@ const atMostOneContext = (witness: AtMostOneWitness): EvidenceContext | undefine
 		case "context":
 		case "row":
 		case "singleFact":
+		case "partialSplit":
 			return "queryLocal"
 		case "takeOne":
 		case "nearestOne":

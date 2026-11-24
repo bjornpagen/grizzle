@@ -159,7 +159,9 @@ class Collector {
 				}
 				return
 			case "split":
-				this.expr(s.text)
+				for (const a of Object.values(s.args)) {
+					this.expr(a)
+				}
 				return
 			case "series":
 				this.expr(s.low)

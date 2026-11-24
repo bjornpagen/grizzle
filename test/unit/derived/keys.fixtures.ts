@@ -1387,10 +1387,17 @@ export const keyName = (n: number): string => `n${n}`
 
 /**
  * A source of rows a call returns, which a derived relation matches beside the row its arguments are read from: a
- * token split of the row's list (r.tokens), a series from its low to its high (r.series), or a declared function's rows
- * at its list (Fn.rows), each row of which has a place `at` beside its piece where it has one.
+ * token split of the row's list (r.tokens), a separator split of it at a comma (r.split), a series from its low to its
+ * high (r.series), a declared function's rows at its list (Fn.rows), each row of which has a place `at` beside its
+ * piece where it has one, or the list's rest after a prefix (r.rest), one row or none, which has no place.
  */
-export const callSources = ["a token split", "a series", "a declared function's rows"] as const
+export const callSources = [
+	"a token split",
+	"a separator split",
+	"a series",
+	"a declared function's rows",
+	"a rest"
+] as const
 export type CallSource = (typeof callSources)[number]
 
 /** How the definition reads a call's place: delivered in its head, fixed to a literal, or read and dropped. */
@@ -1415,11 +1422,18 @@ const seriesUses = [
 	"the place dropped"
 ] as const satisfies ReadonlyArray<OrdinalUse>
 
+/** The use of a rest's place a case draws: none, a rest having no place, so its definition drops none. */
+const restUses = ["the place dropped"] as const satisfies ReadonlyArray<OrdinalUse>
+
 export const callKeyCase: Gen<CallKeyCase> = (source) => {
 	const call = source.draw(element(callSources))
 	return {
 		call,
-		ordinal: source.draw(element<OrdinalUse>(call === "a series" ? seriesUses : ordinalUses))
+		ordinal: source.draw(
+			element<OrdinalUse>(
+				call === "a series" ? seriesUses : call === "a rest" ? restUses : ordinalUses
+			)
+		)
 	}
 }
 
@@ -1480,6 +1494,42 @@ const tokensStored = (c: CallKeyCase) =>
 				})
 			)
 
+/** The stored relation of a separator split's case: each row's pieces at a comma, at their places where delivered. */
+const separatedStored = (c: CallKeyCase) =>
+	c.ordinal === "the place in the head"
+		? derived.stored(
+				"D",
+				query(callBase).rule((r) => {
+					const { id, list } = v(Listed, "row")
+					const split = r.split(list, ",")
+					const { at, piece } = v(split, "piece")
+					return r.match(Listed, { id, list }).match(split, { at, piece }).find({ id, at, piece })
+				})
+			)
+		: derived.stored(
+				"D",
+				query(callBase).rule((r) => {
+					const { id, list } = v(Listed, "row")
+					const split = r.split(list, ",")
+					const { at, piece } = v(split, "piece")
+					return r
+						.match(Listed, { id, list })
+						.match(split, { at: fixed(c) ? 0n : at, piece })
+						.find({ id, piece })
+				})
+			)
+
+/** The stored relation of a rest's case: each row's list after the prefix `a`, where the list starts with it. */
+const restStored = derived.stored(
+	"D",
+	query(callBase).rule((r) => {
+		const { id, list } = v(Listed, "row")
+		const after = r.rest(list, "a")
+		const { rest } = v(after, "rest")
+		return r.match(Listed, { id, list }).match(after, { rest }).find({ id, piece: rest })
+	})
+)
+
 /**
  * The stored relation of a series' case: each row's elements from its low to its high, each an exact integer between
  * the row's ends, delivered as the integer its ends are where its head delivers them.
@@ -1538,6 +1588,10 @@ export const callKeySchema = (c: CallKeyCase) => {
 	switch (c.call) {
 		case "a token split":
 			return schema.extend([callBase], "CallKeysTop", [tokensStored(c)], [])
+		case "a separator split":
+			return schema.extend([callBase], "CallKeysTop", [separatedStored(c)], [])
+		case "a rest":
+			return schema.extend([callBase], "CallKeysTop", [restStored], [])
 		case "a series":
 			return schema.extend([callBase], "CallKeysTop", [seriesStored(c)], [])
 		case "a declared function's rows":
@@ -1546,11 +1600,12 @@ export const callKeySchema = (c: CallKeyCase) => {
 }
 
 /**
- * What a case's stored relation is keyed by, as the call's rows are (ir/rel.ts callOrdinal): a split's and a series'
- * rows at their argument are keyed by their place, which numbers them, so a row of lists and a place key D, and the row
- * alone where a literal fixes the place; a declared function's rows are a set nothing numbers, keyed by their whole
- * heading, so D by the row and every field of the call it delivers. A token is a text of no byte bound, which no B-tree
- * entry holds, so a key of it is refused, its whole heading the definition's only key where the place is dropped.
+ * What a case's stored relation is keyed by, as the call's rows are (ir/rel.ts callNumbering): a split's and a series' rows
+ * at their argument are keyed by their place, which numbers them, so a row of lists and a place key D, and the row
+ * alone where a literal fixes the place; a rest is one row or none at its arguments, so the row alone keys D; a declared
+ * function's rows are a set nothing numbers, keyed by their whole heading, so D by the row and every field of the call
+ * it delivers. A token and a piece are texts of no byte bound, which no B-tree entry holds, so a key of either is
+ * refused, its whole heading the definition's only key where the place is dropped.
  */
 export const callKeyModel = (
 	c: CallKeyCase
@@ -1559,6 +1614,7 @@ export const callKeyModel = (
 	| { readonly kind: "refused" } => {
 	switch (c.call) {
 		case "a token split":
+		case "a separator split":
 			return c.ordinal === "the place in the head"
 				? { kind: "keyed", keys: [["at", "id"]] }
 				: c.ordinal === "the place fixed to a literal"
@@ -1569,6 +1625,8 @@ export const callKeyModel = (
 				kind: "keyed",
 				keys: [c.ordinal === "the place in the head" ? ["at", "id"] : ["id"]]
 			}
+		case "a rest":
+			return { kind: "keyed", keys: [["id"]] }
 		case "a declared function's rows":
 			return {
 				kind: "keyed",

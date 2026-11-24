@@ -81,7 +81,7 @@ export const inlineWorlds = (query: QueryDesc, role: CheckedSchema): QueryDesc =
 					args: mapRecord(s.args, (a) => (a.kind === "rows" ? rows(a) : expr(a)))
 				}
 			case "split":
-				return { ...s, text: expr(s.text) }
+				return { ...s, args: mapRecord(s.args, expr) }
 			case "series":
 				return { ...s, low: expr(s.low), high: expr(s.high) }
 			case "param":

@@ -51,7 +51,11 @@ const spellSource = (source: OpenSource, s: Spellings): SourceDesc => {
 				args: mapRecord(source.args, (a) => (a.kind === "rows" ? spellRows(a, s) : spellExpr(a, s)))
 			}
 		case "split":
-			return { kind: "split", split: source.split, text: spellExpr(source.text, s) }
+			return {
+				kind: "split",
+				split: source.split,
+				args: mapRecord(source.args, (a) => spellExpr(a, s))
+			}
 		case "series":
 			return { kind: "series", low: spellExpr(source.low, s), high: spellExpr(source.high, s) }
 		case "param":
