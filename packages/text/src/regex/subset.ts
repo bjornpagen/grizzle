@@ -2,7 +2,7 @@ import { TupleMap } from "#text/base/tuple-map.ts"
 import { type CharSet, domain } from "#text/regex/charset.ts"
 import { follow, type Nfa, type NfaEdge, scopesOf } from "#text/regex/nfa.ts"
 import { type CharPartition, partitionOf } from "#text/regex/partition.ts"
-import { entry } from "#text/regex/table.ts"
+import { cell, entry } from "#text/regex/table.ts"
 
 /**
  * The subset construction of an NFA's search language, the one both of its readers run: dfa.ts determinizes it whole,
@@ -279,6 +279,18 @@ export interface Step {
 	readonly work: number
 }
 
+/** The step out of the sink: the sink, and free. */
+const sinkStep: Step = Object.freeze({ to: done, work: 0 })
+
+/**
+ * Every atom's step out of one subset (SearchSubsets targets): `steps`, each distinct, in the order of the atom each
+ * first comes at, and `stepOf`, each atom's index among them.
+ */
+export interface Targets {
+	readonly steps: ReadonlyArray<Step>
+	readonly stepOf: Int32Array
+}
+
 /**
  * Where a search begins: the initial subset, the start state's closure before the first code point, and its work; and
  * the restart closure, the start state's past it, the configurations an atom no set edge of a subset holds reaches, as
@@ -353,12 +365,12 @@ export class SearchSubsets {
 
 	/**
 	 * The subset `from` reaches on `atom`: the closure past a code point of the targets of its set edges that hold the
-	 * atom, the start state among them, where the search begins again; the restart closure where none holds it; and the
-	 * sink from the sink.
+	 * atom (reach); and the sink from the sink. What membership reads, one atom at a time, where a text reaches it
+	 * (match.ts Matcher).
 	 */
 	target(from: Subset, atom: number): Step {
 		if (from.kind === "done") {
-			return { to: done, work: 0 }
+			return sinkStep
 		}
 		const targets: Array<number> = []
 		for (const c of from.configs) {
@@ -370,9 +382,88 @@ export class SearchSubsets {
 				}
 			}
 		}
+		return this.#reach(from.configs, targets)
+	}
+
+	/**
+	 * Every atom's target from `from`, each the Step target reaches on it: what the whole construction reads (dfa.ts
+	 * determinize). The subset's set edges are walked once, each edge's target entered under every atom its set holds,
+	 * and the atoms of one list of targets share one Step, its closure taken once, in the order of the atom it first
+	 * comes at, so the configurations are numbered as target's walk of every atom in turn numbers them.
+	 *
+	 * target walks every set edge of the subset for each atom and closes over each atom's targets: O(k·(e + c)) for k
+	 * atoms, e set edges of the subset's configurations and closures of c configurations, where most atoms of a pattern's
+	 * alphabet hold no edge of a state and lead it to its restart closure. This is O(Σ atoms of the edges' sets + d·c) for
+	 * the d distinct lists of targets, the restart's among them (dfa.ts determinize, its measurement).
+	 */
+	targets(from: Subset): Targets {
+		const { atomCount, setAtoms, setEdges } = this.alphabet
+		const stepOf = new Int32Array(atomCount)
+		if (from.kind === "done") {
+			return { steps: [sinkStep], stepOf }
+		}
+		/**
+		 * The atoms by the set edges that hold them, refined one edge at a time (partition.ts partitionOf's refinement):
+		 * each atom's group, a group's targets its parent's and the target of the edge that opened it, group 0 every
+		 * atom's before the first edge, of no target. Two atoms of one group are held by the same edges, so they reach the
+		 * same targets in the same order.
+		 */
+		const groupOf = new Int32Array(atomCount)
+		const parent: Array<number> = [-1]
+		const opener: Array<number> = [-1]
+		const openedIn: Array<number> = [-1]
+		const openedAs: Array<number> = [-1]
+		let round = 0
+		for (const c of from.configs) {
+			const successors = this.#configs.successors(c)
+			for (const edge of entry(setEdges, this.#configs.state(c))) {
+				const to = cell(successors, edge.edge)
+				if (to >= 0) {
+					for (const atom of entry(setAtoms, edge.set)) {
+						const group = cell(groupOf, atom)
+						if (openedIn[group] !== round) {
+							openedIn[group] = round
+							openedAs[group] = parent.length
+							parent.push(group)
+							opener.push(to)
+							openedIn.push(-1)
+							openedAs.push(-1)
+						}
+						groupOf[atom] = entry(openedAs, group)
+					}
+					round += 1
+				}
+			}
+		}
+		/** Each group's step, by its index among `steps`; -1 before an atom of it is met. */
+		const stepOfGroup = new Int32Array(parent.length).fill(-1)
+		const steps: Array<Step> = []
+		for (let atom = 0; atom < atomCount; atom++) {
+			const group = cell(groupOf, atom)
+			const known = cell(stepOfGroup, group)
+			if (known >= 0) {
+				stepOf[atom] = known
+			} else {
+				const targets: Array<number> = []
+				for (let g = group; g > 0; g = entry(parent, g)) {
+					targets.push(entry(opener, g))
+				}
+				stepOfGroup[group] = steps.length
+				stepOf[atom] = steps.length
+				steps.push(this.#reach(from.configs, targets.toReversed()))
+			}
+		}
+		return { steps, stepOf }
+	}
+
+	/**
+	 * The Step out of the configurations `from` to the closure past a code point of `targets`, the start state among
+	 * them, where the search begins again; the restart closure where there is no target.
+	 */
+	#reach(from: ReadonlyArray<number>, targets: ReadonlyArray<number>): Step {
 		if (targets.length === 0) {
 			const { restart, restartConfigs } = this.#begun
-			return { to: restart, work: from.configs.length + restartConfigs.length }
+			return { to: restart, work: from.length + restartConfigs.length }
 		}
 		const reached = this.#configs.closure([this.#configs.plain(this.nfa.start), ...targets], {
 			atStart: false,
@@ -380,7 +471,7 @@ export class SearchSubsets {
 		})
 		return {
 			to: this.#settle(this.#configs.pruned(reached), false),
-			work: from.configs.length + reached.length
+			work: from.length + reached.length
 		}
 	}
 

@@ -146,9 +146,9 @@ export const eachRewritePassPreservesTheDeliveredResultOnGeneratedCasesTheCompos
 		kills: [
 			{
 				file: "packages/text/src/regex/dfa.ts",
-				original: "\t\tthis.#marked[b] = at(this.#marked, b) + 1",
-				replacement: "\t\tthis.#marked[b] = at(this.#marked, b) + 2",
-				why: "Operator mutant c78ce76fd9 at packages/text/src/regex/dfa.ts:238 in <module>: `1` becomes `2`; the property fails (the census, lane TESTPOLICY2)."
+				original: "\t\tthis.#marked[s] = at(this.#marked, s) + 1",
+				replacement: "\t\tthis.#marked[s] = at(this.#marked, s) + 2",
+				why: "Operator mutant c78ce76fd9 at packages/text/src/regex/dfa.ts:238 in <module>: `1` becomes `2`, restated on the refinable partition of the minimization's live states (dfa.ts Refinable mark); the property fails (the census, lane TESTPOLICY2; restated by lane SCHEMAPERF)."
 			}
 		]
 	})

@@ -1,6 +1,5 @@
 import { codePoints, codePointsText } from "@bjornpagen/grizzle-text/text"
-import { indices } from "#text/base/array.ts"
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "#text/base/nonempty.ts"
+import type { NonEmptyReadonlyArray } from "#text/base/nonempty.ts"
 import { TupleMap } from "#text/base/tuple-map.ts"
 import {
 	type CharSet,
@@ -16,7 +15,7 @@ import {
 import type { Nfa } from "#text/regex/nfa.ts"
 import { type CharPartition, partitionOf } from "#text/regex/partition.ts"
 import { SearchSubsets, type Subset, subsetKey } from "#text/regex/subset.ts"
-import { entry } from "#text/regex/table.ts"
+import { cell, entry } from "#text/regex/table.ts"
 
 /**
  * Proved bounds on every member of a language, in code points and UTF-8 bytes. The analysis makes one by textBounds
@@ -72,11 +71,11 @@ export interface CanonicalDfa {
 }
 
 /** The element of `xs` at `i`, which the caller's bounds make present (scalar/regex/table.ts entry). */
-const at = (xs: ArrayLike<number>, i: number): number => entry(xs, i)
+const at = (xs: Int32Array, i: number): number => cell(xs, i)
 
 interface RawDfa {
 	/** Transition table: target per atom; one row per state, the initial one first. */
-	readonly next: ReadonlyArray<ReadonlyArray<number>>
+	readonly next: ReadonlyArray<Int32Array>
 	readonly accept: ReadonlyArray<boolean>
 	readonly alphabet: CharPartition
 }
@@ -90,6 +89,17 @@ type Construction =
  * The subset construction (subset.ts SearchSubsets) run whole, within the limits: every state it reaches, numbered in
  * the order it is first reached, each expanded on every atom in turn. Every transition counts as work what its Step is
  * charged, and the initial subset its closure's states.
+ *
+ * Each state's row is read whole (SearchSubsets targets): its set edges walked once, and one closure and one interning
+ * for each distinct step, which the atoms holding it share, where each atom walked every edge of the state, closed over
+ * its targets and interned the subset it reached, a sort and a join of its configurations (subsetKey): O(Σ atoms of the
+ * set edges' sets + d·c) a state for d distinct steps of closures of c configurations, where it was O(k·(e + c)) for k
+ * atoms and e set edges, most of a pattern's atoms leading most of its states to its restart closure. The charge and
+ * the numbering stay the atom-by-atom construction's: each atom is charged its step's work and checked against the
+ * limits in turn, and a step is interned at the first atom that reaches it, so a construction stops where, and spends
+ * what, it did (test/unit/text/construction.test.ts). Measured at grizzle 0624a312c over the 725 constructions of
+ * edullm's QTI schema's laws (qti-pie 1bf7dcc's lawsOf, 43,387 states, 1,146,816 transitions), under a 50 µs CPU profile,
+ * five runs in one process: 967 ms a run to 390 ms.
  */
 const determinize = (nfa: Nfa, limits: DfaLimits): Construction => {
 	const subsets = new SearchSubsets(nfa)
@@ -99,7 +109,7 @@ const determinize = (nfa: Nfa, limits: DfaLimits): Construction => {
 
 	const keys = new Map<string, number>()
 	const members: Array<Subset> = []
-	const next: Array<Array<number>> = []
+	const next: Array<Int32Array> = []
 
 	const intern = (subset: Subset): number | undefined => {
 		const key = subsetKey(subset)
@@ -113,7 +123,7 @@ const determinize = (nfa: Nfa, limits: DfaLimits): Construction => {
 		const id = members.length
 		keys.set(key, id)
 		members.push(subset)
-		next.push([])
+		next.push(new Int32Array(atomCount))
 		return id
 	}
 
@@ -127,19 +137,24 @@ const determinize = (nfa: Nfa, limits: DfaLimits): Construction => {
 		return bounded("maxStates")
 	}
 	for (let id = 0; id < members.length; id++) {
-		const subset = entry(members, id)
 		const row = entry(next, id)
+		const { steps, stepOf } = subsets.targets(entry(members, id))
+		/** Each distinct step's state, once an atom has interned it; -1 before. */
+		const reached = new Int32Array(steps.length).fill(-1)
 		for (let a = 0; a < atomCount; a++) {
-			const step = subsets.target(subset, a)
+			const s = at(stepOf, a)
+			const step = entry(steps, s)
 			work += step.work
 			if (work > limits.maxWork) {
 				return bounded("maxWork")
 			}
-			const target = intern(step.to)
+			const known = at(reached, s)
+			const target = known >= 0 ? known : intern(step.to)
 			if (target === undefined) {
 				return bounded("maxStates")
 			}
-			row.push(target)
+			reached[s] = target
+			row[a] = target
 		}
 	}
 	const accept = members.map((subset) => subsets.acceptsAtEnd(subset))
@@ -147,214 +162,274 @@ const determinize = (nfa: Nfa, limits: DfaLimits): Construction => {
 }
 
 /**
- * A partition of a DFA's states into blocks, refined by Hopcroft's algorithm: each block is a contiguous range of
- * `order`, and a split moves the states that enter the splitter to the front of their block, then cuts it there,
- * enqueueing the smaller part (the new part when the block itself still waits).
+ * A partition of the integers below a size into sets, refined by marking some of them and splitting every set they were
+ * marked in (Valmari's refinable partition): each set is the run `elements[first[s]]` up to `elements[past[s]]`,
+ * `location[e]` is e's index in `elements` and `setOf[e]` its set. A mark moves an element to the front of its set's
+ * run; a split cuts each set some of whose elements were marked, unless all were, into its marked and unmarked parts,
+ * the smaller one numbered as a new set, so an element moves into a new set only into one at most half its set's size.
  */
-class Partition {
-	readonly #order: Int32Array
-	readonly #position: Int32Array
-	readonly #blockOf: Int32Array
-	readonly #start: Array<number> = []
-	readonly #end: Array<number> = []
-	/** How many of a block's states the current split has moved to its front. */
-	readonly #marked: Array<number> = []
-	readonly #queued: Array<boolean> = []
-	readonly #waiting: Array<number> = []
+class Refinable {
+	readonly elements: Int32Array
+	readonly #location: Int32Array
+	readonly setOf: Int32Array
+	readonly first: Int32Array
+	readonly past: Int32Array
+	readonly #marked: Int32Array
+	readonly #touched: Int32Array
+	#touchedCount = 0
+	/** How many sets there are, numbered from 0. */
+	count: number
 
-	constructor(accept: ReadonlyArray<boolean>) {
-		const accepting = accept.flatMap((x, s) => (x ? [s] : []))
-		this.#order = Int32Array.from([...accepting, ...accept.flatMap((x, s) => (x ? [] : [s]))])
-		this.#position = new Int32Array(accept.length)
-		for (const [i, s] of this.#order.entries()) {
-			this.#position[s] = i
+	/** The partition of the integers below `length` into one set, or none for length 0. */
+	constructor(length: number) {
+		this.elements = new Int32Array(length)
+		this.#location = new Int32Array(length)
+		for (let i = 0; i < length; i++) {
+			this.elements[i] = i
+			this.#location[i] = i
 		}
-		this.#blockOf = new Int32Array(accept.length)
-		if (accepting.length > 0) {
-			this.#enqueue(this.#add(0, accepting.length))
-		}
-		if (accepting.length < accept.length) {
-			this.#enqueue(this.#add(accepting.length, accept.length))
+		this.setOf = new Int32Array(length)
+		this.first = new Int32Array(length)
+		this.past = new Int32Array(length)
+		this.#marked = new Int32Array(length)
+		this.#touched = new Int32Array(length)
+		this.count = length > 0 ? 1 : 0
+		if (length > 0) {
+			this.past[0] = length
 		}
 	}
 
-	#add(from: number, to: number): number {
-		const b = this.#start.length
-		this.#start.push(from)
-		this.#end.push(to)
-		this.#marked.push(0)
-		this.#queued.push(false)
-		for (let i = from; i < to; i++) {
-			this.#blockOf[at(this.#order, i)] = b
+	/** Marks `e`, which no mark since the last split marked: moves it to the front of its set's unmarked elements. */
+	mark(e: number): void {
+		const s = at(this.setOf, e)
+		const i = at(this.#location, e)
+		const j = at(this.first, s) + at(this.#marked, s)
+		const other = at(this.elements, j)
+		this.elements[i] = other
+		this.#location[other] = i
+		this.elements[j] = e
+		this.#location[e] = j
+		if (this.#marked[s] === 0) {
+			this.#touched[this.#touchedCount] = s
+			this.#touchedCount += 1
 		}
-		return b
+		this.#marked[s] = at(this.#marked, s) + 1
 	}
 
-	#enqueue(b: number): void {
-		if (this.#queued[b] !== true) {
-			this.#queued[b] = true
-			this.#waiting.push(b)
-		}
-	}
-
-	/** The states of the next waiting block, dequeued; undefined when no block waits. */
-	next(): ReadonlyArray<number> | undefined {
-		const splitter = this.#waiting.pop()
-		if (splitter === undefined) {
-			return undefined
-		}
-		this.#queued[splitter] = false
-		return Array.from(this.#order.slice(at(this.#start, splitter), at(this.#end, splitter)))
-	}
-
-	/** Splits every block some of whose states `entering` holds. */
-	split(entering: Iterable<number>): void {
-		const parted: Array<number> = []
-		for (const s of entering) {
-			const b = this.#mark(s)
-			if (b !== undefined) {
-				parted.push(b)
+	/** Splits every set a mark since the last split touched, unless the marks took every element of it. */
+	split(): void {
+		while (this.#touchedCount > 0) {
+			this.#touchedCount -= 1
+			const s = at(this.#touched, this.#touchedCount)
+			const cut = at(this.first, s) + at(this.#marked, s)
+			this.#marked[s] = 0
+			if (cut === at(this.past, s)) {
+				continue
+			}
+			const part = this.count
+			this.count += 1
+			if (cut - at(this.first, s) <= at(this.past, s) - cut) {
+				this.first[part] = at(this.first, s)
+				this.past[part] = cut
+				this.first[s] = cut
+			} else {
+				this.past[part] = at(this.past, s)
+				this.first[part] = cut
+				this.past[s] = cut
+			}
+			for (let i = at(this.first, part); i < at(this.past, part); i++) {
+				this.setOf[at(this.elements, i)] = part
 			}
 		}
-		for (const b of parted) {
-			this.#cut(b)
-		}
-	}
-
-	/** Moves `s` to the front of its block: the block when `s` is its first state moved, else undefined. */
-	#mark(s: number): number | undefined {
-		const b = at(this.#blockOf, s)
-		const front = at(this.#start, b) + at(this.#marked, b)
-		const p = at(this.#position, s)
-		if (p < front) {
-			return undefined
-		}
-		const other = at(this.#order, front)
-		this.#order[front] = s
-		this.#position[s] = front
-		this.#order[p] = other
-		this.#position[other] = p
-		const first = this.#marked[b] === 0
-		this.#marked[b] = at(this.#marked, b) + 1
-		return first ? b : undefined
-	}
-
-	/** Cuts block `b` after its moved states, unless every state moved. */
-	#cut(b: number): void {
-		const moved = at(this.#marked, b)
-		this.#marked[b] = 0
-		const from = at(this.#start, b)
-		const blockSize = at(this.#end, b) - from
-		if (moved === blockSize) {
-			return
-		}
-		this.#start[b] = from + moved
-		const part = this.#add(from, from + moved)
-		this.#enqueue(this.#queued[b] === true || moved <= blockSize - moved ? part : b)
-	}
-
-	/** Each state's block, numbered densely from 0 in the order the blocks' first states come. */
-	classes(): ReadonlyArray<number> {
-		const number = new Map<number, number>()
-		return Array.from(this.#blockOf, (b) => {
-			const known = number.get(b)
-			if (known !== undefined) {
-				return known
-			}
-			number.set(b, number.size)
-			return number.size - 1
-		})
 	}
 }
 
 /**
- * The coarsest partition of the states that separates accepting from rejecting states and that every atom's
- * transitions respect (Hopcroft's refinement), as each state's class, numbered in first-seen state order. The coarsest
- * such partition is unique, so the classes are the states' language equivalence whatever order the splits take.
- *
- * The blocks are runs of one permutation of the states, `order`, block b at start[b] up to end[b], and `position[s]` is
- * s's index in it. A splitter is a block waiting to refine the others: for each atom, the states it enters on that atom
- * are moved to the front of their blocks, and every block they part becomes two. A parted block that waits already
- * waits beside its new part; one that does not is refined by its smaller part, which suffices, since the larger one
- * refines exactly what the whole block and the smaller part refine together.
+ * The live states of a raw DFA, those that reach an accepting state, by a breadth-first walk back from the accepting
+ * states over each state's incoming transitions.
  */
-const minimizeClasses = (dfa: RawDfa): ReadonlyArray<number> => {
+const liveStates = (dfa: RawDfa): Uint8Array => {
 	const n = dfa.next.length
-	const atomCount = dfa.alphabet.atomCount
-	/**
-	 * The states entering each state on each atom: sources[offsets[a * n + t]] up to sources[offsets[a * n + t + 1]]
-	 * are every s with next[s][a] = t.
-	 */
-	const offsets = new Int32Array(atomCount * n + 1)
+	const offsets = new Int32Array(n + 1)
 	for (const row of dfa.next) {
-		for (const [a, t] of row.entries()) {
-			offsets[a * n + t + 1] = at(offsets, a * n + t + 1) + 1
+		for (const t of row) {
+			offsets[t + 1] = at(offsets, t + 1) + 1
 		}
 	}
-	for (let i = 1; i < offsets.length; i++) {
+	for (let i = 1; i <= n; i++) {
 		offsets[i] = at(offsets, i) + at(offsets, i - 1)
 	}
-	const cursor = offsets.slice(0, atomCount * n)
-	const sources = new Int32Array(atomCount * n)
+	const cursor = offsets.slice(0, n)
+	const sources = new Int32Array(at(offsets, n))
 	for (const [s, row] of dfa.next.entries()) {
-		for (const [a, t] of row.entries()) {
-			const slot = at(cursor, a * n + t)
-			sources[slot] = s
-			cursor[a * n + t] = slot + 1
+		for (const t of row) {
+			sources[at(cursor, t)] = s
+			cursor[t] = at(cursor, t) + 1
 		}
 	}
-	/** The states entering any of `members` on atom `a`. */
-	const entering = function* (a: number, members: ReadonlyArray<number>): Generator<number> {
-		for (const t of members) {
-			for (let i = at(offsets, a * n + t); i < at(offsets, a * n + t + 1); i++) {
-				yield at(sources, i)
+	const live = new Uint8Array(n)
+	const pending: Array<number> = []
+	for (const [s, accepting] of dfa.accept.entries()) {
+		if (accepting) {
+			live[s] = 1
+			pending.push(s)
+		}
+	}
+	for (let t = pending.pop(); t !== undefined; t = pending.pop()) {
+		for (let i = at(offsets, t); i < at(offsets, t + 1); i++) {
+			const s = at(sources, i)
+			if (live[s] === 0) {
+				live[s] = 1
+				pending.push(s)
 			}
 		}
 	}
-	const partition = new Partition(dfa.accept)
-	for (let members = partition.next(); members !== undefined; members = partition.next()) {
-		for (let a = 0; a < atomCount; a++) {
-			partition.split(entering(a, members))
-		}
-	}
-	return partition.classes()
+	return live
 }
 
 /**
- * The minimal DFA of the raw one, in canonical form: its states numbered in breadth-first order from the initial one,
- * the order a loop over the growing list of states reached gives.
+ * The language equivalence of a raw DFA's live states, as each live state's class (-1 for a state no accepting state
+ * is reached from): the coarsest partition of the live states that separates accepting from rejecting states and that
+ * every atom's transitions respect, the transitions into states that are not live left out, so every state that is
+ * not live is one implicit state, the empty language's. The coarsest such partition is unique, so the classes are the
+ * states' language equivalence whatever algorithm finds them.
+ *
+ * Valmari and Lehtinen's refinement of a partial DFA (Valmari, "Fast brief practical DFA minimization", 2012): the
+ * live states are a refinable partition, accepting and rejecting first, and so are the transitions between them, by
+ * atom first; a set of transitions (a cord) splits the states by whether they are its transitions' sources, and a new
+ * set of states splits the cords by whether their transitions enter it. Every set is processed once, after its split,
+ * the smaller part a new set, so each transition is marked O(log n) times: O(n·k + m log n) for n states, k atoms and m
+ * live transitions, the n·k the table's scan for its live transitions.
+ *
+ * It replaces Hopcroft's refinement over the whole table, the states that are not live among them, which walked every
+ * atom for every state of each splitter, O(k·n log n) steps through a generator whatever the transitions, where most of
+ * a pattern's transitions lead to its restart closure, a state that is not live in an anchored pattern, and which found
+ * each class's first state by a scan of every state (indexOf), O(n) a class. Measured as determinize is: the
+ * minimization 374 ms a run to 77 ms, the canonical form with it 517 ms to 147 ms; minimalDfa whole, unprofiled, the
+ * sum of each construction's best of five, 1,350 ms to 423 ms, its every outcome and spend byte for byte the same.
  */
-const canonicalize = (dfa: RawDfa): CanonicalDfa => {
-	const classes = minimizeClasses(dfa)
-	const classCount = new Set(classes).size
-	/**
-	 * Each class's first state: the classes are numbered densely from 0 in the order their first states come, and a DFA
-	 * has its initial state, so class 0 is always there.
-	 */
-	const representative: NonEmptyReadonlyArray<number> = [
-		classes.indexOf(0),
-		...indices(classCount - 1).map((c) => classes.indexOf(c + 1))
-	]
-	const accept = mapNonEmpty(representative, (s) => dfa.accept[s] === true)
-	const targets = mapNonEmpty(representative, (s) =>
-		entry(dfa.next, s).map((t) => entry(classes, t))
-	)
-	/**
-	 * Live classes reach an accepting class: the accepting classes and, breadth first, every class with an edge into a
-	 * live one.
-	 */
-	const predecessors = new Map<number, Set<number>>()
-	for (const [c, row] of targets.entries()) {
-		for (const t of row) {
-			predecessors.set(t, (predecessors.get(t) ?? new Set<number>()).add(c))
+const liveClasses = (dfa: RawDfa, live: Uint8Array): Int32Array => {
+	const n = dfa.next.length
+	const atomCount = dfa.alphabet.atomCount
+	/** The live states, densely numbered: state[i] is the i-th, index[s] its number, -1 for a state not live. */
+	const state: Array<number> = []
+	const index = new Int32Array(n).fill(-1)
+	for (let s = 0; s < n; s++) {
+		if (live[s] === 1) {
+			index[s] = state.length
+			state.push(s)
 		}
 	}
-	const live = new Set(accept.flatMap((accepting, c) => (accepting ? [c] : [])))
-	const pending = [...live]
-	for (const t of pending) {
-		for (const c of [...(predecessors.get(t) ?? [])].filter((p) => !live.has(p))) {
-			live.add(c)
-			pending.push(c)
+	/**
+	 * The transitions between live states, ordered by atom: tail[x] and head[x] the x-th one's source and target by
+	 * number, those on atom a from perAtom[a] up to perAtom[a + 1].
+	 */
+	const perAtom = new Int32Array(atomCount + 1)
+	for (const s of state) {
+		const row = entry(dfa.next, s)
+		for (let a = 0; a < atomCount; a++) {
+			if (live[at(row, a)] === 1) {
+				perAtom[a + 1] = at(perAtom, a + 1) + 1
+			}
+		}
+	}
+	for (let a = 1; a <= atomCount; a++) {
+		perAtom[a] = at(perAtom, a) + at(perAtom, a - 1)
+	}
+	const m = at(perAtom, atomCount)
+	const tail = new Int32Array(m)
+	const head = new Int32Array(m)
+	const slot = perAtom.slice(0, atomCount)
+	for (const [i, s] of state.entries()) {
+		const row = entry(dfa.next, s)
+		for (let a = 0; a < atomCount; a++) {
+			const t = at(row, a)
+			if (live[t] !== 1) {
+				continue
+			}
+			const x = at(slot, a)
+			tail[x] = i
+			head[x] = at(index, t)
+			slot[a] = x + 1
+		}
+	}
+	/** The transitions entering each live state: incoming[into[q]] up to incoming[into[q + 1]]. */
+	const into = new Int32Array(state.length + 1)
+	for (const q of head) {
+		into[q + 1] = at(into, q + 1) + 1
+	}
+	for (let q = 1; q <= state.length; q++) {
+		into[q] = at(into, q) + at(into, q - 1)
+	}
+	const incoming = new Int32Array(m)
+	const fill = into.slice(0, state.length)
+	for (const [x, q] of head.entries()) {
+		incoming[at(fill, q)] = x
+		fill[q] = at(fill, q) + 1
+	}
+	const blocks = new Refinable(state.length)
+	for (const [i, s] of state.entries()) {
+		if (dfa.accept[s] === true) {
+			blocks.mark(i)
+		}
+	}
+	blocks.split()
+	/** The cords: the transitions in atom order, one set for each atom some transition is on. */
+	const cords = new Refinable(m)
+	cords.count = 0
+	for (let a = 0; a < atomCount; a++) {
+		const from = at(perAtom, a)
+		const to = at(perAtom, a + 1)
+		if (from === to) {
+			continue
+		}
+		const c = cords.count
+		cords.count += 1
+		cords.first[c] = from
+		cords.past[c] = to
+		for (let x = from; x < to; x++) {
+			cords.setOf[x] = c
+		}
+	}
+	let b = 1
+	for (let c = 0; c < cords.count; c++) {
+		for (let i = at(cords.first, c); i < at(cords.past, c); i++) {
+			blocks.mark(at(tail, at(cords.elements, i)))
+		}
+		blocks.split()
+		for (; b < blocks.count; b++) {
+			for (let i = at(blocks.first, b); i < at(blocks.past, b); i++) {
+				const q = at(blocks.elements, i)
+				for (let j = at(into, q); j < at(into, q + 1); j++) {
+					cords.mark(at(incoming, j))
+				}
+			}
+			cords.split()
+		}
+	}
+	const classes = new Int32Array(n).fill(-1)
+	for (const [i, s] of state.entries()) {
+		classes[s] = at(blocks.setOf, i)
+	}
+	return classes
+}
+
+/**
+ * The minimal DFA of the raw one, in canonical form: its live states' classes (liveClasses), numbered in breadth-first
+ * order from the initial one's, the order a loop over the growing list of classes reached gives, each class's edges
+ * read off its first state's row.
+ */
+const canonicalize = (dfa: RawDfa): CanonicalDfa => {
+	const live = liveStates(dfa)
+	if (live[0] === 0) {
+		return { states: [] }
+	}
+	const classes = liveClasses(dfa, live)
+	/** Each class's first state: its row and its acceptance are every state's of the class. */
+	const representative: Array<number> = []
+	for (const [s, c] of classes.entries()) {
+		if (c >= 0 && representative[c] === undefined) {
+			representative[c] = s
 		}
 	}
 	const { segments, atomOf } = dfa.alphabet
@@ -363,11 +438,12 @@ const canonicalize = (dfa: RawDfa): CanonicalDfa => {
 	 * code point order with adjacent ones joined, so a target enters the map at its least code point.
 	 */
 	const edgesOf = (c: number): Array<{ set: CharSet; target: number }> => {
-		const row = entry(targets, c)
+		const row = entry(dfa.next, entry(representative, c))
 		const byTarget = new Map<number, Array<[number, number]>>()
-		for (const [segment, [lo, hi]] of segments.entries()) {
-			const t = entry(row, at(atomOf, segment))
-			if (!live.has(t)) {
+		for (let segment = 0; segment < segments.length; segment++) {
+			const [lo, hi] = entry(segments, segment)
+			const t = at(classes, at(row, at(atomOf, segment)))
+			if (t < 0) {
 				continue
 			}
 			const intervals = byTarget.get(t)
@@ -382,10 +458,7 @@ const canonicalize = (dfa: RawDfa): CanonicalDfa => {
 		}
 		return Array.from(byTarget, ([target, intervals]) => ({ set: charSet(intervals), target }))
 	}
-	const initial = entry(classes, 0)
-	if (!live.has(initial)) {
-		return { states: [] }
-	}
+	const initial = at(classes, 0)
 	/** Each live class's number, breadth first: its own, or the next one when an edge first reaches it. */
 	const number = new Map<number, number>([[initial, 0]])
 	const order = [initial]
@@ -402,7 +475,7 @@ const canonicalize = (dfa: RawDfa): CanonicalDfa => {
 	const states: Array<CanonicalDfa["states"][number]> = []
 	for (const c of order) {
 		states.push({
-			accept: accept[c] === true,
+			accept: dfa.accept[entry(representative, c)] === true,
 			edges: edgesOf(c).map(({ set, target }) => ({ set, to: numberOf(target) }))
 		})
 	}
@@ -511,7 +584,7 @@ const intersect = (a: CanonicalDfa, b: CanonicalDfa, limits: DfaLimits): Interse
 		states.push({ kind: "pair", a: x, b: y })
 		return states.length - 1
 	}
-	const next: Array<ReadonlyArray<number>> = []
+	const next: Array<Int32Array> = []
 	let work = 0
 	for (let id = 0; id < states.length; id++) {
 		const state = entry(states, id)
@@ -519,7 +592,7 @@ const intersect = (a: CanonicalDfa, b: CanonicalDfa, limits: DfaLimits): Interse
 		if (work > limits.maxWork) {
 			return { kind: "bounded" }
 		}
-		const row: Array<number> = []
+		const row = new Int32Array(alphabet.atomCount)
 		for (let atom = 0; atom < alphabet.atomCount; atom++) {
 			const target =
 				state.kind === "dead"
@@ -528,7 +601,7 @@ const intersect = (a: CanonicalDfa, b: CanonicalDfa, limits: DfaLimits): Interse
 			if (target === undefined) {
 				return { kind: "bounded" }
 			}
-			row.push(target)
+			row[atom] = target
 		}
 		next.push(row)
 	}
