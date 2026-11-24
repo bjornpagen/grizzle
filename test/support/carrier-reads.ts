@@ -91,3 +91,24 @@ export const carrierTableReads = (statement: SqlStatement): ReadonlySet<CarrierN
 	}
 	return reads
 }
+
+/**
+ * The carriers a write statement fills, by name: every carrier an INSERT of it targets, the statement itself or a
+ * data-modifying CTE of its WITH, the only place a statement nests one (write/readback/deltas.ts carriedFill).
+ */
+export const carrierFills = (statement: SqlStatement): ReadonlySet<CarrierName> => {
+	if (!isDml(statement)) {
+		return new Set()
+	}
+	const filled = new Set<CarrierName>()
+	const target = (body: CteBody): void => {
+		if (body.kind === "insert" && typeof body.table === "string") {
+			filled.add(body.table)
+		}
+	}
+	target(statement)
+	for (const cte of statement.with?.ctes ?? []) {
+		target(cte.query)
+	}
+	return filled
+}

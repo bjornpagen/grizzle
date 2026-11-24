@@ -6,7 +6,11 @@ import { columnIn } from "#compiler/lower/conservative/context.ts"
 import type { Cte } from "#compiler/sql/ast.ts"
 import { col, conjunction, cteRef, provedSelect, target } from "#compiler/sql/build.ts"
 import type { NameSupply } from "#compiler/sql/naming.ts"
-import type { CarrierColumn } from "#compiler/write/carriers/carriers.ts"
+import {
+	type CarrierColumn,
+	carrierColumns,
+	type WriteCarrier
+} from "#compiler/write/carriers/carriers.ts"
 import type { FamilyReturning } from "#compiler/write/family/written.ts"
 import type {
 	DeleteResult,
@@ -22,20 +26,24 @@ export const deltaTarget = (entries: ReadonlyMap<string, CheckedEntry>, relation
 	entries.get(relation)?.target.name ?? relation
 
 /**
- * One side of a relation's delta as a read-back reads it: a CTE of the one statement that makes that side, over the
- * rows that statement returns, where the read-back rides that statement (`deltaCte`), each of the relation's fields in
- * heading order with the column that holds it; or the empty relation, where no statement writes the relation.
+ * One side of a relation's delta as a read-back reads it: a CTE of the one statement that makes that side whole, over
+ * the rows that statement returns, where the read-back rides that statement (`deltaCte`), each of the relation's fields
+ * in heading order with the column that holds it; the carrier that statement fills from the same rows, where the
+ * read-back runs after the last stratum (`carriedFill`), each field in its column; or the empty relation, where no
+ * statement makes the side.
  *
  * Read-back deltas from the write statements' RETURNING channels.
  *
  * `delta.added(R)` is the RETURNING of R's write statements restricted to what they made present, `delta.removed(R)`
  * the RETURNING of R's deletions widened to the complete fact, the occupants a put displaced included, and
- * `delta.met(R)` the stored facts an insertion met at its arbiter key and did not refuse. A statement sees
- * the snapshot from before its own writes, and its RETURNING exists only inside it, so a delta never leaves the
- * statement that makes it: a read-back over a delta some statement writes is evaluated inside that statement, over its
- * RETURNING, and its rows are that statement's rows behind the read-back's tag (write/program/single.ts). The schedule
- * places it there only where that statement makes every side it reads whole and the state it reads is settled there
- * (write/schedule/plan.ts placeReadBacks), and refuses it otherwise; so no carrier ever holds a delta.
+ * `delta.met(R)` the stored facts an insertion met at its arbiter key and did not refuse. A statement sees the snapshot
+ * from before its own writes, and its RETURNING exists only inside it. A read-back whose sides one statement makes
+ * whole, and whose state is settled there, is evaluated inside that statement, over its RETURNING, and its rows are
+ * that statement's rows behind the read-back's tag (write/program/single.ts). Any other is evaluated after the last
+ * stratum, and each side it reads is carried there: the statement making the side whole fills the side's carrier from
+ * its RETURNING inside itself, so the rows the carrier holds are exactly the side's, and the read-back reads them with
+ * the state the whole write leaves (write/schedule/plan.ts placeReadBacks). A side no one statement makes whole is
+ * refused.
  *
  * A relation a read-back names but the ChangeSet never writes has an empty delta by construction, as has a world
  * relation whose definition reads nothing the ChangeSet writes (`NamedDelta` "empty"): a read-back reads it as the empty
@@ -43,16 +51,30 @@ export const deltaTarget = (entries: ReadonlyMap<string, CheckedEntry>, relation
  */
 export type DeltaHeld =
 	| { readonly kind: "cte"; readonly cte: string; readonly heading: ReadonlyArray<CarrierColumn> }
+	| { readonly kind: "carrier"; readonly carrier: WriteCarrier }
 	| { readonly kind: "empty" }
 
 /** A side of a delta a read-back reads outside the statement that makes it: the empty relation, where no statement
- * makes `side` of `name`'s delta, `made` holding the sides some statement makes; none for any other, whose rows no
- * statement but the one making them holds (write/schedule/plan.ts placeReadBacks). */
+ * makes `side` of `name`'s delta, `made` holding the sides some statement makes; none for any other, whose rows only
+ * the statement making them holds, or its carrier (`deltaAfter`). */
 export const emptyDelta = (
 	made: ReadonlyMap<string, ReadonlySet<DeltaSide>>,
 	name: string,
 	side: DeltaSide
 ): DeltaHeld | undefined => (made.get(name)?.has(side) === true ? undefined : { kind: "empty" })
+
+/** A side of a delta a read-back after the last stratum reads: the empty relation, where no statement makes it
+ * (`emptyDelta`); else the carrier the statement making it whole filled, `carried` holding every carried side's
+ * (write/schedule/plan.ts WritePlan `carried`). */
+export const deltaAfter = (
+	made: ReadonlyMap<string, ReadonlySet<DeltaSide>>,
+	carried: ReadonlyMap<string, ReadonlyMap<DeltaSide, WriteCarrier>>,
+	name: string,
+	side: DeltaSide
+): DeltaHeld | undefined => {
+	const carrier = carried.get(name)?.get(side)
+	return carrier === undefined ? emptyDelta(made, name, side) : { kind: "carrier", carrier }
+}
 
 /** The CTE of one side of a relation's delta within the statement that writes it (`deltaCte`): its name, and each of
  * the relation's fields, in heading order, with the column that holds it. */
@@ -144,6 +166,50 @@ export const deltaIn = (
 	returnedSideOf(statement, named.side) === undefined
 		? { kind: "empty" }
 		: { kind: "cte", cte: named.cte, heading: named.heading }
+
+/**
+ * The fill of `carrier`, a carried side's (write/schedule/plan.ts CarriedSide), from the delta CTE `named` of the one
+ * statement that makes that side whole: a data-modifying CTE of that statement, named `name`, inserting every row of
+ * the side into the carrier, each of the relation's fields into its column, which the carrier's heading holds in
+ * heading order as `named` does:
+ *
+ *   "r12" AS (INSERT INTO "__carrier_<k>" ("c1", "c2") SELECT "r9"."c20", "r9"."c21" FROM "r9")
+ *
+ * PostgreSQL runs a data-modifying CTE to its end whether or not the statement reads it, once, after the writes whose
+ * RETURNING it reads, so the carrier, emptied right before the statement, holds exactly the side's rows once the
+ * statement has run. Each column of the side is a stored column of the relation, cast to the carrier column's session
+ * type by assignment, which every base type of a domain admits.
+ */
+export const carriedFill = (name: string, named: DeltaCteName, carrier: WriteCarrier): Cte => ({
+	name,
+	columns: [],
+	materialized: undefined,
+	query: {
+		kind: "insert",
+		table: carrier.name,
+		columns: carrierColumns(carrier),
+		source: {
+			kind: "query",
+			query: provedSelect(
+				"keyed",
+				carrier.heading.map((c) => target(col(named.cte, deltaColumn(named, c.name)))),
+				[cteRef(named.cte)],
+				undefined
+			)
+		},
+		with: undefined,
+		alias: undefined,
+		onConflict: undefined,
+		returning: []
+	}
+})
+
+/** The column of the delta CTE `named` that holds the relation field `field`. */
+const deltaColumn = (named: DeltaCteName, field: string): string =>
+	defined(
+		named.heading.find((c) => c.name === field),
+		`the field ${field} in the delta CTE ${named.cte}`
+	).column
 
 /**
  * The CTE `named`, the added side of a relation a family statement inserts, over the rows that insert's RETURNING

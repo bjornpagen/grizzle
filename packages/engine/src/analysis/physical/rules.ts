@@ -1270,14 +1270,15 @@ const closedProps = (node: NodeOf<"Closed">, cx: RuleContext): PhysicalProps => 
 }
 
 /**
- * A Delta: one side of a relation's change, read in its write's transaction: inside the one statement that makes it,
- * from the rows its RETURNING returns, where the read-back rides that statement (write/readback/deltas.ts deltaCte);
- * and empty, for a side no statement makes. Each of the relation's keys is a key of it, since delta.added(R) lies in R
- * after the change and delta.removed(R) in R before it, and every key of a stored relation is non-deferrable
- * (physical/ddl/tables.ts), so PostgreSQL checks it as each row is written, before RETURNING returns the row; the write
- * oracle's state-comparison carrier holds the primary key as its own constraint (write/carriers relationCarrier). A
- * delta that came to hold one fact twice, or two facts at one key, refuses the write with 23505 before any read-back
- * reads it.
+ * A Delta: one side of a relation's change, read in its write's transaction: inside the one statement that makes it
+ * whole, from the rows its RETURNING returns, where the read-back rides that statement (write/readback/deltas.ts
+ * deltaCte); after the last stratum, from the carrier that statement filled from those rows (write/readback/deltas.ts
+ * carriedFill); and empty, for a side no statement makes. Each of the relation's keys is a key of it, since every row
+ * of delta.added(R) was a row of R once its statement wrote it and every row of delta.removed(R) one before, and every
+ * key of a stored relation is non-deferrable (physical/ddl/tables.ts), so PostgreSQL checks it as each row is written,
+ * before RETURNING returns the row, which is the row a carried side's carrier holds; the write oracle's
+ * state-comparison carrier holds the primary key as its own constraint (write/carriers relationCarrier). A delta that
+ * came to hold one fact twice, or two facts at one key, refuses the write with 23505 before any read-back reads it.
  */
 const deltaProps = (node: NodeOf<"Delta">, cx: RuleContext): PhysicalProps => {
 	const columns = node.heading.map((c) => c.name)

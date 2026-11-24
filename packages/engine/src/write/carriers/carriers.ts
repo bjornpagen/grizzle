@@ -42,7 +42,6 @@ import {
 	namedType,
 	objectName,
 	provedCore,
-	qualifiedCall,
 	select,
 	simpleSelect,
 	target,
@@ -54,6 +53,7 @@ import {
 	type CarrierScope,
 	carrierName,
 	carrierReaderName,
+	carrierReaderScan,
 	emptyNameMap
 } from "#compiler/sql/naming.ts"
 import { carrierEmptying, printTableName, sessionReaderRows } from "#compiler/sql/print.ts"
@@ -96,8 +96,8 @@ export interface CarrierColumn extends HeadingColumn {
  *
  * A described member is a leading CTE of the statement that consumes it, or a carrier of the same NOT NULL shape,
  * filled by INSERT ... SELECT, when sequential statements consume it: a same-key deletion and addition on an immutable
- * relation. No carrier holds a
- * delta: a read-back is evaluated inside the statement that makes its delta (write/readback/deltas.ts). A carrier is a
+ * relation. A carrier holds a delta side only where a read-back after the last stratum reads it: the statement making
+ * the side whole fills it from its RETURNING inside itself (write/readback/deltas.ts carriedFill). A carrier is a
  * temporary relation, so it lives in pg_temp and is never schema-qualified, and every column is NOT NULL. It is the
  * session's own: the session's stand-up of the write makes it, ON COMMIT PRESERVE ROWS, with its emptying, a session
  * function of its own name (`carrierStandUp`, runtime/write/flight.ts StandUp), once, before the session's first call
@@ -123,7 +123,8 @@ export interface CarrierColumn extends HeadingColumn {
  * typmod, no contract or refinement domain (`compareHeading`, `CastInto` "compare").
  *
  * A carrier is filled only by INSERT ... SELECT: from a described member, from a stored relation (the conservative
- * realization's state snapshot), or from the difference of two such relations (a delta by state comparison). A carrier
+ * realization's state snapshot), from the difference of two such relations (a delta by state comparison), or from a
+ * delta side's rows, a data-modifying CTE of the statement that makes it (a carried side). A carrier
  * of no column, which PostgreSQL holds, is the unit relation's: filled by
  * `INSERT INTO "__carrier_<k>" SELECT FROM ...`, one row of no column per row its source reads, and read through
  * the unit marker. */
@@ -220,19 +221,15 @@ export const carrierField = (carrier: WriteCarrier, field: string): CarrierColum
 	)
 
 /**
- * The rows of the carrier `carrier` of the columns `columns` as a statement reads them: through its reader
- * (`carrierReader`), so the statement's plan depends on the function, never on the table its emptying may truncate,
- * each column named in the FROM item's alias list as the carrier's table names it. The one way a statement reads a
- * carrier, a staged carrier's among them (write/program/staged.ts).
+ * The rows of the carrier `carrier` as a statement reads them: through its reader (sql/naming.ts carrierReaderScan), a
+ * staged carrier's among them (write/program/staged.ts).
  */
-export const carrierRead = (carrier: CreateCarrier, alias: string): FromSource => ({
-	kind: "function",
-	call: qualifiedCall(temporarySchema, carrierReaderName(carrier.name), []),
-	alias,
-	columns: carrier.columns.map((c) => c.name),
-	lateral: false,
-	ordinality: false
-})
+export const carrierRead = (carrier: CreateCarrier, alias: string): FromSource =>
+	carrierReaderScan(
+		carrier.name,
+		carrier.columns.map((c) => c.name),
+		alias
+	)
 
 export const carrierScan = (carrier: WriteCarrier, alias: string): FromSource =>
 	carrierRead(carrierTable(carrier), alias)

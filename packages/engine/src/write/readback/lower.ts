@@ -16,6 +16,7 @@ import type { BoundCarrierOf, DeltaRelation } from "#compiler/lower/conservative
 import { lowerOptimized } from "#compiler/lower/optimize/pipeline.ts"
 import type { OptimizedDeliveryProgram, RelationChoice } from "#compiler/lower/shapes/index.ts"
 import type { NameSupplyStart } from "#compiler/sql/naming.ts"
+import { type CarrierColumn, carrierColumns } from "#compiler/write/carriers/carriers.ts"
 import type { WriteNames } from "#compiler/write/insert/statement.ts"
 import { type DeltaHeld, deltaTarget } from "#compiler/write/readback/deltas.ts"
 import { breachGuard } from "#compiler/write/refusal.ts"
@@ -39,16 +40,17 @@ interface ReadBackOptions {
 /** Where a read-back's Delta nodes read each delta it names, by the relation the Delta names and its side. */
 export type DeltasOf = (relation: string, side: DeltaSide) => DeltaRelation | undefined
 
-/** The column of the delta CTE `held` that holds the relation field `field`. */
-const heldColumn = (held: Extract<DeltaHeld, { readonly kind: "cte" }>, field: string): string =>
+/** The column of `heading`, a delta CTE's or a carrier's, that holds the relation field `field`. */
+const heldColumn = (heading: ReadonlyArray<CarrierColumn>, field: string): string =>
 	defined(
-		held.heading.find((c) => c.name === field),
-		`the field ${field} in the delta CTE ${held.cte}`
+		heading.find((c) => c.name === field),
+		`the field ${field} in a held delta`
 	).column
 
 /** The delta source of `relation` from what `heldOf` holds of the relation the ChangeSet writes: the relation it holds
  * whole, each field in its column, or, for a query entry, its target's, each head field of the entry in the column of
- * the target's field it names; the empty relation for an empty delta. */
+ * the target's field it names, in a CTE of the statement making it or in its carrier; the empty relation for an empty
+ * delta. */
 export const deltaSourceIn = (
 	relation: string,
 	entries: ReadonlyMap<string, CheckedEntry>,
@@ -62,22 +64,34 @@ export const deltaSourceIn = (
 	if (held.kind === "empty") {
 		return held
 	}
+	const heading = held.kind === "cte" ? held.heading : held.carrier.heading
 	const columns =
 		entry === undefined
-			? held.heading.map((c) => ({ field: c.name, column: c.column }))
+			? heading.map((c) => ({ field: c.name, column: c.column }))
 			: [...entry.head].map(([head, { field }]) => ({
 					field: head,
-					column: heldColumn(held, field.name)
+					column: heldColumn(heading, field.name)
 				}))
-	return { kind: "cte", cte: held.cte, columns }
+	switch (held.kind) {
+		case "cte":
+			return { kind: "cte", cte: held.cte, columns }
+		case "carrier":
+			return {
+				kind: "carrier",
+				carrier: held.carrier.name,
+				table: carrierColumns(held.carrier),
+				columns
+			}
+	}
 }
 
 /** The statements of one read-back: the optimized lowering of its query, its root a node of the WriteIR's DAG, in the transaction
  * context, its Delta nodes reading what `deltas` gives: a CTE of the write statement it rides, over that statement's
- * RETURNING, or the empty relation (write/readback/deltas.ts DeltaHeld). A read-back over a delta some statement
- * writes is a part of that statement, evaluated over its snapshot, which the schedule placed after every write of the
- * state it reads (write/schedule/plan.ts placeReadBacks); one that reads no written delta is a statement of its own
- * pipelined after the writes in the same transaction. It may attach, order, take and union like any query, so
+ * RETURNING, the carrier that statement filled from it, or the empty relation (write/readback/deltas.ts DeltaHeld). A
+ * read-back that rides the statement making its deltas is a part of that statement, evaluated over its snapshot, which
+ * the schedule placed after every write of the state it reads (write/schedule/plan.ts placeReadBacks); any other is a
+ * statement of its own pipelined after the writes in the same transaction, over its carried deltas. It may attach,
+ * order, take and union like any query, so
  * its lowering is a program of statements, delivered to the host as a query's are (heading groups merged, attachments
  * stitched on their parent keys).
  *

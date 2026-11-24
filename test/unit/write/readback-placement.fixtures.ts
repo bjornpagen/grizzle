@@ -2,8 +2,8 @@
 
 import { assert, defined } from "@bjornpagen/testing/assert"
 import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
-import { Array as Arr, Option, Order, Record as Rec } from "effect"
-import type { NamedSide, ReadBackCrossing } from "#compiler/core/errors.ts"
+import { Array as Arr, Equivalence, Option, Order, Record as Rec } from "effect"
+import type { NamedSide } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { noClock, transactionClock } from "#compiler/ir/clock.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
@@ -116,17 +116,24 @@ const writesOf = (s: Sketch): ReadonlyArray<Write> => {
 	return [...first, ...beside, ...again, ...other]
 }
 
-/** What the model says of a case: the statement the read-back rides, with the relations it writes and the write that
- * makes the first named side; after the writes; or refused, with every crossing the case holds. */
+/** The statement that makes a named side whole: the relation and kind of its write of the side, and the relations its
+ * statement writes. */
+export interface Making {
+	readonly relation: string
+	readonly maker: Maker
+	readonly writes: ReadonlyArray<string>
+}
+
+/** What the model says of a case: the statement the read-back rides, which makes every side it names whole; after the
+ * last stratum, each side it names carried out of the statement making it whole, none where it names no side a
+ * statement makes; or refused, with every side no one statement makes whole. */
 type Verdict =
+	| ({ readonly kind: "rides" } & Making)
 	| {
-			readonly kind: "rides"
-			readonly relation: string
-			readonly maker: Maker
-			readonly writes: ReadonlyArray<string>
+			readonly kind: "after"
+			readonly carried: ReadonlyArray<{ readonly side: NamedSide; readonly making: Making }>
 	  }
-	| { readonly kind: "after" }
-	| { readonly kind: "refused"; readonly crossings: ReadonlyArray<ReadBackCrossing> }
+	| { readonly kind: "refused"; readonly sides: ReadonlyArray<NamedSide> }
 
 /** The model (the header): the case's writes, the sides the read-back names, and where each is made whole. */
 export const verdictOf = (s: Sketch): Verdict => {
@@ -150,48 +157,42 @@ export const verdictOf = (s: Sketch): Verdict => {
 		)
 		return Arr.isReadonlyArrayEmpty(netting) ? maker : undefined
 	}
-	const [first] = named
-	if (first === undefined) {
-		return { kind: "after" }
-	}
 	const made = Arr.map(named, (n) => ({ side: n, write: whole(n) }))
-	const twice = Arr.flatMap(made, (m): ReadonlyArray<ReadBackCrossing> =>
-		m.write === undefined ? [{ kind: "sideWrittenTwice", ...m.side }] : []
-	)
-	const apart = Arr.flatMap(made, (x) =>
-		Arr.flatMap(made, (y): ReadonlyArray<ReadBackCrossing> =>
-			x.write !== undefined && y.write !== undefined && x.write.statement !== y.write.statement
-				? [{ kind: "sidesApart", first: x.side, second: y.side }]
-				: []
-		)
-	)
-	const [riding] = Arr.flatMap(made, (m) => (m.write === undefined ? [] : [m.write]))
-	const stateAfter =
-		riding !== undefined &&
-		s.reads === "state" &&
-		(s.written === "second" ||
-			(s.written === "first" &&
-				Arr.some(writes, (w) => w.relation === s.other && w.statement === riding.statement)))
-	const after: ReadonlyArray<ReadBackCrossing> = stateAfter
-		? Arr.map(named, (n): ReadBackCrossing => ({ kind: "stateAfter", delta: n, state: s.other }))
-		: []
-	const crossings = [...twice, ...apart, ...after]
-	if (Arr.isReadonlyArrayNonEmpty(crossings) || riding === undefined) {
-		return { kind: "refused", crossings }
+	const broken = Arr.flatMap(made, (m) => (m.write === undefined ? [m.side] : []))
+	if (Arr.isReadonlyArrayNonEmpty(broken)) {
+		return { kind: "refused", sides: broken }
 	}
-	return {
-		kind: "rides",
-		relation: riding.relation,
-		maker: riding.maker,
+	const making = (w: Write): Making => ({
+		relation: w.relation,
+		maker: w.maker,
 		writes: Arr.sort(
 			Arr.dedupe(
 				Arr.map(
-					Arr.filter(writes, (w) => w.statement === riding.statement),
-					(w) => w.relation
+					Arr.filter(writes, (x) => x.statement === w.statement),
+					(x) => x.relation
 				)
 			),
 			Order.String
 		)
+	})
+	const wholes = Arr.flatMap(made, (m) =>
+		m.write === undefined ? [] : [{ side: m.side, write: m.write }]
+	)
+	const [first] = wholes
+	const together =
+		first !== undefined && Arr.every(wholes, (w) => w.write.statement === first.write.statement)
+	const stateAfter =
+		first !== undefined &&
+		s.reads === "state" &&
+		(s.written === "second" ||
+			(s.written === "first" &&
+				Arr.some(writes, (w) => w.relation === s.other && w.statement === first.write.statement)))
+	if (first !== undefined && together && !stateAfter) {
+		return { kind: "rides", ...making(first.write) }
+	}
+	return {
+		kind: "after",
+		carried: Arr.map(wholes, (w) => ({ side: w.side, making: making(w.write) }))
 	}
 }
 
@@ -310,15 +311,49 @@ const makerOf = (result: WriteStepResult): Maker | undefined => {
 	}
 }
 
+/** The writes of the statement at `position`, a statement of tagged parts: each part's relation and the maker of its
+ * rows. */
+const writtenAt = (
+	artifact: WriteArtifact,
+	position: number
+): ReadonlyArray<{ readonly relation: string; readonly maker: Maker | undefined }> => {
+	const step = defined(artifact.statements[position], "the statement").step
+	assert.equal(
+		step.kind,
+		"single",
+		"a read-back rides, or a side is carried out of, a statement of tagged parts"
+	)
+	return step.kind === "single"
+		? Arr.map(step.parts, (p) => ({ relation: p.step.relation, maker: makerOf(p.step.result) }))
+		: []
+}
+
+/** Whether the statement at `position` is the one `making` says: its write of the side's relation by that maker, and
+ * the relations it writes. */
+export const isMaking = (artifact: WriteArtifact, position: number, making: Making): boolean => {
+	const parts = writtenAt(artifact, position)
+	return (
+		Arr.some(parts, (p) => p.relation === making.relation && p.maker === making.maker) &&
+		sameWrites(
+			Arr.sort(
+				Arr.map(parts, (p): string => p.relation),
+				Order.String
+			),
+			making.writes
+		)
+	)
+}
+
+/** Two lists of relation names, equal element by element. */
+const sameWrites = Arr.makeEquivalence(Equivalence.String)
+
 /** The relations the riding statement at `position` writes, and the maker of its write of `relation`. */
 export const ridden = (
 	artifact: WriteArtifact,
 	position: number,
 	relation: string
 ): { readonly writes: ReadonlyArray<string>; readonly maker: Maker | undefined } => {
-	const step = defined(artifact.statements[position], "the ridden statement").step
-	assert.equal(step.kind, "single", "a read-back rides a statement of tagged parts")
-	const parts = step.kind === "single" ? Arr.map(step.parts, (p) => p.step) : []
+	const parts = writtenAt(artifact, position)
 	const own = defined(
 		Option.getOrUndefined(Arr.findFirst(parts, (p) => p.relation === relation)),
 		`the ridden statement's write of ${relation}`
@@ -328,32 +363,13 @@ export const ridden = (
 			Arr.map(parts, (p): string => p.relation),
 			Order.String
 		),
-		maker: makerOf(own.result)
+		maker: own.maker
 	}
 }
 
 /** Whether two named sides are one. */
-const sameSide = (x: NamedSide, y: NamedSide): boolean =>
+export const sameSide = (x: NamedSide, y: NamedSide): boolean =>
 	x.relation === y.relation && x.side === y.side
-
-/** Whether `got`, a refusal's crossing, is one the model holds: two sides apart in either order. */
-export const holds = (crossings: ReadonlyArray<ReadBackCrossing>, got: ReadBackCrossing): boolean =>
-	Arr.some(crossings, (c) => {
-		switch (c.kind) {
-			case "sideWrittenTwice":
-				return got.kind === "sideWrittenTwice" && sameSide(c, got)
-			case "sidesApart":
-				return (
-					got.kind === "sidesApart" &&
-					((sameSide(c.first, got.first) && sameSide(c.second, got.second)) ||
-						(sameSide(c.first, got.second) && sameSide(c.second, got.first)))
-				)
-			case "stateAfter":
-				return got.kind === "stateAfter" && got.state === c.state && sameSide(c.delta, got.delta)
-			case "boundAfter":
-				return got.kind === "boundAfter" && got.bound === c.bound && sameSide(c.delta, got.delta)
-		}
-	})
 
 export type Feature =
 	| "rides an insert"
@@ -365,21 +381,15 @@ export type Feature =
 	| "rides after state written beside it, named before it"
 	| "rides after state written beside it, named after it"
 	| "runs after the writes"
+	| "carried past state its own statement writes"
+	| "carried past state a later stratum writes"
+	| "carried, two sides two statements make"
+	| "carried out of a put's displacing deletion"
 	| "refused: a side two statements make"
-	| "refused: two sides apart"
-	| "refused: state after"
-	| "refused: a bound parameter evaluated after"
 
 export const ridingNotes: { readonly [K in Maker]: Feature } = {
 	insert: "rides an insert",
 	delete: "rides a delete",
 	put: "rides a put's insert half",
 	displaced: "rides a put's displacing deletion"
-}
-
-export const crossingNotes: { readonly [K in ReadBackCrossing["kind"]]: Feature } = {
-	sideWrittenTwice: "refused: a side two statements make",
-	sidesApart: "refused: two sides apart",
-	stateAfter: "refused: state after",
-	boundAfter: "refused: a bound parameter evaluated after"
 }

@@ -1065,9 +1065,10 @@ export interface Ran {
  */
 /**
  * `changes` with every read-back its compile refuses as crossing statements (ReadBackCrossesStatements) left out, and
- * whether one was: a read-back is evaluated inside the one statement that makes its delta (write/schedule/plan.ts
- * placeReadBacks), and the conservative realization's state comparison, the oracle, knows no statement, so the case
- * judges the read-backs that ride.
+ * whether one was: a read-back reads each delta side inside the one statement that makes it whole, or carried out of
+ * that statement to the end of the write (write/schedule/plan.ts placeReadBacks), so one naming a side no one statement
+ * makes whole is refused; the conservative realization's state comparison, the oracle, knows no statement, so the case
+ * judges every other read-back, riding or carried.
  */
 const settledReads = (
 	t: WriteTarget,

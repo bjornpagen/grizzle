@@ -39,11 +39,13 @@ export interface DeltaColumn {
  * The relation a Delta node reads, each field of its relation's delta heading with the column that holds it, so a Delta
  * node reads the fields it delivers, whichever of them pruning leaves it (lower/optimize/prune). In a read-back: a CTE
  * of the statement the read-back rides, over the rows that statement's RETURNING returns (write/readback/deltas.ts
- * deltaCte); a carrier, which only the write oracle's conservative realization fills, by comparing the states before
- * and after the change (test/support/oracle/write/realize.ts); or the empty relation, a side of a delta no statement
- * makes. In a rule probe over its region: a CTE named by the session's delta of the relation's side, a table of
- * pg_temp that the relation's rule captures fill, which the judge reads each read of through the reader of the
- * selection the statement reads it under (physical/ddl/deltas.ts headed); or, in a rule's check over every row,
+ * deltaCte); a carrier, read through its reader, every column of its table in `table`'s order: the one the statement
+ * making the side whole fills from its RETURNING for a read-back after the last stratum (write/readback/deltas.ts
+ * carriedFill), or the write oracle's conservative realization's, filled by comparing the states before and after the
+ * change (test/support/oracle/write/realize.ts); or the empty relation, a side of a delta no statement makes. In a rule
+ * probe over its region: a CTE named by the session's delta of the relation's side, a table of pg_temp that the
+ * relation's rule captures fill, which the judge reads each read of through the reader of the selection the statement
+ * reads it under (physical/ddl/deltas.ts headed); or, in a rule's check over every row,
  * the relation's own table, every row of which the transaction that writes every row adds (physical/ddl/rules.ts
  * everyRow), beside the empty relation it removes.
  */
@@ -52,6 +54,7 @@ export type DeltaRelation =
 	| {
 			readonly kind: "carrier"
 			readonly carrier: CarrierName
+			readonly table: ReadonlyArray<string>
 			readonly columns: ReadonlyArray<DeltaColumn>
 	  }
 	| {

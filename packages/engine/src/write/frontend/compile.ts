@@ -3295,11 +3295,12 @@ const compile = (
 	}
 
 	/** 4. Schedule, with the final sources: a stratum whose actions an immediate key orders in a cycle is refused,
-	 * since no order of its statements keeps every key at every statement. A read-back over a delta is evaluated inside
-	 * the statement that makes it (write/schedule/plan.ts placeReadBacks), which sees only the state earlier statements
-	 * wrote: where the stratum's order runs a delta's relation before a relation the same read-back reads as state, the
-	 * stratum is ordered again with that delta's relation after every action no key orders before it
-	 * (schedule.ts canonicalActionOrder), and any other stratum keeps its order. */
+	 * since no order of its statements keeps every key at every statement. A read-back over a delta rides the statement
+	 * that makes it where the state it reads is settled there, and is carried to the end of the write otherwise
+	 * (write/schedule/plan.ts placeReadBacks); the statement sees only the state earlier statements wrote: where the
+	 * stratum's order runs a delta's relation before a relation the same read-back reads as state, the stratum is ordered
+	 * again with that delta's relation after every action no key orders before it (schedule.ts canonicalActionOrder), so
+	 * the read-back rides with no carrier, and any other stratum keeps its order. */
 	const strata = placedByStratum.map(({ stratum, built, outside }): WriteStratum => {
 		const scheduleOf = (last: ReadonlySet<string>) =>
 			scheduleStratum(

@@ -258,7 +258,8 @@ interface ReadSketch {
  * - "parent present": the change adds three parent facts and, in a later stratum, a child fact naming each, and reads
  *   the added child facts attaching, stated "one", their parents, each present; the parents are written in a stratum
  *   before the children's statement, which the read-back rides, since one statement writing both would read the parents
- *   as they were before it, which the compile refuses (write/schedule/plan.ts placeReadBacks, `stateAfter`);
+ *   as they were before it, so the compile would carry the read-back's delta to the end of the write instead
+ *   (write/schedule/plan.ts placeReadBacks);
  * - "parent absent": the stored facts hold a parent fact and a child fact naming it, which the change deletes, the
  *   parent in a stratum before the child, under the deferred containment, and it reads the removed child facts
  *   attaching their parents, each gone, for the same reason;

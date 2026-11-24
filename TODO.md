@@ -14,18 +14,19 @@ post-beta swarm's fixes for the next release.
   created, and only while they are empty.
 
 ### After the 1,000-children goal (the owner's pinned goal, 2026-11-10)
-- **A read-back over a delta no one statement makes is refused (CARRIER, 2026-11-11):** a read-back runs inside the
-  one statement that makes its delta, whose rows exist nowhere else, and no delta carrier is left, so
-  ReadBackCrossesStatements refuses three crossings: a side two statements make, or a statement of another stratum
-  nets (one relation in two strata, an ownerPut's UPDATE and insert half; an insert and a delete of one relation in
-  one stratum never net, READBACK 2026-11-14, so each read back compiles, the shape of edullm's publish of
-  PublishedTest); two sides two statements make (a put's added and
-  removed read in one read-back); and a relation it reads as state written at or after the delta's statement (another
-  part of a one-statement stratum, a write an immediate key holds after it, a later stratum). Follow-ups, each on a downstream's ask: (1) state written in the riding
-  statement itself, read as that statement's snapshot less the keys it changed plus its added rows, which needs the
-  isolation extractor to push key equalities into UNION ALL arms; (2) a mutable put read back on both sides as one ON
-  CONFLICT DO UPDATE with RETURNING old; (3) an ownerPut's added side in one statement, its UPDATE and insert half
-  touching disjoint keys.
+- **A read-back over a side no one statement makes whole is refused (CARRIER, 2026-11-11; DELTAEND, 2026-11-24):**
+  a read-back rides the one statement that makes every side it reads whole where the state it reads is settled there,
+  and otherwise runs after the last stratum over each side carried there in a session carrier the statement making it
+  fills from its RETURNING (write/schedule/plan.ts placeReadBacks), so state written at or after the delta's statement,
+  two sides two statements make and a relation parameter bound after the delta's statement are all read. Only a side
+  two statements make, or one a statement of another stratum nets (one relation in two strata, an ownerPut's UPDATE and
+  insert half; an insert and a delete of one relation in one stratum never net, READBACK 2026-11-14), is refused as
+  ReadBackCrossesStatements. Follow-ups, each on a downstream's ask: (1) a side two statements make, carried out of
+  both and netted in the read-back's statement as runtime/write/net.ts nets it; (2) a mutable put read back on both
+  sides as one ON CONFLICT DO UPDATE with RETURNING old; (3) an ownerPut's added side in one statement, its UPDATE and
+  insert half touching disjoint keys. At READ COMMITTED, a read-back keyed by its delta's columns certifies only once
+  the borrow checker binds a read through a RETURNING column, a carrier's column and a semi-join to own rows
+  (RCCERT8's binding-lineage rule): until then such a member's reads at a unit's rows fault for want of the unit's key.
 - **Member and shared sub-query carriers stay per call (CARRIER, 2026-11-11):** a stratum realized statement by
   statement still carries, in a temporary table created on every call, a described member two of its statements read
   (an immutable put's displacing deletion and insert half, an insert and its sequence advance, a deletion's D EXCEPT A)

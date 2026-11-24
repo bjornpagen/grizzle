@@ -299,9 +299,10 @@ const scheduledOrder = (last: ReadonlySet<string>): Order.Comparator<Scheduled> 
 /**
  * A stratum's actions in canonical order (`scheduledOrder`), the actions of the relations `deltas` names after every
  * other: relations whose deltas a read-back reads beside a relation it reads as state, which the stratum's order wrote
- * after them (frontend/compile.ts). A read-back over such a delta is evaluated inside the statement that makes it
- * (write/schedule/plan.ts placeReadBacks), which sees the state every earlier statement wrote, so where no key orders the
- * actions this runs the writes of the state it reads first. Every member of a stratum reads the stratum's starting
+ * after them (frontend/compile.ts). A read-back over such a delta rides the statement that makes it where the state it
+ * reads is settled there, which sees the state every earlier statement wrote, and is carried to the end of the write
+ * otherwise (write/schedule/plan.ts placeReadBacks), so where no key orders the actions this runs the writes of the
+ * state it reads first, and the read-back rides with no carrier. Every member of a stratum reads the stratum's starting
  * state, so the order of actions no key orders changes no result.
  */
 export const canonicalActionOrder = <A extends Scheduled>(

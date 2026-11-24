@@ -537,9 +537,10 @@ const keyRefusalText = (key: KeyRefusal): string => keyFaultText(key.subject, ke
  *   run before the next, and the last before the first (write/frontend/schedule.ts), so no order of the stratum's
  *   statements keeps every key at every statement: an action's insert, put or delete, or a family statement's: an
  *   additions' insert of its member's rows, or its count of an owner's where it appends none, or a removals' delete.
- * - `ReadBackCrossesStatements`: the ChangeSet's read-back `read` reads a delta no one statement of the write holds
- *   whole with the state it reads, as `crossing` says (ReadBackCrossing): a read-back is evaluated inside the statement
- *   that makes its delta, whose rows exist nowhere else (write/schedule/plan.ts placeReadBacks).
+ * - `ReadBackCrossesStatements`: the ChangeSet's read-back `read` reads `delta`, a side of a relation's delta no one
+ *   statement of the write makes whole: two statements make it, or a statement of another stratum makes the side it
+ *   nets against, so it is the rows of no statement, which a read-back reads inside that statement or carries to the
+ *   end of the write (write/schedule/plan.ts placeReadBacks).
  * - `UndeclaredDrop`: a migration drops `dropped`, which the previous installation holds and the schema no longer
  *   declares, and no declaration of the draft (`--rename`, `--drop`) names it.
  * - `Misdeclared`: a declaration of the draft names what the previous snapshot and the target do not bear out, as
@@ -780,7 +781,7 @@ export type CompileReason =
 			readonly _tag: "ReadBackCrossesStatements"
 			readonly at: SourceLoc
 			readonly read: string
-			readonly crossing: ReadBackCrossing
+			readonly delta: NamedSide
 	  }
 	| {
 			readonly _tag: "NoReadCommittedForm"
@@ -821,44 +822,15 @@ export interface NamedSide {
 	readonly side: "added" | "removed" | "met"
 }
 
-/**
- * Why no one statement of a write holds what a read-back reads (ReadBackCrossesStatements):
- *
- * - `sideWrittenTwice`: the side is made by two statements, or netted against facts a statement of another stratum makes
- *   the other side of, so no statement's rows are the whole delta: one relation written in two strata;
- * - `sidesApart`: `first` and `second` are made whole by two different statements;
- * - `stateAfter`: the read-back reads `state`, which a statement at or after the one making `delta` writes, so that
- *   statement still sees `state` as it was before the change;
- * - `boundAfter`: the read-back reads the relation parameter `bound`, bound on a part of the ChangeSet whose first
- *   stratum comes after the one whose statement makes `delta`, so its one evaluation, in the state before that part, is
- *   not yet made where the delta is.
- */
-export type ReadBackCrossing =
-	| ({ readonly kind: "sideWrittenTwice" } & NamedSide)
-	| { readonly kind: "sidesApart"; readonly first: NamedSide; readonly second: NamedSide }
-	| { readonly kind: "stateAfter"; readonly delta: NamedSide; readonly state: string }
-	| { readonly kind: "boundAfter"; readonly delta: NamedSide; readonly bound: string }
-
 /** A side as a read-back names it: `delta.added(R)`. */
 const namedSideText = (named: NamedSide): string => `delta.${named.side}(${named.relation})`
 
 /**
- * A read-back is evaluated inside the one statement that makes its delta, since those rows exist nowhere else: say
- * which crossing leaves it no such statement, and the rewrites that give it one.
+ * A read-back reads a delta side inside the one statement that makes it whole, or carries it from there to the end of
+ * the write: say that no one statement makes `delta` whole, and the rewrites that give it one.
  */
-const readBackCrossingText = (read: string, crossing: ReadBackCrossing): string => {
-	const evaluated = `read-back ${read} is evaluated inside the one statement that makes the delta it reads, whose rows exist nowhere else`
-	switch (crossing.kind) {
-		case "sideWrittenTwice":
-			return `${evaluated}, and ${namedSideText(crossing)} is made by more than one statement of the write, or netted against a statement's of another stratum: write ${crossing.relation} in one action of one stratum, or read ${crossing.relation} back by its key after the change`
-		case "sidesApart":
-			return `${evaluated}, and ${namedSideText(crossing.first)} and ${namedSideText(crossing.second)} are made by two statements: read each in a read-back of its own`
-		case "stateAfter":
-			return `${evaluated}, and it reads ${crossing.state}, which the write changes at or after the statement making ${namedSideText(crossing.delta)}, so that statement sees ${crossing.state} as it was before: read delta.added(${crossing.state}) in its place, or write ${crossing.state} in an earlier stratum (ChangeSet.sequence)`
-		case "boundAfter":
-			return `${evaluated}, and it reads relation parameter ${crossing.bound}, bound on a part sequenced after the statement making ${namedSideText(crossing.delta)} and evaluated once before that part: bind ${crossing.bound} on a ChangeSet that holds that statement, or read ${crossing.bound} in a read-back of its own`
-	}
-}
+const readBackCrossingText = (read: string, delta: NamedSide): string =>
+	`read-back ${read} reads ${namedSideText(delta)}, which more than one statement of the write makes, or which a statement of another stratum nets against, so it is the rows of no one statement, inside which the read-back would read it or out of which it would carry it: write ${delta.relation} in one action of one stratum, or read ${delta.relation} back by its key after the change`
 
 /** The reasons whose one fact is a sentence: built by prose (a check's or builder's refusal helper). */
 export type ProseTag =
@@ -1131,7 +1103,7 @@ export const compileReasonText = (reason: CompileReason): string => {
 		case "UnorderableStratum":
 			return `the stratum's ${reason.cycle.map((w) => `${w.op} of ${w.relation}`).join(", then ")} must each run before the next, and the last before the first, by the immediate keys and foreign keys between them, so no order of its statements keeps them all: write one of them in another stratum (ChangeSet.sequence)`
 		case "ReadBackCrossesStatements":
-			return readBackCrossingText(reason.read, reason.crossing)
+			return readBackCrossingText(reason.read, reason.delta)
 		case "NoReadCommittedForm":
 			return noReadCommittedFormText(reason.relation)
 		case "UninstalledDomain":

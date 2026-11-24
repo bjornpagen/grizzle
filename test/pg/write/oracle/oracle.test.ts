@@ -30,7 +30,7 @@
  * "parameters bound" and "strata:3"), and a refused side judged under the draws its sequences record ("lagging
  * identical netted", "lagging differing" and "counts under the realization's draws").
  */
-import { type Case, property } from "@bjornpagen/testing/property"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { writeRunDeadline } from "#test/pg/write/oracle/oracle.fixtures.ts"
 import { CurrentRestorage } from "#test/support/oracle/gen/restorage.ts"
@@ -71,7 +71,16 @@ export const writeOracle = property.explore(perturbedRunGen, {
 		kind: "second-implementation",
 		name: "the brute-force add-wins transition and the conservative realization"
 	},
-	kept: [],
+	kept: [
+		{
+			token: ReplayToken(
+				"test/pg/write/oracle/oracle.test.ts#writeOracle:1fffffffffffffffff.d:1.2.cn4.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.3.0.0.0.3.2.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.1.0.0.1.0.1.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0"
+			),
+			reason:
+				"a read-back of G0R1's removed facts attaching G0R0, both deleted in one stratum their containment orders, runs after the writes over its delta carried out of G0R1's deletion, whose carrier's fill is a data-modifying CTE no part of the statement reads, with no RETURNING",
+			since: "2026-11-24"
+		}
+	],
 	kills: [
 		{
 			file: "packages/engine/src/physical/ddl/roles.ts",

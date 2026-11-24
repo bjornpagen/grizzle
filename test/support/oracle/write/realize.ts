@@ -28,6 +28,7 @@ import {
 	buildEmptyCarrier,
 	buildFillCarrier,
 	type CarrierDeclaring,
+	carrierColumns,
 	carrierField,
 	carrierRows,
 	type WriteCarrier,
@@ -390,6 +391,7 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 		return {
 			kind: "carrier",
 			carrier: carrier.name,
+			table: carrierColumns(carrier),
 			columns:
 				entry === undefined
 					? Arr.map(carrier.heading, (c) => ({ field: c.name, column: c.column }))

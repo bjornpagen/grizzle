@@ -205,8 +205,10 @@ import {
 	type PutStatement
 } from "#compiler/write/put/statement.ts"
 import {
+	carriedFill,
 	type DeltaCteName,
 	type DeltaHeld,
+	deltaAfter,
 	deltaCte,
 	deltaCteName,
 	deltaIn,
@@ -216,6 +218,7 @@ import {
 } from "#compiler/write/readback/deltas.ts"
 import { type DeltasOf, deltaSourceIn, lowerReadBack } from "#compiler/write/readback/lower.ts"
 import {
+	type CarriedSide,
 	type FormLack,
 	type PlanAction,
 	type PlannedWrite,
@@ -828,13 +831,14 @@ export type FamilyRiders =
 	| { readonly kind: "none" }
 	| {
 			readonly kind: "riding"
-			readonly readBacks: NonEmptyReadonlyArray<ReadBack>
+			readonly readBacks: ReadonlyArray<ReadBack>
+			readonly carries: ReadonlyArray<CarriedSide>
 			readonly context: RidingContext
 	  }
 
 /**
  * Places the family statement of `node` in `stratum`, after the statements placed so far and those `deps` gives it,
- * with the read-backs `riders` riding it, each evaluated in it (`ridingFamily`).
+ * with the read-backs `riders` riding it, each evaluated in it, and the sides it carries filled in it (`ridingFamily`).
  */
 export const placeFamily = (
 	b: ArtifactBuilder,
@@ -851,7 +855,7 @@ export const placeFamily = (
 	const { step, sql } = placement
 	const ridden =
 		riders.kind === "riding"
-			? ridingFamily(sql, riders.readBacks, riders.context)
+			? ridingFamily(sql, riders.readBacks, riders.carries, riders.context)
 			: { ast: sql.ast, sql: sql.sql, params: sql.params, width: sql.width, riders: [] }
 	placeSpec(
 		b,
@@ -875,18 +879,21 @@ export const placeFamily = (
 }
 
 /**
- * The family statement `sql` with the read-backs `readBacks` riding it (write/schedule/plan.ts placeReadBacks), and each
- * riding read-back with where its rows stand among the statement's. A relation's added side the statement inserts is one
- * CTE over the rows its insert's RETURNING returns, every field in heading order (write/readback/deltas.ts deltaCteName),
- * and every other side of a relation it writes is the empty relation: an additions statement removes nothing, and the
- * root it inserts for a read-back is a stamped nesting's, whose stamped rows meet no stored one. Each read-back is
- * lowered over those deltas, named past them and past every earlier read-back's, and is one part of the statement after
- * the family's parts, its rows behind its tag, every arm padded to the widest, as a single statement's riders are
+ * The family statement `sql` with the read-backs `readBacks` riding it and the sides `carries` carried out of it
+ * (write/schedule/plan.ts placeReadBacks), and each riding read-back with where its rows stand among the statement's. A
+ * relation's added side the statement inserts is one CTE over the rows its insert's RETURNING returns, every field in
+ * heading order (write/readback/deltas.ts deltaCteName), and every other side of a relation it writes is the empty
+ * relation: an additions statement removes nothing, and the root it inserts for a read-back is a stamped nesting's,
+ * whose stamped rows meet no stored one. Each carried side is filled into its carrier from its CTE by a data-modifying
+ * CTE after them (write/readback/deltas.ts carriedFill), a carried side of no CTE left empty. Each read-back is lowered
+ * over those deltas, named past them and past every earlier read-back's, and is one part of the statement after the
+ * family's parts, its rows behind its tag, every arm padded to the widest, as a single statement's riders are
  * (write/program/single.ts singleStatement). A read-back's statement rides in its first form.
  */
 const ridingFamily = (
 	sql: FamilyWriteSql,
-	readBacks: NonEmptyReadonlyArray<ReadBack>,
+	readBacks: ReadonlyArray<ReadBack>,
+	carries: ReadonlyArray<CarriedSide>,
 	context: RidingContext
 ): ReturnType<typeof ridingFamilyStatement> & {
 	readonly riders: ReadonlyArray<RidingReadBack>
@@ -903,15 +910,20 @@ const ridingFamily = (
 	const added = new Map<string, DeltaCteName>()
 	const deltaCtes = sql.returnings.flatMap((r) => {
 		const delta = named.get(r.relation)
-		const read = readBacks.some((x) =>
-			x.deltas.some((d) => targetOf(d.relation) === r.relation && d.side === "added")
-		)
+		const read =
+			readBacks.some((x) =>
+				x.deltas.some((d) => targetOf(d.relation) === r.relation && d.side === "added")
+			) || carries.some((c) => c.relation === r.relation && c.side === "added")
 		if (delta === undefined || !read || r.result.kind !== "insert" || r.rows !== "facts") {
 			return []
 		}
 		const cte = deltaCteName(delta.relation, "added", supply)
 		added.set(r.relation, cte)
 		return [familyAddedCte(r, cte)]
+	})
+	const fills = carries.flatMap((c) => {
+		const cte = c.side === "added" ? added.get(c.relation) : undefined
+		return cte === undefined ? [] : [carriedFill(supply.relation(carriedOrigin(c)), cte, c.carrier)]
 	})
 	const deltaNames: NameMap = supply.map()
 	const held = (target: string, side: DeltaSide): DeltaHeld | undefined => {
@@ -924,7 +936,7 @@ const ridingFamily = (
 	const deltas: DeltasOf = (relation, side) =>
 		deltaSourceIn(relation, frontend.deltaEntries, (target) => held(target, side))
 	let cursor = namesPast(deltaNames, start)
-	const placed = mapNonEmpty(readBacks, (read, at) => {
+	const placed = readBacks.map((read, at) => {
 		const program = context.lower(read, deltas, cursor)
 		const statement = program.statement
 		cursor = namesPast(statement.sql.nameMap, cursor)
@@ -946,10 +958,17 @@ const ridingFamily = (
 		return { rider, part: own.part, tag }
 	})
 	return {
-		...ridingFamilyStatement(sql, deltaCtes, deltaNames, placed, cursor),
+		...ridingFamilyStatement(sql, [...deltaCtes, ...fills], deltaNames, placed, cursor),
 		riders: placed.map((p) => p.rider)
 	}
 }
+
+/** What the statement filling a carried side's carrier writes, for the dependency tracker. */
+const carriedAccess = (carried: CarriedSide): string => `carrier:${carried.carrier.name}`
+
+/** What a carried side's fill CTE is named for (write/readback/deltas.ts carriedFill). */
+const carriedOrigin = (carried: CarriedSide) =>
+	({ kind: "internal", purpose: `carried ${carried.side} of ${carried.relation}` }) as const
 
 /** A statement placed at the next position: its step, its spec, its audited AST, its forms and the read-backs riding
  * it. */
@@ -1212,10 +1231,15 @@ const optimizedPlacement = (
 		...sharing.carriersRead(node).map((carrier) => `carrier:${carrier}`),
 		...boundReads(plan.bound, [node])
 	]
-	/** What a read-back's statement reads: the relations its query reads and the bound inputs' carriers. */
+	/** What a read-back's statement reads: the relations its query reads, the bound inputs' carriers and the carriers of
+	 * the delta sides it reads carried (WritePlan `carried`). */
 	const readBackReads = (read: ReadBack): ReadonlyArray<string> => [
 		...read.node.meta.reads.map((r) => `relation:${r}`),
-		...boundReads(plan.bound, [read.node])
+		...boundReads(plan.bound, [read.node]),
+		...read.deltas.flatMap((d) => {
+			const carrier = plan.carried.get(deltaTarget(frontend.deltaEntries, d.relation))?.get(d.side)
+			return carrier === undefined ? [] : [`carrier:${carrier.name}`]
+		})
 	]
 	const describedReads = (inputs: ReadonlyArray<WriteInput>): ReadonlyArray<string> =>
 		inputs.flatMap((input) => (input.kind === "described" ? sharedReads(input.node) : []))
@@ -1253,14 +1277,16 @@ const optimizedPlacement = (
 	}
 	/** The family statements, each placed where its stratum's schedule runs it (plan step `family`). */
 	const families = familyProgram(frontend, w)
-	/** What a family statement reads and writes, and what its riding read-backs read, for the dependency tracker. */
+	/** What a family statement reads and writes, what its riding read-backs read and the carriers it fills, for the
+	 * dependency tracker. */
 	const familyDeps = (
 		placement: FamilyPlacement,
-		readBacks: ReadonlyArray<ReadBack>
+		readBacks: ReadonlyArray<ReadBack>,
+		carries: ReadonlyArray<CarriedSide>
 	): ReadonlyArray<number> => {
 		const relations = placementRelations(placement).map((r) => `relation:${r}`)
 		const read = readBacks.flatMap(readBackReads)
-		return tracker.add([...relations, ...read], relations)
+		return tracker.add([...relations, ...read], [...relations, ...carries.map(carriedAccess)])
 	}
 	for (const step of plan.steps) {
 		switch (step.kind) {
@@ -1305,11 +1331,12 @@ const optimizedPlacement = (
 					families,
 					step.stratum,
 					step.node,
-					(placement) => familyDeps(placement, step.readBacks),
-					isNonEmpty(step.readBacks)
+					(placement) => familyDeps(placement, step.readBacks, step.carries),
+					isNonEmpty(step.readBacks) || isNonEmpty(step.carries)
 						? {
 								kind: "riding",
 								readBacks: step.readBacks,
+								carries: step.carries,
 								context: {
 									frontend,
 									made: plan.made,
@@ -1448,28 +1475,29 @@ const optimizedPlacement = (
 					return { shares, writes, start }
 				}
 				const position = b.statements.length
-				const { single, writes, forms, riders } = isNonEmpty(step.readBacks)
-					? ridingSingle(step.readBacks, formedParts(buildParts), {
-							frontend,
-							made: plan.made,
-							lower: (read, deltas, start) => lowerReadBack(read, deltas, start, readBackOptions)
-						})
-					: (() => {
-							const plain = formed(
-								() => {
-									const built = buildParts()
-									return { single: singleOf(built, noRiding), writes: built.writes }
-								},
-								(large) => partedSentOf(large.single)
-							)
-							return { ...plain.statement, forms: plain.forms, riders: [] }
-						})()
+				const { single, writes, forms, riders } =
+					isNonEmpty(step.readBacks) || isNonEmpty(step.carries)
+						? ridingSingle(step.readBacks, step.carries, formedParts(buildParts), {
+								frontend,
+								made: plan.made,
+								lower: (read, deltas, start) => lowerReadBack(read, deltas, start, readBackOptions)
+							})
+						: (() => {
+								const plain = formed(
+									() => {
+										const built = buildParts()
+										return { single: singleOf(built, noRiding), writes: built.writes }
+									},
+									(large) => partedSentOf(large.single)
+								)
+								return { ...plain.statement, forms: plain.forms, riders: [] }
+							})()
 				/** What the parts read, past the shared sub-queries the statement now carries, and what its riding
 				 * read-backs read. */
 				const accesses = mapNonEmpty(step.writes, (planned) => writeAccess(planned))
 				const deps = tracker.addAfter(
 					[...accesses.flatMap((x) => x[0]), ...step.readBacks.flatMap(readBackReads)],
-					accesses.flatMap((x) => x[1]),
+					[...accesses.flatMap((x) => x[1]), ...step.carries.map(carriedAccess)],
 					step.writes.flatMap((x) => actionDeps(x.action))
 				)
 				placeSpec(
@@ -1522,7 +1550,7 @@ const optimizedPlacement = (
 			case "readBack": {
 				const deltas: DeltasOf = (relation, side) =>
 					deltaSourceIn(relation, frontend.deltaEntries, (target) =>
-						emptyDelta(plan.made, target, side)
+						deltaAfter(plan.made, plan.carried, target, side)
 					)
 				const program = lowerReadBack(step.read, deltas, startNames, readBackOptions)
 				placeReadBack(b, step.read, program, tracker.add(readBackReads(step.read), []))
@@ -1620,13 +1648,15 @@ interface RidingContext {
 }
 
 /**
- * The single statement of `formed`'s parts with the read-backs `readBacks` riding it (write/schedule/plan.ts
- * placeReadBacks), in its forms, its writes as the small build made them, and each riding read-back with where its rows
- * stand among the statement's.
+ * The single statement of `formed`'s parts with the read-backs `readBacks` riding it and the sides `carries` carried
+ * out of it (write/schedule/plan.ts placeReadBacks), in its forms, its writes as the small build made them, and each
+ * riding read-back with where its rows stand among the statement's.
  *
- * Every delta a riding read-back names of a relation the statement writes is one CTE of the statement over that
- * write's RETURNING (write/readback/deltas.ts deltaCte), named once past every name either form's parts define, so it
- * has one name in both forms; a delta of a relation no statement writes is the empty relation. Each read-back is
+ * Every delta a riding read-back names of a relation the statement writes, and every side it carries, is one CTE of the
+ * statement over that write's RETURNING (write/readback/deltas.ts deltaCte), named once past every name either form's
+ * parts define, so it has one name in both forms; a delta of a relation no statement writes is the empty relation.
+ * Each carried side's carrier is filled from its CTE by a data-modifying CTE after them (write/readback/deltas.ts
+ * carriedFill), named past them too; a side the write returns no rows of leaves its carrier empty. Each read-back is
  * lowered over those deltas, its statement named past them and past every earlier read-back's
  * (lower/conservative/types.ts ReadBackLowering start), and its statement is one part of the statement after the writes'
  * parts, in order, the names its part adds past all of those (`ridingPartOf`). The statement's
@@ -1634,7 +1664,8 @@ interface RidingContext {
  * a part of one form its own, and its choices are all of theirs.
  */
 const ridingSingle = (
-	readBacks: NonEmptyReadonlyArray<ReadBack>,
+	readBacks: ReadonlyArray<ReadBack>,
+	carries: ReadonlyArray<CarriedSide>,
 	formed: FormedParts,
 	context: RidingContext
 ): {
@@ -1658,11 +1689,12 @@ const ridingSingle = (
 	for (const x of small.writes) {
 		const relation = x.step.relation
 		const delta = named.get(relation)
-		const sides = new Set(
-			readBacks.flatMap((read) =>
+		const sides = new Set([
+			...readBacks.flatMap((read) =>
 				read.deltas.flatMap((d) => (targetOf(d.relation) === relation ? [d.side] : []))
-			)
-		)
+			),
+			...carries.flatMap((c) => (c.relation === relation ? [c.side] : []))
+		])
 		if (delta === undefined || sides.size === 0) {
 			continue
 		}
@@ -1672,6 +1704,8 @@ const ridingSingle = (
 		}
 		names.set(relation, own)
 	}
+	/** Each carried side's fill CTE's name, in the order of `carries`. */
+	const fillNames = carries.map((c) => supply.relation(carriedOrigin(c)))
 	const deltaNames: NameMap = supply.map()
 	const statementOf = (built: BuiltParts, relation: string) =>
 		defined(
@@ -1732,8 +1766,18 @@ const ridingSingle = (
 				return one === undefined ? [] : [{ cte: one, at }]
 			})
 		})
+		const returned = new Set(read.map((d) => d.cte.name))
 		return {
 			deltas: read.map((d) => d.cte),
+			fills: carries.flatMap((c, i) => {
+				const cte = defined(
+					names.get(c.relation)?.get(c.side),
+					`the delta CTE of a side carried out of the statement`
+				)
+				return returned.has(cte.cte)
+					? [carriedFill(defined(fillNames[i], "a carried side's fill name"), cte, c.carrier)]
+					: []
+			}),
 			read: [...new Set(read.map((d) => d.at))],
 			nameMap: deltaNames,
 			parts: parts.map((p) => p[form])

@@ -1081,6 +1081,10 @@ class StatementAuditor {
 	): CteScope {
 		const ctes = new CteScope(outer)
 		const relationOf = (cte: Cte): Relation => ({ columns: cteColumns(cte) })
+		/** A data-modifying CTE with no RETURNING is a write no part of its statement reads: PostgreSQL refuses a
+		 * reference to it, so it names no relation of the scope, and a read of it is a read of an unknown relation. */
+		const readable = (cte: Cte): boolean =>
+			cte.query.kind === "select" || cte.query.returning.length > 0
 		this.at("with", () => {
 			if (recursive) {
 				for (const [i, cte] of w.entries()) {
@@ -1096,7 +1100,7 @@ class StatementAuditor {
 						this.defineRelation(cte.name, "name")
 					}
 					this.cte(cte, ctes, scope, plVars, topLevel)
-					if (!recursive) {
+					if (!recursive && readable(cte)) {
 						ctes.ctes.set(cte.name, relationOf(cte))
 					}
 				})
@@ -1145,11 +1149,9 @@ class StatementAuditor {
 				`data-modifying CTE "${cte.name}" in a WITH that is not the statement's own`
 			)
 		}
-		/** A data-modifying CTE is named by its RETURNING aliases unless it lists columns. */
+		/** A data-modifying CTE is named by its RETURNING aliases unless it lists columns; one with no RETURNING, a write
+		 * no part of its statement reads (a carried delta's fill, write/readback/deltas.ts carriedFill), lists none. */
 		const returning = body.returning
-		if (returning.length === 0) {
-			this.report("columnList", `data-modifying CTE "${cte.name}" has no RETURNING`)
-		}
 		if (listed.length === 0 && Arr.some(returning, (target) => target.alias === undefined)) {
 			this.report("columnList", `data-modifying CTE "${cte.name}" has an unnamed RETURNING column`)
 		}

@@ -69,18 +69,26 @@ export interface ReadBackPart {
 	readonly width: number
 }
 
-/** What rides a single statement: the CTEs holding the deltas its riding read-backs read, over its writes' RETURNING
- * (write/readback/deltas.ts deltaCte), with the names they define and the writes, by their index among the statement's,
- * whose RETURNING they read, and each riding read-back's sent statements, in order. */
+/** What rides a single statement: the CTEs holding the deltas its riding read-backs read or its carriers hold, over its
+ * writes' RETURNING (write/readback/deltas.ts deltaCte), the data-modifying CTEs filling its carried sides' carriers
+ * from them (write/readback/deltas.ts carriedFill), with the names they define and the writes, by their index among the
+ * statement's, whose RETURNING they read, and each riding read-back's sent statements, in order. */
 export interface Riding {
 	readonly deltas: ReadonlyArray<Cte>
+	readonly fills: ReadonlyArray<Cte>
 	readonly read: ReadonlyArray<number>
 	readonly nameMap: NameMap
 	readonly parts: ReadonlyArray<ReadBackPart>
 }
 
-/** A single statement no read-back rides. */
-export const noRiding: Riding = Object.freeze({ deltas: [], read: [], nameMap: [], parts: [] })
+/** A single statement no read-back rides and no side is carried out of. */
+export const noRiding: Riding = Object.freeze({
+	deltas: [],
+	fills: [],
+	read: [],
+	nameMap: [],
+	parts: []
+})
 
 /**
  * A unit of a single statement (runtime/write/parted.ts), as many of its WITH's CTEs and of its body's arms as it holds,
@@ -150,7 +158,9 @@ export const freshNames = (
  * after the writes' parts, and each of its sent statements is a part after them, its own query whole as one CTE, its
  * rows behind its tag after the writes' tags, padded as theirs are; the runtime reads them as that read-back's
  * statements' rows. No arm orders its rows: an ordered part's rows carry their row number in the part's order, which
- * the runtime reads them back in (lower/parts.ts TaggedPart). */
+ * the runtime reads them back in (lower/parts.ts TaggedPart). A side carried out of the statement for a read-back after
+ * the last stratum is a delta CTE too, and its carrier's fill a data-modifying CTE after the deltas, which no arm
+ * reads and PostgreSQL runs whole all the same. A write whose RETURNING a delta reads is sent whatever its needs. */
 export const singleStatement = (
 	shares: ReadonlyArray<SharedPart>,
 	writes: NonEmptyReadonlyArray<WritePart>,
@@ -219,7 +229,7 @@ export const singleStatement = (
 		const ctes: NonEmptyReadonlyArray<Cte> = [own]
 		return { name: out.relation, columns: out.columns, ctes }
 	})
-	const rideCtes = [...riding.deltas, ...rides.flatMap((r) => r.ctes)]
+	const rideCtes = [...riding.deltas, ...riding.fills, ...rides.flatMap((r) => r.ctes)]
 	const ctes = concatNonEmpty(
 		shareCtes,
 		extendNonEmpty(
@@ -345,8 +355,9 @@ const cutText = (
 }
 
 /**
- * The family statement `family` with read-backs riding it (write/program/compile.ts placeFamily): `deltas`, each added
- * side a rider reads, CTEs over the statement's inserts' RETURNING, named by `deltaNames`, after its own CTEs; then each
+ * The family statement `family` with read-backs riding it or sides carried out of it (write/program/compile.ts
+ * placeFamily): `deltas`, each added side a rider reads or a carrier holds, CTEs over the statement's inserts' RETURNING,
+ * and the carriers' fills over them, named by `deltaNames`, after its own CTEs; then each
  * rider's statement whole as one CTE, its placeholders numbered past the statement's and every earlier rider's, its
  * names past `cursor`; and its rows behind `tag`, an arm after the family's, every arm padded with empty texts to the
  * widest, the family's tags and its riders' integers alike, as a single statement's riders ride it (`singleStatement`).
@@ -355,7 +366,7 @@ export const ridingFamilyStatement = (
 	family: FamilyWriteSql,
 	deltas: ReadonlyArray<Cte>,
 	deltaNames: NameMap,
-	riders: NonEmptyReadonlyArray<{ readonly part: ReadBackPart; readonly tag: number }>,
+	riders: ReadonlyArray<{ readonly part: ReadBackPart; readonly tag: number }>,
 	cursor: NameSupplyStart
 ): {
 	readonly ast: Select
@@ -369,7 +380,7 @@ export const ridingFamilyStatement = (
 	let next = cursor
 	const pad = (count: number): ReadonlyArray<Target> =>
 		Array.from({ length: count }, () => target(lit.text("", types.text)))
-	const rides = mapNonEmpty(riders, ({ part, tag }) => {
+	const rides = riders.map(({ part, tag }) => {
 		const shifted = shiftedPart(part.query, part.params, params.length)
 		appendAll(params, shifted.params)
 		appendAll(nameMap, part.nameMap)
@@ -410,7 +421,7 @@ export const ridingFamilyStatement = (
 				"disjoint",
 				extendNonEmpty(
 					mapNonEmpty(family.arms, padded),
-					mapNonEmpty(rides, (r) => r.arm)
+					rides.map((r) => r.arm)
 				)
 			)
 		),

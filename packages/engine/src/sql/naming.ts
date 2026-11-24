@@ -7,8 +7,10 @@ import { type CompileError, malformedDescription } from "#compiler/core/errors.t
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { FieldId, NodeId, OccurrenceId, ParamId, VarId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import { temporarySchema } from "#compiler/core/temporary.ts"
 import {
 	type ColumnDef,
+	type FromSource,
 	isSetQuery,
 	type OperandBody,
 	type OperandSelect,
@@ -17,7 +19,7 @@ import {
 	type SelectCore,
 	type SetOperand
 } from "#compiler/sql/ast.ts"
-import { mapTargets, withArms } from "#compiler/sql/build.ts"
+import { mapTargets, qualifiedCall, withArms } from "#compiler/sql/build.ts"
 
 /**
  * Single-assignment SQL names.
@@ -84,6 +86,25 @@ const CarrierName = nominal<string, CarrierName>()
  * (sql/print.ts carrierEmptying), within PostgreSQL's identifier length since a carrier's name is a fixed-width digest's.
  */
 export const carrierReaderName = (carrier: CarrierName): string => `${carrier}${carrierReaderTail}`
+
+/**
+ * The rows of the carrier `carrier`, whose columns are `columns` in its table's order, as a statement reads them under
+ * `alias`: through its reader, pg_temp."<carrier>_rows"() (`carrierReaderName`, write/carriers/carriers.ts
+ * carrierReader), each column named in the FROM item's alias list as the carrier's table names it, so the statement's
+ * plan depends on the function, never on the table its emptying may truncate. The one way a statement reads a carrier.
+ */
+export const carrierReaderScan = (
+	carrier: CarrierName,
+	columns: ReadonlyArray<string>,
+	alias: string
+): FromSource => ({
+	kind: "function",
+	call: qualifiedCall(temporarySchema, carrierReaderName(carrier), []),
+	alias,
+	columns,
+	lateral: false,
+	ordinality: false
+})
 
 /** What a carrier's reader's name adds to the carrier's (`carrierReaderName`). */
 const carrierReaderTail = "_rows"

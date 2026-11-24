@@ -10,6 +10,7 @@ import {
 import type { DeltaRelation } from "#compiler/lower/conservative/types.ts"
 import type { FromSource } from "#compiler/sql/ast.ts"
 import { col, cteRefAs, target, unitTargets } from "#compiler/sql/build.ts"
+import { carrierReaderScan } from "#compiler/sql/naming.ts"
 
 /**
  * Delta: a read-back's netted delta.added(R) or delta.removed(R).
@@ -19,12 +20,13 @@ import { col, cteRefAs, target, unitTargets } from "#compiler/sql/build.ts"
  * A delta is the write program's: the write compiler hands the lowering the relation that holds it, each field of the
  * delta's heading with its column (DeltaRelation), and the node reads the column of each field it delivers, every field
  * of its relation's heading as the checker builds it or those pruning leaves it (lower/optimize/prune). A read-back
- * over a delta a statement makes rides that statement, and the delta is a CTE of it over the rows its RETURNING
- * returns; the conservative realization's, computed by comparing the states before and after the change, is a
- * carrier. A side of a delta no statement makes is the empty relation, as an empty closed relation lowers. A rule
- * probe over its region reads its relation's side: a CTE named by the session's delta, each read of which the judge
- * reads through the reader of its selection (physical/ddl/deltas.ts headed), or the relation's own table in its check
- * over every row (physical/ddl/rules.ts everyRow).
+ * that rides the statement making its delta reads a CTE of it over the rows its RETURNING returns; one after the last
+ * stratum reads the carrier that statement filled from them, through the carrier's reader; the conservative
+ * realization's, computed by comparing the states before and after the change, is a carrier too. A side of a delta
+ * no statement makes is the empty relation, as an empty closed relation lowers. A rule probe over its region reads its
+ * relation's side: a CTE named by the session's delta, each read of which the judge reads through the reader of its
+ * selection (physical/ddl/deltas.ts headed), or the relation's own table in its check over every row
+ * (physical/ddl/rules.ts everyRow).
  * Anywhere else there is no delta, and the node is UnsupportedOperation.
  */
 const lowerDelta: NodeLowerer<"Delta"> = (node, cx) => {
@@ -64,7 +66,7 @@ const deltaFrom = (
 		case "cte":
 			return cteRefAs(source.cte, alias)
 		case "carrier":
-			return { kind: "table", table: source.carrier, alias }
+			return carrierReaderScan(source.carrier, source.table, alias)
 		case "table":
 			return { kind: "table", table: source.table, alias }
 	}

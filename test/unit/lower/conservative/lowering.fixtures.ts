@@ -86,6 +86,7 @@ export const optionsFor = (
 					deltas: () => ({
 						kind: "carrier",
 						carrier: unitCarrierName(1),
+						table: ["c1", "c2", "c3", "c4"],
 						columns: [
 							{ field: "id", column: "c1" },
 							{ field: "account", column: "c2" },

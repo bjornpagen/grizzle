@@ -84,7 +84,7 @@ export const situations = [
 	"on each part",
 	"a later part's binding, after the earlier part's writes",
 	"a binding read after the first stratum, its re-evaluation another target",
-	"refused: a read-back riding a statement before its part's binding"
+	"a read-back carried past its part's later binding"
 ] as const
 
 export type Situation = (typeof situations)[number]
@@ -159,20 +159,18 @@ export const callFactsOf = (c: OnceCase): Readonly<Record<string, unknown>> =>
 export const boundStrata = (c: OnceCase): ReadonlyArray<number> =>
 	c.bound === "on the whole" ? [0] : [...(firstReads(c) ? [0] : []), ...(twoParts(c) ? [1] : [])]
 
-/**
- * A case's outcome as the property compares it: refused, where the last part's read-back of the first stratum's
- * delta reads the second part's binding, evaluated only after that stratum (ReadBackCrossesStatements, boundAfter);
- * otherwise each relation's ids in order and the read-back's.
- */
-export type Model =
-	| { readonly kind: "refused" }
-	| {
-			readonly kind: "applied"
-			readonly mark: ReadonlyArray<number>
-			readonly log: ReadonlyArray<number>
-			/** The read-back's ids, none for a case that reads none. */
-			readonly picked: ReadonlyArray<number> | undefined
-	  }
+/** A case's outcome as the property compares it: each relation's ids in order and the read-back's. */
+export interface Model {
+	readonly mark: ReadonlyArray<number>
+	readonly log: ReadonlyArray<number>
+	/** The read-back's ids, none for a case that reads none. */
+	readonly picked: ReadonlyArray<number> | undefined
+}
+
+/** Whether the last part's read-back of the first stratum's delta reads the second part's binding, evaluated only after
+ * that stratum: the read-back runs after the writes, its delta carried out of the first stratum's statement. */
+export const carriedPastBinding = (c: OnceCase): boolean =>
+	c.read === "the target's marked items" && c.bound === "on each part" && twoParts(c)
 
 const sorted = (values: Iterable<number>): ReadonlyArray<number> =>
 	Arr.sort([...new Set(values)], Order.Number)
@@ -197,18 +195,14 @@ const laterTarget = (c: OnceCase): ReadonlyArray<number> =>
  * parameter bound to a query is scoped to the ChangeSet it was bound on). The first part's reads T0, the items no
  * stored mark holds; the second part's, on each part, T1, the items no mark holds after the first stratum, and on the
  * whole the one T0. The first stratum marks T0 or the drawn ids and logs T0 where it logs there; the second logs its
- * target; `picked`, declared by the last part, is its target, or the marks the change added within its target, and is
- * refused where that target is evaluated after the stratum whose statement makes the delta it reads.
+ * target; `picked`, declared by the last part, is its target, or the marks the change added within its target, the
+ * delta read with the target its part's binding read, after that stratum where the binding is the second part's.
  */
 export const modelOf = (c: OnceCase): Model => {
-	if (c.read === "the target's marked items" && c.bound === "on each part" && twoParts(c)) {
-		return { kind: "refused" }
-	}
 	const mark = marksAfter(c)
 	const last = laterTarget(c)
 	const added = Arr.filter(mark, (id) => !c.marks.includes(id))
 	return {
-		kind: "applied",
 		mark,
 		log:
 			c.logged === "nowhere"

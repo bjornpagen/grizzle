@@ -19,30 +19,31 @@
  * second. Each case loads its state on a clone of the template and applies its ChangeSet once.
  *
  * Property, per case: the Description holds one binding of `target` on the whole, at stratum 0, and one for each part
- * that reads it on each part, the second's at stratum 1; where the last part's read-back of the first stratum's delta
- * reads the second part's binding, not yet evaluated where the delta is, the load is refused,
- * ReadBackCrossesStatements, crossing boundAfter; otherwise the call commits and Mark, Log and `picked` are the
- * model's (bound-once.fixtures.ts modelOf). Oracle: specification, the model, each binding evaluated once, before its
+ * that reads it on each part, the second's at stratum 1; the call commits and Mark, Log and `picked` are the model's
+ * (bound-once.fixtures.ts modelOf), where the last part's read-back of the first stratum's delta reads the second
+ * part's binding, not yet evaluated where the delta is made, among them: it runs after the writes, its delta carried out
+ * of the first stratum's statement (write/schedule/plan.ts placeReadBacks). Oracle: specification, the model, each binding evaluated once, before its
  * part's first stratum. Kills: each sequenced part's binding evaluated before the call's first stratum, by the
  * ChangeSet (sequence placing it at the combination's stratum 0) and by the plan (every fill before the first
  * stratum), so the second part reads the target before the first stratum's marks; and each reader reading its own copy
  * of every binding, so a later stratum and a read-back evaluate it again over the state they run in.
  *
  * Features: each way of marking, logging, reading and binding; a later part's binding that reads the earlier part's
- * writes; a binding read after the first stratum whose re-evaluation reads another target; the refused read-back.
+ * writes; a binding read after the first stratum whose re-evaluation reads another target; the read-back carried past
+ * its part's later binding.
  */
 import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Order, Record as Rec, Result } from "effect"
 import { changeApplication, variantOf } from "#adapter/db/handles.ts"
-import { isCompileError } from "#compiler/core/errors.ts"
 import { hasProperties } from "#compiler/core/record.ts"
 import { changeSetDesc } from "#compiler/write/changeset/value.ts"
 import { openedIn } from "#test/pg/reads/support.ts"
 import {
 	boundStrata,
 	callFactsOf,
+	carriedPastBinding,
 	changeOf,
 	Item,
 	laterPartSees,
@@ -93,6 +94,9 @@ export const aRelationParameterBoundToAQueryIsReadOnceBeforeThePartItIsBoundOnBy
 						if (reevaluationDiffers(c)) {
 							k.note("a binding read after the first stratum, its re-evaluation another target")
 						}
+						if (carriedPastBinding(c)) {
+							k.note("a read-back carried past its part's later binding")
+						}
 						const seat = yield* fixture
 						const opened = yield* openedIn(
 							Once,
@@ -138,21 +142,6 @@ export const aRelationParameterBoundToAQueryIsReadOnceBeforeThePartItIsBoundOnBy
 									return { kind: "applied" as const, applied }
 								})
 						)
-						if (model.kind === "refused") {
-							const error =
-								outcome.kind === "refused" && "error" in outcome.refusal
-									? outcome.refusal.error
-									: undefined
-							assert.ok(
-								isCompileError(error) &&
-									error.reason._tag === "ReadBackCrossesStatements" &&
-									error.reason.read === "picked" &&
-									error.reason.crossing.kind === "boundAfter",
-								`picked is refused, crossing boundAfter, not ${Formatter.format(outcome)}`
-							)
-							k.note("refused: a read-back riding a statement before its part's binding")
-							return
-						}
 						const applied =
 							outcome.kind === "applied"
 								? outcome.applied
@@ -200,7 +189,7 @@ export const aRelationParameterBoundToAQueryIsReadOnceBeforeThePartItIsBoundOnBy
 				original:
 					"\tconst { top, x, y, bound } = combined(label, a, b, extra, (first) => first.strata.length)",
 				replacement: "\tconst { top, x, y, bound } = combined(label, a, b, extra, () => 0)",
-				why: "A sequenced part's binding is evaluated before the call's first stratum: the second part's log and read-back read the target before the first stratum's marks, and the last part's read-back of the first stratum's delta rides it unrefused."
+				why: "A sequenced part's binding is evaluated before the call's first stratum: the second part's log and read-back read the target before the first stratum's marks, and the last part's read-back of the first stratum's delta reads that target."
 			},
 			{
 				file: "packages/engine/src/write/schedule/plan.ts",

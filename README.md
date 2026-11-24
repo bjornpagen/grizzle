@@ -3825,7 +3825,7 @@ ChangeSet.empty(Blog)               a write over a schema, or over a role: Chang
   carrier first among that stratum's statements, every reader reading the carrier. The two realize one meaning, as a
   CTE inlined or held does one query; a read-back over such a parameter reads no table the change writes, so it rides
   the statement making the delta it reads, unless that statement comes before the part that bound it, where its rows
-  are not yet read: that is `ReadBackCrossesStatements`, crossing `boundAfter`.
+  are not yet read: then it runs after the change, over its delta carried there (below, "Where a read-back runs").
 - **`insertAll`**'s rows at each key are what `insert` takes for that relation, typed and checked as that insert and
   refused at their key. Its keys are required, and their order means nothing. `insertableNamesOf(schema)` names, in the
   schema's order, every table a ChangeSet over it inserts at the top level: all that `writableNamesOf` names but an
@@ -3888,18 +3888,21 @@ ChangeSet.empty(Blog)               a write over a schema, or over a role: Chang
   read-back: two programs that each end in `.read("standing", () => standing)` compose into one that reads it once.
   One name over another query is refused: by the types where its rows are of another type, and by the builder
   (`MalformedDescription`, naming both read-backs) where only the query differs.
-- **Where a read-back runs.** The rows a statement returns exist only inside it, so a read-back that reads a delta
-  runs inside the one statement that makes it: that statement makes every side the read-back reads whole, and no
-  statement at or after it writes a table the read-back reads. A stratum runs the writes of tables whose deltas a
-  read-back reads after its others where its foreign keys allow. A delta of a table no statement writes is empty,
-  and a read-back that reads no other runs after the change. Any other read-back is refused when the ChangeSet
-  compiles (`ReadBackCrossesStatements`), as its `crossing` says: a side two statements make, or one another statement
-  nets (one table written in two strata; a delete and an insert of one table in one stratum each make their side
-  whole, since a row one stratum both adds and deletes stays): write the table in one action of one stratum, or read
-  it back by its key; two
-  sides two statements make: read each in a read-back of its own; a table the read-back reads, written at or after
-  the statement making its delta: read `delta.added` of that table in its place, or write it in an earlier
-  stratum with `ChangeSet.sequence`.
+- **Where a read-back runs.** The rows a statement returns exist only inside it. Each side of a delta a read-back
+  reads is made whole by one statement, the only one that makes that side of the table, whose rows no statement of
+  another stratum nets. Where one statement makes every side the read-back reads, no statement at or after it writes a
+  table the read-back reads, and every relation parameter it reads is bound before it, the read-back runs inside that
+  statement, over its rows. Otherwise it runs after the change, in the state the whole write leaves: each side it reads
+  is carried there out of the statement making it, which fills a session table with its rows as it makes them, so the
+  read-back reads the write's own delta, keyed as the write made it, joined to every table as the write leaves it, and
+  never searches the state for it again. edullm's answer reads back the attempt it recorded, `delta.added(Attempt)`,
+  with the grade a later stratum writes and the status derived from both. A stratum runs the writes of tables whose
+  deltas a read-back reads after its others where its foreign keys allow, so the read-back rides with no session table.
+  A delta of a table no statement writes is empty, and a read-back that reads no other runs after the change. A
+  read-back of a side no one statement makes whole is refused when the ChangeSet compiles
+  (`ReadBackCrossesStatements`, naming the side): a side two statements make, or one another statement nets (one table
+  written in two strata; a delete and an insert of one table in one stratum each make their side whole, since a row
+  one stratum both adds and deletes stays): write the table in one action of one stratum, or read it back by its key.
 - **Strata.** Every write in a stratum reads the state before it, so build order means nothing, and a stratum's
   members of one operation on one table are one write of their union, whatever ChangeSets they came from, but for an
   insert's host rows that leave computed fields out or own counted families, and queries that state different
@@ -4828,11 +4831,11 @@ export const ShopApp = login(Shop, "shop", [JobWorker], {
   only refuses a write: a containment either way, a row check, a rule over a query. So a fragment's program means the
   same in every application, and an application can only refuse more of its writes.
 - **What an application's laws may still refuse.** A containment over the fragment's relations can order a fragment
-  ChangeSet's writes into a cycle (`UnorderableStratum`), or make a read-back's delta cross statements
-  (`ReadBackCrossesStatements`). Then `grizzle generate` refuses that program in that application, naming the
-  application's law, and serves it unchanged in an application without that law. Each is a refusal at generate, per
-  application, and never a difference at run time: a program that compiles is served exactly as it would be written
-  over the application's schema.
+  ChangeSet's writes into a cycle (`UnorderableStratum`). Then `grizzle generate` refuses that program in that
+  application, naming the application's law, and serves it unchanged in an application without that law. It is a
+  refusal at generate, per application, and never a difference at run time: a program that compiles is served exactly
+  as it would be written over the application's schema. A containment that orders a table a read-back reads after the
+  statement making its delta refuses nothing: the read-back runs after the change, over its delta carried there.
 - **Nothing is installed for a fragment.** Its relations install at the level whose list holds it, in that level's
   PostgreSQL schema, under the application's one migrations directory, snapshot and ledger. Listing a fragment is, to
   the snapshot, that level declaring its relations and stating its laws, so a schema that spread the same relations and
@@ -5601,7 +5604,7 @@ creates one, and `grizzle drift` reports a grant revoked since.
 | `UnfillableField`                               | the `relation`'s `field`, the `law` filling it, the `source` column it reads along `axis` of its `family`, and why that column is filled `later` |
 | `UnwritableRelation`                            | the `relation` no write fills, and its `cause`                                                           |
 | `NoReadCommittedForm`                           | the `relation`, whose primary key holds a span, that a ChangeSet compiled for READ COMMITTED inserts into: only a compile at a level no certificate gives meets it, since generate runs such a role SERIALIZABLE |
-| `ReadBackCrossesStatements`                     | the read-back `read`, and `crossing`: `sideWrittenTwice` (`relation`, `side`), a side more than one statement makes or nets; `sidesApart` (`first`, `second`), two sides two statements make; or `stateAfter` (`delta`, `state`), a table it reads written at or after the statement making `delta` |
+| `ReadBackCrossesStatements`                     | the read-back `read`, and `delta` (`relation`, `side`), a side of a table's delta more than one statement makes, or one a statement of another stratum nets |
 | `UnorderableStratum`                            | the `cycle` of a stratum's writes (`{ relation, op }`: an insert, put or delete, or a family's insert, update or delete of its members' rows or count of its owners), each of which immediate keys order before the next and the last before the first, so no order of the stratum's statements keeps them all |
 | `UnstatedKey`                                   | a put or delete (`op`) of a `relation` whose `key` (`{ kind, fields }`: its primary key, or a declared one a put compares) holds fields grizzle writes (`unstated`) |
 | `UndeclaredDrop`                                | the name a migration would drop, which no `--drop` or `--rename` declares                                |
