@@ -99,7 +99,8 @@ export const aFoldACallsArgumentsReadAtItsParentRowIsComputedOncePerParentRow = 
 			},
 			{
 				file: "packages/engine/src/lower/shapes/index.ts",
-				original: "\t\treturn holder === undefined ? build() : this.withHeldCtes(holder, build)\n",
+				original:
+					"\t\treturn holder === undefined ? build() : this.withHeldCtes(holder, env, build)\n",
 				replacement: "\t\treturn build()\n",
 				why: "The evaluation's query opens no table: every argument's read of the held fold finds none and reads it inline, and Attempt is scanned once per read."
 			}

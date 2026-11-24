@@ -107,18 +107,46 @@ import {
 
 /** The SQL expressions of one node's columns, by heading name. */
 export type ColumnMap = ReadonlyMap<string, Expr>
-/** The nodes in scope and their columns. */
-export type Env = ReadonlyMap<NodeId, ColumnMap>
 
-export const emptyEnv: Env = new Map()
-
-export const extendEnv = (env: Env, entries: Iterable<readonly [NodeId, ColumnMap]>): Env => {
-	const next = new Map(env)
-	for (const [id, columns] of entries) {
-		next.set(id, columns)
-	}
-	return next
+/**
+ * What a query is lowered in scope of: the nodes in scope and their columns, and the nodes it reads at some of their
+ * columns' values alone (`restrictedEnv`), each with its equalities, every value an expression over what is in scope.
+ * A restriction is scoped as a column is: it holds wherever this scope is extended (`extendEnv`), a LATERAL source's
+ * or an existence test's, and nowhere a query is lowered in a scope of its own, a CTE's body at the WITH it stands in
+ * (lowered in its definition's scope: the statement's, `emptyEnv`, or its holder's), a root's or an attachment's child
+ * (`envOf`), so no value is read where its row is not in scope.
+ */
+export interface Env {
+	readonly columns: ReadonlyMap<NodeId, ColumnMap>
+	readonly restricted: ReadonlyMap<RelNode, ColumnEqualities>
 }
+
+export const emptyEnv: Env = { columns: new Map(), restricted: new Map() }
+
+/** A scope of `entries` alone, no node restricted in it. */
+export const envOf = (entries: Iterable<readonly [NodeId, ColumnMap]>): Env => ({
+	columns: new Map(entries),
+	restricted: new Map()
+})
+
+/** `env` with `entries` in scope too, each node it restricts restricted still. */
+export const extendEnv = (env: Env, entries: Iterable<readonly [NodeId, ColumnMap]>): Env => {
+	const columns = new Map(env.columns)
+	for (const [id, map] of entries) {
+		columns.set(id, map)
+	}
+	return { columns, restricted: env.restricted }
+}
+
+/**
+ * `env` with each node of `restricted` read at its equalities' values alone, beside those it restricts: wherever the
+ * node is lowered in the scope, its rows are those at the values (LowerContext `lower`), so a restriction a fence would
+ * stop at its edge stands inside it (lower/shapes/share/keyed.ts pushedInto).
+ */
+export const restrictedEnv = (env: Env, restricted: ReadonlyMap<RelNode, ColumnEqualities>): Env =>
+	restricted.size === 0
+		? env
+		: { columns: env.columns, restricted: new Map([...env.restricted, ...restricted]) }
 
 /**
  * One output column of a derived table or a CTE: the heading name it carries, paired at allocation with the fresh SQL
@@ -406,13 +434,18 @@ export type NodeDispatch = (node: RelNode, cx: LowerContext, env: Env) => Operan
 
 /**
  * How a lowering builds a call's evaluation's query (call/index.ts evaluationQuery, or the query of the read that
- * evaluates the call itself): with the CTEs its arguments' shared nodes stand in leading its WITH (cte-policy holderOf,
- * lower/shapes ShapeState withHeldCtes), or as it is (`evaluatedAsItStands`) in a lowering whose plan holds none there.
+ * evaluates the call itself) in the scope `env` it is built in: with the CTEs its arguments' shared nodes stand in
+ * leading its WITH, each body lowered in that scope (cte-policy holderOf, lower/shapes ShapeState withHeldCtes), or as
+ * it is (`evaluatedAsItStands`) in a lowering whose plan holds none there.
  */
-export type EvaluationHolding = <Q extends OperandSelect>(call: NodeOf<"Call">, build: () => Q) => Q
+export type EvaluationHolding = <Q extends OperandSelect>(
+	call: NodeOf<"Call">,
+	env: Env,
+	build: () => Q
+) => Q
 
 /** The holding of a lowering that holds no CTE in an evaluation's query: each query as it is built. */
-export const evaluatedAsItStands: EvaluationHolding = (_, build) => build()
+export const evaluatedAsItStands: EvaluationHolding = (_call, _env, build) => build()
 
 /**
  * One kind's plug-in: its node to the query of its heading, a set (Select) or, realized plain where its consumer makes
@@ -575,11 +608,6 @@ interface Scope {
 	readonly evaluations: EvaluationHost | undefined
 	/** How a call's evaluation's query is built (EvaluationHolding). */
 	readonly holding: EvaluationHolding
-	/**
-	 * The nodes read in this scope at some of their columns' values alone (`withRestricted`), each with its equalities:
-	 * every lowering of such a node is its rows at those values.
-	 */
-	readonly restricted: ReadonlyMap<RelNode, ColumnEqualities>
 }
 
 /** Each write DAG's fact spine (factSpine), made once: a DAG is immutable. */
@@ -724,8 +752,7 @@ export class LowerContext {
 			dispatch,
 			sharing: undefined,
 			evaluations: undefined,
-			holding,
-			restricted: new Map()
+			holding
 		}
 	}
 
@@ -778,21 +805,6 @@ export class LowerContext {
 		return this.#within({ ...this.#scope, dispatch })
 	}
 
-	/**
-	 * The scope in which each node of `restricted` is read at its equalities' values alone, beside those this scope
-	 * restricts: wherever it is lowered inside, its rows are those at the values (`lower`), so a restriction a fence
-	 * would stop at its edge stands inside it (lower/shapes/share/keyed.ts pushedInto). Each value is an expression in
-	 * scope wherever the node is lowered in this scope.
-	 */
-	withRestricted(restricted: ReadonlyMap<RelNode, ColumnEqualities>): LowerContext {
-		return restricted.size === 0
-			? this
-			: this.#within({
-					...this.#scope,
-					restricted: new Map([...this.#scope.restricted, ...restricted])
-				})
-	}
-
 	/** The scope whose node `node` lowers through `lower`, and every other node as this scope's dispatch lowers it. */
 	withLowering<K extends RelKind>(node: NodeOf<K>, lower: NodeLowerer<K>): LowerContext {
 		const dispatch = this.#scope.dispatch
@@ -822,9 +834,12 @@ export class LowerContext {
 		})
 	}
 
-	/** `build`'s query of `call`'s evaluation, holding what the lowering's plan holds there (EvaluationHolding). */
-	evaluationOf<Q extends OperandSelect>(call: NodeOf<"Call">, build: () => Q): Q {
-		return this.#scope.holding(call, build)
+	/**
+	 * `build`'s query of `call`'s evaluation in the scope `env`, holding what the lowering's plan holds there
+	 * (EvaluationHolding).
+	 */
+	evaluationOf<Q extends OperandSelect>(call: NodeOf<"Call">, env: Env, build: () => Q): Q {
+		return this.#scope.holding(call, env, build)
 	}
 
 	/** The templates the lowering's keys and digests read (`templatesOf`). */
@@ -1065,12 +1080,12 @@ export class LowerContext {
 	}
 
 	/**
-	 * The query of a node, output columns in heading order, as the scope's dispatch lowers it; at the values the scope
-	 * restricts it to where it does (`withRestricted`), its rows read apart and kept at them.
+	 * The query of a node, output columns in heading order, as the scope's dispatch lowers it; at the values `env`
+	 * restricts it to where it does (`restrictedEnv`), its rows read apart and kept at them.
 	 */
 	lower(node: RelNode, env: Env): OperandSelect {
 		const query = this.#scope.dispatch(node, this, env)
-		const restriction = this.#scope.restricted.get(node)
+		const restriction = env.restricted.get(node)
 		if (restriction === undefined) {
 			return query
 		}

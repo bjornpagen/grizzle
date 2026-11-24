@@ -5,17 +5,16 @@ import {
 	mapNonEmpty
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import { unwrap } from "#compiler/core/canonical.ts"
-import type { NodeId } from "#compiler/core/ids.ts"
 import { type DeliverySpine, deliverySpine } from "#compiler/ir/dag.ts"
 import type { CompletedOrder, Heading, NodeOf, RelNode } from "#compiler/ir/rel.ts"
 import { withAdmission } from "#compiler/lower/conservative/admission.ts"
 import {
-	type ColumnMap,
 	columnIn,
 	correlationEqualities,
 	distinctSelect,
-	type Env,
 	emptyEnv,
+	type Env,
+	envOf,
 	headingTargets,
 	type LowerContext,
 	nodeLabel,
@@ -708,7 +707,7 @@ export class ConservativeDelivery<Own extends PageParamSlot = never> extends Del
 			if (isNonEmpty(filters)) {
 				const innermost = lastNonEmpty(filters)
 				const input = this.cx.wrap(rows, group.heading, { kind: "node", node: innermost.id })
-				const scope: Env = new Map<NodeId, ColumnMap>(scopeNodes.map((n) => [n.id, input.map]))
+				const scope: Env = envOf(scopeNodes.map((n) => [n.id, input.map] as const))
 				rows = distinctSelect(
 					headingTargets(group.heading, input.map),
 					[input.item],
@@ -816,7 +815,7 @@ export class ConservativeDelivery<Own extends PageParamSlot = never> extends Del
 		const parent = parentKeysSource(cx, rows, parentKey, { kind: "node", node: attach.id })
 		const parentExprs = parentKey.map((c) => ({ name: c.name, expr: parent.column(c.name) }))
 		const parentMap = new Map<string, Expr>(parentExprs.map((p) => [p.name, p.expr]))
-		const env: Env = new Map<NodeId, ColumnMap>(spine.nodes.map((n) => [n.id, parentMap]))
+		const env: Env = envOf(spine.nodes.map((n) => [n.id, parentMap] as const))
 		const source = cx.sourceAs(attach.child, env, true)
 		const where = conjunction(
 			correlationEqualities(cx, attach, child.heading, source.map, parentMap)

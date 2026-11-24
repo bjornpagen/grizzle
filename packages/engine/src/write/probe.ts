@@ -18,7 +18,12 @@ import { columnReads } from "#compiler/ir/expr.ts"
 import type { LawField, NativeColumn, RelationInfo } from "#compiler/ir/law.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { UniqueObject } from "#compiler/laws/model/uniques.ts"
-import type { ColumnMap, Env, LowerContext } from "#compiler/lower/conservative/context.ts"
+import {
+	type ColumnMap,
+	type Env,
+	envOf,
+	type LowerContext
+} from "#compiler/lower/conservative/context.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
 import type {
 	DrivenColumn,
@@ -81,7 +86,7 @@ export const withinRow = (
 	u.kind === "guarded"
 		? u.within.map((g) => {
 				const columns: ColumnMap = new Map(g.reads.map((f) => [f.name, of(f)] as const))
-				const env: Env = new Map(columnReads([g.predicate]).map((c) => [c.node, columns] as const))
+				const env: Env = envOf(columnReads([g.predicate]).map((c) => [c.node, columns] as const))
 				return lowerExpr(cx, g.predicate, env)
 			})
 		: []

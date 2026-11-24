@@ -13,6 +13,7 @@ import { baseOf, regexOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import {
 	type ColumnMap,
 	type Env,
+	envOf,
 	evaluatedAsItStands,
 	LowerContext,
 	WriteParams
@@ -459,7 +460,7 @@ export const requestedValue = (
 					return [c.name, value(read)] as const
 				})
 			)
-			const env: Env = new Map(reads.map((c) => [c.node, row] as const))
+			const env: Env = envOf(reads.map((c) => [c.node, row] as const))
 			return lowerExpr(w.cx, generation, env)
 		}
 		return defined(

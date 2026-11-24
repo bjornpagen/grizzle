@@ -33,8 +33,9 @@ import { completeOrder } from "#compiler/logical/order.ts"
 import {
 	type ColumnMap,
 	distinctSelect,
-	type Env,
 	emptyEnv,
+	type Env,
+	envOf,
 	evaluatedAsItStands,
 	headingTargets,
 	LowerContext,
@@ -281,7 +282,7 @@ const filtered = (
 		return rel
 	}
 	const input = cx.wrap(rel, heading, { kind: "node", node: lastNonEmpty(filters).id })
-	const scope: Env = new Map([...plan.spineNodes, plan.union].map((n) => [n.id, input.map]))
+	const scope: Env = envOf([...plan.spineNodes, plan.union].map((n) => [n.id, input.map] as const))
 	const where = and(mapNonEmpty(filters, (f) => lowerExpr(cx, f.pred, scope)))
 	const targets = headingTargets(heading, input.map)
 	return distinct

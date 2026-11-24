@@ -554,7 +554,7 @@ const querySite = (cx: LowerContext, env: Env): ScalarSite => ({
 		switch (expr.kind) {
 			case "column":
 				return (
-					env.get(expr.column.node)?.get(expr.column.name) ??
+					env.columns.get(expr.column.node)?.get(expr.column.name) ??
 					refuse(
 						"MalformedDescription",
 						at,

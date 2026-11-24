@@ -14,14 +14,16 @@ import {
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import {
 	type ColumnEqualities,
-	type ColumnMap,
 	columnIn,
-	type Env,
+	type ColumnMap,
 	emptyEnv,
+	type Env,
+	envOf,
 	equalitiesOver,
 	type LowerContext,
 	namedMap,
-	outputNames
+	outputNames,
+	restrictedEnv
 } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
 import { fencedRead } from "#compiler/lower/conservative/step/index.ts"
@@ -426,10 +428,11 @@ export class KeyedLowering {
 			column: n.name,
 			value: col(keyRows.alias, n.column)
 		}))
-		const within = cx.withRestricted(
+		const within = restrictedEnv(
+			env,
 			pushedInto(node, equalities, referencesIn(cx.dag), scope.inPlace)
 		)
-		const rows = cx.wrapAs(this.#keyed(node, within, env, equalities), node.heading, origin, true)
+		const rows = cx.wrapAs(this.#keyed(node, cx, within, equalities), node.heading, origin, true)
 		return select(
 			distinctCore(headingTargetsOf(node, rows.map), [keyRows.item, rows.item], undefined)
 		)
@@ -588,7 +591,7 @@ export class KeyedLowering {
 						const at = new Map(
 							[...atom.columns].map(([name, column]) => [name, columnIn(r.map, column)] as const)
 						)
-						where.push(lowerExpr(cx, atom.condition, new Map([[atom.at, at]])))
+						where.push(lowerExpr(cx, atom.condition, envOf([[atom.at, at]])))
 					}
 					bindAll(atom, (name) => columnIn(r.map, name), type, noSlots)
 					return
@@ -629,7 +632,7 @@ export class KeyedLowering {
 			const at = lookups(atom)
 			const inside: ReadonlySet<string> = new Set(atSlot.keys())
 			if (node.kind === "Step") {
-				const r = cx.withRestricted(new Map([[node.input, at]])).sourceAs(node, emptyEnv, true)
+				const r = cx.sourceAs(node, restrictedEnv(emptyEnv, new Map([[node.input, at]])), true)
 				from.push(r.item)
 				bindAll(atom, (name) => columnIn(r.map, name), type, inside)
 				continue

@@ -5,16 +5,16 @@ import {
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import { resultTextCasts } from "#compiler/codec/scalar.ts"
-import type { NodeId } from "#compiler/core/ids.ts"
 import type { Cardinality } from "#compiler/ir/cardinality.ts"
 import type { CompletedOrder, Heading, NodeOf, RelNode } from "#compiler/ir/rel.ts"
 import { sameScalarType } from "#compiler/ir/scalar.ts"
 import {
-	type ColumnMap,
 	columnIn,
+	type ColumnMap,
 	correlatedColumns,
 	correlationEqualities,
 	type Env,
+	envOf,
 	headingTargets,
 	type LowerContext
 } from "#compiler/lower/conservative/context.ts"
@@ -95,7 +95,7 @@ const childRows = (
 	lateral: boolean
 ): Select => {
 	const child = attach.child
-	const env: Env = new Map<NodeId, ColumnMap>(spine.map((n) => [n.id, parentMap]))
+	const env: Env = envOf(spine.map((n) => [n.id, parentMap] as const))
 	const source = cx.sourceAs(child, env, lateral)
 	const where = correlationEqualities(cx, attach, child.heading, source.map, parentMap)
 	const targets = headingTargets(child.heading, source.map)
@@ -374,7 +374,7 @@ export const pipelinedAttachment = (
 	/** Each parent key column with its expression over the parent's rows. */
 	const keys = parentColumns.map((c) => ({ name: c.name, expr: parent.column(c.name) }))
 	const parentMap: ColumnMap = new Map(keys.map((k) => [k.name, k.expr]))
-	const env: Env = new Map<NodeId, ColumnMap>(spine.map((n) => [n.id, parentMap]))
+	const env: Env = envOf(spine.map((n) => [n.id, parentMap] as const))
 	const origin = { kind: "node", node: child.id } as const
 	/** Whether the child is read for each parent key, its values fixed inside (attachmentRead `perKey`), or beside. */
 	const inside = attachmentRead(attach).kind === "perKey"

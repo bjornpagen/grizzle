@@ -34,6 +34,7 @@
  */
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import type { NodeId } from "#compiler/core/ids.ts"
 import { type OperatorNames, typedEq } from "#compiler/ir/compare.ts"
 import { columnReads, fieldReads, type ScalarExpr } from "#compiler/ir/expr.ts"
 import type { Family, FamilyFold } from "#compiler/ir/family.ts"
@@ -58,7 +59,7 @@ import {
 } from "#compiler/ir/monoid.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
-import type { ColumnMap, Env } from "#compiler/lower/conservative/context.ts"
+import { envOf } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr, lowerLiteral } from "#compiler/lower/conservative/expr/index.ts"
 import type {
 	Cte,
@@ -215,13 +216,11 @@ export interface ScanLowering {
 export const writeLowering = (w: WriteContext): ScanLowering => ({
 	names: w.names,
 	expression: (expr, field) => {
-		const env = new Map<Parameters<Env["get"]>[0], ColumnMap>()
+		const scope = new Map<NodeId, Map<string, Expr>>()
 		for (const read of columnReads([expr])) {
-			const columns = new Map(env.get(read.node) ?? [])
-			columns.set(read.name, field(read.name))
-			env.set(read.node, columns)
+			scope.getOrInsertComputed(read.node, () => new Map()).set(read.name, field(read.name))
 		}
-		return lowerExpr(w.cx, expr, env)
+		return lowerExpr(w.cx, expr, envOf(scope))
 	},
 	baseType: (type) => w.cx.baseTypeRef(type)
 })

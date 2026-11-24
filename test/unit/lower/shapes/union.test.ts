@@ -28,6 +28,7 @@ import { Array as Arr, Effect, Order } from "effect"
 import { structural } from "#compiler/analysis/physical/fds.ts"
 import { catchRefusal } from "#compiler/core/canonical.ts"
 import { type CompletedOrder } from "#compiler/ir/rel.ts"
+import { emptyEnv } from "#compiler/lower/conservative/context.ts"
 import { orderIsTotal } from "#compiler/lower/shapes/take/order.ts"
 import { armBoundedUnion } from "#compiler/lower/shapes/union/index.ts"
 import { mergeHeadingGroups } from "#compiler/runtime/lower/union.ts"
@@ -137,7 +138,7 @@ export const theBoundedUnionConsumedInsideAStatementBoundsEveryArmByKDeduplicati
 								take.order,
 								orderIsTotal(facts, union, take.order, union.heading),
 								() => bound,
-								new Map()
+								emptyEnv
 							)
 						)
 						assert.equal(

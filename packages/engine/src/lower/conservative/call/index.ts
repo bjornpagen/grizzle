@@ -18,12 +18,13 @@ import {
 } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import {
-	type ColumnMap,
 	columnIn,
+	type ColumnMap,
 	distinctSelect,
-	type Env,
-	type EvaluationLookup,
 	emptyEnv,
+	type Env,
+	envOf,
+	type EvaluationLookup,
 	type LowerContext,
 	type Lowerers,
 	type NodeLowerer
@@ -178,7 +179,7 @@ const lowerDeclared = (
 	cx: LowerContext,
 	env: Env
 ): OperandSelect => {
-	return cx.evaluationOf(node, () => {
+	return cx.evaluationOf(node, env, () => {
 		const { item, columns } = calledItem(node, called.name, node.heading.length, cx, env)
 		if (!isNonEmpty(columns)) {
 			throw defect("a call's heading, its result's fields, of at least one field")
@@ -253,7 +254,7 @@ export const evaluationQuery = (node: NodeOf<"Call">, cx: LowerContext, env: Env
 	if (called.kind !== "field") {
 		throw defect("an evaluation of a call whose row's fields a query reads")
 	}
-	return cx.evaluationOf(node, () => {
+	return cx.evaluationOf(node, env, () => {
 		const { item, attributes, check } = evaluationOf(node, called, cx, env)
 		return select(
 			keyedSet(
@@ -355,7 +356,7 @@ export const parentEvaluations = (
 		}
 		const valueAt = (name: string): Expr => {
 			for (const [id, named] of free) {
-				const value = named.has(name) ? env.get(id)?.get(name) : undefined
+				const value = named.has(name) ? env.columns.get(id)?.get(name) : undefined
 				if (value !== undefined) {
 					return value
 				}
@@ -411,7 +412,7 @@ const definedParentEvaluation = (
 	const origin = originOf(read)
 	const keys = cx.wrap(parents.keys(demand), demand, origin)
 	const keyMap: ColumnMap = keys.map
-	const env: Env = new Map([...spine].map((id) => [id, keyMap]))
+	const env: Env = envOf([...spine].map((id) => [id, keyMap] as const))
 	const width = evaluationWidth(read)
 	const evaluated = Array.from({ length: width }, () => cx.supply.column(origin))
 	const at = cx.relationAlias(origin)
@@ -492,7 +493,9 @@ const lowerField = (
 ): OperandSelect => {
 	const hosted = cx.hostedEvaluation(node, cx.evaluationKey(node), env)
 	return hosted === undefined
-		? cx.evaluationOf(node, () => fieldRows(node, called, cx, ownEvaluation(node, called, cx, env)))
+		? cx.evaluationOf(node, env, () =>
+				fieldRows(node, called, cx, ownEvaluation(node, called, cx, env))
+			)
 		: fieldRows(node, called, cx, { ...hosted, where: [] })
 }
 

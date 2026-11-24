@@ -16,18 +16,19 @@ import { withAdmission } from "#compiler/lower/conservative/admission.ts"
 import { parentEvaluations, statementEvaluations } from "#compiler/lower/conservative/call/index.ts"
 import {
 	columnIn,
-	type CteTable,
 	cteAtFirstUse,
+	type CteTable,
+	emptyEnv,
 	type Env,
+	envOf,
 	type EvaluationHolding,
 	type EvaluationLookup,
-	emptyEnv,
 	freshCtes,
 	headingTargets,
 	type LowerContext,
 	type NodeDispatch,
-	type NodeLowerer,
 	nodeLabel,
+	type NodeLowerer,
 	refuse,
 	withLeading
 } from "#compiler/lower/conservative/context.ts"
@@ -390,6 +391,15 @@ export const conservativeStatement = <Slot extends ConservativeParamSlot>(
 /** The CTEs one statement defined while it was lowered: its WITH entries, and each shared node's CTE by node. */
 type CteLog = CteTable<RelNode>
 
+/**
+ * The CTEs a holder's query holds while it is lowered (ShapeLog `heldCtes`), and the scope the holder is lowered in,
+ * which each body is lowered in: a body stands in the holder's WITH, where no row read inside the holder is in scope.
+ */
+interface HeldCtes {
+	readonly table: CteLog
+	readonly env: Env
+}
+
 /** What one statement accumulated while it was lowered: its WITH entries and its per-execution choices. */
 interface StatementLog<C> extends CteLog {
 	readonly choices: ReadonlyArray<C>
@@ -440,9 +450,9 @@ export interface ShapeLog<I extends ChoiceInput> {
 	 * evaluation's query, its table made where the holder's lowering begins and read off where it ends; none for a holder
 	 * no shared node's CTE stands in.
 	 */
-	heldCtes(holder: NodeId): CteLog | undefined
-	/** `lower`'s query of `holder` with the CTEs it holds leading its WITH (ShapeState). */
-	withHeldCtes<Q extends OperandSelect>(holder: NodeId, lower: () => Q): Q
+	heldCtes(holder: NodeId): HeldCtes | undefined
+	/** `lower`'s query of `holder`, lowered in the scope `env`, with the CTEs it holds leading its WITH (ShapeState). */
+	withHeldCtes<Q extends OperandSelect>(holder: NodeId, env: Env, lower: () => Q): Q
 	readonly record: (choice: ShapeChoice<I>) => void
 	/** The key sets the statement computes its nodes at (share/keyed.ts StatementKeys). */
 	readonly keys: StatementKeys
@@ -498,7 +508,7 @@ export class ShapeState<I extends ChoiceInput> implements ShapeLog<I> {
 	/** The holders whose query holds a CTE (cte-policy `sharedCorrelated`): regions and calls' evaluations. */
 	readonly #holding: ReadonlySet<NodeId>
 	/** The CTEs of each holder being lowered, by the holder (`withHeldCtes`). */
-	readonly #held = new Map<NodeId, CteLog>()
+	readonly #held = new Map<NodeId, HeldCtes>()
 
 	/** A state whose first statement is lowered in `mode`, its nodes shared by `cte` and computed at `keys`. */
 	constructor(mode: InputChoiceMode, cte: CtePlan, keys: StatementKeys) {
@@ -582,7 +592,7 @@ export class ShapeState<I extends ChoiceInput> implements ShapeLog<I> {
 		return this.cte.decisions[node.id]
 	}
 
-	heldCtes(holder: NodeId): CteLog | undefined {
+	heldCtes(holder: NodeId): HeldCtes | undefined {
 		return this.#held.get(holder)
 	}
 
@@ -590,9 +600,9 @@ export class ShapeState<I extends ChoiceInput> implements ShapeLog<I> {
 	 * A call's evaluation's query with the CTEs its evaluation holds leading its WITH (cte-policy CtePlan `evaluations`),
 	 * or as it is where it holds none.
 	 */
-	readonly evaluationHolding: EvaluationHolding = (call, build) => {
+	readonly evaluationHolding: EvaluationHolding = (call, env, build) => {
 		const holder = this.cte.evaluations[call.id]
-		return holder === undefined ? build() : this.withHeldCtes(holder, build)
+		return holder === undefined ? build() : this.withHeldCtes(holder, env, build)
 	}
 
 	/**
@@ -600,12 +610,12 @@ export class ShapeState<I extends ChoiceInput> implements ShapeLog<I> {
 	 * `sharedCorrelated`) leading its WITH, each defined at its first read inside it: a fresh table for the holder while
 	 * it is lowered, so a holder lowered again, in another statement or another mode, defines its CTEs again.
 	 */
-	withHeldCtes<Q extends OperandSelect>(holder: NodeId, lower: () => Q): Q {
+	withHeldCtes<Q extends OperandSelect>(holder: NodeId, env: Env, lower: () => Q): Q {
 		if (!this.#holding.has(holder) || this.#held.has(holder)) {
 			return lower()
 		}
 		const table: CteLog = freshCtes()
-		this.#held.set(holder, table)
+		this.#held.set(holder, { table, env })
 		const query = lower()
 		this.#held.delete(holder)
 		return withLeading(query, table.ctes)
@@ -871,7 +881,7 @@ const dispatchIn = <I extends ChoiceInput>(
 			const region = filteredRegion(node)
 			return region === undefined
 				? plugIn(node, cx, env)
-				: state.withHeldCtes(region.id, () => plugIn(node, cx, env))
+				: state.withHeldCtes(region.id, env, () => plugIn(node, cx, env))
 		}
 		const scope = decision.scope
 		switch (scope.kind) {
@@ -884,10 +894,12 @@ const dispatchIn = <I extends ChoiceInput>(
 				)
 			}
 			case "held": {
-				const ctes = state.heldCtes(scope.holder)
-				return ctes === undefined
+				const held = state.heldCtes(scope.holder)
+				return held === undefined
 					? plugIn(node, cx, env)
-					: cteAtFirstUse(cx, node, ctes, node, materialized, () => plugIn(node, cx, env))
+					: cteAtFirstUse(cx, node, held.table, node, materialized, () =>
+							plugIn(node, cx, held.env)
+						)
 			}
 		}
 	}
@@ -1596,7 +1608,7 @@ export class OptimizedDelivery<
 					kind: "node",
 					node: lastNonEmpty(filters).id
 				})
-				const scope: Env = new Map(scopeNodes.map((n) => [n.id, input.map]))
+				const scope: Env = envOf(scopeNodes.map((n) => [n.id, input.map] as const))
 				rel = select(
 					keyedSet(
 						headingTargets(group.heading, input.map),

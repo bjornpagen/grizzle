@@ -3,13 +3,14 @@ import {
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
-import type { NodeId } from "#compiler/core/ids.ts"
 import type { Heading, HeadingColumn, NodeOf, RelNode } from "#compiler/ir/rel.ts"
 import { capsOf, sameScalarType } from "#compiler/ir/scalar.ts"
 import {
-	type ColumnMap,
 	columnIn,
+	type ColumnMap,
+	emptyEnv,
 	type Env,
+	envOf,
 	type LowerContext,
 	outputNames
 } from "#compiler/lower/conservative/context.ts"
@@ -199,7 +200,7 @@ export const seededAttachment = (
 	 * The seed: the base for every parent row, LATERAL to the parent's rows, restricted to the states whose origin is
 	 * that parent's key.
 	 */
-	const env: Env = new Map<NodeId, ColumnMap>(spine.map((n) => [n.id, parentMap]))
+	const env: Env = envOf(spine.map((n) => [n.id, parentMap] as const))
 	const base = terms.sourceAs(rec.base, env, true)
 	/** Every equation of the Attach, so a parent key equated with two origin columns restricts both. */
 	const restrict = mapNonEmpty(decision.origin, (c) =>
@@ -207,7 +208,7 @@ export const seededAttachment = (
 	)
 	const seed: SelectCore = core(stateTargets(base.map), [parent.item, base.item], and(restrict))
 	/** The step: uncorrelated to any parent, it reads only the feedback and the stored relations. */
-	const stepSource = terms.source(rec.step, new Map())
+	const stepSource = terms.source(rec.step, emptyEnv)
 	const step: SelectCore = core(stateTargets(stepSource.map), [stepSource.item], undefined)
 	const body: Select = select({ kind: "setOp", op: "UNION", arms: [seed, step] })
 
