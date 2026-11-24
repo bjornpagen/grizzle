@@ -106,7 +106,7 @@ export const draftedSlot = Effect.gen(function* () {
 			: relation("Other", { id: pg.integer }, ["id"])
 		const declared: Record<string, AnyRelation | AnyClosed> = { Pair: pair, Sets, Other }
 		const base = schema(name, Rec.values(declared), [])
-		const writer = role(base, "writer", { Sets, Other }, { write: ["Sets", "Other"] })
+		const writer = role(base, "writer", { Sets, Other }, { insert: ["Sets", "Other"] })
 		return { schema: base, logins: [login(base, "desk", [writer])] }
 	}
 	const { m } = yield* installFirst("drafted_guard", (name) => ({

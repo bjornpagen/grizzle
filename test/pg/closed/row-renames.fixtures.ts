@@ -171,7 +171,7 @@ export const versionOf = (name: string, v: VersionModel, bound: number) => {
 		[Roster, Weight, Bonus, Item],
 		[check("heavy", Item, (r) => Logic.ge(Weight.at("w", r.kind), bound))]
 	)
-	const writer = role(base, "writer", { Item }, { write: ["Item"] })
+	const writer = role(base, "writer", { Item }, { insert: ["Item"] })
 	const reader = role(base, "reader", { Item }, { write: [] })
 	const version: Version = { schema: base, logins: [login(base, "desk", [writer, reader])] }
 	return { version, writer, reader }
