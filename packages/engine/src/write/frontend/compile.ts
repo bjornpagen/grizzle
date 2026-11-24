@@ -19,8 +19,8 @@ import {
 	CheckSession,
 	checkFill,
 	checkMember,
-	checkQuery,
-	checkReadBack
+	checkReadBack,
+	checkRelation
 } from "#compiler/check/index.ts"
 import type { MemberColumn, MemberRelation } from "#compiler/check/schema.ts"
 import { catchRefusal, Refusal, unwrap } from "#compiler/core/canonical.ts"
@@ -1245,7 +1245,7 @@ const compile = (
 		}
 		const loc = boundRowsLoc(name)
 		const query = unwrap(
-			checkQuery(
+			checkRelation(
 				checked,
 				navigateQuery(
 					inlinedIn(boundRowsQuery(name, rows, loc)),
@@ -1254,7 +1254,7 @@ const compile = (
 					{ kind: "perRead" },
 					navigation
 				),
-				{ read: "rows", label: `bind ${name}`, clock, session }
+				{ label: `bind ${name}`, clock, session }
 			)
 		)
 		for (const p of query.params) {

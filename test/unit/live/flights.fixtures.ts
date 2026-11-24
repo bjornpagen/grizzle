@@ -212,12 +212,8 @@ export const answerOf = (
 			(all) => Arr.map(all, (e): Answered => ({ kind: e.kind, error: errorOf(e) }))
 		)
 	switch (calls.shape) {
-		case "set":
-			return read(calls.watch(input), (e) => (e.kind === "error" ? e.error : undefined))
 		case "list":
 			return read(calls.watch(input), (e) => (e.kind === "error" ? e.error : undefined))
-		case "answeredSet":
-			return read(calls.answer(input), (e) => (e.kind === "error" ? e.error : undefined))
 		case "answeredList":
 			return read(calls.answer(input), (e) => (e.kind === "error" ? e.error : undefined))
 		case "write":
@@ -231,11 +227,7 @@ export const onceOf = (
 	input: unknown
 ): Effect.Effect<Exit.Exit<void, CallError>> => {
 	switch (calls.shape) {
-		case "set":
-			return Effect.exit(Effect.asVoid(calls.once(input)))
 		case "list":
-			return Effect.exit(Effect.asVoid(calls.once(input)))
-		case "answeredSet":
 			return Effect.exit(Effect.asVoid(calls.once(input)))
 		case "answeredList":
 			return Effect.exit(Effect.asVoid(calls.once(input)))

@@ -112,6 +112,7 @@ import {
 } from "#test/support/oracle/public/program.ts"
 import { termDesc } from "#test/support/oracle/public/terms.ts"
 
+import { groupHeadings } from "#compiler/ir/dag.ts"
 import { noClosedRelations, noParams } from "#compiler/scalar/compute/typing.ts"
 import {
 	type ExpectedStatement,
@@ -1120,13 +1121,14 @@ class Translation {
 						heading: first.heading
 					}
 		if (q.bound.kind === "take") {
+			const taken = completed(takeOrder(q.heading, q.bound))
 			current = {
 				node: this.b.node({
 					loc: undefined,
 					meta: conservativeMeta,
 					kind: "Take",
 					input: current.node,
-					order: completed(takeOrder(q.heading, q.bound)),
+					orders: Arr.map(groupHeadings(current.node), () => taken),
 					bound: { kind: "literal", k: BigInt(q.bound.k) },
 					correlation:
 						outer.kind === "own"
@@ -1218,12 +1220,13 @@ class Translation {
 		if (root.delivery.kind === "set") {
 			return body.node
 		}
+		const delivered = completed(root.delivery.order)
 		return this.b.node({
 			loc: undefined,
 			meta: conservativeMeta,
 			kind: "OrderedResult",
 			input: body.node,
-			order: completed(root.delivery.order),
+			orders: Arr.map(groupHeadings(body.node), () => delivered),
 			heading: body.heading
 		})
 	}

@@ -60,6 +60,7 @@ import {
 	exprsOf,
 	fieldParams,
 	type FrameBound,
+	type GroupOrders,
 	type Heading,
 	type HeadingColumn,
 	type Identified,
@@ -70,8 +71,10 @@ import {
 	keptRowsOf,
 	type KindOver,
 	mapNode,
+	mergeOrder,
 	metaSpecOf,
 	type NodeMeta,
+	type OrderKey,
 	orderedSetFns,
 	type RelDag,
 	type RelKind,
@@ -1388,7 +1391,7 @@ class Checker {
 			}
 			case "Take": {
 				this.requireHeading(node, this.headingOf(node.input), "its input")
-				const ordered = Arr.map(node.order.keys, (k) => k.column)
+				const ordered = Arr.map(orderedColumns(node.orders, heading), (k) => k.column)
 				const correlated = Arr.map(node.correlation, (c) => c.column)
 				this.requireColumns(
 					"a column a node names lies in the heading it reads",
@@ -1490,7 +1493,7 @@ class Checker {
 				return
 			case "OrderedResult": {
 				this.requireHeading(node, this.headingOf(node.input), "its input")
-				const ordered = Arr.map(node.order.keys, (k) => k.column)
+				const ordered = Arr.map(orderedColumns(node.orders, heading), (k) => k.column)
 				this.requireColumns(
 					"a column a node names lies in the heading it reads",
 					path,
@@ -2374,6 +2377,13 @@ const nodeMetaShape: S.Shape<NodeMeta> = S.struct({
 	context: evidenceContextShape
 })
 
+/**
+ * The keys of a take's or an ordered result's orders a validation reads against its heading: its one heading group's
+ * order, or, over several, the run every group's begins with, the columns every group holds (ir/rel.ts mergeOrder).
+ */
+const orderedColumns = (orders: GroupOrders, heading: Heading): ReadonlyArray<OrderKey> =>
+	orders.length === 1 ? orders[0].keys : mergeOrder(orders, heading).keys
+
 const orderShape: S.Shape<CompletedOrder> = S.struct({
 	keys: S.uniqueArray(
 		S.struct({ column: S.nonEmptyString, dir: S.literalsShape(directions) }),
@@ -2576,7 +2586,7 @@ const tableNodeShape: S.Shape<TableNode> = S.tagged("kind", {
 		{
 			...common,
 			input: nodeIdShape,
-			order: orderShape,
+			orders: S.nonEmptyArray(orderShape),
 			bound: takeBoundShape,
 			correlation: correlationShape
 		},
@@ -2641,7 +2651,7 @@ const tableNodeShape: S.Shape<TableNode> = S.tagged("kind", {
 		{}
 	),
 	OrderedResult: S.structStated(
-		{ ...common, input: nodeIdShape, order: orderShape },
+		{ ...common, input: nodeIdShape, orders: S.nonEmptyArray(orderShape) },
 		commonStated,
 		{}
 	),

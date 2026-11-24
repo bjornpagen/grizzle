@@ -1,11 +1,18 @@
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { CompileError, type ProseTag, prose } from "#compiler/core/errors.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import type { KeyClasses, KeyFactors } from "#compiler/ir/keys.ts"
-import type { CompletedOrder, Heading, HeadingColumn, OrderKey } from "#compiler/ir/rel.ts"
+import type {
+	CompletedOrder,
+	GroupOrders,
+	Heading,
+	HeadingColumn,
+	OrderKey
+} from "#compiler/ir/rel.ts"
 import { typeLabel } from "#compiler/ir/scalar.ts"
 import { breaksTies, hasCapability } from "#compiler/scalar/registry.ts"
 
@@ -23,8 +30,11 @@ export interface OrderSubject {
 	 * never appended.
 	 */
 	readonly fixed: ReadonlyArray<string>
-	/** The literal discriminant of a union of arms with different headings, empty for one heading group. */
-	readonly discriminant: ReadonlyArray<string>
+	/**
+	 * A key's columns in the order of the declared key they copy (logical/key-order.ts declaredKeyOrder), the order a
+	 * chosen key's columns are appended in.
+	 */
+	readonly keyOrder: (columns: ReadonlyArray<string>) => ReadonlyArray<string>
 	/** Where the order was stated, the prefix of every diagnostic. */
 	readonly loc: SourceLoc
 }
@@ -32,7 +42,132 @@ export interface OrderSubject {
 const identity = (c: HeadingColumn): string => c.name
 
 /**
- * The completed total order of `subject` that begins with `user`, or why there is none.
+ * What a delivered relation's order is completed over (completeGroups): the subject of its rows, where they are of one
+ * heading group; over a heterogeneous union, the subject of its rows over the columns every group holds, its keys those
+ * that tell any two of its rows apart (`common`), its discriminant, which tells the groups apart, and each group's own
+ * subject, in group order.
+ */
+export type GroupedSubject =
+	| { readonly kind: "one"; readonly subject: OrderSubject }
+	| {
+			readonly kind: "groups"
+			readonly common: OrderSubject
+			readonly discriminant: ReadonlyArray<string>
+			readonly groups: NonEmptyReadonlyArray<OrderSubject>
+	  }
+
+/** A failed completion at `loc`: why the order cannot be completed. */
+const failAt = (loc: SourceLoc, tag: ProseTag, capability: string) =>
+	Result.err(CompileError.make(prose(tag, loc, capability)))
+
+/**
+ * The keys `user` states over `subject`'s heading, each a field of it, once, of an admitted order, in their sequence
+ * and directions; or why they are none.
+ */
+const statedKeys = (
+	subject: OrderSubject,
+	user: ReadonlyArray<OrderKey>
+): Result.Result<ReadonlyArray<OrderKey>, CompileError> => {
+	const columns = new Map(subject.heading.map((c) => [c.name, c]))
+	const named = new Set<string>()
+	const keys: Array<OrderKey> = []
+	for (const k of user) {
+		const column = columns.get(k.column)
+		if (column === undefined) {
+			return failAt(
+				subject.loc,
+				"MalformedDescription",
+				`an order field of the final result heading; ${k.column} is not one of ${subject.heading.length === 0 ? "no field" : subject.heading.map((c) => c.name).join(", ")}`
+			)
+		}
+		if (named.has(k.column)) {
+			return failAt(
+				subject.loc,
+				"MalformedDescription",
+				`each order field once; ${k.column} repeats`
+			)
+		}
+		if (!hasCapability(column.type, "ordering")) {
+			return failAt(
+				subject.loc,
+				"UnsupportedOperation",
+				`ordering: ${k.column} of type ${typeLabel(column.type)} has no admitted order`
+			)
+		}
+		named.add(k.column)
+		keys.push({ column: k.column, dir: k.dir })
+	}
+	return Result.ok(keys)
+}
+
+/**
+ * Whether `keys`, with the columns `subject` fixes per evaluation, hold one of its keys whole: every factor of it has a
+ * minimal key each of whose classes has a column among them.
+ */
+const holdsKey = (subject: OrderSubject, keys: ReadonlyArray<OrderKey>): boolean => {
+	const settled = new Set([...keys.map((k) => k.column), ...subject.fixed])
+	return subject.keys.some((factors) =>
+		factors.every((alternatives) =>
+			alternatives.some((classes) =>
+				classes.every((members) => members.some((c) => settled.has(c)))
+			)
+		)
+	)
+}
+
+/**
+ * The completed total order of `subject`, rows of one heading group, that begins with `user`, or why there is none
+ * (completeFrom, after the user's keys are read: statedKeys).
+ */
+export const completeOrder = (
+	subject: OrderSubject,
+	user: ReadonlyArray<OrderKey>
+): Result.Result<CompletedOrder, CompileError> =>
+	Result.flatMap(statedKeys(subject, user), (keys) => completeFrom(subject, keys))
+
+/**
+ * The completed orders of a delivered relation that begin with `user`, one per heading group, in group order, or why
+ * there are none (ir/rel.ts GroupOrders).
+ *
+ * Rows of one heading group are completed as one relation (completeFrom). Over a heterogeneous union the user's keys,
+ * fields every group holds, order rows across groups; where they hold no key of the union, two rows of different
+ * groups may tie on them, and the discriminant follows them, ascending, a closed id's in its roster's order, so rows of
+ * different groups never tie on the run. Where a key of the union lies within the fields every group holds, the union
+ * has a result key, and its rows are ordered by it: the run completed over the union's own subject (`common`), its
+ * key's fields appended, one comparator of every row, each group's order. Only a union with no such key orders each
+ * group apart: the run completed over the group's own rows, by the group's key, its fields in declared key order, or
+ * its whole heading, which no key of the union need complete, every group's heading being its rows' key. So rows of
+ * two groups compare by the run, and a group's rows by its order.
+ */
+export const completeGroups = (
+	subject: GroupedSubject,
+	user: ReadonlyArray<OrderKey>
+): Result.Result<GroupOrders, CompileError> => {
+	switch (subject.kind) {
+		case "one":
+			return Result.map(completeOrder(subject.subject, user), (order): GroupOrders => [order])
+		case "groups":
+			return Result.flatMap(statedKeys(subject.common, user), (keys) => {
+				const named = new Set(keys.map((k) => k.column))
+				const run: ReadonlyArray<OrderKey> = holdsKey(subject.common, keys)
+					? keys
+					: [
+							...keys,
+							...subject.discriminant
+								.filter((d) => !named.has(d) && !subject.common.fixed.includes(d))
+								.map((column): OrderKey => ({ column, dir: "asc" }))
+						]
+				const common = completeFrom(subject.common, run)
+				return common.ok && holdsKey(subject.common, common.value.keys)
+					? Result.ok(mapNonEmpty(subject.groups, () => common.value))
+					: Result.eachNonEmpty(subject.groups, (group) => completeFrom(group, run))
+			})
+	}
+}
+
+/**
+ * The completed total order of `subject`, rows of one heading group, that begins with the keys `stated`, columns of its
+ * heading, each once; or why there is none.
  *
  * Completing a user order into a total order without changing the answer.
  *
@@ -42,83 +177,41 @@ const identity = (c: HeadingColumn): string => c.name
  *    evidence, they form a total order.
  * 2. Otherwise append a proved candidate key retained in the final heading, skipping fields already ordered. The key is
  *    chosen by one deterministic policy: fewest additional fields, then the names of the additional columns, compared
- *    in that order. Its fields are appended in heading order, ascending. A key is over classes of equal columns, so a
+ *    in that order. Its fields are appended ascending, in the order of the declared key they copy (subject `keyOrder`),
+ *    so the key's own unique index delivers the order; a field that copies none follows, in heading order. A key is
+ *    over classes of equal columns, so a
  *    class with a column ordered or fixed needs nothing more, and another adds its orderable column of least name: of
  *    every key one column per class gives, that is the one the policy chooses.
- * 3. If no narrower retained key is proved, append the remaining result fields in canonical heading order, provided
- *    each has a native order compatible with equality (breaksTies): an admitted order, or a closed id's codes, an
- *    unordered roster's among them, which never move, though no order the caller states reads them.
+ * 3. If no narrower retained key is proved, append the remaining result fields, provided each has a native order
+ *    compatible with equality (breaksTies): an admitted order, or a closed id's codes, an unordered roster's among them,
+ *    which never move, though no order the caller states reads them. They follow the declared key they copy where they
+ *    lie within one (subject `keyOrder`), as a heading that is its own key does, else canonical heading order.
  * 4. If no total order results, refuse with an actionable error: retaining a public key in find may resolve it, and a
  *    hidden row id never will.
  *
- * Over a union of arms with different headings, ordering uses the fields common to every arm and the discriminant's
- * roster order completes ties across arms: after the user's fields the discriminant is appended, ascending, so arms
- * are ordered by their roster position (enum order is roster order), and only then is the order completed
- * within the arms by the union's keys. The zero-column relation has the empty comparison tuple. The same
- * completion serves take, so a bounded subset is never an arbitrary choice among ties.
+ * The zero-column relation has the empty comparison tuple. The same completion serves take, so a bounded subset is
+ * never an arbitrary choice among ties.
  *
  * Evidence is contextual: the keys read here are the subject's logical keys for the context it is compiled for, so a
  * deferred law that may be temporarily false never completes an order.
  *
- * The discriminant's roster order completes ties across arms of different headings.
- *
- * One heading group is a set of its whole heading; arms of different headings are told apart only by a key.
+ * One heading group is a set of its whole heading.
  */
-export const completeOrder = (
+const completeFrom = (
 	subject: OrderSubject,
-	user: ReadonlyArray<OrderKey>
+	stated: ReadonlyArray<OrderKey>
 ): Result.Result<CompletedOrder, CompileError> => {
-	const loc = subject.loc
-	const fail = (tag: ProseTag, capability: string) =>
-		Result.err(CompileError.make(prose(tag, loc, capability)))
 	const columns = new Map(subject.heading.map((c) => [c.name, c]))
-	const ordered = new Set<string>()
-	const keys: Array<OrderKey> = []
-	for (const k of user) {
-		const column = columns.get(k.column)
-		if (column === undefined) {
-			return fail(
-				"MalformedDescription",
-				`an order field of the final result heading; ${k.column} is not one of ${subject.heading.length === 0 ? "no field" : subject.heading.map((c) => c.name).join(", ")}`
-			)
-		}
-		if (ordered.has(k.column)) {
-			return fail("MalformedDescription", `each order field once; ${k.column} repeats`)
-		}
-		if (!hasCapability(column.type, "ordering")) {
-			return fail(
-				"UnsupportedOperation",
-				`ordering: ${k.column} of type ${typeLabel(column.type)} has no admitted order`
-			)
-		}
-		ordered.add(k.column)
-		keys.push({ column: k.column, dir: k.dir })
-	}
+	const ordered = new Set(stated.map((k) => k.column))
+	const keys: Array<OrderKey> = [...stated]
 	const fixed = new Set(subject.fixed)
 	const settled = (c: string) => ordered.has(c) || fixed.has(c)
-	/** Whether some key's every factor has a minimal key each of whose classes has a column ordered or fixed. */
-	const total = () =>
-		subject.keys.some((factors) =>
-			factors.every((alternatives) =>
-				alternatives.some((classes) => classes.every((members) => members.some(settled)))
-			)
-		)
+	/** Appends `column`, ascending: never a settled one, which the key's classes and the heading's walk each skip. */
 	const append = (column: string) => {
-		if (ordered.has(column) || fixed.has(column)) {
-			return
-		}
 		ordered.add(column)
 		keys.push({ column, dir: "asc" })
 	}
-	if (subject.heading.length === 0 || total()) {
-		return Result.ok({ keys })
-	}
-	for (const d of subject.discriminant) {
-		if (columns.has(d)) {
-			append(d)
-		}
-	}
-	if (total()) {
+	if (subject.heading.length === 0 || holdsKey(subject, keys)) {
 		return Result.ok({ keys })
 	}
 	const orderable = (c: string): boolean => {
@@ -211,30 +304,22 @@ export const completeOrder = (
 		})
 	const chosen = candidates[0]
 	if (chosen !== undefined) {
-		for (const c of chosen.additional) {
+		for (const c of subject.keyOrder(chosen.additional)) {
 			append(c)
 		}
 		return Result.ok({ keys })
 	}
-	/** The remaining result fields, in canonical heading order. */
-	const discriminated = subject.discriminant.length > 0
-	for (const c of subject.heading) {
-		if (ordered.has(c.name) || fixed.has(c.name)) {
-			continue
-		}
-		if (!breaksTies(c.type)) {
-			return fail(
+	const remaining = subject.heading.filter((c) => !settled(c.name)).map((c) => c.name)
+	for (const name of subject.keyOrder(remaining)) {
+		const type = defined(columns.get(name), "a remaining field of the heading").type
+		if (!breaksTies(type)) {
+			return failAt(
+				subject.loc,
 				"UnsupportedOperation",
-				`ordering: completing the order needs ${c.name}, whose type ${typeLabel(c.type)} has no admitted order; retain a key of the result in find`
+				`ordering: completing the order needs ${name}, whose type ${typeLabel(type)} has no admitted order; retain a key of the result in find`
 			)
 		}
-		append(c.name)
+		append(name)
 	}
-	if (!discriminated || total()) {
-		return Result.ok({ keys })
-	}
-	return fail(
-		"UnsupportedOperation",
-		"ordering: a completed total order over the fields common to every arm; no key of the union lies within them, so retain a key in each arm's find"
-	)
+	return Result.ok({ keys })
 }

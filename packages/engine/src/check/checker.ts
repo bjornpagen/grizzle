@@ -70,7 +70,7 @@ import {
 	readingOf,
 	statedReading
 } from "#compiler/ir/clock.ts"
-import { deliverySpine, relNode } from "#compiler/ir/dag.ts"
+import { deliverySpine, groupHeadings, relNode } from "#compiler/ir/dag.ts"
 import {
 	bindTerms,
 	exprChildren,
@@ -108,6 +108,7 @@ import {
 	type Correlation,
 	type DeclaredKey,
 	type FoldInput,
+	type GroupOrders,
 	type Heading,
 	type HeadingColumn,
 	inputsOf,
@@ -411,9 +412,10 @@ type ParamResolver =
 	  }
 
 /**
- * How the query a check's root reads is read: as rows, a page, a read-back or a membership, as a ChangeSet member's
- * query, written into its relation, or as a definition, a derived relation's or a role's query entry's, which is a
- * relation.
+ * How the query a check's root reads is read: as rows a caller reads, a page, a read-back or a membership, as a
+ * ChangeSet member's query, written into its relation, or as a relation, rows the database itself reads as a set: a
+ * definition, a derived relation's or a role's query entry's, a rule's violation, which its judge reads, and a relation
+ * parameter a ChangeSet binds to a query, which its readers read.
  */
 export type RootRole =
 	| { readonly kind: "rows" }
@@ -422,7 +424,7 @@ export type RootRole =
 	| { readonly kind: "region" }
 	| { readonly kind: "membership" }
 	| { readonly kind: "member"; readonly target: MemberTarget }
-	| { readonly kind: "definition" }
+	| { readonly kind: "relation" }
 
 /**
  * Where a scope's rules stand: the query's own root, read in its role; an attachment's child, correlated to its parent;
@@ -489,21 +491,30 @@ const keptOrder = (input: StageOrder): StageOrder =>
 	input.kind === "delivered" ? input : unordered
 
 /**
- * The order a root's rows are delivered in: the one its last stage carries, an orderBy's or the take's it ends in,
- * where its role hands its rows to a caller (rows, a page, a read-back), so a take reaches a caller in its order as it
- * reaches an attachment's parent; and none where its rows are a set: a member's, written into its relation, a
- * membership's, tested, and a definition's, a relation.
+ * The order a root's rows are delivered in, stated at `at`: the one its last stage carries, an orderBy's or the take's
+ * it ends in, where its role hands its rows on in one (rows, a page, a read-back, a rule's region), so a take reaches a
+ * caller in its order as it reaches an attachment's parent; and, for rows a caller reads that carry none, a served
+ * read's and a ChangeSet's read-back's, the empty order, which the completion (check/order.ts) extends by the result's
+ * key, ascending, or its whole heading where no narrower key is proved, as an attachment's array is ordered (Checker
+ * attach): every result that leaves the database leaves it in one order, a function of its rows alone. None where its
+ * rows are a set: a region's that states none, which a rule reads, a member's, written into its relation, a
+ * membership's, tested, and a relation's, which the database reads.
  */
-const rootOrder = (order: StageOrder, role: RootRole): StatedOrderDesc | undefined => {
+const rootOrder = (
+	order: StageOrder,
+	role: RootRole,
+	at: SourceLoc
+): StatedOrderDesc | undefined => {
 	switch (role.kind) {
 		case "rows":
 		case "page":
 		case "readBack":
+			return order.kind === "none" ? { keys: [], at } : order.stated
 		case "region":
 			return order.kind === "none" ? undefined : order.stated
 		case "membership":
 		case "member":
-		case "definition":
+		case "relation":
 			return undefined
 	}
 }
@@ -1408,7 +1419,7 @@ export class Checker {
 			)
 		}
 		const out = this.stage(desc.stage, this.ownScope(role))
-		const order = rootOrder(out.order, role)
+		const order = rootOrder(out.order, role, loc)
 		const root = order === undefined ? out.node : this.#orderedResult(out.node, order)
 		const completed: LogicalQuery["dag"] = unwrap(
 			completeStated(
@@ -1423,21 +1434,40 @@ export class Checker {
 		return completed
 	}
 
-	/** A root's delivered rows: its rows under the order stated, which order.ts completes. */
+	/**
+	 * A root's delivered rows: its rows under the order stated, which order.ts completes over each of their heading
+	 * groups.
+	 */
 	#orderedResult(input: RelNode, stated: StatedOrderDesc): RelNode {
 		const heading = input.heading
 		const at = stated.at
 		const node = this.node(
-			{ kind: "OrderedResult", input, order: this.complete(stated, heading, new Set()), heading },
+			{ kind: "OrderedResult", input, orders: this.complete(stated, input, new Set()), heading },
 			at
 		)
 		this.#state(node, stated, {
 			input,
 			fixed: [],
-			withOrder: (order) =>
-				this.#restated(node, { kind: "OrderedResult", input, order, heading }, at)
+			withOrder: (orders) =>
+				this.#restated(node, { kind: "OrderedResult", input, orders, heading }, at)
 		})
 		return node
+	}
+
+	/**
+	 * An attachment's array order: its child's one completed order. One attachment delivers one heading, so a child of
+	 * several heading groups is refused.
+	 */
+	#arrayOrder(orders: GroupOrders, loc: SourceLoc): CompletedOrder {
+		const [sole, ...more] = orders
+		if (more.length > 0) {
+			fail(
+				"UnsupportedOperation",
+				loc,
+				"an attached union of several headings: one attachment delivers one heading"
+			)
+		}
+		return sole
 	}
 
 	stage(s: ResolvedStage, scope: Scope): StageOut {
@@ -1505,12 +1535,25 @@ export class Checker {
 	}
 
 	/**
+	 * The placeholder completion of the rows `input` delivers, one order per heading group of theirs (ir/dag.ts
+	 * groupHeadings): the user's keys, then the rest of the group's heading in heading order, less the columns `fixed`
+	 * holds constant (completeOne).
+	 */
+	complete(order: StatedOrderDesc, input: RelNode, fixed: ReadonlySet<string>): GroupOrders {
+		return mapNonEmpty(groupHeadings(input), (heading) => this.completeOne(order, heading, fixed))
+	}
+
+	/**
 	 * The placeholder completion a node is built with: the user's keys, then the rest of the heading in heading order,
 	 * less the columns `fixed` holds constant, such as an attachment's correlation. It is total without evidence, so the
 	 * DAG is valid as it is built; the stated order, recorded by #state, is completed under the logical keys once the
 	 * DAG is whole (order.ts).
 	 */
-	complete(order: StatedOrderDesc, heading: Heading, fixed: ReadonlySet<string>): CompletedOrder {
+	completeOne(
+		order: StatedOrderDesc,
+		heading: Heading,
+		fixed: ReadonlySet<string>
+	): CompletedOrder {
 		for (const [i, o] of order.keys.entries()) {
 			if (!hasColumn(heading, o.column)) {
 				fail(
@@ -1564,16 +1607,16 @@ export class Checker {
 					}))
 				: []
 		const fixed = new Set(correlation.map((c) => c.column))
-		const order = this.complete(stated, heading, fixed)
+		const orders = this.complete(stated, input, fixed)
 		const bound = this.takeBound(take, scope, loc)
-		const node = this.node({ kind: "Take", input, order, bound, correlation, heading }, loc)
+		const node = this.node({ kind: "Take", input, orders, bound, correlation, heading }, loc)
 		this.#state(node, stated, {
 			input,
 			fixed: correlation.map((c) => c.column),
 			withOrder: (completed) =>
 				this.#restated(
 					node,
-					{ kind: "Take", input, order: completed, bound, correlation, heading },
+					{ kind: "Take", input, orders: completed, bound, correlation, heading },
 					loc
 				)
 		})
@@ -1789,16 +1832,16 @@ export class Checker {
 					? mapNonEmpty(g.arms, (a) => this.canonicalArm(a, loc))
 					: g.arms
 		}))
-		const groupHeadings = mapNonEmpty(mergedGroups, (g) => ({
+		const headedGroups = mapNonEmpty(mergedGroups, (g) => ({
 			heading: g.arms[0].heading,
 			arms: g.arms
 		}))
-		const firstGroup = groupHeadings[0]
+		const firstGroup = headedGroups[0]
 		const heading: Heading =
 			widenedGroups.length === 1
 				? firstGroup.heading
 				: firstGroup.heading.filter((c) => common.includes(c.name))
-		const node = this.node({ kind: "Union", groups: groupHeadings, discriminant, heading }, loc)
+		const node = this.node({ kind: "Union", groups: headedGroups, discriminant, heading }, loc)
 		const [firstWidened, ...moreWidened] = mergedGroups
 		const flat: NonEmptyReadonlyArray<RelNode> = [
 			...firstWidened.arms,
@@ -2071,7 +2114,7 @@ export class Checker {
 				correlation,
 				judged: "array",
 				delivered: "array",
-				order: this.complete(stated, childHeading, fixed),
+				order: this.completeOne(stated, childHeading, fixed),
 				heading
 			},
 			loc
@@ -2079,7 +2122,7 @@ export class Checker {
 		this.#state(node, stated, {
 			input: child.node,
 			fixed: correlation.map((c) => c.child),
-			withOrder: (order) =>
+			withOrder: (orders) =>
 				this.#restated(
 					node,
 					{
@@ -2090,7 +2133,7 @@ export class Checker {
 						correlation,
 						judged: "array",
 						delivered: "array",
-						order,
+						order: this.#arrayOrder(orders, loc),
 						heading
 					},
 					loc

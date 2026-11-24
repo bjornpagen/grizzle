@@ -51,9 +51,6 @@ export const readOnce =
 	(calls: OnceCalls) =>
 	(input: unknown): Effect.Effect<ReadonlyArray<DecodedRow>, CallError> => {
 		switch (calls.shape) {
-			case "set":
-			case "answeredSet":
-				return rowsOf(calls.once(input))
 			case "list":
 			case "answeredList":
 				return rowsOf(calls.once(input))

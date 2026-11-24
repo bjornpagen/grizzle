@@ -1,15 +1,13 @@
-import { keyedBy } from "#compiler/analysis/physical/props.ts"
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import type { DecoderForm, RowDecoder } from "#compiler/core/decoder.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { isList } from "#compiler/core/record.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
-import type { OuterRefs } from "#compiler/ir/dag.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { PageFill } from "#compiler/ir/products.ts"
 import { Roster } from "#compiler/ir/scalar.ts"
 import type { Footprint } from "#compiler/logical/routes.ts"
-import { keySetOf } from "#compiler/lower/conservative/keys.ts"
 import type { PageStatementSlot } from "#compiler/lower/conservative/types.ts"
 import type { SentStatement } from "#compiler/lower/shapes/index.ts"
 import type {
@@ -22,7 +20,6 @@ import { sentSpec } from "#compiler/lower/template.ts"
 import { loginStartupOptions, ownerStartupOptions } from "#compiler/physical/ddl/roles.ts"
 import type { QueryTemplate } from "#compiler/program/compile.ts"
 import { pageStatementSlotOf } from "#compiler/runtime/lower/slots.ts"
-import { unitColumn } from "#compiler/runtime/lower/tree.ts"
 import type {
 	ServedFootprint,
 	ServedKey,
@@ -63,41 +60,19 @@ export const servedRead = (
 	live
 })
 
-/** The root of a program's DAG reads no enclosing node: it is evaluated once per execution. */
-const evaluatedOnce: OuterRefs = new Map()
-
 /**
- * The key a template's rows are delivered under (served/forms.ts ServedKey), read off the optimized program its
- * statements deliver: an ordered result's, the fields of its completed order; a set's delivered by one statement, the
- * KeySetProof of its root's rows (lower/conservative/keys.ts keySetOf) over the physical analysis's canonical minimal
- * key among its heading (analysis/physical/props.ts keyedBy), its root evaluated once; and, where that proves none or
- * the set is a union of several heading groups, every head field of every part its rows are delivered by, a heading
- * group's each, in group order, the private column of a relation of no column none of them. A union of several heading
- * groups delivers each group by a statement of its own, holding the group's fields (served/read.ts ServedRoots), while
- * its root's heading is the fields its groups share, which its proof keys as a statement reading the union realizes it,
- * one row per value of them: no key of the rows its groups deliver, two rows of one group agreeing there.
+ * The key a template's rows are delivered under (served/forms.ts ServedKey): the fields of the completed orders of the
+ * ordered result its optimized program's root is, which every served read's is (check/checker.ts rootOrder), each
+ * once, the first heading group's in its order and each later group's own after them. A group's order is a key of its
+ * rows, and rows of two groups differ on the run every group's order begins with (ir/rel.ts GroupOrders), so no two
+ * rows share a key, a field a group lacks read as none (live/key.ts keyOf).
  */
 export const templateKey = (template: QueryTemplate): ServedKey => {
-	const { query, plan } = template.programs.optimized
-	const root = query.dag.roots[0]
-	if (root.kind === "OrderedResult") {
-		return { kind: "list", fields: root.order.keys.map((k) => k.column) }
+	const root = template.programs.optimized.query.dag.roots[0]
+	if (root.kind !== "OrderedResult") {
+		throw defect("a served read's root is its ordered result (check/checker.ts rootOrder)")
 	}
-	const roots = template.run.roots
-	const headFields = [
-		...new Set(
-			roots.flatMap((tree) =>
-				tree.statement.heading.flatMap((c) => (c.name === unitColumn ? [] : [c.name]))
-			)
-		)
-	]
-	if (roots.length > 1) {
-		return { kind: "set", fields: headFields }
-	}
-	const heading = root.heading.map((c) => c.name)
-	const within = keyedBy(plan.analysis.of(root).props, heading)
-	const proof = keySetOf(within?.key ?? heading, within, evaluatedOnce, undefined)
-	return { kind: "set", fields: proof.kind === "proved" ? proof.key.columns : headFields }
+	return { fields: [...new Set(root.orders.flatMap((o) => o.keys.map((k) => k.column)))] }
 }
 
 /**
@@ -129,7 +104,6 @@ const servedFootprint = (footprint: Footprint, names: PhysicalNames): ServedFoot
 
 /** The key a page's rows are delivered under: the fields of the completed order it pages by (served/forms.ts ServedPage). */
 export const pageKey = (page: ServedPage): ServedKey => ({
-	kind: "list",
 	fields: page.order.keys.map((k) => k.column)
 })
 

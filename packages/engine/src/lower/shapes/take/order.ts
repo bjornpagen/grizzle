@@ -28,3 +28,20 @@ export const orderIsTotal = (
 	)
 	return key === undefined ? partialOrder : { kind: "total", by: { kind: "keyed", key } }
 }
+
+/**
+ * The order a part delivers its rows in, and whether the facts prove it total over them (orderIsTotal), where the
+ * heading is appended after it otherwise.
+ */
+export interface DeliveryOrder {
+	readonly order: CompletedOrder
+	readonly total: OrderTotality
+}
+
+/** `order` over the rows of `input`, of heading `heading`, total where `facts` prove it of them (DeliveryOrder). */
+export const deliveryOrder = (
+	facts: ShapeFacts,
+	input: RelNode,
+	order: CompletedOrder,
+	heading: Heading
+): DeliveryOrder => ({ order, total: orderIsTotal(facts, input, order, heading) })

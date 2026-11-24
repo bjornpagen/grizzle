@@ -2,6 +2,7 @@ import { defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Option, Order, pipe, Record as Rec, String as Str } from "effect"
 import { makeIdSupply, ParamId } from "#compiler/core/ids.ts"
 import { DagBuilder, type ReservedNode } from "#compiler/ir/builder.ts"
+import { groupHeadings } from "#compiler/ir/dag.ts"
 import { DecimalText } from "#compiler/ir/decimal.ts"
 import {
 	OpId,
@@ -511,7 +512,7 @@ export class Q {
 		return this.b.node({
 			kind: "Take",
 			input,
-			order,
+			orders: Arr.map(groupHeadings(input), () => order),
 			bound,
 			correlation,
 			heading: input.heading,
@@ -524,7 +525,7 @@ export class Q {
 		return this.b.node({
 			kind: "OrderedResult",
 			input,
-			order,
+			orders: Arr.map(groupHeadings(input), () => order),
 			heading: input.heading,
 			loc: undefined,
 			meta: conservativeMeta

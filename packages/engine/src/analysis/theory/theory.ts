@@ -36,7 +36,7 @@ import {
 	type Spelling,
 	spelledSlots
 } from "#compiler/analysis/theory/spelling.ts"
-import { checkQuery } from "#compiler/check/index.ts"
+import { checkRelation } from "#compiler/check/index.ts"
 import { CheckSession } from "#compiler/check/session.ts"
 import { catchRefusal, Refusal, unwrap } from "#compiler/core/canonical.ts"
 import {
@@ -1093,8 +1093,7 @@ export const ruleViolation = (
 	violation: InferredQuery
 ): Result.Result<{ readonly dag: ValidDag; readonly root: RelNode }, CompileError> =>
 	Result.flatMap(
-		checkQuery(checked, violation, {
-			read: "rows",
+		checkRelation(checked, violation, {
 			label: `rule ${law.named.display}`,
 			clock: noClock,
 			session: new CheckSession(checked.patterns)

@@ -294,10 +294,11 @@ export const searchAlsoOutside = (q: LogicalQuery): LogicalQuery => {
 
 /**
  * The candidates' distance replaced by a literal: the DAG no longer ranks by the cosine distance, though its search
- * node still names the score column. A planted DAG: the checker only builds a search over the distance it traced.
+ * node still names the score column. A planted DAG: the checker only builds a search over the distance it traced. The
+ * search is the input of the root's order, the candidates' key, which every served read is delivered in.
  */
 export const literalScore = (q: LogicalQuery): LogicalQuery => {
-	const ann = nodeOfKind(q.dag.roots[0], "ApproximateNearest")
+	const ann = nodeOfKind(nodeOfKind(q.dag.roots[0], "OrderedResult").input, "ApproximateNearest")
 	const projection = nodeOfKind(ann.source, "ProjectSet")
 	const distance = Option.getOrThrowWith(
 		Arr.findFirst(projection.out, (o) => o.name === "distance"),

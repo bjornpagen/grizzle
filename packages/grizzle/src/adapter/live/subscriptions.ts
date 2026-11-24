@@ -15,7 +15,7 @@ import { sourceCallError, watchEnded } from "#adapter/live/call-error.ts"
 import { addRoutes, removeRoutes, route, type RouteIndex } from "#adapter/live/router.ts"
 import type { ChangeSink, ChangeSource, SourceLoss, SourceRefusal } from "#adapter/live/source.ts"
 import { ownServices } from "#adapter/services.ts"
-import type { AnswerFailure, FailureOf, Keyed, ReadShape, ReadState } from "#compiler/live/index.ts"
+import type { AnswerFailure, FailureOf, KeyedList, ReadState } from "#compiler/live/index.ts"
 import { defect, type RouteKey } from "#compiler/plan/runtime.ts"
 
 /**
@@ -158,13 +158,13 @@ const loseGeneration = (generation: Generation, error: FailureOf<"watch">): void
 }
 
 /**
- * How a live read's answer is made, one per read shape (db/handles.ts setAnswer, listAnswer): its events of one run
- * settled into its state from before its reset (live/fold.ts fold), the least change from one value to another as
- * those events (live/fold.ts diffSet, diffList), and its `ready`, its error and its `end`.
+ * How a live read's answer is made (db/handles.ts liveAnswer): its events of one run settled into its state from before
+ * its reset (live/fold.ts fold), the least change from one value to another as those events (live/fold.ts diffList),
+ * and its `ready`, its error and its `end`.
  */
-export interface LiveAnswer<S extends ReadShape, Row extends object, E> {
-	readonly settle: (events: ReadonlyArray<E>) => ReadState<S, Row>
-	readonly diff: (previous: Keyed<S, Row>, next: Keyed<S, Row>) => ReadonlyArray<E>
+export interface LiveAnswer<Row extends object, E> {
+	readonly settle: (events: ReadonlyArray<E>) => ReadState<Row>
+	readonly diff: (previous: KeyedList<Row>, next: KeyedList<Row>) => ReadonlyArray<E>
 	readonly ready: E
 	readonly error: (error: AnswerFailure<"live">) => E
 	readonly end: E
@@ -176,9 +176,9 @@ export interface LiveAnswer<S extends ReadShape, Row extends object, E> {
  * how its answer is made; the routing keys its changes reach it by (live/router.ts routeKeys); and its Db's expiry,
  * which ends it.
  */
-export interface LiveRequest<S extends ReadShape, Row extends object, E> {
+export interface LiveRequest<Row extends object, E> {
 	readonly read: Stream.Stream<E>
-	readonly answer: LiveAnswer<S, Row, E>
+	readonly answer: LiveAnswer<Row, E>
 	readonly keys: ReadonlyArray<RouteKey>
 	readonly expiry: Expiry
 }
@@ -202,8 +202,8 @@ export interface Live<E> {
 
 /** The layer's registry: what a live read registers on, for as long as the scope it registers in. */
 export interface Subscriptions {
-	readonly register: <S extends ReadShape, Row extends object, E>(
-		request: LiveRequest<S, Row, E>
+	readonly register: <Row extends object, E>(
+		request: LiveRequest<Row, E>
 	) => Effect.Effect<Live<E>, never, Scope.Scope>
 }
 
@@ -230,11 +230,11 @@ export const unsourced: Subscriptions = {
 }
 
 /** What one turn of a live read came to: a change, with the value it leaves, or the error that ends the read. */
-type Turn<S extends ReadShape, Row extends object, E> =
+type Turn<Row extends object, E> =
 	| {
 			readonly kind: "changed"
 			readonly changes: ReadonlyArray<E>
-			readonly value: Keyed<S, Row>
+			readonly value: KeyedList<Row>
 	  }
 	| { readonly kind: "ended"; readonly error: AnswerFailure<"live"> }
 
@@ -243,9 +243,9 @@ type Turn<S extends ReadShape, Row extends object, E> =
  * run another transaction's work refused, `refused`: a serialization failure or a deadlock, a snapshot read's a
  * deadlock alone.
  */
-type Ran<S extends ReadShape, Row extends object, E> =
-	| Turn<S, Row, E>
-	| { readonly kind: "unchanged"; readonly value: Keyed<S, Row> }
+type Ran<Row extends object, E> =
+	| Turn<Row, E>
+	| { readonly kind: "unchanged"; readonly value: KeyedList<Row> }
 	| { readonly kind: "refused" }
 
 /** What a read's token's expiry ends it with. */
@@ -353,8 +353,8 @@ export const makeSubscriptions = (
 			)
 		})
 
-		const register = <S extends ReadShape, Row extends object, E>(
-			request: LiveRequest<S, Row, E>
+		const register = <Row extends object, E>(
+			request: LiveRequest<Row, E>
 		): Effect.Effect<Live<E>, never, Scope.Scope> =>
 			Effect.gen(function* () {
 				const { answer } = request
@@ -385,7 +385,7 @@ export const makeSubscriptions = (
 						removeRoutes(generation.index, subscription, request.keys)
 					})
 				)
-				const first = Deferred.makeUnsafe<ReadState<S, Row>>()
+				const first = Deferred.makeUnsafe<ReadState<Row>>()
 				const seen: Array<E> = []
 				const initial = request.read.pipe(
 					Stream.mapArray((events) => {
@@ -406,7 +406,7 @@ export const makeSubscriptions = (
 				)
 
 				/** The value the subscription's client holds: the one its initial run or its last batch left. */
-				const holding: { value: Keyed<S, Row> | undefined } = { value: undefined }
+				const holding: { value: KeyedList<Row> | undefined } = { value: undefined }
 
 				/**
 				 * One run of the read from the held value, the subscription marked: it clears the mark, unless it ended
@@ -416,7 +416,7 @@ export const makeSubscriptions = (
 				 * the subscription again, so a later pull runs it. The value is held only where its caller sends the change
 				 * (hold), so a change a consumer never received is diffed again.
 				 */
-				const rerun = (value: Keyed<S, Row>): Effect.Effect<Ran<S, Row, E>> =>
+				const rerun = (value: KeyedList<Row>): Effect.Effect<Ran<Row, E>> =>
 					Effect.suspend(() => {
 						if (subscription.state.kind === "marked") {
 							subscription.state = cleanState
@@ -424,7 +424,7 @@ export const makeSubscriptions = (
 						return Effect.onInterrupt(
 							Effect.flatMap(
 								Stream.runCollect(request.read),
-								(events): Effect.Effect<Ran<S, Row, E>> => {
+								(events): Effect.Effect<Ran<Row, E>> => {
 									const after = answer.settle(events)
 									switch (after.kind) {
 										case "ready": {
@@ -457,12 +457,12 @@ export const makeSubscriptions = (
 					})
 
 				/** `value` held: what a turn's run read, once its change is sent or found none. */
-				const hold = (value: Keyed<S, Row>): void => {
+				const hold = (value: KeyedList<Row>): void => {
 					holding.value = value
 				}
 
 				/** The value held, once the initial run reached it: what every turn runs from. */
-				const held = (value: Keyed<S, Row> | undefined): Effect.Effect<Keyed<S, Row>> =>
+				const held = (value: KeyedList<Row> | undefined): Effect.Effect<KeyedList<Row>> =>
 					value === undefined
 						? Effect.die(defect("a live read's turn ran before its initial value"))
 						: Effect.succeed(value)
@@ -472,9 +472,9 @@ export const makeSubscriptions = (
 				 * the read, again at once while a run changes nothing or another's work refuses it, since its progress is bound
 				 * to commits, never to a time; its own end ends it.
 				 */
-				const next: Effect.Effect<Turn<S, Row, E>> = Effect.flatMap(
+				const next: Effect.Effect<Turn<Row, E>> = Effect.flatMap(
 					settled(subscription),
-					(mark): Effect.Effect<Turn<S, Row, E>> =>
+					(mark): Effect.Effect<Turn<Row, E>> =>
 						mark.kind === "ended"
 							? Effect.succeed({ kind: "ended", error: mark.error })
 							: Effect.flatMap(
@@ -482,7 +482,7 @@ export const makeSubscriptions = (
 										Effect.suspend(() => held(holding.value)),
 										rerun
 									),
-									(turn): Effect.Effect<Turn<S, Row, E>> => {
+									(turn): Effect.Effect<Turn<Row, E>> => {
 										switch (turn.kind) {
 											case "unchanged":
 												hold(turn.value)
@@ -498,7 +498,7 @@ export const makeSubscriptions = (
 				)
 
 				/** A turn's events: its change then `ready`, or its error then `end`. */
-				const eventsOf = (turn: Turn<S, Row, E>): ReadonlyArray<E> =>
+				const eventsOf = (turn: Turn<Row, E>): ReadonlyArray<E> =>
 					turn.kind === "changed"
 						? [...turn.changes, answer.ready]
 						: [answer.error(turn.error), answer.end]

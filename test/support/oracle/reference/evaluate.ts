@@ -31,7 +31,8 @@ import {
 	seriesArguments,
 	type TextSplit,
 	tokensHeading,
-	type VarDecl
+	type VarDecl,
+	soleOrder
 } from "#compiler/ir/rel.ts"
 import { type RegexRef, type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
 import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
@@ -1986,7 +1987,7 @@ export class Reference {
 				)
 			})
 		})
-		const sorted = sortRows(input.heading, rows, node.order)
+		const sorted = sortRows(input.heading, rows, soleOrder(node.orders))
 		return sorted.slice(0, Number(this.bound(node)))
 	}
 

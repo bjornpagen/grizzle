@@ -227,7 +227,7 @@ export const orderedRoot = (dag: RelDag): RelDag => {
 	const node = relNode(NodeId(`n${k}`), {
 		kind: "OrderedResult",
 		input,
-		order: { keys: Arr.map(input.heading, (c) => ({ column: c.name, dir: "asc" as const })) },
+		orders: [{ keys: Arr.map(input.heading, (c) => ({ column: c.name, dir: "asc" as const })) }],
 		heading: input.heading,
 		meta: metaSpecOf(input.meta),
 		loc: undefined

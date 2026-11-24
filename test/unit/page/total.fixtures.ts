@@ -5,7 +5,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
 import { array, boolean, type Gen, int, map, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record as Rec } from "effect"
 import { NodeId } from "#compiler/core/ids.ts"
-import { relNode, rooted } from "#compiler/ir/dag.ts"
+import { relNode, rooted, groupHeadings } from "#compiler/ir/dag.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import type { CompletedOrder, OrderKey } from "#compiler/ir/rel.ts"
 import { numericTypmodOf, sameScalarType, textOf } from "#compiler/ir/scalar.ts"
@@ -207,7 +207,7 @@ export const orderedQuery = (o: OrderedCase): OrderedQuery | undefined => {
 	const node = relNode(NodeId("ordered"), {
 		kind: "OrderedResult",
 		input: top,
-		order,
+		orders: Arr.map(groupHeadings(top), () => order),
 		heading: top.heading,
 		meta: top.meta,
 		loc: undefined

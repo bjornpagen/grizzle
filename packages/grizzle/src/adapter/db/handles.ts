@@ -35,8 +35,7 @@ import {
 	listEvents,
 	type ReadCall,
 	readStream,
-	type ShapeEvents,
-	setEvents
+	type ShapeEvents
 } from "#adapter/reader/stream.ts"
 import { explainChange, explainRead, explainReadAnalyzed } from "#adapter/served/explain.ts"
 import type {
@@ -54,19 +53,13 @@ import {
 	type AnswerFailure,
 	callError,
 	diffList,
-	diffSet,
 	type FailureOf,
 	fold,
 	type AnsweredListEvent,
-	type AnsweredSetEvent,
-	type Keyed,
 	type KeyedList,
-	type KeyedSet,
 	type ListEvent,
 	opening,
-	type ReadShape,
 	type ReadState,
-	type SetEvent,
 	type ShapeFailure,
 	type WriteEvent,
 	type WriteOutcome
@@ -99,14 +92,8 @@ import type { ServedReadLive, ServedTables } from "#compiler/plan/serve.ts"
  * is OnceCalls.
  */
 export type ServedCalls =
-	| (Extract<OnceCalls, { readonly shape: "set" }> & {
-			readonly watch: (input: unknown) => Stream.Stream<SetEvent<DecodedRow>>
-	  })
 	| (Extract<OnceCalls, { readonly shape: "list" }> & {
 			readonly watch: (input: unknown) => Stream.Stream<ListEvent<DecodedRow>>
-	  })
-	| (Extract<OnceCalls, { readonly shape: "answeredSet" }> & {
-			readonly answer: (input: unknown) => Stream.Stream<AnsweredSetEvent<DecodedRow>>
 	  })
 	| (Extract<OnceCalls, { readonly shape: "answeredList" }> & {
 			readonly answer: (input: unknown) => Stream.Stream<AnsweredListEvent<DecodedRow>>
@@ -118,24 +105,12 @@ export type ServedCalls =
 /** A member's `once` alone, by the shape of its answer: the once half of every member's calls (ServedCalls). */
 export type OnceCalls =
 	| {
-			readonly shape: "set"
-			readonly once: (input: unknown) => Effect.Effect<KeyedSet<DecodedRow>, ShapeFailure<"set">>
-	  }
-	| {
 			readonly shape: "list"
 			readonly once: (input: unknown) => Effect.Effect<KeyedList<DecodedRow>, ShapeFailure<"list">>
 	  }
 	| {
-			readonly shape: "answeredSet"
-			readonly once: (
-				input: unknown
-			) => Effect.Effect<KeyedSet<DecodedRow>, ShapeFailure<ReadShape>>
-	  }
-	| {
 			readonly shape: "answeredList"
-			readonly once: (
-				input: unknown
-			) => Effect.Effect<KeyedList<DecodedRow>, ShapeFailure<ReadShape>>
+			readonly once: (input: unknown) => Effect.Effect<KeyedList<DecodedRow>, ShapeFailure<"list">>
 	  }
 	| {
 			readonly shape: "write"
@@ -271,57 +246,37 @@ const parseWindow =
 		})
 
 /**
- * How a read of shape S answers, beside how its events are made (reader/stream.ts ShapeEvents): its `end`, its events
- * folded from before its reset (live/fold.ts), which once settles, and the least change between two of its values, which
- * a live read sends after each re-run (live/subscriptions.ts LiveAnswer).
+ * How a live read answers, beside how its events are made (reader/stream.ts ShapeEvents): its `end`, its events folded
+ * from before its reset (live/fold.ts), which once settles, and the least change between two of its values, which it
+ * sends after each re-run (live/subscriptions.ts LiveAnswer).
  */
-interface ShapeAnswer<S extends ReadShape, E> extends ShapeEvents<E>, LiveAnswer<S, DecodedRow, E> {
+interface ShapeAnswer<E> extends ShapeEvents<E>, LiveAnswer<DecodedRow, E> {
 	readonly error: (error: AnswerFailure<"live">) => E
 }
 
-/** A live read's error event, of any of the failures a live read's answer ends with. */
-const liveError = (error: AnswerFailure<"live">) => ({ kind: "error", error }) as const
-
-/** A set read's answer. */
-const setAnswer: ShapeAnswer<"set", SetEvent<DecodedRow>> = {
-	...setEvents,
-	error: liveError,
-	end: { kind: "end" },
-	settle: (events) => fold(opening<"set", DecodedRow>("set"), events),
-	diff: diffSet
-}
-
-/** An ordered read's answer. */
-const listAnswer: ShapeAnswer<"list", ListEvent<DecodedRow>> = {
+/** A live read's answer: its error event of any of the failures a live read's answer ends with. */
+const liveAnswer: ShapeAnswer<ListEvent<DecodedRow>> = {
 	...listEvents,
-	error: liveError,
+	error: (error) => ({ kind: "error", error }),
 	end: { kind: "end" },
-	settle: (events) => fold(opening<"list", DecodedRow>("list"), events),
+	settle: (events) => fold(opening<DecodedRow>(), events),
 	diff: diffList
 }
 
 /**
  * How an answered read answers, at its call's instant alone (an answered(...) or a clocked member's), beside how its
- * events are made: its `end`, which follows its ready, and its events folded from before its reset into its value of
- * keyed shape S.
+ * events are made: its `end`, which follows its ready, and its events folded from before its reset into its value.
  */
-interface AnsweredAnswer<S extends ReadShape, E> extends ShapeEvents<E> {
+interface AnsweredAnswer<E> extends ShapeEvents<E> {
 	readonly end: E
-	readonly settle: (events: ReadonlyArray<E>) => ReadState<S, DecodedRow>
+	readonly settle: (events: ReadonlyArray<E>) => ReadState<DecodedRow>
 }
 
-/** An answered set read's answer. */
-const answeredSetAnswer: AnsweredAnswer<"set", AnsweredSetEvent<DecodedRow>> = {
-	...setEvents,
-	end: { kind: "end" },
-	settle: (events) => fold(opening<"set", DecodedRow>("set"), events)
-}
-
-/** An answered ordered read's answer. */
-const answeredListAnswer: AnsweredAnswer<"list", AnsweredListEvent<DecodedRow>> = {
+/** An answered read's answer. */
+const answeredAnswer: AnsweredAnswer<AnsweredListEvent<DecodedRow>> = {
 	...listEvents,
 	end: { kind: "end" },
-	settle: (events) => fold(opening<"list", DecodedRow>("list"), events)
+	settle: (events) => fold(opening<DecodedRow>(), events)
 }
 
 /** What wakes a live read's watch (served/forms.ts ServedReadLive): every arm but an answered read's, which has none. */
@@ -351,11 +306,11 @@ const keysOf = (
  * (keysOf), and its expiry its Db's. A constant read is registered under no key, so no change of a row reaches it, and
  * only its source's loss ends it, a migration's `stale` among them.
  */
-const registered = <S extends ReadShape, E>(
+const registered = <E>(
 	ctx: ServedDbContext,
 	routing: Routing,
 	read: LoadedRead,
-	answer: ShapeAnswer<S, E>,
+	answer: ShapeAnswer<E>,
 	parsed: ParsedRead
 ): Effect.Effect<Live<E>, never, Scope.Scope> =>
 	ctx.subscriptions.register({
@@ -366,24 +321,19 @@ const registered = <S extends ReadShape, E>(
 	})
 
 /**
- * A live read member's registration for one input, exactly what its watch registers (readCalls), by its answer's
- * shape, for as long as the scope it is made in: a suite keeps its `state` while it pulls its `initial` and `changes`
- * itself. An input that does not parse is the call's error; an answered read, which registers nothing, and a write
- * member are none.
+ * A live read member's registration for one input, exactly what its watch registers (readCalls), for as long as the
+ * scope it is made in: a suite keeps its `state` while it pulls its `initial` and `changes` itself. An input that does
+ * not parse is the call's error; an answered read, which registers nothing, and a write member are none.
  */
-export type LiveRead =
-	| { readonly shape: "set"; readonly live: Live<SetEvent<DecodedRow>> }
-	| { readonly shape: "list"; readonly live: Live<ListEvent<DecodedRow>> }
-
 export const liveRead = (
 	ctx: ServedDbContext,
 	member: LoadedMember,
 	input: unknown
-): Option.Option<Effect.Effect<LiveRead, FailureOf<"read">, Scope.Scope>> => {
+): Option.Option<Effect.Effect<Live<ListEvent<DecodedRow>>, FailureOf<"read">, Scope.Scope>> => {
 	const live = (
 		read: LoadedRead,
 		parse: (input: unknown) => Effect.Effect<ParsedRead, ReadError>
-	): Option.Option<Effect.Effect<LiveRead, FailureOf<"read">, Scope.Scope>> => {
+	): Option.Option<Effect.Effect<Live<ListEvent<DecodedRow>>, FailureOf<"read">, Scope.Scope>> => {
 		const routing = read.live
 		switch (routing.kind) {
 			case "answered":
@@ -391,22 +341,8 @@ export const liveRead = (
 			case "constant":
 			case "routed":
 				return Option.some(
-					Effect.flatMap(
-						Effect.mapError(parse(input), readCallError),
-						(parsed): Effect.Effect<LiveRead, never, Scope.Scope> => {
-							switch (read.key.kind) {
-								case "set":
-									return Effect.map(
-										registered(ctx, routing, read, setAnswer, parsed),
-										(registration) => ({ shape: "set", live: registration })
-									)
-								case "list":
-									return Effect.map(
-										registered(ctx, routing, read, listAnswer, parsed),
-										(registration) => ({ shape: "list", live: registration })
-									)
-							}
-						}
+					Effect.flatMap(Effect.mapError(parse(input), readCallError), (parsed) =>
+						registered(ctx, routing, read, liveAnswer, parsed)
 					)
 				)
 		}
@@ -424,20 +360,20 @@ export const liveRead = (
 }
 
 /**
- * A read's calls of shape S (see the header): its input parsed by `parse`, a refusal of which is its one error event
+ * A live read's calls (see the header): its input parsed by `parse`, a refusal of which is its one error event
  * then `end`; once its events settled to ready, the read's value, or the error that ended them. Its watch is live
  * (live/subscriptions.ts): registered on the layer's registry under its routing keys (keysOf), a constant read's none,
  * before its first run, then that run's events, then each change of its value after its ready, until the Db's token
  * expires, its source is lost, a migration of the installation among the losses, a run fails, or its consumer stops.
  */
-const readCalls = <S extends ReadShape, E>(
+const readCalls = <E>(
 	ctx: ServedDbContext,
 	routing: Routing,
 	read: LoadedRead,
-	answer: ShapeAnswer<S, E>,
+	answer: ShapeAnswer<E>,
 	parse: (input: unknown) => Effect.Effect<ParsedRead, ReadError>
 ): {
-	readonly once: (input: unknown) => Effect.Effect<Keyed<S, DecodedRow>, ShapeFailure<ReadShape>>
+	readonly once: (input: unknown) => Effect.Effect<KeyedList<DecodedRow>, ShapeFailure<"list">>
 	readonly watch: (input: unknown) => Stream.Stream<E>
 } => {
 	const refused = (failure: ReadError): Stream.Stream<E> =>
@@ -480,11 +416,11 @@ const callEvents =
 
 /** A read's once: one call's events (`events`) settled to ready by `settle`, the read's value, or the error that ended them. */
 const readOnce =
-	<S extends ReadShape, E>(
+	<E>(
 		events: (input: unknown) => Stream.Stream<E>,
-		settle: (events: ReadonlyArray<E>) => ReadState<S, DecodedRow>
+		settle: (events: ReadonlyArray<E>) => ReadState<DecodedRow>
 	) =>
-	(input: unknown): Effect.Effect<Keyed<S, DecodedRow>, ShapeFailure<ReadShape>> =>
+	(input: unknown): Effect.Effect<KeyedList<DecodedRow>, ShapeFailure<"list">> =>
 		Effect.flatMap(Stream.runCollect(events(input)), (collected) => {
 			const state = settle(collected)
 			switch (state.kind) {
@@ -503,12 +439,12 @@ const readOnce =
  * call's events then `end`, which no change follows, since no change wakes it and time passing is no change; and its
  * once, those events settled to ready. It registers no subscription.
  */
-const answeredCalls = <S extends ReadShape, E>(
+const answeredCalls = <E>(
 	ctx: ServedDbContext,
-	answer: AnsweredAnswer<S, E>,
+	answer: AnsweredAnswer<E>,
 	parse: (input: unknown) => Effect.Effect<ParsedRead, ReadError>
 ): {
-	readonly once: (input: unknown) => Effect.Effect<Keyed<S, DecodedRow>, ShapeFailure<ReadShape>>
+	readonly once: (input: unknown) => Effect.Effect<KeyedList<DecodedRow>, ShapeFailure<"list">>
 	readonly answer: (input: unknown) => Stream.Stream<E>
 } => {
 	const events = callEvents(ctx, answer, parse)
@@ -518,38 +454,9 @@ const answeredCalls = <S extends ReadShape, E>(
 	}
 }
 
-/** An answered read's calls (answeredCalls) by the shape of its key (served/forms.ts ServedKey). */
-const answeredMemberCalls = (
-	ctx: ServedDbContext,
-	read: LoadedRead,
-	parse: (input: unknown) => Effect.Effect<ParsedRead, ReadError>
-): ServedCalls => {
-	switch (read.key.kind) {
-		case "set":
-			return { shape: "answeredSet", ...answeredCalls(ctx, answeredSetAnswer, parse) }
-		case "list":
-			return { shape: "answeredList", ...answeredCalls(ctx, answeredListAnswer, parse) }
-	}
-}
-
-/** A live read's calls (readCalls), woken as `routing` says, by the shape of its key (served/forms.ts ServedKey). */
-const liveMemberCalls = (
-	ctx: ServedDbContext,
-	routing: Routing,
-	read: LoadedRead,
-	parse: (input: unknown) => Effect.Effect<ParsedRead, ReadError>
-): ServedCalls => {
-	switch (read.key.kind) {
-		case "set":
-			return { shape: "set", ...readCalls(ctx, routing, read, setAnswer, parse) }
-		case "list":
-			return { shape: "list", ...readCalls(ctx, routing, read, listAnswer, parse) }
-	}
-}
-
 /**
  * A read's calls by how it is called (served/forms.ts ServedReadLive), its input parsed by `parse`: an answered read's
- * once and answer, and no watch (answeredMemberCalls); a live one's once and watch (liveMemberCalls).
+ * once and answer, and no watch (answeredCalls); a live one's once and watch, woken as its routing says (readCalls).
  */
 const readMemberCalls = (
 	ctx: ServedDbContext,
@@ -559,10 +466,10 @@ const readMemberCalls = (
 	const routing = read.live
 	switch (routing.kind) {
 		case "answered":
-			return answeredMemberCalls(ctx, read, parse)
+			return { shape: "answeredList", ...answeredCalls(ctx, answeredAnswer, parse) }
 		case "constant":
 		case "routed":
-			return liveMemberCalls(ctx, routing, read, parse)
+			return { shape: "list", ...readCalls(ctx, routing, read, liveAnswer, parse) }
 	}
 }
 
@@ -840,11 +747,9 @@ const explainsOf = (explains: MemberExplains): object => {
  */
 const handleCalls = (calls: ServedCalls): object => {
 	switch (calls.shape) {
-		case "set":
 		case "list":
 		case "write":
 			return { once: calls.once, watch: calls.watch }
-		case "answeredSet":
 		case "answeredList":
 			return { once: calls.once }
 	}

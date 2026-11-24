@@ -50,7 +50,6 @@ import {
 } from "#test/support/served-login.ts"
 
 export type Feature =
-	| "a set read"
 	| "a list read"
 	| "a paged read"
 	| "an answered read"
@@ -325,23 +324,19 @@ const kindsAt = (sources: ReadonlyArray<FailureSource>): Array<string> =>
 
 /**
  * What a member's summary says it is, as a word each, by its served form (served/forms.ts ServedMemberForm): `live`
- * exactly for a read a call watches, `answered` for one answered at its call's instant alone, `ordered` for a read of a
- * list, `paged` for a paged one, and `write` for a ChangeSet's.
+ * exactly for a read a call watches, `answered` for one answered at its call's instant alone, `paged` for a paged one,
+ * and `write` for a ChangeSet's.
  */
-const kindWords = (member: ServedMember): ReadonlyArray<readonly [string, boolean]> => {
-	const shape = member.wire.member.shape
-	return [
-		[
-			"live",
-			(member.kind === "read" || member.kind === "key" || member.kind === "paged") &&
-				!answeredOf(member)
-		],
-		["answered", answeredOf(member)],
-		["ordered", shape === "list" || shape === "answeredList"],
-		["paged", member.kind === "paged"],
-		["write", member.kind === "change"]
-	]
-}
+const kindWords = (member: ServedMember): ReadonlyArray<readonly [string, boolean]> => [
+	[
+		"live",
+		(member.kind === "read" || member.kind === "key" || member.kind === "paged") &&
+			!answeredOf(member)
+	],
+	["answered", answeredOf(member)],
+	["paged", member.kind === "paged"],
+	["write", member.kind === "change"]
+]
 
 /**
  * The document of a login's served file, written as generate writes it (`text`), held to every property of the header.
@@ -558,13 +553,7 @@ const holds = (
 				`${path}: its x-grizzle-wire, as the client reads it, its served wire\n${printed()}`
 			)
 			const shape = member.wire.member.shape
-			note(
-				shape === "set" || shape === "answeredSet"
-					? "a set read"
-					: shape === "list" || shape === "answeredList"
-						? "a list read"
-						: "a write"
-			)
+			note(shape === "write" ? "a write" : "a list read")
 			if (member.kind === "paged") {
 				note("a paged read")
 			}
@@ -631,11 +620,10 @@ const holds = (
 				}
 				const data = at(component, "properties", "data", "contentSchema", "required")
 				if (name === "upsert") {
-					const ordered = shape === "list" || shape === "answeredList"
 					assert.deepEqual(
 						data,
-						ordered ? ["row", "after"] : ["row"],
-						`${path}: a ${shape}'s upsert ${ordered ? "carries" : "carries no"} after\n${printed()}`
+						["row", "after"],
+						`${path}: a ${shape}'s upsert carries its row and after\n${printed()}`
 					)
 				}
 			}

@@ -1,5 +1,6 @@
 import { appendAll, sameOrder } from "@bjornpagen/grizzle-text/base/array"
 import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { catchRefusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
@@ -34,7 +35,8 @@ import {
 	type ValueRefs
 } from "#compiler/ir/rel.ts"
 import { type ContainmentFact, delivery } from "#compiler/logical/attach.ts"
-import type { OrderSubject } from "#compiler/logical/order.ts"
+import { declaredKeyOrder } from "#compiler/logical/key-order.ts"
+import type { GroupedSubject, OrderSubject } from "#compiler/logical/order.ts"
 import {
 	fixedColumns,
 	logicalPropsOf,
@@ -403,9 +405,11 @@ const readersIn = (state: SharedState, dag: RelDag): DagReaders => {
 }
 
 /**
- * The subject an order is completed over: a node's heading and evidence, with the discriminant of the heading groups
- * its rows are of. That is a logical property, so every node keeping a union's rows carries it: a take(k)
- * of a union may be ordered again, and its order is completed as the union's.
+ * What an order of a node's rows is completed over (logical/order.ts GroupedSubject): its heading and evidence, where
+ * its rows are of one heading group; over a heterogeneous union, and every node keeping a subset of its rows, which
+ * carries its heading groups (logical/props.ts Props groups), its own over the columns every group holds, its
+ * discriminant, and each group's rows as one relation, so a take(k) of a union may be ordered again, and its order is
+ * completed as the union's.
  */
 export const orderSubjectOf = (
 	node: RelNode,
@@ -414,18 +418,42 @@ export const orderSubjectOf = (
 	fixed: ReadonlyArray<string>,
 	/** Which proofs the reading context admits: a page's, read in either context, only those holding in a transaction. */
 	admits: (proof: KeyProof) => boolean
-): OrderSubject => ({
-	heading: node.heading,
-	keys: props.keys.filter(admits).map(keyFactors),
+): GroupedSubject => {
+	const loc = SourceLoc(`node ${node.id}`, [])
 	/**
-	 * The props' fixed columns break no tie of natively distinct rows. Rows told apart as a set's members alone have no
-	 * key, and a float the analysis fixes may hold both its zeros there, so their order reads every column but those
-	 * constant per evaluation (logical/props.ts Distinctness).
+	 * The subject of rows `of`, of keys `keys`, told apart as `distinct` says, fixing `own` per evaluation. The props'
+	 * fixed columns break no tie of natively distinct rows. Rows told apart as a set's members alone have no key, and a
+	 * float the analysis fixes may hold both its zeros there, so their order reads every column but those constant per
+	 * evaluation (logical/props.ts Distinctness).
 	 */
-	fixed: props.distinct === "native" ? [...new Set([...fixed, ...fixedColumns(props)])] : fixed,
-	discriminant: props.discriminant,
-	loc: SourceLoc(`node ${node.id}`, [])
-})
+	const subjectOf = (
+		of: RelNode,
+		keys: ReadonlyArray<KeyProof>,
+		distinct: Props["distinct"],
+		own: ReadonlyArray<string>
+	): OrderSubject => ({
+		heading: of.heading,
+		keys: keys.filter(admits).map(keyFactors),
+		fixed: distinct === "native" ? [...new Set([...fixed, ...own])] : fixed,
+		keyOrder: declaredKeyOrder(of),
+		loc
+	})
+	const common = subjectOf(node, props.keys, props.distinct, fixedColumns(props))
+	const [first, ...more] = props.groups
+	if (first === undefined) {
+		return { kind: "one", subject: common }
+	}
+	/** A column the node fixes is fixed in each of its groups, its rows' subset. */
+	const shared = props.distinct === "native" ? fixedColumns(props) : []
+	return {
+		kind: "groups",
+		common,
+		discriminant: props.discriminant,
+		groups: mapNonEmpty([first, ...more], (g) =>
+			subjectOf(g.node, g.keys, g.distinct, [...g.fixed, ...shared])
+		)
+	}
+}
 
 /**
  * The node an annotation rebuilds from `body`, its reading with each input replaced by that input's annotated node and

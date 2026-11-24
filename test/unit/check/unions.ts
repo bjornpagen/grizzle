@@ -196,7 +196,6 @@ export type UnionRule =
 	| "incompatible column types"
 	| "an attached arm widened"
 	| "no discriminant"
-	| "a keyless order"
 	| "constants no arm delivers"
 	| "a column the selected arms lack"
 
@@ -434,27 +433,27 @@ const matchVerdict = (c: UnionCase, bindings: Arr.NonEmptyReadonlyArray<Binding>
 
 /**
  * The checker's answer for a case: its union's, then its consumer's. An order over arms of several headings, delivered
- * or bounded by a take, is completed over their common columns, refused unless those hold a key of every arm
- * (UnsupportedOperation).
+ * or bounded by a take, is completed group by group (logical/order.ts completeGroups): by the union's key, one order of
+ * every group, where the common columns hold a key of every arm (keyedOverCommon), else each group by its own key after
+ * the stated keys and the discriminant, so it refuses nothing the union admits.
  */
 export const verdictOf = (c: UnionCase): UnionVerdict => {
 	switch (c.consumer.kind) {
 		case "delivered":
-			return unionVerdict(c, everyArm(c))
 		case "ordered":
-		case "taken": {
-			const union = unionVerdict(c, everyArm(c))
-			if (union.kind === "refused" || union.groups === 1) {
-				return union
-			}
-			return Arr.every(c.arms, (arm) => keyedWithin(c.schema, arm, union.heading))
-				? union
-				: refused("UnsupportedOperation", "a keyless order")
-		}
+		case "taken":
+			return unionVerdict(c, everyArm(c))
 		case "matched":
 			return matchVerdict(c, c.consumer.bindings)
 	}
 }
+
+/**
+ * Whether the common columns `heading` of a case's union hold a key of every arm: its order is then completed by that
+ * key, one order of every group, and otherwise each group by its own (verdictOf).
+ */
+export const keyedOverCommon = (c: UnionCase, heading: ReadonlyArray<string>): boolean =>
+	Arr.every(c.arms, (arm) => keyedWithin(c.schema, arm, heading))
 
 /** Kind's closed id, which a `tag` literal is typed by. */
 const kindId = { kind: "closedId", roster: rosterName, only: undefined } as const

@@ -15,9 +15,9 @@ import {
 	type CallErrorKind,
 	callErrors,
 	fold,
-	type Keyed,
+	type KeyedList,
+	type ListEvent,
 	opening,
-	type ReadEvent,
 	type ReadState
 } from "#compiler/live/index.ts"
 import type { AnyLogin } from "#compiler/public/schema.ts"
@@ -103,16 +103,15 @@ export const errorOf = (
  * batch's, as the client's watch gives them; the error event fails the stream with its CallError, and the answer's end
  * ends it.
  */
-const readiesOf = <S extends "set" | "list", Row extends object>(
-	shape: S,
-	events: Stream.Stream<ReadEvent<S, Row>>
-): Stream.Stream<Keyed<S, Row>, CallError> =>
+const readiesOf = <Row extends object>(
+	events: Stream.Stream<ListEvent<Row>>
+): Stream.Stream<KeyedList<Row>, CallError> =>
 	events.pipe(
 		Stream.mapAccum(
-			() => opening<S, Row>(shape),
+			() => opening<Row>(),
 			(state, event) => {
 				const next = fold(state, [event])
-				const steps: ReadonlyArray<Step<Keyed<S, Row>>> =
+				const steps: ReadonlyArray<Step<KeyedList<Row>>> =
 					event.kind === "ready" && next.kind === "ready"
 						? [{ kind: "value", value: next.value }]
 						: event.kind === "error"
@@ -172,9 +171,6 @@ const byName = (callsOf: (name: string) => Effect.Effect<ServedCalls, CallError>
 	once: (name, input) =>
 		Effect.flatMap(callsOf(name), (member): Effect.Effect<LiveValue, CallError> => {
 			switch (member.shape) {
-				case "set":
-				case "answeredSet":
-					return member.once(input)
 				case "list":
 				case "answeredList":
 					return member.once(input)
@@ -190,11 +186,8 @@ const byName = (callsOf: (name: string) => Effect.Effect<ServedCalls, CallError>
 		Stream.unwrap(
 			Effect.map(callsOf(name), (member): Stream.Stream<LiveValue, CallError> => {
 				switch (member.shape) {
-					case "set":
-						return readiesOf("set", member.watch(input))
 					case "list":
-						return readiesOf("list", member.watch(input))
-					case "answeredSet":
+						return readiesOf(member.watch(input))
 					case "answeredList":
 						return Stream.die(misnamed(name, "a read at its call's instant, never watched"))
 					case "write":
@@ -285,9 +278,6 @@ const httpCalls = (
 		once: (name, input): Effect.Effect<LiveValue, CallError> => {
 			const shaped = shapedOf(name)
 			switch (shaped.shape) {
-				case "set":
-				case "answeredSet":
-					return Effect.provideService(shaped.calls.once(input), HttpClient.HttpClient, client)
 				case "list":
 				case "answeredList":
 					return Effect.provideService(shaped.calls.once(input), HttpClient.HttpClient, client)
@@ -304,19 +294,12 @@ const httpCalls = (
 		watch: (name, input) => {
 			const shaped = shapedOf(name)
 			switch (shaped.shape) {
-				case "set":
-					return Stream.provideService(
-						Stream.map(shaped.calls.watch(input), (answered): LiveValue => answered.value),
-						HttpClient.HttpClient,
-						client
-					)
 				case "list":
 					return Stream.provideService(
 						Stream.map(shaped.calls.watch(input), (answered): LiveValue => answered.value),
 						HttpClient.HttpClient,
 						client
 					)
-				case "answeredSet":
 				case "answeredList":
 					return Stream.die(misnamed(name, "a read at its call's instant, never watched"))
 				case "write":
@@ -352,17 +335,14 @@ export const worldSurfaces = (
  * A live read registered on watch's own path (adapter/db/handles.ts liveRead), read to its first ready: its value there,
  * its registration's state, and its turn, each batch a turn gives folded onto the value the turns before it left.
  */
-const registeredFrom = <S extends "set" | "list", Row extends object>(
-	shape: S,
-	live: {
-		readonly initial: Stream.Stream<ReadEvent<S, Row>>
-		readonly state: Effect.Effect<MarkState>
-		readonly turn: Effect.Effect<Option.Option<ReadonlyArray<ReadEvent<S, Row>>>>
-	}
-): Effect.Effect<Registration, CallError> =>
+const registeredFrom = <Row extends object>(live: {
+	readonly initial: Stream.Stream<ListEvent<Row>>
+	readonly state: Effect.Effect<MarkState>
+	readonly turn: Effect.Effect<Option.Option<ReadonlyArray<ListEvent<Row>>>>
+}): Effect.Effect<Registration, CallError> =>
 	Effect.gen(function* () {
 		const initial = yield* Stream.runCollect(live.initial)
-		const settled = fold(opening<S, Row>(shape), initial)
+		const settled = fold(opening<Row>(), initial)
 		switch (settled.kind) {
 			case "failed":
 				return yield* Effect.fail(settled.error)
@@ -372,7 +352,7 @@ const registeredFrom = <S extends "set" | "list", Row extends object>(
 					new Error("a live read's initial events end at its ready or its error")
 				)
 			case "ready": {
-				const held = yield* Ref.make<ReadState<S, Row>>(settled)
+				const held = yield* Ref.make<ReadState<Row>>(settled)
 				const turn: Effect.Effect<Option.Option<LiveValue>, CallError> = Effect.flatMap(
 					live.turn,
 					(batch) =>
@@ -419,11 +399,6 @@ export const liveRegistrations = (
 					Option.getOrUndefined(liveRead(opened.ctx, member, input)),
 					`the served member ${name}, a read`
 				)
-				switch (started.shape) {
-					case "set":
-						return yield* registeredFrom("set", started.live)
-					case "list":
-						return yield* registeredFrom("list", started.live)
-				}
+				return yield* registeredFrom(started)
 			})
 	)

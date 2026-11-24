@@ -297,12 +297,14 @@ export const build = (yFirst: boolean) => {
 	const child = b.node({
 		kind: "Take",
 		input: probe,
-		order: {
-			keys: [
-				{ column: "x", dir: "asc" },
-				{ column: "y", dir: "asc" }
-			]
-		},
+		orders: [
+			{
+				keys: [
+					{ column: "x", dir: "asc" },
+					{ column: "y", dir: "asc" }
+				]
+			}
+		],
 		bound: { kind: "literal", k: 1n },
 		correlation: [
 			{ column: "x", expr: x.col(region, "x", scalarTypes.uuid) },

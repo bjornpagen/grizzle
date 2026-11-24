@@ -3,10 +3,9 @@ import { nominal } from "#compiler/core/brand.ts"
 import { type TextsId, textsId } from "#compiler/core/text.ts"
 
 /**
- * The coordinate a live stream places its rows by: the head fields its reset names, in key order. A read whose rows a
- * proven key keys (lower/conservative/keys.ts DeliveredKey) names that key's fields; an ordered read names its
- * completed order, so a list's `after` and a window's anchor are one coordinate; a read with no smaller proven key
- * names every head field, since a read's rows are a set. Generate records which fields, in the served file.
+ * The coordinate a live stream places its rows by: the head fields its reset names, in key order, the fields of the
+ * completed order its read delivers them in (served/forms.ts ServedKey), so an upsert's `after` and a window's anchor
+ * are one coordinate. Generate records which fields, in the served file.
  */
 export type KeyFields = ReadonlyArray<string>
 

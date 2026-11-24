@@ -14,13 +14,15 @@ import type { QueryDesc } from "#compiler/ir/desc.ts"
 import { contextAdmits } from "#compiler/ir/evidence.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { LogicalQuery, PageFill, SizeFill } from "#compiler/ir/products.ts"
-import type {
-	CompletedOrder,
-	Heading,
-	HeadingGroup,
-	NodeOf,
-	OrderKey,
-	RelNode
+import {
+	type CompletedOrder,
+	type GroupOrders,
+	type Heading,
+	type HeadingGroup,
+	type NodeOf,
+	type OrderKey,
+	type RelNode,
+	soleOrder
 } from "#compiler/ir/rel.ts"
 import {
 	analyzeLogical,
@@ -29,7 +31,7 @@ import {
 	orderSubjectOf,
 	queryEvidence
 } from "#compiler/logical/annotate.ts"
-import { completeOrder } from "#compiler/logical/order.ts"
+import { completeGroups } from "#compiler/logical/order.ts"
 import {
 	type ColumnMap,
 	distinctSelect,
@@ -53,7 +55,11 @@ import {
 import { dispatchNode } from "#compiler/lower/conservative/dispatch.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
 import { noRowKeys } from "#compiler/lower/conservative/keys.ts"
-import { completedOrderItems, orderItemsOf } from "#compiler/lower/conservative/take/order.ts"
+import {
+	completedOrderItems,
+	orderItemsOf,
+	sharedOrder
+} from "#compiler/lower/conservative/take/order.ts"
 import type {
 	ConservativeOptions,
 	ConservativeStatement,
@@ -109,8 +115,9 @@ import {
 } from "#compiler/lower/shapes/share/physical.ts"
 import type { ChoiceInput, PageInput } from "#compiler/lower/shapes/take/index.ts"
 import { orderIsTotal } from "#compiler/lower/shapes/take/order.ts"
-import { assertMergeOrder, groupRows } from "#compiler/lower/shapes/union/index.ts"
+import { groupRows } from "#compiler/lower/shapes/union/index.ts"
 import type { AttachedTree, RowsRole, StatementRoots } from "#compiler/runtime/lower/tree.ts"
+import { searchedOnly, storedOnly } from "#compiler/scalar/registry.ts"
 import type { Expr, OperandSelect, OrderItem, Select } from "#compiler/sql/ast.ts"
 import { and, binary, keyedSet, select } from "#compiler/sql/build.ts"
 
@@ -180,7 +187,7 @@ export interface PageCompileInput {
 	 * The user's own order keys, the fields and directions of the outermost orderBy of the template's Description
 	 * (statedOrderOf), and where they were stated. The page completes them itself, by the policy the checker's
 	 * completion uses (check/order.ts) and under the schema's query evidence (`derived`); a heterogeneous union's page
-	 * also names the discriminant its group merge reads (unionPageOrder).
+	 * pages by the union's own order, every heading group's (pagedGroupsOrder).
 	 */
 	readonly stated: StatedOrder
 	/**
@@ -414,14 +421,18 @@ const pageShapeOf = <F extends PageFill>(
 				)
 			case "none":
 			case "order":
-				assertMergeOrder(plan.union, root.order)
-				return { kind: "groups", order: root.order, heading: plan.union.heading, plan }
+				return {
+					kind: "groups",
+					order: pagedGroupsOrder(plan.union, root.orders),
+					heading: plan.union.heading,
+					plan
+				}
 		}
 	}
 	const rows = root.input
 	return {
 		kind: "rows",
-		order: root.order,
+		order: soleOrder(root.orders),
 		rows,
 		heading: rows.heading,
 		spine: delivery.spine(rows)
@@ -725,7 +736,7 @@ const pageOrderOf = (
 	origin: RelNode,
 	stated: StatedOrder,
 	evidence: LogicalEnv
-): Result.Result<CompletedOrder, CompileError> => {
+): Result.Result<GroupOrders, CompileError> => {
 	const analysis = analyzeLogical(
 		query.dag,
 		{ ...evidence, context: "transaction" },
@@ -739,22 +750,16 @@ const pageOrderOf = (
 	const subject = orderSubjectOf(analyzed.node, props, [], (k) =>
 		contextAdmits("transaction", k.context)
 	)
-	return Result.mapError(completeOrder(subject, stated.keys), (e) => reportedAt(e, stated.at))
+	return Result.mapError(completeGroups(subject, stated.keys), (e) => reportedAt(e, stated.at))
 }
 
 /**
- * The page order of a heterogeneous union: its completion, which a group merge reads the discriminant from
- * (union/index.ts mergeOrderProblem). When the stated keys alone are total the completion stops there (step 1) and holds no discriminant; appended after them it breaks no tie, so the order is the same total order.
+ * The one order a page over a heterogeneous union pages by (take/order.ts sharedOrder): one row's key, of the fields
+ * every group holds, seeks every group's part, and the order's run tells rows of two groups apart (ir/rel.ts
+ * GroupOrders).
  */
-const unionPageOrder = (
-	order: CompletedOrder,
-	discriminant: ReadonlyArray<string>
-): CompletedOrder => {
-	const missing = discriminant.filter((d) => !order.keys.some((k) => k.column === d))
-	return missing.length === 0
-		? order
-		: { keys: [...order.keys, ...missing.map((column) => ({ column, dir: "asc" as const }))] }
-}
+const pagedGroupsOrder = (union: NodeOf<"Union">, orders: GroupOrders): CompletedOrder =>
+	sharedOrder(orders, union.heading, nodeLabel(union), "a page over a heterogeneous union")
 
 /**
  * The page template of a compiled ordered query: every window variant of its optimized artifact.
@@ -851,15 +856,30 @@ export const compilePage = (input: PageCompileInput): Result.Result<PageTemplate
 				"a page template whose stated order begins its query's completed order"
 			)
 		}
-		const order = unwrap(
+		const order =
 			conservativeShape.kind === "rows"
-				? pageOrderOf(input.checked, conservativeShape.rows, input.stated, queryEvidence)
-				: Result.map(
-						pageOrderOf(input.checked, conservativeShape.plan.union, input.stated, queryEvidence),
-						(o) => unionPageOrder(o, conservativeShape.plan.union.discriminant)
+				? soleOrder(
+						unwrap(pageOrderOf(input.checked, conservativeShape.rows, input.stated, queryEvidence))
 					)
-		)
+				: pagedGroupsOrder(
+						conservativeShape.plan.union,
+						unwrap(
+							pageOrderOf(input.checked, conservativeShape.plan.union, input.stated, queryEvidence)
+						)
+					)
 		const comparators = pageComparators(order, conservativeShape.heading)
+		/**
+		 * A window's anchor binds each comparator's value as a parameter, and no parameter carries bytes or a search
+		 * document (scalar/registry.ts storedOnly, searchedOnly), which only a keyless heading's completion appends.
+		 */
+		const unbound = comparators.find((c) => storedOnly(c.type) || searchedOnly(c.type))
+		if (unbound !== undefined) {
+			return refuse(
+				"UnsupportedOperation",
+				at,
+				`ordering: a page seeks by ${unbound.field}, of a type no parameter carries; retain a key of the result in find`
+			)
+		}
 		return {
 			order,
 			comparators,

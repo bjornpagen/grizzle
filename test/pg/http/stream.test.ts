@@ -21,8 +21,7 @@ import {
 	memberNamed,
 	origin,
 	outcomeKind,
-	readFeature,
-	sameBatch
+	readFeature
 } from "#test/pg/http/stream.fixtures.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { readStream } from "#test/support/event-stream.ts"
@@ -41,7 +40,7 @@ export const anAnsweredLoginIsServedOverHTTPWithNoLiveSourceEachReadAnsweredOnce
 	property.explore(aimed(caseGen, aims), {
 		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: [
-			"a set read",
+			"a read in its key order",
 			"an ordered read from its start",
 			"an ordered read from its end",
 			"a key",
@@ -108,7 +107,7 @@ export const anAnsweredLoginIsServedOverHTTPWithNoLiveSourceEachReadAnsweredOnce
 							}
 							notes.note(readFeature(call))
 							const shape = calls.shape
-							if (shape !== "answeredSet" && shape !== "answeredList") {
+							if (shape !== "answeredList") {
 								return assert.fail(
 									`member ${call.member}'s calls are an answered read's, which hold no watch\n${printed()}`
 								)
@@ -124,11 +123,10 @@ export const anAnsweredLoginIsServedOverHTTPWithNoLiveSourceEachReadAnsweredOnce
 								`an answered read's events between its reset and its ready are its upserts\n${printed()}`
 							)
 							const local = yield* Stream.runCollect(inProcess(calls, slots, body))
-							sameBatch(
-								shape === "answeredSet" ? "set" : "list",
+							assert.deepEqual(
 								read.events,
 								local,
-								`the answer over HTTP is the in-process answer, its end too\n${printed()}`
+								`the answer over HTTP is the in-process answer, in its order, its end too\n${printed()}`
 							)
 						}).pipe(withLayer(layer))
 					}).pipe(Effect.scoped, Effect.orDie),
@@ -151,8 +149,10 @@ export const anAnsweredLoginIsServedOverHTTPWithNoLiveSourceEachReadAnsweredOnce
 			},
 			{
 				file: "packages/grizzle/src/adapter/db/handles.ts",
-				original: "\t\t\treturn answeredMemberCalls(ctx, read, parse)",
-				replacement: '\t\t\treturn liveMemberCalls(ctx, { kind: "constant" }, read, parse)',
+				original:
+					'\t\t\treturn { shape: "answeredList", ...answeredCalls(ctx, answeredAnswer, parse) }',
+				replacement:
+					'\t\t\treturn { shape: "list", ...readCalls(ctx, { kind: "constant" }, read, liveAnswer, parse) }',
 				why: "An answered read's calls are a live read's (db/handles.ts readMemberCalls), a watch registered beside its once: answered treated as live."
 			}
 		]

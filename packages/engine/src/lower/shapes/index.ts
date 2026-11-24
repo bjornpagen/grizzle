@@ -1,6 +1,6 @@
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { postorder } from "@bjornpagen/grizzle-text/base/graph"
-import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	concatNonEmpty,
 	isNonEmpty,
@@ -18,7 +18,8 @@ import {
 	inputsOf,
 	type NodeOf,
 	type RelKind,
-	type RelNode
+	type RelNode,
+	soleOrder
 } from "#compiler/ir/rel.ts"
 import { withAdmission } from "#compiler/lower/conservative/admission.ts"
 import { parentEvaluations, statementEvaluations } from "#compiler/lower/conservative/call/index.ts"
@@ -120,10 +121,10 @@ import {
 	takeLowerer,
 	type WholeRelationShape
 } from "#compiler/lower/shapes/take/index.ts"
-import { orderIsTotal } from "#compiler/lower/shapes/take/order.ts"
+import { type DeliveryOrder, deliveryOrder } from "#compiler/lower/shapes/take/order.ts"
 import { groupRows, keyedUnion, unionLowerer } from "#compiler/lower/shapes/union/index.ts"
 import { approximateLowerer } from "#compiler/lower/shapes/vector/index.ts"
-import { executableQuery, executableQueryFrom } from "#compiler/lower/template.ts"
+import { collatedRows, executableQuery, executableQueryFrom } from "#compiler/lower/template.ts"
 import { columnType } from "#compiler/runtime/lower/columns.ts"
 import { oneForm, type StatementForms } from "#compiler/runtime/lower/forms.ts"
 import type { FusedAttachment } from "#compiler/runtime/lower/fused.ts"
@@ -1001,6 +1002,25 @@ const rowsBoundOf = (facts: ShapeFacts, node: RelNode): RowsBound<never> => {
 	return max.kind === "unbounded" ? { kind: "unbounded" } : { kind: "count", max: max.rows }
 }
 
+/**
+ * Whether a query forms its rows by deduplicating them at its top: a DISTINCT or grouped core, or a UNION, INTERSECT or
+ * EXCEPT, through a query of no clause of its own.
+ */
+const deduplicates = (query: OperandSelect): boolean => {
+	if (query.orderBy.length > 0 || query.limit !== undefined || query.offset !== undefined) {
+		return false
+	}
+	const body = query.body
+	switch (body.kind) {
+		case "core":
+			return body.distinct !== false || body.rows === "grouped" || body.rows === "facts"
+		case "setOp":
+			return body.op !== "UNION ALL"
+		case "select":
+			return deduplicates(body)
+	}
+}
+
 interface DeliveredAttachment {
 	readonly attach: NodeOf<"Attach">
 	/** The nodes whose rows are the delivered rows, under the delivered heading's column names. */
@@ -1014,7 +1034,7 @@ interface RowsSpec<I extends ChoiceInput> {
 	/** The node whose rows the part delivers, for the facts. */
 	readonly origin: RelNode
 	readonly attachments: ReadonlyArray<DeliveredAttachment>
-	readonly order: CompletedOrder | undefined
+	readonly order: DeliveryOrder | undefined
 	readonly role: RowsRole
 	/** How many rows the part delivers at most. */
 	readonly bound: RowsBound<I>
@@ -1098,6 +1118,40 @@ export class OptimizedDelivery<
 		const columns = this.cx.supply.columns(Array.from({ length: width }, () => origin))
 		this.state.log.ctes.add({ name, columns, materialized: "MATERIALIZED", query })
 		return { name, columns }
+	}
+
+	/**
+	 * The rows a part with attachments holds, in the order the part delivers them where it delivers them in one, each
+	 * text under the fixed collation (template.ts collatedRows): PostgreSQL carries a MATERIALIZED CTE's sort order to
+	 * the scan that reads it, so the part's row numbers and ORDER BY over the held rows read them presorted, and the one
+	 * sort is the CTE's own, which an index read in the order's columns elides.
+	 */
+	#heldInOrder(spec: RowsSpec<I>): OperandSelect {
+		if (spec.order === undefined || spec.heading.length === 0) {
+			return spec.rel()
+		}
+		return collatedRows(
+			this.deliveredRows(this.#formed(spec), spec.heading, spec.origin, spec.order),
+			spec.heading
+		)
+	}
+
+	/**
+	 * The rows a part delivers, formed before they are ordered: a relation that deduplicates its rows, by DISTINCT, GROUP
+	 * BY or a UNION, INTERSECT or EXCEPT (deduplicates), and is delivered in an order, is held in a MATERIALIZED CTE
+	 * (`#held`) and ordered as the part reads it. PostgreSQL plans no order a reader states into a CTE, so its r rows are
+	 * formed as the plan finds cheapest, a hash of its n input rows, O(n), and sorted after, O(r log r), where an order
+	 * over the deduplication itself is read as a sort of every input row, O(n log n), the unique step after it. A
+	 * relation of no order, or of rows it forms by no deduplication, is read as it is.
+	 */
+	#formed(spec: RowsSpec<I>): OperandSelect {
+		const rel = spec.rel()
+		return spec.order === undefined || spec.heading.length === 0 || !deduplicates(rel)
+			? rel
+			: this.#held(rel, deliveredHeading(spec.heading).length, {
+					kind: "node",
+					node: spec.origin.id
+				}).rows()
 	}
 
 	/** The rows `query` delivers, `width` columns, held once (`#hold`). */
@@ -1301,21 +1355,21 @@ export class OptimizedDelivery<
 
 	/**
 	 * The delivered rows of a relation, ordered by its completed order with the heading appended only where the facts
-	 * do not prove the order total (take/order.ts).
+	 * do not prove the order total (DeliveryOrder).
 	 */
 	deliveredRows(
 		rel: OperandSelect,
 		heading: Heading,
 		origin: RelNode,
-		order: CompletedOrder | undefined
+		ordered: DeliveryOrder | undefined
 	): Select {
 		const source = this.cx.wrap(rel, heading, { kind: "node", node: origin.id })
 		const orderBy: ReadonlyArray<OrderItem> =
-			order === undefined || heading.length === 0
+			ordered === undefined || heading.length === 0
 				? []
-				: orderItemsOf(order, heading, source.map, {
+				: orderItemsOf(ordered.order, heading, source.map, {
 						leading: [],
-						total: orderIsTotal(this.facts, origin, order, heading),
+						total: ordered.total,
 						fixed: []
 					})
 		return {
@@ -1338,8 +1392,11 @@ export class OptimizedDelivery<
 				delivery: headingGroupsDelivery(plan)
 			}
 		}
-		const order = root.kind === "OrderedResult" ? root.order : undefined
 		const rows = root.kind === "OrderedResult" ? root.input : root
+		const order =
+			root.kind === "OrderedResult"
+				? deliveryOrder(this.facts, rows, soleOrder(root.orders), rows.heading)
+				: undefined
 		const spine = this.spine(rows)
 		const program = this.#program(() => [
 			this.rowsPart({
@@ -1437,7 +1494,7 @@ export class OptimizedDelivery<
 		if (!isNonEmpty(pipelined)) {
 			/** withFusedAttachments reads every fused child over one spine: the delivered rows' nodes. */
 			const spine = [...new Set(fused.flatMap((a) => a.spine))]
-			const rel = spec.rel()
+			const rel = this.#formed(spec)
 			const query =
 				fused.length === 0
 					? this.deliveredRows(rel, spec.heading, spec.origin, spec.order)
@@ -1462,7 +1519,7 @@ export class OptimizedDelivery<
 			}
 		}
 		const origin = { kind: "node", node: spec.origin.id } as const
-		const held = this.#held(spec.rel(), deliveredHeading(spec.heading).length, origin)
+		const held = this.#held(this.#heldInOrder(spec), deliveredHeading(spec.heading).length, origin)
 		const statement = this.#place({
 			query: this.deliveredRows(held.rows(), spec.heading, spec.origin, spec.order),
 			role: spec.role,
@@ -1642,6 +1699,21 @@ export class OptimizedDelivery<
 		}
 	}
 
+	/**
+	 * `order` over heading group `group` of `union`, total where the facts prove it of the group's rows: by its arm's keys,
+	 * where it has one, else by the union's.
+	 */
+	#groupOrdered(
+		union: NodeOf<"Union">,
+		group: HeterogeneousPlan["union"]["groups"][number],
+		order: CompletedOrder
+	): DeliveryOrder {
+		const [only, ...others] = group.arms
+		return others.length === 0
+			? deliveryOrder(this.facts, only, order, group.heading)
+			: deliveryOrder(this.facts, union, order, union.heading)
+	}
+
 	/** One part per heading group (R21), each with its attachments' parts (groupSpec). */
 	headingGroups(plan: HeterogeneousPlan): StatementRoots<DeliveredPart> {
 		return mapNonEmpty(plan.union.groups, (group, gi) =>
@@ -1685,9 +1757,10 @@ export class OptimizedDelivery<
 			}
 			if (take !== undefined) {
 				const bounded = cx.wrap(rel, group.heading, { kind: "node", node: take.id })
-				const orderBy = orderItemsOf(take.order, group.heading, bounded.map, {
+				const order = defined(take.orders[gi], "a heading group's order")
+				const orderBy = orderItemsOf(order, group.heading, bounded.map, {
 					leading: [],
-					total: orderIsTotal(this.facts, union, take.order, union.heading),
+					total: this.#groupOrdered(union, group, order).total,
 					fixed: []
 				})
 				rel = {
@@ -1726,12 +1799,13 @@ export class OptimizedDelivery<
 				)
 			}
 		}
+		const delivered = groupOrder(plan, gi)
 		return {
 			rel,
 			heading: group.heading,
 			origin: union,
 			attachments,
-			order: groupOrder(plan),
+			order: delivered === undefined ? undefined : this.#groupOrdered(union, group, delivered),
 			role: { kind: "headingGroup", group: gi },
 			bound: rowsBoundOf(this.facts, union)
 		}

@@ -193,9 +193,11 @@ export const aLateralSourcesColumnFixedToARegionColumnEqualsThatColumnsVariableB
 				const filtered = b.node({
 					kind: "Take",
 					input: sBase,
-					order: {
-						keys: Arr.map(sBase.heading, (h) => ({ column: h.name, dir: "asc" as const }))
-					},
+					orders: [
+						{
+							keys: Arr.map(sBase.heading, (h) => ({ column: h.name, dir: "asc" as const }))
+						}
+					],
 					bound: { kind: "literal", k: BigInt(lc.take) },
 					correlation: [{ column: columnName(lc.fixed), expr: outer }],
 					heading: sBase.heading,

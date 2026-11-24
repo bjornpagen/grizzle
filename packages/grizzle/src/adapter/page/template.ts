@@ -189,7 +189,13 @@ const pageDelivery = (
 		? { kind: "concat", groups: rows }
 		: {
 				kind: "groups",
-				order: groupOrder(delivery.order, heading, rows, (r) => r.record.part.heading, codes)
+				order: groupOrder(
+					Arr.map(rows, () => delivery.order),
+					heading,
+					rows,
+					(r) => r.record.part.heading,
+					codes
+				)
 			}
 }
 

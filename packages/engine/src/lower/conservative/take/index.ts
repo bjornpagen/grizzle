@@ -6,7 +6,7 @@ import {
 	type NodeLowerer
 } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
-import { completedOrderItems } from "#compiler/lower/conservative/take/order.ts"
+import { completedOrderItems, rankedOrder } from "#compiler/lower/conservative/take/order.ts"
 import { columnType } from "#compiler/runtime/lower/columns.ts"
 import type { Expr, OrderItem } from "#compiler/sql/ast.ts"
 import { conjunction, distinctCore, select } from "#compiler/sql/build.ts"
@@ -35,7 +35,11 @@ const lowerTake: NodeLowerer<"Take"> = (node, cx, env) => {
 			lowerExpr(cx, c.expr, scope)
 		)
 	)
-	const orderBy: ReadonlyArray<OrderItem> = completedOrderItems(node.order, node.heading, input.map)
+	const orderBy: ReadonlyArray<OrderItem> = completedOrderItems(
+		rankedOrder(node),
+		node.heading,
+		input.map
+	)
 	return {
 		...select(
 			distinctCore(headingTargets(node.heading, input.map), [input.item], conjunction(correlation))

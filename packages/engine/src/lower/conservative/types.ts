@@ -4,8 +4,8 @@ import type { DagTemplates } from "#compiler/ir/dag-digest.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { FilledRows, LogicalQuery, PageFill, ParamDecl } from "#compiler/ir/products.ts"
 import type {
-	CompletedOrder,
 	DeltaSide,
+	GroupOrders,
 	Heading,
 	RelNode,
 	TakeBound,
@@ -388,19 +388,20 @@ export interface ConservativeProgram<Slot extends ConservativeParamSlot = Declar
 
 /**
  * How the runtime combines the heading-group statements of a heterogeneous union: every group's facts, unordered; or
- * in `order`, which each group statement delivers its rows in. With a take, each group statement holds its first k
- * under `take`, the runtime merges the groups on `take` and keeps the first k overall, delivered in that order, or in
- * `order` where the query's order differs from the take's.
+ * in `orders`, one per group (ir/rel.ts GroupOrders), each group statement delivering its rows in its group's, and rows
+ * of two groups compared by the run every group's order begins with (mergeOrder). With a take, each group statement
+ * holds its first k under its group's of `take`, the runtime merges the groups on `take` and keeps the first k overall,
+ * delivered in that order, or in `orders` where the query's orders differ from the take's.
  */
 export type GroupMerge =
 	| { readonly kind: "concat" }
-	| { readonly kind: "order"; readonly order: CompletedOrder }
-	| { readonly kind: "take"; readonly bound: TakeBound; readonly take: CompletedOrder }
+	| { readonly kind: "order"; readonly orders: GroupOrders }
+	| { readonly kind: "take"; readonly bound: TakeBound; readonly take: GroupOrders }
 	| {
 			readonly kind: "takeThenOrder"
 			readonly bound: TakeBound
-			readonly take: CompletedOrder
-			readonly order: CompletedOrder
+			readonly take: GroupOrders
+			readonly orders: GroupOrders
 	  }
 
 /**

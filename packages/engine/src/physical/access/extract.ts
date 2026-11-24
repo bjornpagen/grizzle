@@ -25,7 +25,8 @@ import {
 	type OrderKey,
 	type RelNode,
 	regionVarClasses,
-	type VarDecl
+	type VarDecl,
+	mergeOrder
 } from "#compiler/ir/rel.ts"
 import { baseOf, type Carrier, fewValued, isSpanCarrier } from "#compiler/ir/scalar.ts"
 import { conjuncts } from "#compiler/logical/props.ts"
@@ -796,12 +797,12 @@ class Extractor {
 				return this.visit(n.input, mapPushed(pushed, this.projection(n)))
 			case "Take": {
 				const input = fixedOn(n.correlation.map((c) => c.column))
-				this.ordered(n.input, n.order, "take seek", input)
+				this.ordered(n.input, mergeOrder(n.orders, n.input.heading), "take seek", input)
 				return this.visit(n.input, input)
 			}
 			case "OrderedResult":
 				if (this.#pageable.has(n)) {
-					this.ordered(n.input, n.order, "page seek", pushed)
+					this.ordered(n.input, mergeOrder(n.orders, n.input.heading), "page seek", pushed)
 				}
 				return this.visit(n.input, pushed)
 			case "Group":

@@ -21,12 +21,12 @@
  *   reference to the table's next entry (`{"$ref":"#/x-grizzle-wire/shared/<n>"}`). Every reference is read through as
  *   a reader does, so the properties above read the document as its readers do.
  * - Events by shape: each operation's stream is the events of its member's shape (live/events.ts events), one component
- *   each, discriminated by `event`; a list's upsert carries `after`, a set's does not, and a write's answer is its
+ *   each, discriminated by `event`; a read's upsert carries its row and `after`, and a write's answer is its
  *   outcome; a paged member's body takes its window. An answered read's `ready` (an answered(...) or a clocked
  *   member's) says in its `x-stream` that `end` follows it, and no other's does.
  * - Described, each name once: one tag per role, in the login's order, whose description names every context the role
  *   reads and says its calls need a bearer token exactly where it reads one; each operation's summary says what its
- *   program is (live or answered at its call's instant, ordered, paged by window, or a write); each operation's
+ *   program is (live or answered at its call's instant, paged by window, or a write); each operation's
  *   description names every relation its program writes, its key's fields and its parameters; and its
  *   `grizzle-wire` header's description names what a call naming no digest and one naming another are answered
  *   (live/events.ts wireRefusals).
@@ -46,7 +46,7 @@
  * Oracle: the served file the document is read off, its members and their wires, the event model's own table, and the
  * classification's tables.
  *
- * Features: a set read, a list read, a paged read, an answered read, a write, a role reading a context, a
+ * Features: a list read, a paged read, an answered read, a write, a role reading a context, a
  * role reading none, a login no role of which reads a context, a schema shared, a wire node shared.
  */
 
@@ -76,7 +76,6 @@ export const aLoginsOpenAPIDocumentValidatesIsCanonicalAndHoldsOneOperationPerPr
 	property.explore((source) => [source.draw(caseSketchGen), source.draw(lawLevelGen)] as const, {
 		needs: {},
 		situations: [
-			"a set read",
 			"a list read",
 			"a paged read",
 			"an answered read",
@@ -101,8 +100,8 @@ export const aLoginsOpenAPIDocumentValidatesIsCanonicalAndHoldsOneOperationPerPr
 			{
 				file: "packages/openapi/src/openapi.ts",
 				original: "\t\tevents[shape.shape]",
-				replacement: '\t\tevents[shape.shape === "list" ? "set" : shape.shape]',
-				why: "An ordered program's upsert is drawn from the set shape's events, with no `after`."
+				replacement: '\t\tevents[shape.shape === "list" ? "answeredList" : shape.shape]',
+				why: "A live read's events are drawn from the answered shape's, with no `remove` and a ready that says `end` follows it."
 			},
 			{
 				file: "packages/openapi/src/openapi.ts",

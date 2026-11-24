@@ -2,12 +2,14 @@
  * Unions (check/checker.ts): a union of one to three arms over a drawn schema, delivered, ordered, taken or matched, is
  * admitted exactly where the union rules admit it, with the heading, the discriminant and the widening they give, and
  * refused otherwise for the rule it breaks: an attachment on a shared heading, incompatible column types, an attached
- * arm widened, no discriminant, a keyless order, constants no arm delivers, or a column the selected arms lack.
+ * arm widened, no discriminant, constants no arm delivers, or a column the selected arms lack. An order over several
+ * headings refuses nothing: it is completed by the union's key where the common columns hold one, else group by group.
  *
  * Oracle: the union rules restated over the drawn arms (test/unit/check/unions.ts verdictOf).
  *
  * Features: each rule refused, and each admitted shape: one heading, headings told apart by Kind or by every literal
- * column, a widened column, an attached arm, a keyed order, a narrowed match, a set beside a discriminant of Kind.
+ * column, a widened column, an attached arm, a keyed order, an order each group completes by its own key, a narrowed
+ * match, a set beside a discriminant of Kind.
  */
 
 import { assert } from "@bjornpagen/testing/assert"
@@ -26,8 +28,8 @@ import {
 } from "#test/unit/check/unions.fixtures.ts"
 import { caseDesc, verdictOf } from "#test/unit/check/unions.ts"
 
-/** A union of rules is grouped by heading, typed per column, told apart by its discriminant, ordered only within a key and narrowed by a match's constants, as the model of its rules decides. Its budget is its suite's before it was a property (test/unit/check/unions.test.ts at 4ca3036a): 400 runs and 1200 steered cases. */
-export const aUnionOfRulesIsGroupedByHeadingTypedPerColumnToldApartByItsDiscriminantOrderedOnlyWithinAKeyAndNarrowedByAMatchsConstantsAsTheModelOfItsRulesDecides =
+/** A union of rules is grouped by heading, typed per column, told apart by its discriminant, ordered group by group and narrowed by a match's constants, as the model of its rules decides. Its budget is its suite's before it was a property (test/unit/check/unions.test.ts at 4ca3036a): 400 runs and 1200 steered cases. */
+export const aUnionOfRulesIsGroupedByHeadingTypedPerColumnToldApartByItsDiscriminantOrderedGroupByGroupAndNarrowedByAMatchsConstantsAsTheModelOfItsRulesDecides =
 	property.explore(unionCaseSpace, {
 		needs: {},
 		budget: { runs: 400, steered: 1200 },
@@ -39,6 +41,7 @@ export const aUnionOfRulesIsGroupedByHeadingTypedPerColumnToldApartByItsDiscrimi
 			"a widened column",
 			"an attached arm admitted",
 			"a keyed order over several headings",
+			"an order over several headings, each group by its own key",
 			"a match narrowed to some arms",
 			"a set column beside a discriminant of Kind"
 		] satisfies ReadonlyArray<Reached<UnionFeature>>,

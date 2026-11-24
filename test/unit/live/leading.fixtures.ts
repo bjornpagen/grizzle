@@ -3,7 +3,7 @@
 import { Deferred, Effect, Stream } from "effect"
 import { type LeaderReason, ReplicationSilent } from "#adapter/live/leader.ts"
 import { type LiveAnswer } from "#adapter/live/subscriptions.ts"
-import { diffSet, fold, opening, type SetEvent } from "#compiler/live/index.ts"
+import { diffList, fold, type ListEvent, opening } from "#compiler/live/index.ts"
 
 /** How a candidacy ends: with a failure of its own, with a defect, or interrupted. */
 export type End = "failure" | "defect" | "interruption"
@@ -13,17 +13,17 @@ interface Row {
 	readonly id: number
 }
 
-/** How a set read's answer is made, as db/handles.ts makes it over the test's rows. */
-export const answer: LiveAnswer<"set", Row, SetEvent<Row>> = {
-	settle: (events) => fold(opening<"set", Row>("set"), events),
-	diff: diffSet,
+/** How a live read's answer is made, as db/handles.ts makes it over the test's rows. */
+export const answer: LiveAnswer<Row, ListEvent<Row>> = {
+	settle: (events) => fold(opening<Row>(), events),
+	diff: diffList,
 	ready: { kind: "ready" },
 	error: (error) => ({ kind: "error", error }),
 	end: { kind: "end" }
 }
 
 /** A read of no rows, its one run's events. */
-export const read: Stream.Stream<SetEvent<Row>> = Stream.fromIterable<SetEvent<Row>>([
+export const read: Stream.Stream<ListEvent<Row>> = Stream.fromIterable<ListEvent<Row>>([
 	{ kind: "reset", key: ["id"] },
 	{ kind: "ready" }
 ])

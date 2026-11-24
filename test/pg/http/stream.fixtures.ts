@@ -2,7 +2,7 @@
 
 import { jsonText } from "@bjornpagen/grizzle-text/utf8"
 import { timerMaxMs, timerMinMs } from "@bjornpagen/grizzle/runtime"
-import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
+import { defined } from "@bjornpagen/testing/assert"
 import { constant, element, type Gen, int, oneOf, shuffled } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Stream } from "effect"
 import type { ServedCalls } from "#adapter/db/handles.ts"
@@ -15,7 +15,7 @@ import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { mutable, relation, schema, unit } from "#compiler/public/schema.ts"
 import { answered, paged } from "#compiler/public/workload.ts"
-import { listFrame, setFrame, type SlotEncoders, writeFrame } from "#http/events.ts"
+import { listFrame, type SlotEncoders, writeFrame } from "#http/events.ts"
 import type { SseEvent } from "#http/sse.ts"
 import type { StreamEvent } from "#test/support/event-stream.ts"
 
@@ -26,7 +26,7 @@ export const Items = schema("Items", [Item], [mutable(Item), unit("Ranked", { id
 /** An item as stored and as a call states it. */
 type ItemFact = Readonly<{ id: number; score: number }>
 
-/** The login's members: a set read by a floor, an ordered read by its windows, a key, and a put. */
+/** The login's members: a read by a floor, an ordered read by its windows, a key, and a put. */
 const programs = Object.freeze({
 	atLeast: query(Items).rule((r) => {
 		const { id, score } = v(Item, "item")
@@ -82,7 +82,7 @@ interface StreamCase {
 }
 
 export type Feature =
-	| "a set read"
+	| "a read in its key order"
 	| "an ordered read from its start"
 	| "an ordered read from its end"
 	| "a key"
@@ -152,14 +152,14 @@ export const caseGen: Gen<StreamCase> = (source) => {
 
 /**
  * Each call feature with the case constructed to reach it, which a case whose turn aims at that pending feature draws
- * (aimed), so the cases of one window aim at distinct pending features: a set read, a key, an ordered read's window
- * from its start or its end, a put of one item at an id the stored items leave free, which no stored item states, so it
- * is accepted, and a put of stored items as stored, so it is unchanged.
+ * (aimed), so the cases of one window aim at distinct pending features: a read in its key order, a key, an ordered
+ * read's window from its start or its end, a put of one item at an id the stored items leave free, which no stored item
+ * states, so it is accepted, and a put of stored items as stored, so it is unchanged.
  */
 export const aims: ReadonlyArray<readonly [Feature, Gen<StreamCase>]> = Arr.map(
 	[
 		[
-			"a set read",
+			"a read in its key order",
 			(): Gen<Call> => (source) => ({
 				member: "atLeast",
 				input: { params: { floor: source.draw(int(-3, 3)) } }
@@ -249,26 +249,14 @@ export const inProcess = (
 	body: unknown
 ): Stream.Stream<StreamEvent> => {
 	switch (calls.shape) {
-		case "set":
-			return Stream.map(calls.watch(body), (event) => carried(setFrame(slots, event)))
 		case "list":
 			return Stream.map(calls.watch(body), (event) => carried(listFrame(slots, event)))
-		case "answeredSet":
-			return Stream.map(calls.answer(body), (event) => carried(setFrame(slots, event)))
 		case "answeredList":
 			return Stream.map(calls.answer(body), (event) => carried(listFrame(slots, event)))
 		case "write":
 			return Stream.map(calls.watch(body), (event) => carried(writeFrame(slots, event)))
 	}
 }
-
-/** That two batches are one: a set read's in any order, an ordered read's in order. */
-export const sameBatch = (
-	shape: "set" | "list",
-	http: ReadonlyArray<StreamEvent>,
-	local: ReadonlyArray<StreamEvent>,
-	why: string
-): void => (shape === "set" ? unorderedEqual(http, local, why) : assert.deepEqual(http, local, why))
 
 /** Whether `stored` holds every item `put` states, as it states it. */
 export const holdsAll = (stored: ReadonlyArray<ItemFact>, put: ReadonlyArray<ItemFact>): boolean =>
@@ -278,7 +266,7 @@ export const holdsAll = (stored: ReadonlyArray<ItemFact>, put: ReadonlyArray<Ite
 export const readFeature = (call: Exclude<Call, { readonly member: "put" }>): Feature => {
 	switch (call.member) {
 		case "atLeast":
-			return "a set read"
+			return "a read in its key order"
 		case "item":
 			return "a key"
 		case "ranked":

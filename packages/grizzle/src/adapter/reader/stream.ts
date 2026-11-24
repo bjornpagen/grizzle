@@ -17,7 +17,6 @@ import {
 import {
 	type FailureOf,
 	type AnsweredListEvent,
-	type AnsweredSetEvent,
 	type KeyFields,
 	keyOf,
 	type RowKey
@@ -70,9 +69,9 @@ export interface OpenedRead {
 }
 
 /**
- * How one call's events of one read shape are made (live/events.ts events): its reset under its key fields, the upsert
- * of each decoded row in delivery order, made by a closure of the call's own, its ready and its error, one a read's run
- * fails with.
+ * How one call's events of a read are made (live/events.ts events), as a live read's or an answered read's events: its
+ * reset under its key fields, the upsert of each decoded row in delivery order, made by a closure of the call's own,
+ * its ready and its error, one a read's run fails with.
  */
 export interface ShapeEvents<E> {
 	readonly reset: (fields: KeyFields) => E
@@ -82,19 +81,9 @@ export interface ShapeEvents<E> {
 }
 
 /**
- * A set read's events: each upsert carries its row. One run reads the rows at its call's instant, so it makes an
- * answered read's events alone (live/events.ts AnsweredSetEvent), no `remove`: a live read's every re-run makes these too.
- */
-export const setEvents: ShapeEvents<AnsweredSetEvent<DecodedRow>> = {
-	reset: (fields) => ({ kind: "reset", key: fields }),
-	upserts: () => (row) => ({ kind: "upsert", row }),
-	ready: { kind: "ready" },
-	error: (error) => ({ kind: "error", error })
-}
-
-/**
- * An ordered read's events: each upsert carries the key of the row before it too, null for the first. One run makes an
- * answered read's events alone (live/events.ts AnsweredListEvent), as setEvents does.
+ * A read's events: each upsert carries its row and the key of the row before it, null for the first. One run reads the
+ * rows at its call's instant, so it makes an answered read's events alone (live/events.ts AnsweredListEvent), no
+ * `remove`: a live read's every re-run makes these too.
  */
 export const listEvents: ShapeEvents<AnsweredListEvent<DecodedRow>> = {
 	reset: (fields) => ({ kind: "reset", key: fields }),

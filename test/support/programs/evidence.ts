@@ -7,7 +7,7 @@ export { Array as Arr, Effect } from "effect"
 export type { Brand, Option, Stream } from "effect"
 export type { DbOf, WorkloadHandles } from "#adapter/types/db.ts"
 export type { ReadError } from "#adapter/errors/execution.ts"
-export type { CallError, InputOf, KeyedList, KeyedSet } from "#compiler/live/index.ts"
+export type { CallError, InputOf, KeyedList } from "#compiler/live/index.ts"
 export { ALLEN } from "#compiler/public/allen.ts"
 export { ChangeSet } from "#compiler/public/changeset.ts"
 export {

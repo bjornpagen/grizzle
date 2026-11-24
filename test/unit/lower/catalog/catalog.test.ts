@@ -34,6 +34,7 @@ import { Array as Arr, Effect, Option, Result } from "effect"
 import { encode, everyProperty } from "#compiler/core/canonical.ts"
 import { opposite } from "#compiler/core/order.ts"
 import { makePassContext } from "#compiler/ir/pass.ts"
+import { soleOrder } from "#compiler/ir/rel.ts"
 import { CatalogContext } from "#compiler/lower/shapes/catalog/context.ts"
 import { CatalogEditor } from "#compiler/lower/shapes/catalog/edit.ts"
 import { NoMatch } from "#compiler/lower/shapes/catalog/exprs.ts"
@@ -398,12 +399,14 @@ export const r27AndR42NeighborsUnderTheParentSetPolicyKeepsAnAsOfComparingFields
 							if (edit === "the take's order reversed" && n.kind === "Take") {
 								ed.redefine(cell, {
 									...n,
-									order: {
-										keys: Arr.map(n.order.keys, (k) => ({
-											...k,
-											dir: opposite(k.dir)
-										}))
-									}
+									orders: [
+										{
+											keys: Arr.map(soleOrder(n.orders).keys, (k) => ({
+												...k,
+												dir: opposite(k.dir)
+											}))
+										}
+									]
 								})
 							}
 						}

@@ -4,46 +4,29 @@
  * changes.
  */
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
-import type {
-	ListChange,
-	ListEvent,
-	ReadShape,
-	SetChange,
-	SetEvent,
-	ShapeFailure,
-	WriteEvent
-} from "#compiler/live/events.ts"
+import type { ListChange, ListEvent, ShapeFailure, WriteEvent } from "#compiler/live/events.ts"
 import { type RowKey, sameValue } from "#compiler/live/key.ts"
-import { type Entry, Keyed, type KeyedList, type KeyedSet } from "#compiler/live/keyed.ts"
-
-/** A read's events of shape S. */
-export type ReadEvent<S extends ReadShape, Row> = {
-	readonly set: SetEvent<Row>
-	readonly list: ListEvent<Row>
-}[S]
+import { type Entry, KeyedList } from "#compiler/live/keyed.ts"
 
 /**
  * A read's state as its events have built it: `opening`, before its reset; `provisional`, the rows decoded so far,
  * which an error voids; `ready`, its value, whole at `ready` and live after it; `failed`, the error that ended it,
  * with no value, one a read's answer may end with (live/events.ts ShapeFailure).
  */
-export type ReadState<S extends ReadShape, Row extends object> =
-	| { readonly kind: "opening"; readonly shape: S }
-	| { readonly kind: "provisional"; readonly value: Keyed<S, Row> }
-	| { readonly kind: "ready"; readonly value: Keyed<S, Row> }
-	| { readonly kind: "failed"; readonly error: ShapeFailure<ReadShape> }
+export type ReadState<Row extends object> =
+	| { readonly kind: "opening" }
+	| { readonly kind: "provisional"; readonly value: KeyedList<Row> }
+	| { readonly kind: "ready"; readonly value: KeyedList<Row> }
+	| { readonly kind: "failed"; readonly error: ShapeFailure<"list"> }
 
-/** The state of a read of shape `shape` before its first event. */
-export const opening = <S extends ReadShape, Row extends object>(shape: S): ReadState<S, Row> => ({
-	kind: "opening",
-	shape
-})
+/** The state of a read before its first event. */
+export const opening = <Row extends object>(): ReadState<Row> => ({ kind: "opening" })
 
 /** The state `state` with `pending` changes applied to its value, where it holds one. */
-const settled = <S extends ReadShape, Row extends object>(
-	state: ReadState<S, Row>,
-	pending: ReadonlyArray<SetChange<Row> | ListChange<Row>>
-): ReadState<S, Row> => {
+const settled = <Row extends object>(
+	state: ReadState<Row>,
+	pending: ReadonlyArray<ListChange<Row>>
+): ReadState<Row> => {
 	if (pending.length === 0) {
 		return state
 	}
@@ -57,38 +40,32 @@ const settled = <S extends ReadShape, Row extends object>(
 	}
 }
 
-/** The shape of a state's value. */
-const shapeOf = <S extends ReadShape, Row extends object>(
-	state: Exclude<ReadState<S, Row>, { readonly kind: "failed" }>
-): S => (state.kind === "opening" ? state.shape : state.value.shape)
-
 /**
  * `state` after `events`, in order: `reset` opens an empty value keyed by its fields, provisional; an upsert or a
- * remove changes the value (Keyed applying); `ready` makes the provisional value the read's value; `error` ends the
+ * remove changes the value (KeyedList applying); `ready` makes the provisional value the read's value; `error` ends the
  * read, voiding any value; `end` changes nothing. A failed read stays failed. A change before any reset is a defect of
  * the stream. Consecutive changes are applied to one new value, so `state` is never changed.
  */
-export const fold = <S extends ReadShape, Row extends object>(
-	state: ReadState<S, Row>,
-	events: Iterable<ReadEvent<S, Row>>
-): ReadState<S, Row> => {
+export const fold = <Row extends object>(
+	state: ReadState<Row>,
+	events: Iterable<ListEvent<Row>>
+): ReadState<Row> => {
 	let current = state
-	let pending: Array<SetChange<Row> | ListChange<Row>> = []
+	let pending: Array<ListChange<Row>> = []
 	for (const event of events) {
-		const read: SetEvent<Row> | ListEvent<Row> = event
-		switch (read.kind) {
+		switch (event.kind) {
 			case "upsert":
 			case "remove":
 				if (current.kind === "opening") {
 					throw defect("a read's change came before its reset")
 				}
-				pending.push(read)
+				pending.push(event)
 				break
 			case "reset":
 				current =
 					current.kind === "failed"
 						? current
-						: { kind: "provisional", value: Keyed.empty(shapeOf(current), read.key) }
+						: { kind: "provisional", value: KeyedList.empty(event.key) }
 				pending = []
 				break
 			case "ready":
@@ -100,7 +77,7 @@ export const fold = <S extends ReadShape, Row extends object>(
 				current = current.kind === "provisional" ? { kind: "ready", value: current.value } : current
 				break
 			case "error":
-				current = current.kind === "failed" ? current : { kind: "failed", error: read.error }
+				current = current.kind === "failed" ? current : { kind: "failed", error: event.error }
 				pending = []
 				break
 			case "end":
@@ -152,46 +129,6 @@ export const foldWrite = <Outcome>(
 	return current
 }
 
-/** The removes of every key `previous` holds and `next` does not, in `previous`'s order. */
-const removals = <S extends ReadShape, Row extends object>(
-	previous: Keyed<S, Row>,
-	next: Keyed<S, Row>
-): Array<{ readonly kind: "remove"; readonly key: RowKey }> => {
-	const changes: Array<{ readonly kind: "remove"; readonly key: RowKey }> = []
-	for (const entry of previous.entries()) {
-		if (next.at(entry.form) === undefined) {
-			changes.push({ kind: "remove", key: entry.key })
-		}
-	}
-	return changes
-}
-
-/** Whether `entry` stands in `previous` as it is: its key held, with the same row. */
-const unchanged = <S extends ReadShape, Row extends object>(
-	previous: Keyed<S, Row>,
-	entry: Entry<Row>
-): boolean => {
-	const was = previous.at(entry.form)
-	return was !== undefined && sameValue(was.row, entry.row)
-}
-
-/**
- * The least change from set `previous` to set `next`, of one program's key fields: a remove of each key `next` does
- * not hold, then an upsert of each row of `next` whose key `previous` does not hold or holds with another row.
- */
-export const diffSet = <Row extends object>(
-	previous: KeyedSet<Row>,
-	next: KeyedSet<Row>
-): ReadonlyArray<SetChange<Row>> => {
-	const changes: Array<SetChange<Row>> = removals(previous, next)
-	for (const entry of next.entries()) {
-		if (!unchanged(previous, entry)) {
-			changes.push({ kind: "upsert", row: entry.row })
-		}
-	}
-	return changes
-}
-
 /**
  * Which of `positions` one longest strictly increasing subsequence holds, by index: patience sorting, each index
  * linked to the index before it in the subsequence it ends.
@@ -221,16 +158,22 @@ const longestIncreasing = (positions: ReadonlyArray<number>): ReadonlySet<number
 }
 
 /**
- * The least change from list `previous` to list `next`, of one program's key fields: a remove of each key `next` does
- * not hold, then, in `next`'s order, an upsert after the row before it (null first) of each row that is new, changed,
- * or moved. The rows that stay are the most of those unchanged whose order `previous` already holds (a longest
- * increasing subsequence of their places in it): every other row must be sent, and no fewer moves give `next`'s order.
+ * The least change from value `previous` to value `next`, of one program's key fields: a remove of each key `next` does
+ * not hold, in `previous`'s order, then, in `next`'s order, an upsert after the row before it (null first) of each row
+ * that is new, changed, or moved. The rows that stay are the most of those unchanged whose order `previous` already
+ * holds (a longest increasing subsequence of their places in it): every other row must be sent, and no fewer moves give
+ * `next`'s order.
  */
 export const diffList = <Row extends object>(
 	previous: KeyedList<Row>,
 	next: KeyedList<Row>
 ): ReadonlyArray<ListChange<Row>> => {
-	const changes: Array<ListChange<Row>> = removals(previous, next)
+	const changes: Array<ListChange<Row>> = []
+	for (const entry of previous.entries()) {
+		if (next.at(entry.form) === undefined) {
+			changes.push({ kind: "remove", key: entry.key })
+		}
+	}
 	const place = new Map<Entry<Row>, number>()
 	for (const entry of previous.entries()) {
 		place.set(entry, place.size)
@@ -260,17 +203,9 @@ export const diffList = <Row extends object>(
 }
 
 /**
- * The net change of `pending`, changes of a set sent after `base`: the least change from `base` to `base` with
- * `pending` applied, so a key's last change stands for all of its own, and one that ends where it began is none.
- */
-export const coalesceSet = <Row extends object>(
-	base: KeyedSet<Row>,
-	pending: Iterable<SetChange<Row>>
-): ReadonlyArray<SetChange<Row>> => diffSet(base, base.applying(pending))
-
-/**
- * The net change of `pending`, changes of a list sent after `base`: the least change from `base` to `base` with
- * `pending` applied, every `after` a key the list holds when it is applied.
+ * The net change of `pending`, changes sent after `base`: the least change from `base` to `base` with `pending`
+ * applied, so a key's last change stands for all of its own, one that ends where it began is none, and every `after`
+ * is a key the value holds when it is applied.
  */
 export const coalesceList = <Row extends object>(
 	base: KeyedList<Row>,

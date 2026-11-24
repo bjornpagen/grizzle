@@ -29,7 +29,7 @@ import type { StatedOrder } from "#compiler/check/order.ts"
 import { makeIdSupply, ParamId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
-import { relNode, rooted, topoOrder } from "#compiler/ir/dag.ts"
+import { relNode, rooted, topoOrder, groupHeadings } from "#compiler/ir/dag.ts"
 import {
 	type DefinedOp,
 	exprClosure,
@@ -2374,7 +2374,7 @@ class QueryResolver {
 			meta: conservativeMeta,
 			kind: "Take",
 			input: input.node,
-			order,
+			orders: Arr.map(groupHeadings(input.node), () => order),
 			bound,
 			correlation,
 			heading: h
@@ -2385,7 +2385,7 @@ class QueryResolver {
 			{
 				input: input.node,
 				fixed: Arr.map(correlation, (c) => c.column),
-				withOrder: (completed) => relNode(id.id, { ...spec, order: completed })
+				withOrder: (completed) => relNode(id.id, { ...spec, orders: completed })
 			},
 			order,
 			s
@@ -2428,7 +2428,7 @@ class QueryResolver {
 			meta: conservativeMeta,
 			kind: "Take",
 			input: source.node,
-			order,
+			orders: Arr.map(groupHeadings(source.node), () => order),
 			bound,
 			correlation,
 			heading: h
@@ -2916,7 +2916,7 @@ class QueryResolver {
 				meta: conservativeMeta,
 				kind: "Take",
 				input: child.node,
-				order,
+				orders: Arr.map(groupHeadings(child.node), () => order),
 				bound: { kind: "literal", k: BigInt(1 + (take.k % 3)) },
 				correlation: Arr.map(correlation, (c) => ({
 					column: c.child,
@@ -2930,7 +2930,7 @@ class QueryResolver {
 				{
 					input: child.node,
 					fixed: Arr.map(spec.correlation, (c) => c.column),
-					withOrder: (completed) => relNode(taken.id, { ...spec, order: completed })
+					withOrder: (completed) => relNode(taken.id, { ...spec, orders: completed })
 				},
 				order,
 				take
@@ -2995,7 +2995,7 @@ class QueryResolver {
 					meta: conservativeMeta,
 					kind: "OrderedResult",
 					input: body.node,
-					order,
+					orders: Arr.map(groupHeadings(body.node), () => order),
 					heading: h
 				}
 				const id = this.b.node(spec)
@@ -3004,7 +3004,7 @@ class QueryResolver {
 					{
 						input: body.node,
 						fixed: [],
-						withOrder: (completed) => relNode(id.id, { ...spec, order: completed })
+						withOrder: (completed) => relNode(id.id, { ...spec, orders: completed })
 					},
 					order,
 					stated

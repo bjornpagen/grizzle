@@ -4,7 +4,7 @@ import type { CredentialError } from "#adapter/errors/credential.ts"
 import type { OpenError } from "#adapter/errors/execution.ts"
 import type { TokenRefused, VerifierUnavailable } from "#adapter/errors/failures.ts"
 import type { PgDriver, PgSocket, PoolListener } from "#adapter/types/driver.ts"
-import type { ReadShape, ShapeOf } from "#compiler/live/index.ts"
+import type { ShapeOf } from "#compiler/live/index.ts"
 import type {
 	AnyLogin,
 	AnyRole,
@@ -278,7 +278,7 @@ type Joined<A, B> = A extends "some"
  */
 type WorkloadReads<W> =
 	W extends Workload<unknown, infer P>
-		? [Extract<ShapeOf<P[keyof P]>, ReadShape>] extends [never]
+		? [Extract<ShapeOf<P[keyof P]>, "list">] extends [never]
 			? "none"
 			: string extends keyof P
 				? "may"

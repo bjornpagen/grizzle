@@ -57,7 +57,9 @@ export const tryMode = (cx: CatalogContext, cell: Cell): ModeResult => {
 			input.heading.every((h) => group.bound.columns.includes(h.name)),
 		"a count of the input's rows: the bound tuple is its whole heading"
 	)
-	const [first, second] = take.order.keys
+	const [only, ...groups] = take.orders
+	demand(groups.length === 0, "a take over one heading group")
+	const [first, second] = only.keys
 	demand(
 		first?.column === agg.name &&
 			first.dir === "desc" &&

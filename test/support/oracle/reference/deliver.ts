@@ -1,3 +1,4 @@
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { Array as Arr } from "effect"
 import type { NodeId } from "#compiler/core/ids.ts"
 import { exprClosure } from "#compiler/ir/expr.ts"
@@ -140,7 +141,11 @@ const groupRows = (
 	}
 	return {
 		heading: group.heading,
-		rows: sortRows(group.heading, rows, take.order).slice(0, Number(ref.bound(take)))
+		rows: sortRows(
+			group.heading,
+			rows,
+			defined(take.orders[index], `the order of heading group ${index}`)
+		).slice(0, Number(ref.bound(take)))
 	}
 }
 

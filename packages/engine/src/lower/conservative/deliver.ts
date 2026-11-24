@@ -1,3 +1,4 @@
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	concatNonEmpty,
 	isNonEmpty,
@@ -6,7 +7,14 @@ import {
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import { unwrap } from "#compiler/core/canonical.ts"
 import { type DeliverySpine, deliverySpine } from "#compiler/ir/dag.ts"
-import type { CompletedOrder, Heading, NodeOf, RelNode } from "#compiler/ir/rel.ts"
+import {
+	type CompletedOrder,
+	type GroupOrders,
+	type Heading,
+	type NodeOf,
+	type RelNode,
+	soleOrder
+} from "#compiler/ir/rel.ts"
 import { withAdmission } from "#compiler/lower/conservative/admission.ts"
 import {
 	columnIn,
@@ -36,6 +44,7 @@ import type {
 	ProgramDelivery
 } from "#compiler/lower/conservative/types.ts"
 import { armCore, setOperation } from "#compiler/lower/conservative/union/arms.ts"
+import { columnType } from "#compiler/runtime/lower/columns.ts"
 import {
 	type AttachedTree,
 	deliveredHeading,
@@ -44,6 +53,7 @@ import {
 	type StatementRole,
 	type StatementRoots
 } from "#compiler/runtime/lower/tree.ts"
+import { searchedOnly, storedOnly } from "#compiler/scalar/registry.ts"
 import type {
 	CountStar,
 	Cte,
@@ -97,19 +107,23 @@ const sameOrder = (a: CompletedOrder, b: CompletedOrder): boolean =>
 	a.keys.length === b.keys.length &&
 	a.keys.every((k, i) => k.column === b.keys[i]?.column && k.dir === b.keys[i].dir)
 
+/** Whether two heading groups' orders are one: each group's the same. */
+const sameOrders = (a: GroupOrders, b: GroupOrders): boolean =>
+	a.length === b.length && a.every((o, i) => sameOrder(o, defined(b[i], "a group's order")))
+
 /**
- * How a plan bounds and orders its heading groups: not at all; in the ordered result's order; by an uncorrelated take,
- * k per group in its completed order, the ordered result's when there is one, being the same; or by a take and then
- * in the ordered result's order, which differs from the take's.
+ * How a plan bounds and orders its heading groups: not at all; in the ordered result's orders; by an uncorrelated
+ * take, k per group in its group's completed order, the ordered result's when there is one, being the same; or by a
+ * take and then in the ordered result's orders, which differ from the take's.
  */
 type GroupBound =
 	| { readonly kind: "none" }
-	| { readonly kind: "order"; readonly order: CompletedOrder }
+	| { readonly kind: "order"; readonly orders: GroupOrders }
 	| { readonly kind: "take"; readonly take: NodeOf<"Take"> }
 	| {
 			readonly kind: "takeThenOrder"
 			readonly take: NodeOf<"Take">
-			readonly order: CompletedOrder
+			readonly orders: GroupOrders
 	  }
 
 /**
@@ -122,11 +136,39 @@ const groupMerge = (plan: HeterogeneousPlan): GroupMerge => {
 		case "none":
 			return { kind: "concat" }
 		case "order":
-			return { kind: "order", order: b.order }
+			return { kind: "order", orders: b.orders }
 		case "take":
-			return { kind: "take", bound: b.take.bound, take: b.take.order }
+			return { kind: "take", bound: b.take.bound, take: b.take.orders }
 		case "takeThenOrder":
-			return { kind: "takeThenOrder", bound: b.take.bound, take: b.take.order, order: b.order }
+			hostOrdered(plan.union, b.orders, nodeLabel(b.take))
+			return {
+				kind: "takeThenOrder",
+				bound: b.take.bound,
+				take: b.take.orders,
+				orders: b.orders
+			}
+	}
+}
+
+/**
+ * Refuses a take ordered again over heading groups whose delivery order `orders` holds bytes or a search document: the
+ * runtime orders the kept rows again itself (adapter/reader/run.ts mergedRows), two rows of one group by every key of
+ * their group's order, and the host never reads such a field as an order's value (scalar/registry.ts breaksTies), which
+ * only a keyless heading's completion appends, where the union's fields every group holds hold no key of it.
+ */
+const hostOrdered = (union: NodeOf<"Union">, orders: GroupOrders, at: string): void => {
+	for (const [gi, order] of orders.entries()) {
+		const heading = defined(union.groups[gi], "a heading group of the union").heading
+		for (const k of order.keys) {
+			const type = columnType(heading, k.column)
+			if (storedOnly(type) || searchedOnly(type)) {
+				refuse(
+					"UnsupportedOperation",
+					at,
+					`ordering: a take over a union of several headings ordered again compares two rows of one heading group by ${k.column}, of a type the host never compares; retain a key of the union in each arm's find`
+				)
+			}
+		}
 	}
 }
 
@@ -185,17 +227,20 @@ export interface HeterogeneousPlan {
 	readonly bound: GroupBound
 }
 
-/** The order each group statement of a plan delivers its rows in: the ordered result's, else the take's, else none. */
-export const groupOrder = (plan: HeterogeneousPlan): CompletedOrder | undefined => {
+/**
+ * The order the statement of heading group `gi` of a plan delivers its rows in: its group's of the ordered result's
+ * orders, else of the take's, else none.
+ */
+export const groupOrder = (plan: HeterogeneousPlan, gi: number): CompletedOrder | undefined => {
 	const b = plan.bound
 	switch (b.kind) {
 		case "none":
 			return undefined
 		case "order":
 		case "takeThenOrder":
-			return b.order
+			return defined(b.orders[gi], "a heading group's order")
 		case "take":
-			return b.take.order
+			return defined(b.take.orders[gi], "a heading group's order")
 	}
 }
 
@@ -542,7 +587,7 @@ export class Delivery<Own extends PageParamSlot = never> {
 					if (bound.kind !== "none" || filters.length > 0) {
 						return false
 					}
-					bound = { kind: "order", order: node.order }
+					bound = { kind: "order", orders: node.orders }
 					return true
 				case "Take":
 					if (
@@ -554,9 +599,9 @@ export class Delivery<Own extends PageParamSlot = never> {
 						return false
 					}
 					bound =
-						bound.kind === "none" || sameOrder(bound.order, node.order)
+						bound.kind === "none" || sameOrders(bound.orders, node.orders)
 							? { kind: "take", take: node }
-							: { kind: "takeThenOrder", take: node, order: bound.order }
+							: { kind: "takeThenOrder", take: node, orders: bound.orders }
 					return true
 				case "Base":
 				case "Closed":
@@ -720,13 +765,17 @@ export class ConservativeDelivery<Own extends PageParamSlot = never> extends Del
 					...select(
 						distinctCore(headingTargets(group.heading, bounded.map), [bounded.item], undefined)
 					),
-					orderBy: completedOrderItems(take.order, group.heading, bounded.map),
+					orderBy: completedOrderItems(
+						defined(take.orders[gi], "a heading group's order"),
+						group.heading,
+						bounded.map
+					),
 					limit: this.cx.boundExpr(take.bound)
 				}
 			}
 			return rows
 		}
-		const query = this.delivered(rel(), group.heading, union, groupOrder(plan))
+		const query = this.delivered(rel(), group.heading, union, groupOrder(plan, gi))
 		const statement = this.statement(query, group.heading, { kind: "headingGroup", group: gi })
 		return { statement, rel }
 	}
@@ -846,7 +895,7 @@ export class ConservativeDelivery<Own extends PageParamSlot = never> extends Del
 		if (plan !== undefined) {
 			return { roots: this.groups(plan), delivery: headingGroupsDelivery(plan) }
 		}
-		const order = root.kind === "OrderedResult" ? root.order : undefined
+		const order = root.kind === "OrderedResult" ? soleOrder(root.orders) : undefined
 		const rows = root.kind === "OrderedResult" ? root.input : root
 		this.beginStatement()
 		const rel = (): OperandSelect => this.cx.lower(rows, emptyEnv)

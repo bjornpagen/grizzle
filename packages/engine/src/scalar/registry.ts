@@ -63,14 +63,26 @@ export const capabilitiesOf = (carrier: Carrier): CapabilitySet =>
 export const hasCapability = (t: ScalarType, capability: Capability): boolean =>
 	capsOf(t).includes(capability)
 
+/** The carriers whose values break a completed order's ties though no stated order reads them (breaksTies). */
+const tieBreakingCarriers: ReadonlySet<Carrier> = new Set<Carrier>([
+	"code",
+	"bits",
+	"bytes",
+	"tsvector"
+])
+
 /**
  * Whether a type has a total order that an order grizzle completes may break ties by (logical/order.ts completeOrder):
- * an admitted order (the ordering capability), or a closed id's codes. A closed id's codes are history and never move,
- * so an unordered roster's closed id, which no stated order reads, still breaks a tie the caller left open, the same
- * way on every run.
+ * an admitted order (the ordering capability), a closed id's codes, a set's bits, one bit per code of its roster, bytes
+ * or a search document. A closed id's codes are history and never move, and so are a set's bits, so an unordered
+ * roster's closed id, or a set, which no stated order reads, still breaks a tie the caller left open, the same way on
+ * every run. Bytes and a search document hold no key and no parameter carries one (storedOnly, searchedOnly), so only
+ * a keyless heading's completion appends one, after every field that tells its rows apart, and PostgreSQL's B-tree
+ * order breaks the tie there (byteacmp, tsvector_cmp): the host never compares one (adapter/reader/run.ts groupOrder
+ * reads a group's order no further than two rows differ, and a page refuses to seek by one).
  */
 export const breaksTies = (t: ScalarType): boolean =>
-	hasCapability(t, "ordering") || baseOf(t).carrier === "code"
+	hasCapability(t, "ordering") || tieBreakingCarriers.has(baseOf(t).carrier)
 
 /**
  * Whether a type is stored only: its capability set is storage alone, so a value of it is written and read back whole

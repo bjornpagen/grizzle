@@ -34,7 +34,7 @@ import type { Cell, OutputRows } from "#compiler/core/wire.ts"
 import { type Codebook, emptyCodebook, firstCodebook } from "#compiler/ir/codes.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import { rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
-import type { CallError, KeyedList, KeyedSet, Window } from "#compiler/live/index.ts"
+import type { CallError, KeyedList, Window } from "#compiler/live/index.ts"
 import type { PartDivision } from "#compiler/lower/parts.ts"
 import { type FusedLayout, fusedElement } from "#compiler/runtime/lower/fused.ts"
 import { statementOutput } from "#compiler/runtime/lower/tree.ts"
@@ -504,8 +504,8 @@ const defined = <A>(value: A | undefined, what: string): A => {
 	return value
 }
 
-/** A read's value: a set read's keyed set, or an ordered read's keyed list (live/keyed.ts). */
-export type ReadValue = KeyedSet<DecodedRow> | KeyedList<DecodedRow>
+/** A read's value: its keyed list (live/keyed.ts). */
+export type ReadValue = KeyedList<DecodedRow>
 
 /**
  * A member's reads as a case runs them, each its once (adapter/db/handles.ts), each answering the read's value: `read`
@@ -522,9 +522,6 @@ const valueOf =
 	(calls: OnceCalls) =>
 	(input: unknown): Effect.Effect<ReadValue, CallError> => {
 		switch (calls.shape) {
-			case "set":
-			case "answeredSet":
-				return calls.once(input)
 			case "list":
 			case "answeredList":
 				return calls.once(input)

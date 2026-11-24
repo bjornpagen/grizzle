@@ -2,7 +2,6 @@ import type {
 	CallError,
 	events,
 	ListEvent,
-	SetEvent,
 	Slot,
 	SlotValues,
 	WriteEvent
@@ -36,17 +35,16 @@ type FrameOf<S extends keyof Events> = {
 	}
 }[keyof Events[S]]
 
-/** The events every read shares, set or ordered: their payloads are one descriptor's. */
-type ReadCommon = Exclude<SetEvent<unknown> | ListEvent<unknown>, { readonly kind: "upsert" }>
-
-/** The frame of an event every read shares, set or ordered. */
-const readCommonFrame = (
-	slots: SlotEncoders,
-	event: ReadCommon
-): Exclude<FrameOf<"set">, { readonly event: "upsert" }> => {
+/** The frame of a read's event: an upsert holds its row and the key of the row it follows. */
+export const listFrame = (slots: SlotEncoders, event: ListEvent<unknown>): FrameOf<"list"> => {
 	switch (event.kind) {
 		case "reset":
 			return { event: event.kind, data: { key: slots.fields(event.key) } }
+		case "upsert":
+			return {
+				event: event.kind,
+				data: { row: slots.row(event.row), after: slots.after(event.after) }
+			}
 		case "remove":
 			return { event: event.kind, data: { key: slots.key(event.key) } }
 		case "ready":
@@ -57,18 +55,6 @@ const readCommonFrame = (
 			return { event: event.kind, data: {} }
 	}
 }
-
-/** The frame of a set read's event: an upsert holds its row. */
-export const setFrame = (slots: SlotEncoders, event: SetEvent<unknown>): FrameOf<"set"> =>
-	event.kind === "upsert"
-		? { event: event.kind, data: { row: slots.row(event.row) } }
-		: readCommonFrame(slots, event)
-
-/** The frame of an ordered read's event: an upsert holds its row and the key of the row it follows. */
-export const listFrame = (slots: SlotEncoders, event: ListEvent<unknown>): FrameOf<"list"> =>
-	event.kind === "upsert"
-		? { event: event.kind, data: { row: slots.row(event.row), after: slots.after(event.after) } }
-		: readCommonFrame(slots, event)
 
 /** The frame of a write's event: its outcome, its error, or its end. */
 export const writeFrame = (slots: SlotEncoders, event: WriteEvent<unknown>): FrameOf<"write"> => {

@@ -5,6 +5,7 @@ import { Array as Arr } from "effect"
 import {
 	attachedWidenedCaseGen,
 	keyedOrderCaseGen,
+	keyedOverCommon,
 	type UnionCase,
 	unionCaseGen,
 	type UnionRule,
@@ -20,6 +21,7 @@ export type UnionFeature =
 	| "a widened column"
 	| "an attached arm admitted"
 	| "a keyed order over several headings"
+	| "an order over several headings, each group by its own key"
 	| "a match narrowed to some arms"
 	| "a set column beside a discriminant of Kind"
 
@@ -28,7 +30,6 @@ export const rules: Arr.NonEmptyReadonlyArray<UnionRule> = [
 	"incompatible column types",
 	"an attached arm widened",
 	"no discriminant",
-	"a keyless order",
 	"constants no arm delivers",
 	"a column the selected arms lack"
 ]
@@ -46,7 +47,11 @@ export const admittedFeatures = (
 	...(v.widened ? ["a widened column" as const] : []),
 	...(Arr.some(c.arms, (a) => a.attached) ? ["an attached arm admitted" as const] : []),
 	...((c.consumer.kind === "ordered" || c.consumer.kind === "taken") && v.groups > 1
-		? ["a keyed order over several headings" as const]
+		? [
+				keyedOverCommon(c, v.heading)
+					? ("a keyed order over several headings" as const)
+					: ("an order over several headings, each group by its own key" as const)
+			]
 		: []),
 	...(v.narrowed ? ["a match narrowed to some arms" as const] : []),
 	...(v.chosen === "of Kind" && Arr.contains(v.heading, "marks")

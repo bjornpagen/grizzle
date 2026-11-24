@@ -246,12 +246,14 @@ const resolveWide = (s: WideSketch): QueryCase => {
 	const take = b.node({
 		kind: "Take",
 		input: stage,
-		order: {
-			keys: [
-				{ column: rename(s.orderBody ? "body" : "score"), dir: s.descending ? "desc" : "asc" },
-				{ column: rename(key), dir: "asc" }
-			]
-		},
+		orders: [
+			{
+				keys: [
+					{ column: rename(s.orderBody ? "body" : "score"), dir: s.descending ? "desc" : "asc" },
+					{ column: rename(key), dir: "asc" }
+				]
+			}
+		],
 		bound: { kind: "literal", k: BigInt(s.k) },
 		correlation: s.correlated ? [{ column: rename("id"), expr: column(outer, "d", int4) }] : [],
 		heading,

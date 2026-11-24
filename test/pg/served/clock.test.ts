@@ -80,8 +80,8 @@ export const aMemberBoundToTheDatabasesClockReadsTheInstantItsCallsTransactionBe
 							})
 
 							const dueCalls = memberCalls(db, member(loaded, "due"))
-							if (dueCalls.shape !== "answeredSet") {
-								return assert.fail("a clocked set read is served at its call's instant")
+							if (dueCalls.shape !== "answeredList") {
+								return assert.fail("a clocked read is served at its call's instant")
 							}
 							const answer = yield* Stream.runCollect(dueCalls.answer(call))
 							const kinds: ReadonlyArray<string> = Arr.map(answer, (e) => e.kind)

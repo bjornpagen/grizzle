@@ -430,8 +430,8 @@ export const netContainmentOfAContextsAddressItsDbReadsTheNetworksPostgreSQLsHol
 										roles["campus"]?.["originIn"],
 										"campus's originIn over HTTP"
 									)
-									if (program.shape !== "set") {
-										return assert.fail(`originIn is a set read, not a ${program.shape}`)
+									if (program.shape !== "list") {
+										return assert.fail(`originIn is a live read, not a ${program.shape}`)
 									}
 									const value = yield* Effect.provideService(
 										program.calls.once({ params: {}, facts: {} }),

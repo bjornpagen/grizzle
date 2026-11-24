@@ -19,17 +19,12 @@ export {
 	type FailureOf,
 	type FailureSource,
 	type AnsweredListEvent,
-	type AnsweredSetEvent,
-	type AnsweredShape,
 	type ListChange,
 	type ListEvent,
 	type Payload,
 	type PayloadOf,
-	type ReadShape,
 	type Retry,
 	type Role,
-	type SetChange,
-	type SetEvent,
 	type Shape,
 	type ShapeFailure,
 	type Slot,
@@ -41,19 +36,16 @@ export {
 } from "#compiler/live/events.ts"
 export {
 	coalesceList,
-	coalesceSet,
 	diffList,
-	diffSet,
 	fold,
 	foldWrite,
 	opening,
-	type ReadEvent,
 	type ReadState,
 	type WriteState,
 	writeOpening
 } from "#compiler/live/fold.ts"
 export { formOf, type KeyFields, keyOf, RowKey, sameValue } from "#compiler/live/key.ts"
-export { type Entry, Keyed, type KeyedList, type KeyedSet } from "#compiler/live/keyed.ts"
+export { type Entry, KeyedList } from "#compiler/live/keyed.ts"
 export type {
 	Anchor,
 	EventOf,

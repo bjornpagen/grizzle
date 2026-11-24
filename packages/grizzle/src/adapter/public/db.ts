@@ -8,8 +8,7 @@ import type { DbOf } from "#adapter/types/db.ts"
  * packages/grizzle/src/adapter/types/db.ts; the value is the adapter's (packages/grizzle/src/adapter/db/served.ts). No
  * driver type appears here. A call's input, value and events, and the CallError every failure is, are the live event
  * model's (engine live/index.ts), re-exported here: Input and InputOf, a paged member's Window and Anchor, a row's
- * RowKey, ValueOf (a read's KeyedSet or KeyedList, a write's WriteOutcome), EventOf and each shape's
- * events, and CallError.
+ * RowKey, ValueOf (a read's KeyedList, a write's WriteOutcome), EventOf and each shape's events, and CallError.
  */
 import { openMoved } from "#adapter/db/moved.ts"
 import { openDb } from "#adapter/db/served.ts"
@@ -35,10 +34,8 @@ export type {
 	Input,
 	InputOf,
 	KeyedList,
-	KeyedSet,
 	ListEvent,
 	RowKey,
-	SetEvent,
 	UnavailableCause,
 	UnavailableReason,
 	ValueOf,

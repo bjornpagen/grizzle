@@ -125,6 +125,49 @@ export interface CompletedOrder {
 	readonly keys: ReadonlyArray<OrderKey>
 }
 
+/**
+ * The order a take ranks, or an ordered result delivers, rows of one or more heading groups in: each group's completed
+ * order, in group order, one for rows of one heading (logical/order.ts completeGroups). Over a heterogeneous union every
+ * group's order begins with the keys that tell rows of two groups apart, each a column every group holds: the stated
+ * keys, then the union's discriminant where they are no key of it. So rows of two groups compare by the run every
+ * group's order begins with (mergeOrder), never tying, and rows of one group by its own order. A union with a key
+ * within the fields every group holds is ordered by it, every group's order the one union's; only a union with none
+ * orders each group by its own fields.
+ */
+export type GroupOrders = NonEmptyReadonlyArray<CompletedOrder>
+
+/**
+ * The keys rows of two heading groups compare by: the longest run of keys every group's order begins with, each a
+ * column of `heading`, the columns every group holds. Rows of one heading group have no other group: their order is
+ * the run.
+ */
+export const mergeOrder = (orders: GroupOrders, heading: Heading): CompletedOrder => {
+	const [first, ...rest] = orders
+	const keys: Array<OrderKey> = []
+	for (const [i, k] of first.keys.entries()) {
+		const shared =
+			heading.some((c) => c.name === k.column) &&
+			rest.every((o) => o.keys[i]?.column === k.column && o.keys[i].dir === k.dir)
+		if (!shared) {
+			break
+		}
+		keys.push(k)
+	}
+	return { keys }
+}
+
+/**
+ * The order of rows of one heading group: a take's or an ordered result's anywhere but over a heterogeneous union, which
+ * only a delivery reads (ir/dag.ts deliverySpine), each heading group in a statement of its own.
+ */
+export const soleOrder = (orders: GroupOrders): CompletedOrder => {
+	const [only, ...more] = orders
+	if (more.length > 0) {
+		throw defect("the order of rows of one heading group, read over a heterogeneous union")
+	}
+	return only
+}
+
 /** A positive literal or the name of an integer parameter. */
 export type TakeBound =
 	| { readonly kind: "literal"; readonly k: bigint }
@@ -731,7 +774,8 @@ export interface Difference<R extends RefKinds> extends NodeCommon<R> {
 export interface Take<R extends RefKinds> extends NodeCommon<R> {
 	readonly kind: "Take"
 	readonly input: R["node"]
-	readonly order: CompletedOrder
+	/** One completed order per heading group of its input, in group order (GroupOrders). */
+	readonly orders: GroupOrders
 	readonly bound: TakeBound
 	/** Each evaluation ranks only the input rows that satisfy every correlation; none restricts nothing. */
 	readonly correlation: ReadonlyArray<CorrelationOver<R["expr"]>>
@@ -814,7 +858,8 @@ export interface ApproximateNearest<R extends RefKinds> extends NodeCommon<R> {
 export interface OrderedResult<R extends RefKinds> extends NodeCommon<R> {
 	readonly kind: "OrderedResult"
 	readonly input: R["node"]
-	readonly order: CompletedOrder
+	/** One completed order per heading group of its input, in group order (GroupOrders). */
+	readonly orders: GroupOrders
 }
 
 export type Attach<R extends RefKinds> = NodeCommon<R> & {

@@ -15,7 +15,8 @@ import {
 	type Heading,
 	type RelDag,
 	type RelNode,
-	type TakeBound
+	type TakeBound,
+	type GroupOrders
 } from "#compiler/ir/rel.ts"
 import { type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
 
@@ -207,6 +208,9 @@ const printOrder = (order: CompletedOrder): string =>
 		", "
 	)}]`
 
+/** Each heading group's order, in group order, apart by " | " (ir/rel.ts GroupOrders). */
+const printOrders = (orders: GroupOrders): string => Arr.join(Arr.map(orders, printOrder), " | ")
+
 const printBound = (bound: TakeBound): string =>
 	bound.kind === "literal" ? bigintText(bound.k) : `$${bound.param}`
 
@@ -279,7 +283,7 @@ const printBody = (n: RelNode, printer: ExprPrinter): string => {
 		case "Difference":
 			return `${n.kind} ${n.left.id} ${n.right.id}`
 		case "Take":
-			return `Take ${n.input.id} ${printBound(n.bound)} by ${printOrder(n.order)}${n.correlation.length > 0 ? ` per${list(Arr.map(n.correlation, (c) => `${c.column}=${e(c.expr)}`))}` : ""}`
+			return `Take ${n.input.id} ${printBound(n.bound)} by ${printOrders(n.orders)}${n.correlation.length > 0 ? ` per${list(Arr.map(n.correlation, (c) => `${c.column}=${e(c.expr)}`))}` : ""}`
 		case "Group":
 			return `Group ${n.input.id} bound${list(n.bound.columns)} keys${list(n.keys)} ${list(Arr.map(n.aggs, (a) => `${a.name}=${a.op}(${a.args.length === 0 ? "*" : Arr.join(Arr.map(a.args, e), ", ")})${a.filter === undefined ? "" : ` filter ${e(a.filter)}`}`))}`
 		case "Produce":
@@ -291,7 +295,7 @@ const printBody = (n: RelNode, printer: ExprPrinter): string => {
 		case "ApproximateNearest":
 			return `ApproximateNearest ${n.source.id} by ${n.score} take ${bigintText(n.take)} sealed`
 		case "OrderedResult":
-			return `OrderedResult ${n.input.id} ${printOrder(n.order)}`
+			return `OrderedResult ${n.input.id} ${printOrders(n.orders)}`
 		case "Step":
 			return `Step ${n.input.id}`
 		case "Call":

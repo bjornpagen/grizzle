@@ -14,7 +14,6 @@ import {
 	defect,
 	type EventOf,
 	type InputCheck,
-	type AnsweredShape,
 	type ShapeOf,
 	trusted,
 	type ValueOf
@@ -71,7 +70,7 @@ export interface Watched<X> {
  *   instant, then its end.
  * - `once`: the first value, a read's at `ready` and a write's outcome; the request is aborted once it came.
  */
-export type ProgramClient<X, E> = [ShapeOf<X>] extends [AnsweredShape]
+export type ProgramClient<X, E> = [ShapeOf<X>] extends ["answeredList"]
 	? OnceClient<X, E>
 	: OnceClient<X, E> & WatchClient<X, E>
 

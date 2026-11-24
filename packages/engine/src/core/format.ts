@@ -283,7 +283,7 @@
  * each read is called (served/forms.ts ServedReadLive): `answered`, at its call's instant alone and never live, an
  * answered(...) or a clocked member, beside a live read's `constant` or `routed`, where format 5 served a clocked read
  * as a member of a kind of its own (`instant`) and its answer's shape as `instantSet` or `instantList`, now
- * `answeredSet` or `answeredList`; each paged member's window at a position (its page's `at` request, whose statement's
+ * `answeredList`; each paged member's window at a position (its page's `at` request, whose statement's
  * offset placeholder is an `offset` page fill) beside its four keyset windows; a read's bytes columns delivered in
  * chunks from a derived table whose column list alone names the read's columns, its targets unnamed inside it
  * (lower/delivery.ts deliveredRows), where format 5's named each inner target by its public name as well; and each
@@ -485,6 +485,30 @@
  * resolveReference's walk of dot segments is one LATERAL row that also counts the `..` segments that climb past the
  * root (physical/ddl/library.ts dotSegmentWalk), where format 8 removed them in a scalar subquery, so its definition's
  * digest, the name it is installed under, moves.
+ * A served read's key is the fields of the completed order it delivers its rows in, `{ fields }` (served/forms.ts
+ * ServedKey), and every read's wire shape is a list's, `list` or `answeredList`, its upsert carrying the key of the row
+ * it follows (live/events.ts events, live/shape.ts MemberShape), where format 8 told a read of no stated order, its key
+ * `set` and its shape `set` or `answeredSet`, its upsert its row alone, from an ordered read's: every such read's key,
+ * wire and digest move.
+ * Every served read and every ChangeSet's read-back that states no order delivers its rows in its result's key order,
+ * ascending (check/checker.ts rootOrder, logical/order.ts completeGroups): a key's fields in the order of the declared
+ * key they copy (logical/key-order.ts declaredKeyOrder), a union's as its arms agree, and where no key narrower than its
+ * heading is proved its whole heading's, in its key's declared order where the heading is its own key, else field by
+ * field. A heterogeneous union with a key within the fields its heading groups share is ordered by it, one order of
+ * every group: the stated keys, its discriminant, then that key; one with none orders each group by its own key after
+ * the stated keys and the discriminant, which tell the groups' rows apart (ir/rel.ts GroupOrders, OrderedResult and
+ * Take `orders`). A delivered relation that deduplicates its rows, by DISTINCT, GROUP BY or a set operation, is formed
+ * in a MATERIALIZED CTE and ordered outside it (lower/shapes/index.ts #formed), and every delivered statement's ORDER BY
+ * states a text column's collation, COLLATE pg_catalog.pg_c_utf8 (lower/template.ts collatedOrder). Where format 8
+ * delivered such reads and read-backs in their plan's order, appended an order's key in heading order, its fields'
+ * names', stated no collation and completed a heterogeneous union's order over its common fields alone: every served
+ * read's and read-back's statement and served key moves, with every page's and attachment array's whose completion
+ * appends a key. A keyless heading's completion breaks ties by a set's bits, bytes and a search document too, in
+ * PostgreSQL's order (scalar/registry.ts breaksTies), which the host never compares: a heading-group merge reads each
+ * row's order no further than two rows differ (adapter/reader/run.ts groupOrder), and a page that would seek by one,
+ * or a take over heading groups ordered again that would compare one, is refused (UnsupportedOperation), as format 8
+ * refused both. A rule's violation and a ChangeSet's bound relation parameter are checked as relations, sets no caller
+ * reads in an order (check/index.ts checkRelation).
  */
 export const artifactFormat = 8
 
@@ -513,7 +537,7 @@ export type FormattedFile = (typeof formattedFiles)[number]
  */
 export const recordShapes: { readonly [F in FormattedFile]: string } = {
 	snapshot: "46b2458739d2323ae3bba6dd2941595bc932f92323ff3ec5b037202fe4c95619",
-	served: "c4812ab78abb8500f39c1a808d6c062a72e27cd7176a1114609871a72feaa2ef"
+	served: "4cda9675378d4041d60b3ecda1b44e32ef16a830490c22b6d68c9792c623e85d"
 }
 
 /**

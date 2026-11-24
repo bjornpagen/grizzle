@@ -1,10 +1,11 @@
 import { maxOf } from "@bjornpagen/grizzle-text/base/array"
-import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { bytesChunkLength } from "#compiler/codec/delivery.ts"
 import { canonicalTextOf } from "#compiler/core/canonical.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { StatementSpec } from "#compiler/ir/products.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
+import { baseOf } from "#compiler/ir/scalar.ts"
 import type { ConservativeParamSlot, ProgramDelivery } from "#compiler/lower/conservative/types.ts"
 import {
 	type DeliveredColumn,
@@ -31,8 +32,23 @@ import {
 	type StatementRoots
 } from "#compiler/runtime/lower/tree.ts"
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
-import type { OperandBody, OrderItem, Select, SelectBody, Target } from "#compiler/sql/ast.ts"
-import { col, derived, mapTargets, provedCore, target, targetAs } from "#compiler/sql/build.ts"
+import type {
+	OperandBody,
+	OperandSelect,
+	OrderItem,
+	Select,
+	SelectBody,
+	Target
+} from "#compiler/sql/ast.ts"
+import {
+	col,
+	cUtf8Collation,
+	derived,
+	mapTargets,
+	provedCore,
+	target,
+	targetAs
+} from "#compiler/sql/build.ts"
 import { freshNames, NameSupply, namesPast } from "#compiler/sql/naming.ts"
 
 /** One output column of a statement: its public name and how it is delivered (lower/delivery.ts). */
@@ -102,11 +118,18 @@ export const executableQueryFrom = (
 	supply: NameSupply
 ): PlainQuery => {
 	const ast = statement.ast
-	const columns = outputColumns(statementOutput(statement.role, statement.heading, statement.fused))
+	const output = statementOutput(statement.role, statement.heading, statement.fused)
+	const columns = outputColumns(output)
 	const delivered = columns.map((c) => c.delivered)
 	const plain = outerCore(ast.body)
 	if (plain?.distinct === false && plain.groupBy.length === 0) {
-		return deliveredRows({ ...ast, body: plain }, delivered, [], supply, bytesChunkLength)
+		return deliveredRows(
+			{ ...ast, body: plain, orderBy: collatedOrder(ast.orderBy, plain.targets, output.heading) },
+			delivered,
+			[],
+			supply,
+			bytesChunkLength
+		)
 	}
 	/** SELECT r.c1 AS name1, ... FROM (<statement>) AS r(c1, ...) ORDER BY r.c<k> ..., delivered. */
 	const origin = { kind: "internal", purpose: "result text casts" } as const
@@ -120,13 +143,17 @@ export const executableQueryFrom = (
 	 * A deduplicating statement orders by its output columns, as PostgreSQL requires of SELECT DISTINCT: the one site of
 	 * that fact, which the lowering builds every such statement by and the ORDER BY AST does not carry.
 	 */
-	const orderBy: ReadonlyArray<OrderItem> = ast.orderBy.map((item) => {
-		const output = outputs[outputTexts.indexOf(canonicalTextOf(item.expr))]
-		if (output === undefined) {
-			throw defect("an ORDER BY item that is an output column of a deduplicating statement")
-		}
-		return { ...item, expr: col(alias, output.derived) }
-	})
+	const orderBy: ReadonlyArray<OrderItem> = collatedOrder(
+		ast.orderBy.map((item) => {
+			const ordered = outputs[outputTexts.indexOf(canonicalTextOf(item.expr))]
+			if (ordered === undefined) {
+				throw defect("an ORDER BY item that is an output column of a deduplicating statement")
+			}
+			return { ...item, expr: col(alias, ordered.derived) }
+		}),
+		outputs.map((o) => targetAs(col(alias, o.derived), o.column.name)),
+		output.heading
+	)
 	/**
 	 * The public names move to the outer SELECT, the only one that renames; the derived table's own
 	 * columns are named by its column list.
@@ -156,6 +183,47 @@ export const executableQueryFrom = (
 	}
 	return deliveredRows(rows, delivered, [], supply, bytesChunkLength)
 }
+
+/**
+ * The ORDER BY of a delivered statement whose targets are `targets`, its heading's first: each item as it stands, and
+ * one over a text column under the fixed collation (sql/build.ts cUtf8Collation), C.UTF-8's code point order, stated so
+ * that no column's or database's default collation orders the rows a caller reads; every other type orders natively,
+ * a number numerically, a closed id by its code. Every item orders by a column of the heading, which alone a completed
+ * order names (logical/order.ts completeOrder), so an item that is no heading target is a defect.
+ */
+const collatedOrder = (
+	orderBy: ReadonlyArray<OrderItem>,
+	targets: ReadonlyArray<Target>,
+	heading: Heading
+): ReadonlyArray<OrderItem> => {
+	const typeOf = new Map(
+		heading.map((c, at) => [
+			canonicalTextOf(
+				defined(targets[at], "a delivered statement's target of each heading column").expr
+			),
+			c.type
+		])
+	)
+	return orderBy.map((item) => {
+		const type = typeOf.get(canonicalTextOf(item.expr))
+		if (type === undefined) {
+			throw defect("an ORDER BY item of a delivered statement that is a target of its heading")
+		}
+		return baseOf(type).carrier === "text"
+			? { ...item, expr: { kind: "collate", expr: item.expr, collation: cUtf8Collation } }
+			: item
+	})
+}
+
+/**
+ * `rows`, of heading `heading`, its ORDER BY collated as a delivered statement's is (collatedOrder): a part's rows held
+ * in a CTE in the order the part delivers them (shapes/index.ts rowsPart), which the part's own ORDER BY then reads
+ * presorted.
+ */
+export const collatedRows = (rows: OperandSelect, heading: Heading): OperandSelect => ({
+	...rows,
+	orderBy: collatedOrder(rows.orderBy, outputTargets(rows.body), heading)
+})
 
 /** A program statement's large form as a template holds it: the large mode's statement and the spec emitted from it. */
 export interface SpecifiedForm {

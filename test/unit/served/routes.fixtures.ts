@@ -1,20 +1,8 @@
 /** What the properties of routes.test.ts read: its spaces, models and helpers. */
 
 import { assert, defined } from "@bjornpagen/testing/assert"
-import {
-	Result as Answered,
-	Array as Arr,
-	Effect,
-	Formatter,
-	Option,
-	Order,
-	Record as Rec
-} from "effect"
+import { Result as Answered, Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import type { WorkloadForm } from "#adapter/db/workload.ts"
-import { keyedBy } from "#compiler/analysis/physical/props.ts"
-import type { DecoderForm } from "#compiler/core/decoder.ts"
-import type { OuterRefs } from "#compiler/ir/dag.ts"
-import { keySetOf } from "#compiler/lower/conservative/keys.ts"
 import { workloadQueryRead } from "#compiler/program/workload/compile.ts"
 import type { ServedKey, ServedMember, ServedRead } from "#compiler/served/forms.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -34,7 +22,6 @@ export type Feature =
 	| "a table a read routes by a parameter"
 	| "a table a read reads table-wide"
 	| "a read through a query entry"
-	| "a set read keyed narrower than its heading"
 	| "an ordered read"
 	| "a paged read"
 
@@ -62,24 +49,6 @@ const formOf = (member: WorkloadForm) => {
 	}
 }
 
-/** The fields a decoder form's records read from a column, at its root, every record's in its order, each once. */
-const columnFields = (form: DecoderForm): ReadonlyArray<string> => {
-	switch (form.kind) {
-		case "record":
-			return Arr.flatMap(form.fields, ([name, field]) => (field.kind === "column" ? [name] : []))
-		case "merge":
-		case "oneOf":
-			return Arr.dedupe([...columnFields(form.first), ...columnFields(form.second)])
-		case "arm":
-			return columnFields(form.parent)
-		case "refused":
-			return []
-	}
-}
-
-/** The root of a program's DAG reads no enclosing node. */
-const evaluatedOnce: OuterRefs = new Map()
-
 /** The key a read's rows are delivered under, as its compiled template and its page say it (see the header). */
 const keyHolds = (
 	served: ServedKey,
@@ -92,51 +61,24 @@ const keyHolds = (
 		note("a paged read")
 		assert.deepEqual(
 			served,
-			{ kind: "list", fields: Arr.map(member.page.order.keys, (k) => k.column) },
+			{ fields: Arr.map(member.page.order.keys, (k) => k.column) },
 			`${member.name}: a page's rows are keyed by its completed order\n${printed()}`
 		)
 		return
 	}
 	const { template } = form.bound.compiled.compiled
-	const { query, plan } = template.programs.optimized
+	const { query } = template.programs.optimized
 	const root = query.dag.roots[0]
-	if (root.kind === "OrderedResult") {
-		note("an ordered read")
-		assert.deepEqual(
-			served,
-			{ kind: "list", fields: Arr.map(root.order.keys, (k) => k.column) },
-			`${member.name}: an ordered read's rows are keyed by its completed order\n${printed()}`
-		)
-		return
-	}
-	assert.equal(served.kind, "set", `${member.name}: a set read's key is a set's\n${printed()}`)
-	const props = plan.analysis.of(root).props
-	const heading = Arr.map(root.heading, (c) => c.name)
-	const proved = keyedBy(props, heading)
-	if (proved === undefined) {
-		assert.deepEqual(
-			Arr.sort(served.fields, Order.String),
-			Arr.sort(columnFields(form.decoder().form), Order.String),
-			`${member.name}: a read whose delivery proves no key is keyed by every head field\n${printed()}`
-		)
-		return
-	}
 	assert.ok(
-		Arr.every(served.fields, (f) => Arr.contains(heading, f)),
-		`${member.name}: its key's fields are head fields\n${printed()}`
+		root.kind === "OrderedResult",
+		`${member.name}: a served read's root is its ordered result\n${printed()}`
 	)
-	assert.equal(
-		keySetOf(served.fields, keyedBy(props, served.fields), evaluatedOnce, undefined).kind,
-		"proved",
-		`${member.name}: its key is a key its delivered rows prove\n${printed()}`
+	note("an ordered read")
+	assert.deepEqual(
+		served,
+		{ fields: Arr.dedupe(Arr.flatMap(root.orders, (o) => Arr.map(o.keys, (k) => k.column))) },
+		`${member.name}: a read's rows are keyed by its completed order\n${printed()}`
 	)
-	assert.ok(
-		served.fields.length <= proved.key.length,
-		`${member.name}: its key is no wider than the canonical minimal key ${Formatter.format(proved.key)}\n${printed()}`
-	)
-	if (served.fields.length < heading.length) {
-		note("a set read keyed narrower than its heading")
-	}
 }
 
 export const routesAndKeys = (

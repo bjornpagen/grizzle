@@ -3,22 +3,22 @@ import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { type CompileError, reportedAt } from "#compiler/core/errors.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import { contextAdmits } from "#compiler/ir/evidence.ts"
-import type { CompletedOrder, OrderKey, RelNode } from "#compiler/ir/rel.ts"
+import type { GroupOrders, OrderKey, RelNode } from "#compiler/ir/rel.ts"
 import { type LogicalAnalysis, orderSubjectOf } from "#compiler/logical/annotate.ts"
-import { completeOrder } from "#compiler/logical/order.ts"
+import { completeGroups } from "#compiler/logical/order.ts"
 
 /**
  * The order the user wrote for one ordered node (a take, an ordered result, an ordered attachment), where it was
  * written, and the node as its order is completed, which the checker records when it builds the node: the relation it
  * orders, the columns fixed per evaluation of it (a take's correlation, an attachment's correlated child columns), and
- * the node with a completed order in place of its own.
+ * the node with the completed orders of its input's heading groups in place of its own (ir/rel.ts GroupOrders).
  */
 export interface StatedOrder {
 	readonly keys: ReadonlyArray<OrderKey>
 	readonly at: SourceLoc
 	readonly input: RelNode
 	readonly fixed: ReadonlyArray<string>
-	readonly withOrder: (order: CompletedOrder) => RelNode
+	readonly withOrder: (orders: GroupOrders) => RelNode
 }
 
 /**
@@ -26,12 +26,14 @@ export interface StatedOrder {
  *
  * The checker records each orderBy the user wrote as stated, on the Take, OrderedResult or ordered Attach it orders,
  * and builds those nodes first with the conservative completion that needs no evidence: the stated fields, then the
- * rest of the heading. This pass replaces that placeholder with the total order completion. The stated fields keep
- * their sequence and directions; once they, with the columns fixed per evaluation, determine a tuple of the ordered
- * relation under its logical keys, the order is total and nothing more is appended (step 1). Otherwise a heterogeneous
- * union's discriminant follows them, then the narrowest proved retained key's other fields, ascending, or without one
- * the rest of the heading (steps 2 and 3, logical/order.ts). A union whose common fields hold no key is
- * refused with UnsupportedOperation.
+ * rest of each heading group's heading. This pass replaces that placeholder with the total order completion of each
+ * heading group (logical/order.ts completeGroups). The stated fields keep their sequence and directions; once they,
+ * with the columns fixed per evaluation, determine a tuple of the ordered relation under its logical keys, the order
+ * is total and nothing more is appended (step 1). Otherwise the narrowest proved retained key's other fields follow,
+ * ascending, or without one the rest of the heading (steps 2 and 3). Over a heterogeneous union the stated fields are
+ * followed by its discriminant where they hold no key of it; then a key of the union within the fields its groups
+ * share completes one order of every group, and without one each group's order is completed over the group's own rows,
+ * so no union is refused for want of a key among the fields its groups share.
  *
  * The keys are the logical keys of logical/annotate.ts: the immediate storage keys and the query's
  * own structure, relative to the parameters and outer variables. None rests on a deferred law, so the completion is the
@@ -64,7 +66,7 @@ export const completedOrders = (
 			analysis.props.get(order.input),
 			"a stated order's input, kept (orderReads)"
 		)
-		const completion = completeOrder(
+		const completion = completeGroups(
 			orderSubjectOf(order.input, props, order.fixed, (k) =>
 				contextAdmits("transaction", k.context)
 			),

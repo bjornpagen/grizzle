@@ -2,23 +2,16 @@
 
 import { assert } from "@bjornpagen/testing/assert"
 import { constant, element, type Gen, int, shuffled, weighted } from "@bjornpagen/testing/gen"
-import { Array as Arr, Option, type Order } from "effect"
+import { Array as Arr, Option } from "effect"
 import {
 	callError,
-	coalesceList,
-	coalesceSet,
-	diffList,
-	diffSet,
 	type KeyFields,
-	Keyed,
+	KeyedList,
 	keyOf,
 	type ListChange,
-	opening,
-	type ReadEvent,
-	type ReadShape,
+	type ListEvent,
 	type ReadState,
 	type RowKey,
-	type SetChange,
 	type ShapeFailure
 } from "#compiler/live/index.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
@@ -134,19 +127,10 @@ type ChangeSpec =
 	| { readonly kind: "remove"; readonly i: number }
 	| { readonly kind: "upsert"; readonly spec: Spec; readonly after: number | null }
 
-/** The model's list or set after `change`: a second implementation of Keyed's applying, over specs keyed by index. */
-export const modelApply = (
-	shape: ReadShape,
-	model: ReadonlyArray<Spec>,
-	change: ChangeSpec
-): ReadonlyArray<Spec> => {
+/** The model's list after `change`: a second implementation of KeyedList's applying, over specs keyed by index. */
+export const modelApply = (model: ReadonlyArray<Spec>, change: ChangeSpec): ReadonlyArray<Spec> => {
 	if (change.kind === "remove") {
 		return Arr.filter(model, (spec) => spec.i !== change.i)
-	}
-	if (shape === "set") {
-		return Arr.some(model, (spec) => spec.i === change.spec.i)
-			? Arr.map(model, (spec) => (spec.i === change.spec.i ? change.spec : spec))
-			: [...model, change.spec]
 	}
 	const rest = Arr.filter(model, (spec) => spec.i !== change.spec.i)
 	const after = change.after
@@ -160,118 +144,52 @@ export const modelApply = (
 	return [...Arr.take(rest, place), change.spec, ...Arr.drop(rest, place)]
 }
 
-/** The specs of a list or set, in order for a list, by spec for a set, whose order says nothing. */
-const bySpec: Order.Order<Spec> = (a, b) =>
-	a.i !== b.i ? (a.i < b.i ? -1 : 1) : a.p !== b.p ? (a.p < b.p ? -1 : 1) : 0
-
-export const sameSpecs = (
-	shape: ReadShape,
-	actual: ReadonlyArray<Spec>,
-	expected: ReadonlyArray<Spec>
-): void =>
-	shape === "list"
-		? assert.deepEqual(actual, expected)
-		: assert.deepEqual(Arr.sort(actual, bySpec), Arr.sort(expected, bySpec))
-
-/** A read's change of shape S. */
-type ChangeOf<S extends ReadShape> = {
-	readonly set: SetChange<Row>
-	readonly list: ListChange<Row>
-}[S]
-
-/**
- * What a property needs of a read shape: its events and changes, built as the shape types them, and its evaluators.
- * A property over both shapes is a function of the kit.
- */
-interface Kit<S extends ReadShape> {
-	readonly shape: S
-	readonly reset: (fields: KeyFields) => ReadEvent<S, Row>
-	readonly ready: ReadEvent<S, Row>
-	readonly failed: (error: ShapeFailure<S>) => ReadEvent<S, Row>
-	readonly end: ReadEvent<S, Row>
-	/** The upserts of a first run's rows, in their order. */
-	readonly rows: (fields: KeyFields, specs: ReadonlyArray<Spec>) => ReadonlyArray<ChangeOf<S>>
-	readonly change: (fields: KeyFields, change: ChangeSpec) => ChangeOf<S>
-	readonly diff: (previous: Keyed<S, Row>, next: Keyed<S, Row>) => ReadonlyArray<ChangeOf<S>>
-	readonly coalesce: (
-		base: Keyed<S, Row>,
-		pending: ReadonlyArray<ChangeOf<S>>
-	) => ReadonlyArray<ChangeOf<S>>
-}
-
 /** The key of a key value's index under keys that hold no payload. */
 const keyAt = (fields: KeyFields, i: number): RowKey => keyOf(fields, rowOf({ i, p: 0 }))
 
-const setKit: Kit<"set"> = {
-	shape: "set",
-	reset: (fields) => ({ kind: "reset", key: fields }),
-	ready: { kind: "ready" },
-	failed: (error) => ({ kind: "error", error }),
-	end: { kind: "end" },
-	rows: (_fields, specs) => Arr.map(specs, (spec) => ({ kind: "upsert", row: rowOf(spec) })),
-	change: (fields, change) =>
-		change.kind === "remove"
-			? { kind: "remove", key: keyAt(fields, change.i) }
-			: { kind: "upsert", row: rowOf(change.spec) },
-	diff: diffSet,
-	coalesce: coalesceSet
-}
+/** A read's events: its reset, its ready, its error and its end. */
+const reset = (fields: KeyFields): ListEvent<Row> => ({ kind: "reset", key: fields })
+export const ready: ListEvent<Row> = { kind: "ready" }
+export const failed = (error: ShapeFailure<"list">): ListEvent<Row> => ({ kind: "error", error })
+export const end: ListEvent<Row> = { kind: "end" }
 
-const listKit: Kit<"list"> = {
-	shape: "list",
-	reset: (fields) => ({ kind: "reset", key: fields }),
-	ready: { kind: "ready" },
-	failed: (error) => ({ kind: "error", error }),
-	end: { kind: "end" },
-	rows: (fields, specs) =>
-		Arr.map(specs, (spec, n) => {
-			const before = specs[n - 1]
-			return {
+/** The upserts of a first run's rows, in their order, each after the row before it, null first. */
+const rowsOf = (fields: KeyFields, specs: ReadonlyArray<Spec>): ReadonlyArray<ListChange<Row>> =>
+	Arr.map(specs, (spec, n) => {
+		const before = specs[n - 1]
+		return {
+			kind: "upsert",
+			row: rowOf(spec),
+			after: before === undefined ? null : keyOf(fields, rowOf(before))
+		}
+	})
+
+/** A drawn change as the read's change. */
+export const changeOf = (fields: KeyFields, change: ChangeSpec): ListChange<Row> =>
+	change.kind === "remove"
+		? { kind: "remove", key: keyAt(fields, change.i) }
+		: {
 				kind: "upsert",
-				row: rowOf(spec),
-				after: before === undefined ? null : keyOf(fields, rowOf(before))
+				row: rowOf(change.spec),
+				after: change.after === null ? null : keyAt(fields, change.after)
 			}
-		}),
-	change: (fields, change) =>
-		change.kind === "remove"
-			? { kind: "remove", key: keyAt(fields, change.i) }
-			: {
-					kind: "upsert",
-					row: rowOf(change.spec),
-					after: change.after === null ? null : keyAt(fields, change.after)
-				},
-	diff: diffList,
-	coalesce: coalesceList
-}
 
-/** `run` with the kit of `shape`. */
-export const withKit = <A>(shape: ReadShape, run: <S extends ReadShape>(kit: Kit<S>) => A): A =>
-	shape === "list" ? run(listKit) : run(setKit)
+export const valueOf = (fields: KeyFields, specs: ReadonlyArray<Spec>): KeyedList<Row> =>
+	KeyedList.of(fields, Arr.map(specs, rowOf))
 
-export const valueOf = <S extends ReadShape>(
-	kit: Kit<S>,
-	fields: KeyFields,
-	specs: ReadonlyArray<Spec>
-): Keyed<S, Row> => Keyed.of(kit.shape, fields, Arr.map(specs, rowOf))
-
-export const specsIn = <S extends ReadShape>(value: Keyed<S, Row>): ReadonlyArray<Spec> =>
-	Arr.map([...value], specOf)
+export const specsIn = (value: KeyedList<Row>): ReadonlyArray<Spec> => Arr.map([...value], specOf)
 
 /** The specs of a state's value, which must be ready. */
-export const readySpecs = <S extends ReadShape>(state: ReadState<S, Row>): ReadonlyArray<Spec> => {
+export const readySpecs = (state: ReadState<Row>): ReadonlyArray<Spec> => {
 	assert.equal(state.kind, "ready")
 	return state.kind === "ready" ? specsIn(state.value) : []
 }
 
-/** A read's state of the kit's shape before its first event. */
-export const openingOf = <S extends ReadShape>(kit: Kit<S>): ReadState<S, Row> => opening(kit.shape)
-
 /** The events of a read whose first run delivered `specs`, up to its ready. */
-export const openedEvents = <S extends ReadShape>(
-	kit: Kit<S>,
+export const openedEvents = (
 	fields: KeyFields,
 	specs: ReadonlyArray<Spec>
-): ReadonlyArray<ReadEvent<S, Row>> => [kit.reset(fields), ...kit.rows(fields, specs)]
+): ReadonlyArray<ListEvent<Row>> => [reset(fields), ...rowsOf(fields, specs)]
 
 /** What a drawn change did to the model: features of the search. */
 export type Applied =
@@ -290,7 +208,6 @@ const sameChange = (a: ChangeSpec, b: ChangeSpec): boolean =>
 
 /** What `change` does to `model`, read off the model before it. */
 export const appliedOf = (
-	shape: ReadShape,
 	model: ReadonlyArray<Spec>,
 	change: ChangeSpec,
 	previous: ChangeSpec | undefined
@@ -308,9 +225,7 @@ export const appliedOf = (
 		{
 			onNone: (): Applied => "a new upsert",
 			onSome: (at): Applied =>
-				shape === "list" && (model[at - 1]?.i ?? null) !== change.after
-					? "a move"
-					: "an upsert in place"
+				(model[at - 1]?.i ?? null) !== change.after ? "a move" : "an upsert in place"
 		}
 	)
 }
@@ -352,25 +267,22 @@ export const cut = callError("transport", { message: "the exchange broke" })
 /** How two forms stood: one delivery, one key of two deliveries, or two keys. */
 export type Compared = "one delivery" | "one key, two deliveries" | "two keys"
 
-/** A case of the fold: a shape, its key fields, a first run's specs and the changes after it. */
+/** A case of the fold: its key fields, a first run's specs and the changes after it. */
 interface FoldCase {
-	readonly shape: ReadShape
 	readonly fields: KeyFields
 	readonly start: ReadonlyArray<Spec>
 	readonly changes: ReadonlyArray<ChangeSpec>
 }
 
-/** A case of the diff: a shape, its key fields, and two values. */
+/** A case of the diff: its key fields, and two values. */
 interface DiffCase {
-	readonly shape: ReadShape
 	readonly fields: KeyFields
 	readonly previous: ReadonlyArray<Spec>
 	readonly next: ReadonlyArray<Spec>
 }
 
-/** A case of coalesce: a shape, its key fields, and three values in turn. */
+/** A case of coalesce: its key fields, and three values in turn. */
 interface CoalesceCase {
-	readonly shape: ReadShape
 	readonly fields: KeyFields
 	readonly base: ReadonlyArray<Spec>
 	readonly middle: ReadonlyArray<Spec>
@@ -379,7 +291,6 @@ interface CoalesceCase {
 
 /** A case of a read's lifecycle. */
 interface LifecycleCase {
-	readonly shape: ReadShape
 	readonly start: ReadonlyArray<Spec>
 	readonly ready: boolean
 	readonly batches: ReadonlyArray<ReadonlyArray<Spec>>
@@ -388,7 +299,6 @@ interface LifecycleCase {
 
 /** A read's first run, then drawn changes, each a remove or an upsert after a key or first, or the last upsert re-sent. */
 export const foldModelGen: Gen<FoldCase> = (s) => {
-	const shape = s.draw(element(["set", "list"] as const))
 	const start = s.draw(specsGen)
 	let model = start
 	const changes: Array<ChangeSpec> = []
@@ -422,28 +332,26 @@ export const foldModelGen: Gen<FoldCase> = (s) => {
 						])
 					)
 		changes.push(change)
-		model = modelApply(shape, model, change)
+		model = modelApply(model, change)
 	}
-	return { shape, fields: s.draw(indexFieldsGen), start, changes }
+	return { fields: s.draw(indexFieldsGen), start, changes }
 }
 
-/** A value, and the next one drawn from it, of a drawn shape and key fields. */
+/** A value, and the next one drawn from it, of drawn key fields. */
 export const diffGen: Gen<DiffCase> = (s) => {
 	const previous = s.draw(specsGen)
 	return {
-		shape: s.draw(element(["set", "list"] as const)),
 		fields: s.draw(fieldsGen),
 		previous,
 		next: s.draw(nextGen(previous))
 	}
 }
 
-/** A value, the one drawn from it, and the last drawn from that, of a drawn shape and key fields. */
+/** A value, the one drawn from it, and the last drawn from that, of drawn key fields. */
 export const coalesceGen: Gen<CoalesceCase> = (s) => {
 	const base = s.draw(specsGen)
 	const middle = s.draw(nextGen(base))
 	return {
-		shape: s.draw(element(["set", "list"] as const)),
 		fields: s.draw(fieldsGen),
 		base,
 		middle,
@@ -463,7 +371,6 @@ export const lifecycleGen: Gen<LifecycleCase> = (s) => {
 		batches.push(at)
 	}
 	return {
-		shape: s.draw(element(["set", "list"] as const)),
 		start,
 		ready,
 		batches,

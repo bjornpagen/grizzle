@@ -1,6 +1,6 @@
 import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import { type TextsId, TextsMap } from "#compiler/core/text.ts"
-import type { ListChange, ReadShape, SetChange } from "#compiler/live/events.ts"
+import type { ListChange } from "#compiler/live/events.ts"
 import { formOf, type KeyFields, keyOf, type RowKey } from "#compiler/live/key.ts"
 
 /** One row of a read's value: its key, the key's form, and the row. */
@@ -12,46 +12,36 @@ export interface Entry<Row> {
 
 /** An entry as its value links it into order, which only the value that holds it changes, before it is shared. */
 interface Node<Row> extends Entry<Row> {
-	row: Row
 	prev: Node<Row> | undefined
 	next: Node<Row> | undefined
 }
 
 /**
- * A read's value: its rows by key (keyOf under its key fields), in order. A set's order is the order its keys arrived
- * in, which says nothing; a list's is the program's. A value is never changed once shared: applying changes to it
- * answers a new value (applying), so a caller may hold every value it was given.
+ * A read's value: its rows by key (keyOf under its key fields), in the read's order, its key's where it states none. A
+ * value is never changed once shared: applying changes to it answers a new value (applying), so a caller may hold every
+ * value it was given.
  */
-export class Keyed<S extends ReadShape, Row extends object> implements Iterable<Row> {
-	readonly shape: S
+export class KeyedList<Row extends object> implements Iterable<Row> {
 	readonly fields: KeyFields
 	readonly #nodes = new TextsMap<Node<Row>>()
 	#head: Node<Row> | undefined = undefined
 	#tail: Node<Row> | undefined = undefined
 
-	private constructor(shape: S, fields: KeyFields) {
-		this.shape = shape
+	private constructor(fields: KeyFields) {
 		this.fields = fields
 	}
 
-	/** The value of shape `shape` with no row, keyed by `fields`. */
-	static empty<S extends ReadShape, Row extends object>(
-		shape: S,
-		fields: KeyFields
-	): Keyed<S, Row> {
-		return new Keyed<S, Row>(shape, fields)
+	/** The value with no row, keyed by `fields`. */
+	static empty<Row extends object>(fields: KeyFields): KeyedList<Row> {
+		return new KeyedList<Row>(fields)
 	}
 
 	/**
-	 * The value of shape `shape` keyed by `fields` holding `rows`, in their order: a run's rows, which its key keys, so
-	 * two rows of one key are a defect of the key the served file names.
+	 * The value keyed by `fields` holding `rows`, in their order: a run's rows, which its key keys, so two rows of one
+	 * key are a defect of the key the served file names.
 	 */
-	static of<S extends ReadShape, Row extends object>(
-		shape: S,
-		fields: KeyFields,
-		rows: Iterable<Row>
-	): Keyed<S, Row> {
-		const value = new Keyed<S, Row>(shape, fields)
+	static of<Row extends object>(fields: KeyFields, rows: Iterable<Row>): KeyedList<Row> {
+		const value = new KeyedList<Row>(fields)
 		for (const row of rows) {
 			const key = keyOf(fields, row)
 			const form = formOf(key)
@@ -87,22 +77,22 @@ export class Keyed<S extends ReadShape, Row extends object> implements Iterable<
 
 	/**
 	 * This value with `changes` applied in order, a new value: a remove takes its key's row out, where there is one; an
-	 * upsert of an ordered read places its row after the row of its `after` key, first for null, the row of its key
-	 * moved there if present; an upsert of a set read replaces its key's row in place, or adds the row last. An `after`
-	 * no row of the value has, or the upserted row's own, is a defect of the stream.
+	 * upsert places its row after the row of its `after` key, first for null, the row of its key moved there if present.
+	 * An `after` no row of the value has, or the upserted row's own, is a defect of the stream.
 	 */
-	applying(changes: Iterable<SetChange<Row> | ListChange<Row>>): Keyed<S, Row> {
-		const value = new Keyed<S, Row>(this.shape, this.fields)
+	applying(changes: Iterable<ListChange<Row>>): KeyedList<Row> {
+		const value = new KeyedList<Row>(this.fields)
 		for (let node = this.#head; node !== undefined; node = node.next) {
 			value.#link({ ...node, prev: undefined, next: undefined }, value.#tail)
 		}
 		for (const change of changes) {
-			if (change.kind === "remove") {
-				value.#remove(formOf(change.key))
-			} else if ("after" in change) {
-				value.#place(change.row, change.after)
-			} else {
-				value.#replace(change.row)
+			switch (change.kind) {
+				case "remove":
+					value.#remove(formOf(change.key))
+					break
+				case "upsert":
+					value.#place(change.row, change.after)
+					break
 			}
 		}
 		return value
@@ -148,31 +138,14 @@ export class Keyed<S extends ReadShape, Row extends object> implements Iterable<
 		}
 	}
 
-	#replace(row: Row): void {
-		const key = keyOf(this.fields, row)
-		const form = formOf(key)
-		const node = this.#nodes.get(form)
-		if (node === undefined) {
-			this.#link({ key, form, row, prev: undefined, next: undefined }, this.#tail)
-		} else {
-			node.row = row
-		}
-	}
-
 	#place(row: Row, after: RowKey | null): void {
 		const key = keyOf(this.fields, row)
 		const form = formOf(key)
 		this.#remove(form)
 		const prev = after === null ? undefined : this.#nodes.get(formOf(after))
 		if (after !== null && prev === undefined) {
-			throw defect("an ordered upsert follows a key its value does not hold")
+			throw defect("an upsert follows a key its value does not hold")
 		}
 		this.#link({ key, form, row, prev: undefined, next: undefined }, prev)
 	}
 }
-
-/** A set read's value. */
-export type KeyedSet<Row extends object> = Keyed<"set", Row>
-
-/** An ordered read's value. */
-export type KeyedList<Row extends object> = Keyed<"list", Row>

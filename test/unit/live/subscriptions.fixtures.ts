@@ -3,7 +3,14 @@
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order } from "effect"
 import { type LiveAnswer } from "#adapter/live/subscriptions.ts"
-import { diffSet, fold, type Keyed, opening, type SetEvent } from "#compiler/live/index.ts"
+import {
+	diffList,
+	fold,
+	type KeyedList,
+	keyOf,
+	type ListEvent,
+	opening
+} from "#compiler/live/index.ts"
 import { admittedIdentifier, type RouteKey } from "#compiler/plan/runtime.ts"
 
 /** A row of the model table: its key, its group, its payload. */
@@ -73,12 +80,15 @@ export const readOf = (model: ReadonlyMap<number, Row>, reach: Reach): ReadonlyA
 		Order.mapInput(Order.Number, (row: Row) => row.id)
 	)
 
-/** A value's rows, by id. */
-export const rowsOf = (value: Keyed<"set", Row>): ReadonlyArray<Row> =>
-	Arr.sort(
-		[...value],
-		Order.mapInput(Order.Number, (row: Row) => row.id)
-	)
+/** A value's rows, in its order. */
+export const rowsOf = (value: KeyedList<Row>): ReadonlyArray<Row> => [...value]
+
+/** The upserts of a run's rows, in their order, each after the row before it by its id, null first. */
+export const upsertsOf = (rows: ReadonlyArray<Row>): ReadonlyArray<ListEvent<Row>> =>
+	Arr.map(rows, (row, n) => {
+		const before = rows[n - 1]
+		return { kind: "upsert", row, after: before === undefined ? null : keyOf(["id"], before) }
+	})
 
 /** `commit` applied to `model`, and the keys a leader sends for it. */
 export const applied = (model: Map<number, Row>, commit: Commit): ReadonlyArray<RouteKey> => {
@@ -100,10 +110,10 @@ export const applied = (model: Map<number, Row>, commit: Commit): ReadonlyArray<
 	return commit.wide && commit.changes.length > 0 ? [{ kind: "table", table }] : keys
 }
 
-/** How a set read's answer is made, as db/handles.ts makes it over the test's rows. */
-export const answer: LiveAnswer<"set", Row, SetEvent<Row>> = {
-	settle: (events) => fold(opening<"set", Row>("set"), events),
-	diff: diffSet,
+/** How a live read's answer is made, as db/handles.ts makes it over the test's rows. */
+export const answer: LiveAnswer<Row, ListEvent<Row>> = {
+	settle: (events) => fold(opening<Row>(), events),
+	diff: diffList,
 	ready: { kind: "ready" },
 	error: (error) => ({ kind: "error", error }),
 	end: { kind: "end" }

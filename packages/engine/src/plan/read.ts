@@ -23,7 +23,7 @@ export {
 	textParam
 } from "#compiler/codec/scalar.ts"
 export type { PageFill, SizeFill } from "#compiler/ir/products.ts"
-export type { CompletedOrder, Heading, NodeOf, TakeBound } from "#compiler/ir/rel.ts"
+export type { CompletedOrder, GroupOrders, Heading, NodeOf, TakeBound } from "#compiler/ir/rel.ts"
 export {
 	type ConservativeParamSlot,
 	type DeclaredParamSlot,

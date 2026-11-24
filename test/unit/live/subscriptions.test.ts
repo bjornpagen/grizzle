@@ -33,7 +33,7 @@ import { Array as Arr, Clock, Duration, Effect, Fiber, Option, Stream } from "ef
 import { TestClock } from "effect/testing"
 import type { ChangeSink, ChangeSource } from "#adapter/live/source.ts"
 import { makeSubscriptions } from "#adapter/live/subscriptions.ts"
-import { callError, fold, formOf, type SetEvent } from "#compiler/live/index.ts"
+import { callError, fold, formOf, type ListEvent } from "#compiler/live/index.ts"
 import {
 	answer,
 	applied,
@@ -49,7 +49,8 @@ import {
 	rowGen,
 	rowsOf,
 	type Step,
-	table
+	table,
+	upsertsOf
 } from "#test/unit/live/subscriptions.fixtures.ts"
 
 /**
@@ -118,7 +119,7 @@ export const theLiveRegistryRoutingIsExactFoldingASubscriptionsEventsEqualsRunni
 									const read = Stream.suspend(() => {
 										if (refusals.queued > 0) {
 											refusals.queued -= 1
-											return Stream.fromIterable<SetEvent<Row>>([
+											return Stream.fromIterable<ListEvent<Row>>([
 												{ kind: "reset", key: ["id"] },
 												{
 													kind: "error",
@@ -129,12 +130,9 @@ export const theLiveRegistryRoutingIsExactFoldingASubscriptionsEventsEqualsRunni
 												}
 											])
 										}
-										return Stream.fromIterable<SetEvent<Row>>([
+										return Stream.fromIterable<ListEvent<Row>>([
 											{ kind: "reset", key: ["id"] },
-											...Arr.map(readOf(model, reach), (row): SetEvent<Row> => ({
-												kind: "upsert",
-												row
-											})),
+											...upsertsOf(readOf(model, reach)),
 											{ kind: "ready" }
 										])
 									})
@@ -316,12 +314,9 @@ export const theLiveRegistryALiveReadEndsWithTokenExpiredAtItsTokensExpiryEachCh
 									yield* clock.setTime(0)
 									const live = yield* registry.register({
 										read: Stream.suspend(() =>
-											Stream.fromIterable<SetEvent<Row>>([
+											Stream.fromIterable<ListEvent<Row>>([
 												{ kind: "reset", key: ["id"] },
-												...Arr.map(readOf(model, reach), (row): SetEvent<Row> => ({
-													kind: "upsert",
-													row
-												})),
+												...upsertsOf(readOf(model, reach)),
 												{ kind: "ready" }
 											])
 										),

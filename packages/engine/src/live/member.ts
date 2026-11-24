@@ -30,7 +30,7 @@ import { isIntegerTypmod } from "#compiler/ir/carriers.ts"
 import type { CallerParamDecl } from "#compiler/ir/products.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import { baseOf, sameScalarType, type ScalarType } from "#compiler/ir/scalar.ts"
-import type { AnsweredShape, ReadShape } from "#compiler/live/events.ts"
+import type { Shape } from "#compiler/live/events.ts"
 import {
 	type MemberShape,
 	type MemberWire,
@@ -459,23 +459,17 @@ const scalarHeading = (heading: Heading): WireHeading<ServedLeaf> =>
 		field: { kind: "scalar", scalar: leafOf(column.type) }
 	}))
 
-/** The answered shape of a read answered at its call's instant alone, by its keyed shape (live/events.ts AnsweredShape). */
-const answeredShapes: { readonly [S in ReadShape]: AnsweredShape } = {
-	set: "answeredSet",
-	list: "answeredList"
-}
-
 /**
- * The shape of a read's answer: its keyed shape where it is live, its answered one's (answeredShapes) where it is
+ * The shape of a read's answer (live/events.ts Shape): its list where it is live, its answered list where it is
  * answered at its call's instant alone (served/forms.ts ServedReadLive).
  */
-const readShapeOf = (read: ServedRead): ReadShape | AnsweredShape => {
+const readShapeOf = (read: ServedRead): Exclude<Shape, "write"> => {
 	switch (read.live.kind) {
 		case "answered":
-			return answeredShapes[read.key.kind]
+			return "answeredList"
 		case "constant":
 		case "routed":
-			return read.key.kind
+			return "list"
 	}
 }
 
@@ -524,7 +518,7 @@ const keyOf = (
 
 /**
  * A page's anchor key columns: its read's key columns (keyOf), each one every heading holds, as a page orders by fields
- * its heading groups share (lower/shapes/page/compile.ts unionPageOrder), so an anchor names a value of each.
+ * its heading groups share (lower/shapes/page/compile.ts pagedGroupsOrder), so an anchor names a value of each.
  */
 const windowKeyOf = (
 	binding: Binding,

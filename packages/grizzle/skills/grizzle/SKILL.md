@@ -92,7 +92,8 @@ export default defineConfig({
 - A login owns its workloads: `login(Blog, "web", [AnonBlog, MemberBlog], { workload: [anonReads, memberReads] })`.
   A workload, `workload(schemaOrRole, { name: program })`, is over the login's base, a level of it, or one of its
   roles, and names queries, ordered queries, ChangeSets and relation keys. Every member is called the same
-  way: `once(input)`, its value (a read's keyed set or list, a write's outcome), and `watch(input)`, its events, live
+  way: `once(input)`, its value (a read's keyed list, in its order, its key's where it states none, a write's
+  outcome), and `watch(input)`, its events, live
   for a read; `input` is `{ params, facts }`, both always present, `{}` where the program takes none. An ordered query
   the application pages is the member `paged(query)`, whose input adds `window: { anchor, size }`, the anchor
   `{ kind: "start" }`, `{ kind: "after", key }`, `{ kind: "end" }`, `{ kind: "before", key }` or

@@ -8,6 +8,7 @@ import { DagBuilder } from "#compiler/ir/builder.ts"
 import { floatLiteral, MoneyText, VectorText } from "#compiler/ir/carriers.ts"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
 import { type Codebook, firstCodebook } from "#compiler/ir/codes.ts"
+import { groupHeadings } from "#compiler/ir/dag.ts"
 import { DecimalText } from "#compiler/ir/decimal.ts"
 import { type ExprSpec, type ScalarExpr, storedColumn } from "#compiler/ir/expr.ts"
 import { type TypedLiteral, OpId, type ParamRole } from "#compiler/ir/expr.ts"
@@ -354,7 +355,7 @@ export const everyKind = (supply: IdSupply): EveryKind => {
 	const take = b.node({
 		kind: "Take",
 		input: union,
-		order,
+		orders: Arr.map(groupHeadings(union), () => order),
 		bound: { kind: "literal", k: 3n },
 		correlation: [],
 		heading: accountAmount,
@@ -533,7 +534,7 @@ export const everyKind = (supply: IdSupply): EveryKind => {
 	const ordered = b.node({
 		kind: "OrderedResult",
 		input: take,
-		order,
+		orders: Arr.map(groupHeadings(take), () => order),
 		heading: accountAmount,
 		loc: undefined,
 		meta: conservativeMeta

@@ -233,6 +233,17 @@ export interface DeliverySpine {
 }
 
 /**
+ * The headings of the heading groups of the rows `node` delivers, in group order: a union of several groups', where its
+ * delivery spine ends at one (deliverySpine), each group a statement of its own; else its own heading.
+ */
+export const groupHeadings = (node: RelNode): NonEmptyReadonlyArray<Heading> => {
+	const union = deliverySpine(node).arms?.union
+	return union !== undefined && union.groups.length > 1
+		? mapNonEmpty(union.groups, (g) => g.heading)
+		: [node.heading]
+}
+
+/**
  * The one walk of a root's delivered rows: down the kept rows (keptRowsOf), into the one arm of a union of one arm,
  * ending at a node that computes its rows or at a union of several arms. Every node it reads is an input of the one
  * before, built before it, so the walk ends.

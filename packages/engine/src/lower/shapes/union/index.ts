@@ -3,9 +3,6 @@ import {
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
-import { Refusal } from "#compiler/core/canonical.ts"
-import { malformedDescription } from "#compiler/core/errors.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
 import type { CompletedOrder, Heading, HeadingGroup, NodeOf, RelNode } from "#compiler/ir/rel.ts"
 import {
 	type ColumnEqualities,
@@ -14,7 +11,6 @@ import {
 	headingTargets,
 	type LowerContext,
 	type NodeLowerer,
-	nodeLabel,
 	noRestriction
 } from "#compiler/lower/conservative/context.ts"
 import { type OrderTotality, orderItemsOf } from "#compiler/lower/conservative/take/order.ts"
@@ -264,20 +260,4 @@ export const groupRows = (
 			"a heading group's set union"
 		)
 	)
-}
-
-/**
- * A heterogeneous union's discriminant must be among the order's keys for a group merge to be total across groups;
- * the order completion puts it right after the user's fields.
- */
-const mergeOrderProblem = (union: NodeOf<"Union">, order: CompletedOrder): string | undefined =>
-	union.groups.length > 1 && union.discriminant.some((d) => !order.keys.some((k) => k.column === d))
-		? "a completed order over a heterogeneous union that includes its discriminant"
-		: undefined
-
-export const assertMergeOrder = (union: NodeOf<"Union">, order: CompletedOrder): void => {
-	const problem = mergeOrderProblem(union, order)
-	if (problem !== undefined) {
-		throw new Refusal(malformedDescription(SourceLoc(nodeLabel(union), []), problem))
-	}
 }

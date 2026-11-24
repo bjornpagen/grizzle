@@ -192,8 +192,8 @@ export const watched = (file: ServedLogin<AnyLogin>, token: string, name: string
 			`the served member ${name}`
 		)
 		const calls = memberCalls(opened.ctx, member)
-		if (calls.shape !== "set") {
-			return yield* Effect.die(new Error(`the served member ${name} is no set read`))
+		if (calls.shape !== "list") {
+			return yield* Effect.die(new Error(`the served member ${name} is no live read`))
 		}
 		return yield* Stream.runCollect(
 			Stream.takeUntil(

@@ -28,7 +28,7 @@ import {
 } from "#compiler/lower/conservative/context.ts"
 import type { DagIndex } from "#compiler/lower/conservative/dag-index.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
-import { orderItemsOf, partialOrder } from "#compiler/lower/conservative/take/order.ts"
+import { orderItemsOf, partialOrder, rankedOrder } from "#compiler/lower/conservative/take/order.ts"
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
 import { orderIsTotal } from "#compiler/lower/shapes/take/order.ts"
 import { armBoundedUnion } from "#compiler/lower/shapes/union/index.ts"
@@ -565,7 +565,7 @@ const correlationPredicates = (
  * the take alone reads, so no other reader shares it.
  */
 const armBoundable = (cx: LowerContext, node: NodeOf<"Take">): NodeOf<"Union"> | undefined => {
-	if (node.correlation.length > 0 || node.order.keys.length === 0) {
+	if (node.correlation.length > 0 || rankedOrder(node).keys.length === 0) {
 		return undefined
 	}
 	const input = node.input
@@ -595,7 +595,7 @@ export const takeLowerer =
 		const total =
 			unique === undefined
 				? partialOrder
-				: orderIsTotal(facts, node.input, node.order, node.heading)
+				: orderIsTotal(facts, node.input, rankedOrder(node), node.heading)
 		const union = armBoundable(cx, node)
 		const { input, scope } =
 			union === undefined
@@ -606,7 +606,7 @@ export const takeLowerer =
 								cx,
 								facts,
 								union,
-								node.order,
+								rankedOrder(node),
 								total,
 								() => cx.boundExpr(node.bound),
 								env
@@ -617,7 +617,7 @@ export const takeLowerer =
 						scope: env
 					}
 		const where = correlationPredicates(cx, node, node.correlation, input, scope)
-		const orderBy = orderItemsOf(node.order, node.heading, input.map, {
+		const orderBy = orderItemsOf(rankedOrder(node), node.heading, input.map, {
 			leading: [],
 			total,
 			fixed: []
@@ -660,11 +660,16 @@ const partitionExprs = (spec: PerGroupSpec): ReadonlyArray<Expr> =>
 const distinctOnPerGroup = (cx: LowerContext, facts: ShapeFacts, spec: PerGroupSpec): Select => {
 	const { node, input } = spec
 	const on = partitionExprs(spec)
-	const orderBy: ReadonlyArray<OrderItem> = orderItemsOf(node.order, node.heading, input.map, {
-		leading: spec.partition,
-		total: orderIsTotal(facts, node.input, node.order, node.heading),
-		fixed: []
-	})
+	const orderBy: ReadonlyArray<OrderItem> = orderItemsOf(
+		rankedOrder(node),
+		node.heading,
+		input.map,
+		{
+			leading: spec.partition,
+			total: orderIsTotal(facts, node.input, rankedOrder(node), node.heading),
+			fixed: []
+		}
+	)
 	const targets = headingTargets(node.heading, input.map)
 	const where = conjunction(spec.filters)
 	return isNonEmpty(on)
@@ -700,12 +705,12 @@ const rowNumberPerGroup = (cx: LowerContext, facts: ShapeFacts, spec: PerGroupSp
 		filters = []
 	}
 	const ranked = { ...spec, input }
-	const orderBy = orderItemsOf(node.order, node.heading, input.map, {
+	const orderBy = orderItemsOf(rankedOrder(node), node.heading, input.map, {
 		leading: [],
 		total:
 			unique === undefined
 				? partialOrder
-				: orderIsTotal(facts, node.input, node.order, node.heading),
+				: orderIsTotal(facts, node.input, rankedOrder(node), node.heading),
 		fixed: spec.partition
 	})
 	const rank = {

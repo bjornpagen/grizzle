@@ -5,8 +5,9 @@
  *
  * A read's answer opens with `reset`, which names the key fields its rows are keyed by, once its read has answered;
  * sends an `upsert` per row as it decodes, provisional until `ready`, which follows the read's COMMIT; and then, live,
- * an `upsert` or `remove` per change, each sent after its re-run's COMMIT. A set read's upsert carries its row alone; an ordered read's carries the
- * key of the row it follows too, null for the first. An answered read's answer, a read its member declares
+ * an `upsert` or `remove` per change, each sent after its re-run's COMMIT. Every read's rows are a list in its order,
+ * its key's where it states none, so an upsert carries its row and the key of the row it follows, null for the first.
+ * An answered read's answer, a read its member declares
  * answered(...) or one whose member binds a parameter to the database's clock, is its read at its call's instant alone:
  * `reset`, its upserts, `ready`, then `end`, with no `remove`, since no change wakes it, and time passing is no change.
  * A write's answer is its `outcome`, after its COMMIT. Every failure is one `error`, and an answer ends with `end` after
@@ -103,8 +104,8 @@ export type UnavailableReason =
 	| { readonly kind: "otherSocketCode"; readonly code: string }
 
 /**
- * What one payload member holds, by the slot that types it: a text; reset's key fields; a row; a key; the key an
- * ordered row follows, null for the first; a write's outcome; a CallError, of the kinds its answer may end with
+ * What one payload member holds, by the slot that types it: a text; reset's key fields; a row; a key; the key a row
+ * follows, null for the first; a write's outcome; a CallError, of the kinds its answer may end with
  * (Failure); a refusal's laws and witness; which concurrent refusal a transient error met (core/errors.ts
  * TransientTag); why a connection was not authenticated (CredentialReason); why no session could be had for now
  * (UnavailableReason); and the parameter a pattern refused a value at (core/identity.ts ParamPlace).
@@ -325,46 +326,32 @@ const answeredReady = { role: "ready", payload: {}, next: "end" } as const
 const error = { role: "error", payload: { error: "error" } } as const
 const end = { role: "end", payload: {} } as const
 
-const setUpsert = { role: "item", payload: { row: "row" } } as const
-const listUpsert = { role: "item", payload: { row: "row", after: "after" } } as const
+const upsert = { role: "item", payload: { row: "row", after: "after" } } as const
 
 /**
- * The events of each shape of answer, by name: a set read's, an ordered read's, whose upsert carries `after` too, each
- * of them answered at its call's instant alone (answeredSet, answeredList), which no change wakes, and a write's.
+ * The events of each shape of answer, by name: a read's, its list's, live or answered at its call's instant alone
+ * (answeredList), which no change wakes, and a write's.
  */
 export const events = {
-	set: { reset, upsert: setUpsert, remove, ready, error, end },
-	list: { reset, upsert: listUpsert, remove, ready, error, end },
-	answeredSet: { reset, upsert: setUpsert, ready: answeredReady, error, end },
-	answeredList: { reset, upsert: listUpsert, ready: answeredReady, error, end },
+	list: { reset, upsert, remove, ready, error, end },
+	answeredList: { reset, upsert, ready: answeredReady, error, end },
 	write: { outcome: { role: "item", payload: { outcome: "outcome" } }, error, end }
 } as const satisfies {
 	readonly [shape: string]: { readonly [name: string]: EventDescriptor }
 }
 
-/** The shapes of answer: a set read's, an ordered read's, each live or answered at its call's instant alone, a write's. */
+/** The shapes of answer: a read's list, live or answered at its call's instant alone, and a write's. */
 export type Shape = keyof typeof events
 
-/**
- * The answers of each shape (answers): a set or ordered read's live, an answered one's answered at its call's instant
- * alone, and a write's a ChangeSet's.
- */
+/** The answers of each shape (answers): a read's live, an answered one's at its call's instant alone, a write's a ChangeSet's. */
 export interface ShapeAnswers {
-	readonly set: "live"
 	readonly list: "live"
-	readonly answeredSet: "answered"
 	readonly answeredList: "answered"
 	readonly write: "change"
 }
 
 /** The CallErrors an answer of shape S ends with: its answers' (AnswerFailure). */
 export type ShapeFailure<S extends Shape> = AnswerFailure<ShapeAnswers[S]>
-
-/** The shapes of a read's keyed value: a set's, and an ordered read's list. */
-export type ReadShape = Extract<Shape, "set" | "list">
-
-/** The shapes of an answered read, at its call's instant alone, which no change wakes: a set's and an ordered read's. */
-export type AnsweredShape = Extract<Shape, "answeredSet" | "answeredList">
 
 /**
  * The event `name` of shape S over Row and Outcome: its name as `kind`, and its payload's members, an error of the
@@ -384,23 +371,14 @@ export type EventOfShape<S extends Shape, Row, Outcome> = {
 	readonly [Name in keyof (typeof events)[S]]: EventNamed<S, Name, Row, Outcome>
 }[keyof (typeof events)[S]]
 
-/** A set read's events. */
-export type SetEvent<Row> = EventOfShape<"set", Row, never>
-
-/** An ordered read's events. */
+/** A read's events. */
 export type ListEvent<Row> = EventOfShape<"list", Row, never>
 
-/** An answered set read's events, at its call's instant alone (AnsweredShape). */
-export type AnsweredSetEvent<Row> = EventOfShape<"answeredSet", Row, never>
-
-/** An answered ordered read's events, at its call's instant alone (AnsweredShape). */
+/** An answered read's events, at its call's instant alone. */
 export type AnsweredListEvent<Row> = EventOfShape<"answeredList", Row, never>
 
 /** A write's events. */
 export type WriteEvent<Outcome> = EventOfShape<"write", never, Outcome>
 
-/** A set read's change: an upsert of a row, or the removal of a key. */
-export type SetChange<Row> = Extract<SetEvent<Row>, { readonly kind: "upsert" | "remove" }>
-
-/** An ordered read's change: an upsert of a row after a key, a move when its key is present, or a removal. */
+/** A read's change: an upsert of a row after a key, a move when its key is present, or a removal. */
 export type ListChange<Row> = Extract<ListEvent<Row>, { readonly kind: "upsert" | "remove" }>

@@ -25,7 +25,7 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, Exit, Fiber, Formatter, Option, Queue, Ref, Stream } from "effect"
 import type { ChangeSink, ChangeSource } from "#adapter/live/source.ts"
 import { makeSubscriptions } from "#adapter/live/subscriptions.ts"
-import { type SetEvent } from "#compiler/live/index.ts"
+import { type ListEvent } from "#compiler/live/index.ts"
 import { type RouteKey } from "#compiler/plan/runtime.ts"
 import {
 	answer,
@@ -73,9 +73,9 @@ export const aRegisteredLiveReadsChangesAreTakenOnceASecondTakeDiesWhereverItCom
 						const stored = yield* Ref.make<Row>({ id: 1, v: 0 })
 						const read = Stream.unwrap(
 							Effect.map(Ref.get(stored), (row) =>
-								Stream.fromIterable<SetEvent<Row>>([
+								Stream.fromIterable<ListEvent<Row>>([
 									{ kind: "reset", key: ["id"] },
-									{ kind: "upsert", row },
+									{ kind: "upsert", row, after: null },
 									{ kind: "ready" }
 								])
 							)
@@ -93,8 +93,8 @@ export const aRegisteredLiveReadsChangesAreTakenOnceASecondTakeDiesWhereverItCom
 						const sink = opened.sink
 						assert.ok(sink !== undefined, "registering opened the source")
 						const secondTake = Effect.exit(Stream.runCollect(Stream.take(live.changes, 1)))
-						const heard = yield* Queue.unbounded<SetEvent<Row>>()
-						const first = (taken: Stream.Stream<SetEvent<Row>>) =>
+						const heard = yield* Queue.unbounded<ListEvent<Row>>()
+						const first = (taken: Stream.Stream<ListEvent<Row>>) =>
 							Effect.forkScoped(
 								Stream.runForEach(taken, (event) => Queue.offer(heard, event)),
 								{ startImmediately: true }
@@ -114,7 +114,7 @@ export const aRegisteredLiveReadsChangesAreTakenOnceASecondTakeDiesWhereverItCom
 								const ready = yield* Queue.take(heard)
 								assert.deepEqual(
 									[change, ready],
-									[{ kind: "upsert", row: { id: 1, v: n } }, { kind: "ready" }],
+									[{ kind: "upsert", row: { id: 1, v: n }, after: null }, { kind: "ready" }],
 									`the first consumer hears the change to ${n}, then its ready`
 								)
 							})

@@ -19,12 +19,11 @@ import {
 	events,
 	fold,
 	foldWrite,
-	type Keyed,
+	type KeyedList,
+	type ListEvent,
 	type MemberWire,
 	opening,
 	type RoleWitness,
-	type ReadEvent,
-	type ReadShape,
 	type ReadState,
 	type Shape,
 	slotDecoders,
@@ -99,10 +98,8 @@ interface Reading<St, V, Ev> {
  * A read's reading: whole at `ready`, folded by the live fold. A cut ends a read with `transport`, whatever value it
  * held: a read changed nothing, and the same call may succeed.
  */
-const readReading = <S extends ReadShape>(
-	shape: S
-): Reading<ReadState<S, object>, Keyed<S, object>, ReadEvent<S, object>> => ({
-	opening: opening(shape),
+const readReading: Reading<ReadState<object>, KeyedList<object>, ListEvent<object>> = {
+	opening: opening(),
 	whole: "ready",
 	fold,
 	valueOf: (state) => {
@@ -112,7 +109,7 @@ const readReading = <S extends ReadShape>(
 		return state.value
 	},
 	cut: (_state, message) => ({ kind: "failed", error: callError("transport", { message }) })
-})
+}
 
 /**
  * A write's reading: whole at its outcome, folded by the write fold. A cut before the outcome is `commitUnknown`, since
@@ -345,56 +342,34 @@ const callsOf = <St, V, Ev extends { readonly kind: string }, E>(
 }
 
 /**
- * A member's operations with the shape its wire form reads them by: a set read's and a list read's, whose values are
- * keyed values, each live or answered at its call's instant alone, an answered(...) or a clocked member's, whose once
- * alone it serves, since its answer ends at its value; and a write's, whose value is its outcome.
+ * A member's operations with the shape its wire form reads them by: a read's, whose value is a keyed list, live or
+ * answered at its call's instant alone, an answered(...) or a clocked member's, whose once alone it serves, since its
+ * answer ends at its value; and a write's, whose value is its outcome.
  */
 export type ShapedCalls<E> =
 	| {
-			readonly shape: "set"
-			readonly calls: ProgramCalls<Keyed<"set", object>, ReadEvent<"set", object>, E>
-	  }
-	| {
 			readonly shape: "list"
-			readonly calls: ProgramCalls<Keyed<"list", object>, ReadEvent<"list", object>, E>
-	  }
-	| {
-			readonly shape: "answeredSet"
-			readonly calls: Pick<ProgramCalls<Keyed<"set", object>, ReadEvent<"set", object>, E>, "once">
+			readonly calls: ProgramCalls<KeyedList<object>, ListEvent<object>, E>
 	  }
 	| {
 			readonly shape: "answeredList"
-			readonly calls: Pick<
-				ProgramCalls<Keyed<"list", object>, ReadEvent<"list", object>, E>,
-				"once"
-			>
+			readonly calls: Pick<ProgramCalls<KeyedList<object>, ListEvent<object>, E>, "once">
 	  }
 	| { readonly shape: "write"; readonly calls: ProgramCalls<unknown, WriteEvent<unknown>, E> }
 
 /**
- * A member's operations by its wire form's shape: a set read's and a list read's through the live fold, an answered
- * one's once alone through the same fold, a write's through the write fold, each chosen once, here, where the member's
- * shape is read.
+ * A member's operations by its wire form's shape: a read's through the live fold, an answered one's once alone through
+ * the same fold, a write's through the write fold, each chosen once, here, where the member's shape is read.
  */
 export const memberCalls = <E>(
 	member: ClientMember,
 	token: Option.Option<Token<E>>
 ): ShapedCalls<E> => {
 	switch (member.wire.shape) {
-		case "set":
-			return { shape: "set", calls: callsOf(member, readReading("set"), token) }
 		case "list":
-			return { shape: "list", calls: callsOf(member, readReading("list"), token) }
-		case "answeredSet":
-			return {
-				shape: "answeredSet",
-				calls: { once: callsOf(member, readReading("set"), token).once }
-			}
+			return { shape: "list", calls: callsOf(member, readReading, token) }
 		case "answeredList":
-			return {
-				shape: "answeredList",
-				calls: { once: callsOf(member, readReading("list"), token).once }
-			}
+			return { shape: "answeredList", calls: { once: callsOf(member, readReading, token).once } }
 		case "write":
 			return { shape: "write", calls: callsOf(member, writeReading, token) }
 	}

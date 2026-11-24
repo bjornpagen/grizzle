@@ -35,7 +35,7 @@ import {
 	type WireJson,
 	type WireOptions
 } from "#compiler/plan/runtime.ts"
-import { listFrame, refusedFrames, setFrame, type SlotEncoders, writeFrame } from "#http/events.ts"
+import { listFrame, refusedFrames, type SlotEncoders, writeFrame } from "#http/events.ts"
 import { authorizationToken, bodyJson, requestLine, wireNamed } from "#http/request.ts"
 import { type HttpRoute, type RouteOf, routeLine, routeTable } from "#http/routes.ts"
 import { type SseEvent, sseHeaders, sseStream } from "#http/sse.ts"
@@ -296,9 +296,9 @@ const openingAttested = (
 }
 
 /**
- * A member's events as their frames, by the member's shape: a live set read's or ordered read's, its watch; an answered
- * one's, at its call's instant alone, its answer, which ends after its ready and never watches, so it holds no live
- * source; or a write's, each event framed by its payload (events.ts), its slots encoded by the member's wire.
+ * A member's events as their frames, by the member's shape: a live read's, its watch; an answered one's, at its call's
+ * instant alone, its answer, which ends after its ready and never watches, so it holds no live source; or a write's,
+ * each event framed by its payload (events.ts), its slots encoded by the member's wire.
  */
 const framed = (
 	calls: ServedCalls,
@@ -306,12 +306,8 @@ const framed = (
 	input: unknown
 ): Stream.Stream<SseEvent> => {
 	switch (calls.shape) {
-		case "set":
-			return Stream.map(calls.watch(input), (event) => setFrame(slots, event))
 		case "list":
 			return Stream.map(calls.watch(input), (event) => listFrame(slots, event))
-		case "answeredSet":
-			return Stream.map(calls.answer(input), (event) => setFrame(slots, event))
 		case "answeredList":
 			return Stream.map(calls.answer(input), (event) => listFrame(slots, event))
 		case "write":

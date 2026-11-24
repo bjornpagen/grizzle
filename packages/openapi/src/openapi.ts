@@ -255,21 +255,18 @@ const counted = (count: number, one: string, many: string): string =>
 
 /**
  * An operation's summary: what its program is, by its served form (served/forms.ts ServedMemberForm) alone, so it is
- * as short for a program of hundreds of relations as for one of one: a read of a set or an ordered one, by its key or
- * paged by window, live or answered at its call's instant alone (readSummary), or a write. What the program
- * names is its description's (descriptionOf).
+ * as short for a program of hundreds of relations as for one of one: a read, by its key or paged by window, live or
+ * answered at its call's instant alone (readSummary), or a write. What the program names is its description's
+ * (descriptionOf).
  */
 const summaryOf = (member: ServedMember): string => {
 	switch (member.kind) {
 		case "read":
-			return readSummary(member, member.read.key.kind === "set" ? "set read" : "ordered read")
+			return readSummary(member, "read")
 		case "key":
-			return readSummary(
-				member,
-				member.read.key.kind === "set" ? "set read by its key" : "ordered read by its key"
-			)
+			return readSummary(member, "read by its key")
 		case "paged":
-			return readSummary(member, "ordered read paged by window")
+			return readSummary(member, "read paged by window")
 		case "change":
 			return "A write"
 	}

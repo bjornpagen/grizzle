@@ -35,7 +35,7 @@ import { formatLoc, SourceLoc } from "#compiler/core/loc.ts"
 import type { Cell, ParamText } from "#compiler/core/wire.ts"
 import { floatLiteral } from "#compiler/ir/carriers.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
-import { relNode, rooted, topoOrder } from "#compiler/ir/dag.ts"
+import { relNode, rooted, topoOrder, groupHeadings } from "#compiler/ir/dag.ts"
 import type { ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
 import { callerParams, type LogicalQuery, type ParamDecl } from "#compiler/ir/products.ts"
 import {
@@ -564,7 +564,7 @@ const orderedQuery = (o: OrderedCase): OrderedQuery | undefined => {
 	const node = relNode(NodeId("ordered"), {
 		kind: "OrderedResult",
 		input: top,
-		order,
+		orders: Arr.map(groupHeadings(top), () => order),
 		heading: top.heading,
 		meta: top.meta,
 		loc: undefined
@@ -795,7 +795,7 @@ const fullResult = (
 		if (rootNode.kind !== "OrderedResult") {
 			throw new Error("an ordered result")
 		}
-		const rootOrder = rootNode.order
+		const [rootOrder] = rootNode.orders
 		const compareRoot = mergeComparator({ order: rootOrder, types, codes })
 		if (!compareRoot.ok) {
 			throw new Error(compareRoot.error.message)

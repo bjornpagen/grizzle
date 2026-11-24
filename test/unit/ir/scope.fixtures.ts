@@ -594,7 +594,7 @@ const sketchedNode = (
 				...common,
 				kind: "Take",
 				input: first,
-				order: { keys: [] },
+				orders: [{ keys: [] }],
 				bound: { kind: "literal", k: 1n },
 				correlation: []
 			}

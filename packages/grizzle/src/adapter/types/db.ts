@@ -6,7 +6,6 @@ import type {
 	EventOfShape,
 	InputCheck,
 	InputCheckOf,
-	AnsweredShape,
 	KeyRead,
 	ServedArrays,
 	ServedInput,
@@ -112,8 +111,8 @@ export type WorkloadHandles<R, P> = {
  *   an `upsert` per row as it decodes, provisional, then `ready` after its COMMIT, then, live, an `upsert` or `remove`
  *   per change; a write's are its `outcome` after its COMMIT. Every failure is one `error` with its CallError, then
  *   `end`; the Stream itself never fails, and a read's runs until the consumer interrupts it.
- * - `once(input)`: watch taken to `ready`, folded (live/fold.ts): a read's value (ValueOf: a set read's KeyedSet, an
- *   ordered or paged read's KeyedList), or a write's outcome; the CallError that ended it is its error.
+ * - `once(input)`: watch taken to `ready`, folded (live/fold.ts): a read's value (ValueOf: its KeyedList, in its
+ *   order), or a write's outcome; the CallError that ended it is its error.
  */
 export type MemberHandle<X> = MemberCalls<X> &
 	ExplainOf<X> &
@@ -121,7 +120,7 @@ export type MemberHandle<X> = MemberCalls<X> &
 
 /**
  * A served member's calls (MemberHandle): its once, and its watch but for an answered read's, a clocked one's among
- * them, whose shape is an answered one (live/events.ts AnsweredShape). Each takes an input I inferred apart from X and checked after as X's input exactly
+ * them, whose shape is an answered one (live/events.ts answeredList). Each takes an input I inferred apart from X and checked after as X's input exactly
  * (live/program.ts InputCheck): its params, its facts and a paged member's window, each refused where the runtime
  * refuses it.
  */
@@ -143,7 +142,7 @@ export type MemberCalls<X> = CallsOf<
  * the calls are over X's parts alone; and the shape is a parameter of its own, since a tuple of an alias over X,
  * `[ShapeOf<X>] extends [...]`, is a reference the checker resolves later, holding X.
  */
-type CallsOf<Sh, In, A, Ps, Key extends boolean, V, Ev> = [Sh] extends [AnsweredShape]
+type CallsOf<Sh, In, A, Ps, Key extends boolean, V, Ev> = [Sh] extends ["answeredList"]
 	? OnceCall<In, A, Ps, Key, V>
 	: OnceCall<In, A, Ps, Key, V> & WatchCall<In, A, Ps, Key, Ev>
 

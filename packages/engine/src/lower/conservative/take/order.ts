@@ -1,7 +1,12 @@
 import type { Identification } from "#compiler/analysis/physical/fds.ts"
 import type { Direction } from "#compiler/core/order.ts"
-import type { CompletedOrder, Heading } from "#compiler/ir/rel.ts"
-import { type ColumnMap, columnIn } from "#compiler/lower/conservative/context.ts"
+import type { CompletedOrder, GroupOrders, Heading, NodeOf } from "#compiler/ir/rel.ts"
+import {
+	type ColumnMap,
+	columnIn,
+	nodeLabel,
+	refuse
+} from "#compiler/lower/conservative/context.ts"
 import type { OrderItem } from "#compiler/sql/ast.ts"
 import { asc, desc } from "#compiler/sql/build.ts"
 
@@ -81,3 +86,41 @@ export const completedOrderItems = (
 	heading: Heading,
 	map: ColumnMap
 ): ReadonlyArray<OrderItem> => orderItemsOf(order, heading, map, baseline)
+
+/**
+ * The one order rows of `orders`' heading groups are read in as one relation, through `heading`, the fields every group
+ * holds: their one group's order, or the union's own, which every group's is where a key of the union lies within
+ * those fields (logical/order.ts completeGroups). Groups that complete it apart, a union with no such key, are refused
+ * for `consumer`, which reads no group's own fields: only a delivery, a statement per group, orders each group by its
+ * own (conservative/deliver.ts heterogeneousPlan).
+ */
+export const sharedOrder = (
+	orders: GroupOrders,
+	heading: Heading,
+	at: string,
+	consumer: string
+): CompletedOrder => {
+	const [first, ...rest] = orders
+	const apart = rest.some(
+		(o) =>
+			o.keys.length !== first.keys.length ||
+			o.keys.some((k, i) => k.column !== first.keys[i]?.column || k.dir !== first.keys[i].dir)
+	)
+	if (apart || first.keys.some((k) => !heading.some((c) => c.name === k.column))) {
+		return refuse(
+			"UnsupportedOperation",
+			at,
+			`ordering: ${consumer} needs a completed total order over the fields common to every arm; no key of the union lies within them, so retain a key in each arm's find`
+		)
+	}
+	return first
+}
+
+/** The one order a take ranks its rows in where a statement reads them as one relation (sharedOrder). */
+export const rankedOrder = (take: NodeOf<"Take">): CompletedOrder =>
+	sharedOrder(
+		take.orders,
+		take.heading,
+		nodeLabel(take),
+		"a take over a union of several headings read as one relation"
+	)

@@ -24,6 +24,7 @@ import { AllenMask } from "#compiler/allen/mask.ts"
 import { makeIdSupply, type NodeId, ParamId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { DagBuilder, type ReservedNode } from "#compiler/ir/builder.ts"
+import { groupHeadings } from "#compiler/ir/dag.ts"
 import { toCalendarDate } from "#compiler/ir/date.ts"
 import { DecimalText, decimalPayload, isDecimalLike } from "#compiler/ir/decimal.ts"
 import type { FieldDesc, LiteralDesc } from "#compiler/ir/desc.ts"
@@ -864,12 +865,15 @@ export class Ir {
 		})
 	}
 
-	/** The first rows of `input` in `completed` order, up to `bound`; `meta` is what the fixture claims of it. */
+	/**
+	 * The first rows of `input` in `completed` order, each heading group's (ir/dag.ts groupHeadings), up to `bound`; `meta`
+	 * is what the fixture claims of it.
+	 */
 	take(input: RelNode, completed: CompletedOrder, bound: TakeBound, meta: MetaSpec): RelNode {
 		return this.b.node({
 			kind: "Take",
 			input,
-			order: completed,
+			orders: Arr.map(groupHeadings(input), () => completed),
 			bound,
 			correlation: [],
 			heading: input.heading,
@@ -878,11 +882,12 @@ export class Ir {
 		})
 	}
 
+	/** The rows of `input` delivered in `completed` order, each heading group's (ir/dag.ts groupHeadings). */
 	ordered(input: RelNode, completed: CompletedOrder): RelNode {
 		return this.b.node({
 			kind: "OrderedResult",
 			input,
-			order: completed,
+			orders: Arr.map(groupHeadings(input), () => completed),
 			heading: input.heading,
 			loc: undefined,
 			meta: conservativeMeta

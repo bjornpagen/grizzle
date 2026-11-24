@@ -1,5 +1,5 @@
 import { Effect, Option, type Scope, Stream } from "effect"
-import type { CallError, Keyed, ReadShape } from "#compiler/live/index.ts"
+import type { CallError, KeyedList } from "#compiler/live/index.ts"
 
 /**
  * The live suites' one seam to the system under test: a served member called by its name, in process (a Db's
@@ -8,8 +8,8 @@ import type { CallError, Keyed, ReadShape } from "#compiler/live/index.ts"
  * reached touches this module alone.
  */
 
-/** A read's value: a keyed set or list (live/keyed.ts). */
-export type LiveValue = Keyed<ReadShape, object>
+/** A read's value: a keyed list (live/keyed.ts). */
+export type LiveValue = KeyedList<object>
 
 /** A call's input: its parameters, its facts, and a paged member's window. */
 export type CallInput =

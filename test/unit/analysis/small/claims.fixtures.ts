@@ -189,18 +189,25 @@ const claimFeatures = (
 }
 
 /**
- * The placements a plan's physical analysis runs under: none, and a DISTINCT on a root that selects or unions, which a
- * placement may put there.
+ * The placements a plan's physical analysis runs under: none, and a DISTINCT on the rows a root delivers where they
+ * select or union, which a placement may put there. A read's root is its order over those rows, which every read's rows
+ * leave the database in (check/checker.ts rootOrder), so the DISTINCT sits beneath it, as the lowering forms a
+ * deduplicating delivery beneath its order (lower/shapes/index.ts #formed).
  */
 const placementsOf = (
 	root: RelNode
-): ReadonlyArray<readonly [Placement, PhysicalEnv["realization"]]> =>
-	root.kind === "ProjectSet" || root.kind === "Union"
+): ReadonlyArray<readonly [Placement, PhysicalEnv["realization"]]> => {
+	if (root.kind !== "OrderedResult") {
+		throw new Error(`a read's root is its order, not ${root.kind}`)
+	}
+	const rows = root.input
+	return rows.kind === "ProjectSet" || rows.kind === "Union"
 		? [
 				["unplaced", unplaced],
-				["root distinct", (id: NodeId) => (id === root.id ? "distinct" : undefined)]
+				["root distinct", (id: NodeId) => (id === rows.id ? "distinct" : undefined)]
 			]
 		: [["unplaced", unplaced]]
+}
 
 /** A column set of a shared child's heading, and whether no two of its rows have agreed on it on any database yet. */
 interface Candidate {

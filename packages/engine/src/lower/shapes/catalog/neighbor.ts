@@ -237,7 +237,9 @@ const analyzeTake = (
 	/** The take's order, without the columns fixed per parent. */
 	const fixed = new Set<string>(group.map((g) => g.q))
 	const order: Array<OrderKeyOf> = []
-	for (const k of take.order.keys) {
+	const [only, ...groups] = take.orders
+	demand(groups.length === 0, "a take over one heading group")
+	for (const k of only.keys) {
 		const col = columns.get(k.column)
 		demand(col !== undefined, `an order column ${k.column}`)
 		if (col.kind !== "own" || fixed.has(col.column)) {

@@ -73,23 +73,11 @@ const streamAt =
 /** A member's calls, each stating the instant `instant` reads (onceAt, streamAt). */
 const movedCalls = (calls: ServedCalls, instant: Effect.Effect<bigint>): ServedCalls => {
 	switch (calls.shape) {
-		case "set":
-			return {
-				shape: "set",
-				once: onceAt(instant, calls.once),
-				watch: streamAt(instant, calls.watch)
-			}
 		case "list":
 			return {
 				shape: "list",
 				once: onceAt(instant, calls.once),
 				watch: streamAt(instant, calls.watch)
-			}
-		case "answeredSet":
-			return {
-				shape: "answeredSet",
-				once: onceAt(instant, calls.once),
-				answer: streamAt(instant, calls.answer)
 			}
 		case "answeredList":
 			return {

@@ -6,7 +6,7 @@ import type { Delivering, phantom } from "#compiler/core/phantom.ts"
 import type { EventOfShape } from "#compiler/live/events.ts"
 import type { ReadState, WriteState } from "#compiler/live/fold.ts"
 import type { RowKey } from "#compiler/live/key.ts"
-import type { KeyedList, KeyedSet } from "#compiler/live/keyed.ts"
+import type { KeyedList } from "#compiler/live/keyed.ts"
 import type {
 	AnyChangeSet,
 	ArraysOf,
@@ -23,7 +23,7 @@ import type {
 	UnionToIntersection
 } from "#compiler/types/core/phantom.ts"
 import type { Answered, Clocked, Paged, ReadOf } from "#compiler/types/db/workload.ts"
-import type { OrderedBase, ParamsOf } from "#compiler/types/query/query.ts"
+import type { ParamsOf } from "#compiler/types/query/query.ts"
 import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
 import type { CandidateKey, KeyValues } from "#compiler/types/schema/statements.ts"
 
@@ -90,36 +90,27 @@ export type WriteOutcome<Reads> =
 type KeyTarget = AnyRelation | AnyClosed | CandidateKey<AnyRelation>
 
 /**
- * The shape of a served program's answer: an ordered or paged read's is a list, a write's a write, a read's a set, and
- * an answered read's, a clocked one's among them, its list or set answered at its call's instant alone
- * (AnsweredShapeOf).
+ * The shape of a served program's answer: a read's is a list, in its order, a write's a write, and an answered read's,
+ * a clocked one's among them, its list answered at its call's instant alone (AnsweredShapeOf).
  */
 export type ShapeOf<X> =
 	X extends Answered<infer R> ? AnsweredShapeOf<ShapeOfProgram<R>> : ShapeOfProgram<X>
 
-/** The answered shape of a read of shape S: a set read's answeredSet, an ordered one's answeredList. */
-type AnsweredShapeOf<S> = S extends "set"
-	? "answeredSet"
-	: S extends "list"
-		? "answeredList"
-		: never
+/** The answered shape of a read of shape S: a list's answeredList. */
+type AnsweredShapeOf<S> = S extends "list" ? "answeredList" : never
 
 /**
  * The shape of a program's answer (ShapeOf), an answered member's read unwrapped: a clocked read's is an
  * answered one's (ShapeOf of its program answered), since time passing is no change.
  */
 type ShapeOfProgram<X> =
-	X extends Paged<unknown>
-		? "list"
-		: X extends Clocked<infer P, unknown>
-			? P extends AnyChangeSet
-				? "write"
-				: ShapeOf<Answered<P>>
-			: X extends AnyChangeSet
-				? "write"
-				: X extends OrderedBase
-					? "list"
-					: "set"
+	X extends Clocked<infer P, unknown>
+		? P extends AnyChangeSet
+			? "write"
+			: ShapeOf<Answered<P>>
+		: X extends AnyChangeSet
+			? "write"
+			: "list"
 
 /**
  * The program a served member runs: an answered member's read's, a paged member's ordered query, a clocked member's
@@ -235,8 +226,8 @@ type FactsIn<I> = I extends { readonly facts: infer F } ? F : unknown
  * its keys and its parts read by key (ReadByKey, ProgramByKey, the phantom's members), never by a test of it. A query
  * holds its schema, and a conditional the checker resolves instantiates its operands whole, every relation of the
  * schema with them, once for every query a Db serves. A program's keys tell its kind: an answered member's `answered`, a
- * paged one's `paged`, a clocked one's `clocked`, a ChangeSet's `reads`, an
- * ordered query's `take`, and a relation's, a closed relation's or a candidate key's `kind`; a query has none of them. A
+ * paged one's `paged`, a clocked one's `clocked`, a ChangeSet's `reads`, and a relation's, a closed relation's or a
+ * candidate key's `kind`; a query and an ordered query have none of them. A
  * value typed `any` or `never`, or one with a symbol index signature, whose keys are every symbol, is read by the
  * structural readers above (ByKeys). One with a string index signature, a wide record's, whose keys are every string
  * and so name no kind, is read as a write of rows no heading types, binding parameters no map types. The structural readers stay what a type generic in its program reads (client
@@ -266,7 +257,11 @@ export type ServedShape<X> = X extends unknown
 		: ShapeOf<X>
 	: never
 
-/** The shape of a program's answer (ShapeOf), its member's read, by its keys. */
+/**
+ * The shape of a program's answer (ShapeOf), its member's read, by its keys. A paged member's `paged` is read first,
+ * though the arms after it read a paged member as a list too: without it the checker's instantiation of a handle
+ * generic in its program (adapter types/db.ts MemberCalls) is excessively deep (TS2589).
+ */
 type ShapeOfRead<X> = X extends unknown
 	? ByKeys<X> extends true
 		? "paged" extends keyof X
@@ -277,9 +272,7 @@ type ShapeOfRead<X> = X extends unknown
 					? ClockedShapeOf<X["clocked" & keyof X]>
 					: "reads" extends keyof X
 						? "write"
-						: "take" extends keyof X
-							? "list"
-							: "set"
+						: "list"
 		: ShapeOfProgram<X>
 	: never
 
@@ -435,24 +428,25 @@ type OnlyInputMembersOf<I, In> = [Exclude<keyof I, keyof In>] extends [never]
 /** ValueOf by the program's keys: each shape's value, read only for the shape X's answer has (ServedShape). */
 export type ServedValue<X> = ServedValueOf<X, ServedShape<X>>
 
-/** The value of a program X whose answer has shape S, each shape's member read only where S is it. */
-type ServedValueOf<X, S> = S extends "set" | "answeredSet"
-	? KeyedSet<ServedRow<X>>
-	: S extends "list" | "answeredList"
-		? KeyedList<ServedRow<X>>
-		: S extends "write"
-			? ServedOutcome<X>
-			: never
-
 /**
- * A served program's value: a set read's keyed set, an ordered read's keyed list, at its call's instant or live alike,
- * and a write's outcome.
+ * A read's value over its rows: its KeyedList, named through an alias over the row alone. A member's call maps its
+ * program through the call's own mapper (adapter types/db.ts CallsOf), and the class referenced over a row the program
+ * defers holds the program, so each call instantiated it whole, its schema with it, two instantiations a relation at
+ * every read (test/types/query/budget/scaling.test.ts); through the alias a call instantiates the row alone.
  */
+type ListOf<Row extends object> = KeyedList<Row>
+
+/** The value of a program X whose answer has shape S, each shape's member read only where S is it. */
+type ServedValueOf<X, S> = S extends "list" | "answeredList"
+	? ListOf<ServedRow<X>>
+	: S extends "write"
+		? ServedOutcome<X>
+		: never
+
+/** A served program's value: a read's keyed list, at its call's instant or live alike, and a write's outcome. */
 export type ValueOf<X> = {
-	readonly set: KeyedSet<RowOf<X>>
-	readonly list: KeyedList<RowOf<X>>
-	readonly answeredSet: KeyedSet<RowOf<X>>
-	readonly answeredList: KeyedList<RowOf<X>>
+	readonly list: ListOf<RowOf<X>>
+	readonly answeredList: ListOf<RowOf<X>>
 	readonly write: OutcomeOf<X>
 }[ShapeOf<X>]
 
@@ -461,9 +455,7 @@ export type EventOf<X> = EventOfShape<ShapeOf<X>, RowOf<X>, OutcomeOf<X>>
 
 /** A served program's state as its events build it (live/fold.ts fold, foldWrite), by its shape. */
 export type StateOf<X> = {
-	readonly set: ReadState<"set", RowOf<X>>
-	readonly list: ReadState<"list", RowOf<X>>
-	readonly answeredSet: ReadState<"set", RowOf<X>>
-	readonly answeredList: ReadState<"list", RowOf<X>>
+	readonly list: ReadState<RowOf<X>>
+	readonly answeredList: ReadState<RowOf<X>>
 	readonly write: WriteState<OutcomeOf<X>>
 }[ShapeOf<X>]

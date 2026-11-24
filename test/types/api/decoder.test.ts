@@ -37,9 +37,8 @@ export const decoder = boxAgreement(finite(word(decoderBox)), {
 		},
 		{
 			file: "packages/grizzle/src/adapter/types/layer.ts",
-			original: "\t\t? [Extract<ShapeOf<P[keyof P]>, ReadShape>] extends [never]",
-			replacement:
-				'\t\t? [Extract<ShapeOf<P[keyof P]>, ReadShape | "answeredSet" | "answeredList">] extends [never]',
+			original: '\t\t? [Extract<ShapeOf<P[keyof P]>, "list">] extends [never]',
+			replacement: '\t\t? [Extract<ShapeOf<P[keyof P]>, "list" | "answeredList">] extends [never]',
 			why: "The decision of a login's live reads (adapter/types/layer.ts WorkloadReads) counts a clocked read as a read, so a login serving a clocked read alone is typed DecoderLogin; the program fails."
 		},
 		{

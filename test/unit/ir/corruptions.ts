@@ -19,7 +19,8 @@ import {
 	type NodeMeta,
 	type RelKind,
 	type TableNode,
-	type TableRefs
+	type TableRefs,
+	soleOrder
 } from "#compiler/ir/rel.ts"
 import { baseOf, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
 import { fitRange } from "#compiler/scalar/compute/lower.ts"
@@ -1284,7 +1285,9 @@ const scope: ReadonlyArray<DagCorruption> = [
 					id: NodeId("n-right"),
 					kind: "Take",
 					input: j.right,
-					order: { keys: Arr.map(right.heading, (c) => ({ column: c.name, dir: "asc" as const })) },
+					orders: [
+						{ keys: Arr.map(right.heading, (c) => ({ column: c.name, dir: "asc" as const })) }
+					],
 					bound: { kind: "literal", k: 1n },
 					correlation: [{ column: pair.right, expr: read.id }],
 					heading: right.heading,
@@ -1418,14 +1421,14 @@ const orders: ReadonlyArray<DagCorruption> = [
 						const keys = tiedPrefix(
 							dag,
 							n.input,
-							n.order.keys,
+							soleOrder(n.orders).keys,
 							Arr.map(n.correlation, (c) => c.column)
 						)
-						return broken(keys, { ...n, order: { keys } })
+						return broken(keys, { ...n, orders: [{ keys }] })
 					}
 					case "OrderedResult": {
-						const keys = tiedPrefix(dag, n.input, n.order.keys, [])
-						return broken(keys, { ...n, order: { keys } })
+						const keys = tiedPrefix(dag, n.input, soleOrder(n.orders).keys, [])
+						return broken(keys, { ...n, orders: [{ keys }] })
 					}
 					case "Attach": {
 						if (n.order === undefined) {
@@ -1617,7 +1620,7 @@ const recursion: ReadonlyArray<DagCorruption> = [
 					id: NodeId("n-outside"),
 					kind: "OrderedResult",
 					input: s.id,
-					order: { keys: Arr.map(s.heading, (c) => ({ column: c.name, dir: "asc" })) },
+					orders: [{ keys: Arr.map(s.heading, (c) => ({ column: c.name, dir: "asc" })) }],
 					heading: s.heading,
 					meta: s.meta,
 					loc: undefined
@@ -2227,7 +2230,7 @@ export const liveVariants = (dag: DagTable): ReadonlyArray<LiveVariant> => [
 						id: NodeId("n-kept"),
 						kind: "OrderedResult",
 						input: arm,
-						order,
+						orders: [order],
 						heading: node.heading,
 						meta: node.meta,
 						loc: undefined
@@ -2236,7 +2239,7 @@ export const liveVariants = (dag: DagTable): ReadonlyArray<LiveVariant> => [
 						id: NodeId("n-kept"),
 						kind: "Take",
 						input: arm,
-						order,
+						orders: [order],
 						bound: { kind: "literal", k: 1n },
 						correlation: [],
 						heading: node.heading,

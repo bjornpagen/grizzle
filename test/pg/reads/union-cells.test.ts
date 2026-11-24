@@ -1,7 +1,7 @@
 import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { set, structuralHash } from "@bjornpagen/testing/oracle"
-import { type Case as CaseOf, property } from "@bjornpagen/testing/property"
+import { type Case as CaseOf, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec, Result } from "effect"
 import { memberCalls } from "#adapter/db/handles.ts"
 import { OpenError } from "#adapter/errors/execution.ts"
@@ -158,15 +158,17 @@ export const unionCellsDecodesAUnionsRowsToExactlyTheRecordsItsArmsDecodeToEachR
 			name: "each arm read alone as a query of its own, its records' set union"
 		},
 		budget: { runs: 60, steered: 240 },
-		kept: [],
-		kills: [
+		kept: [
 			{
-				file: "packages/engine/src/program/served.ts",
-				original:
-					'\tif (roots.length > 1) {\n\t\treturn { kind: "set", fields: headFields }\n\t}\n',
-				replacement: "",
-				why: "cde9595d9's red, its first fix reverted: a union delivered by a statement for each heading group is keyed by the physical proof over its root's heading, the fields its groups share, so two rows of one group share a key and a once of the union folds them into one."
-			},
+				token: ReplayToken(
+					"test/pg/reads/union-cells.test.ts#unionCellsDecodesAUnionsRowsToExactlyTheRecordsItsArmsDecodeToEachReadAloneAndRefusesALiteralAgainstANumericField:ffffff.0:0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0"
+				),
+				reason:
+					"ORDERKEY2: a union of two heading groups keyed by int4 and by int8, whose common fields hold no key, refused (UnsupportedOperation, a completed total order over the fields common to every arm) where each group is ordered by its own key",
+				since: "2026-11-24"
+			}
+		],
+		kills: [
 			{
 				file: "packages/engine/src/live/member.ts",
 				original: "columns.length < held.length ||",

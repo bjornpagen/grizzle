@@ -146,11 +146,11 @@ import {
  * relations, keyed as their definitions prove; a query matching or negating a derived relation is over Rollup
  * (schemaOf). Each case reads through the Db of a full role, Reader over Agree or Reporter over Rollup, which reads its
  * query exactly where the runtime's compilation against the role does (readsThrough): Reporter reads queries over Agree,
- * and Reader refuses one over Rollup, its once under its directive, its value a KeyedSet of the query's records with
+ * and Reader refuses one over Rollup, its once under its directive, its value a KeyedList of the query's records with
  * the error channel CallError. Each clean case also states a keyed read (keyedOf): through a relation's primary key,
  * Item's candidate key, the closed relation's key or the roster's id, its values named exactly the key's fields, those
  * and one more, all but one, or all but one and one more in its place, admitted exactly where the names hold the
- * engine's key fields (query/build/key.ts keyLookup), as the runtime reads them, its value a KeyedSet of the keyed
+ * engine's key fields (query/build/key.ts keyLookup), as the runtime reads them, its value a KeyedList of the keyed
  * relation's decoded fact.
  *
  * A query no take closes and of one heading is also paged (pageOf): ordered by its first head field, a paged member
@@ -4361,7 +4361,7 @@ const blockOf = (c: AgreementCase, i: number, paged: boolean): ReadonlyArray<str
 				`export type c${i} = Expect<Equals<EvidenceOfQuery<typeof q${i}>["card"], ${jsonText(card)}>>`,
 				...(reads
 					? [
-							`export type x${i} = Expect<Equals<ReturnType<ReturnType<typeof e${i}>>, Effect.Effect<KeyedSet<${head}>, CallError>>>`,
+							`export type x${i} = Expect<Equals<ReturnType<ReturnType<typeof e${i}>>, Effect.Effect<KeyedList<${head}>, CallError>>>`,
 							...(paged && page !== undefined ? pageLines(i, head, page, c.spec.db) : [])
 						]
 					: []),
@@ -4407,7 +4407,7 @@ const keyedLines = (k: KeyedVerdict | undefined, i: number): ReadonlyArray<strin
 		`\th.once({ params: ${k.record}, facts: {} })`,
 		...(k.admitted
 			? [
-					`export type kr${i} = Expect<Equals<ReturnType<typeof kg${i}>, Effect.Effect<KeyedSet<${k.fact}>, CallError>>>`
+					`export type kr${i} = Expect<Equals<ReturnType<typeof kg${i}>, Effect.Effect<KeyedList<${k.fact}>, CallError>>>`
 				]
 			: [])
 	]

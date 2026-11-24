@@ -56,6 +56,7 @@ export { isDecimal, type TextsId, TextsMap, textsId } from "#compiler/core/text.
 export { jsonText, trusted, trustedJson } from "#compiler/core/trusted.ts"
 export { codeNames, rosterCodebook } from "#compiler/ir/codes.ts"
 export { lawsOfConstraint } from "#compiler/ir/products.ts"
+export { mergeOrder } from "#compiler/ir/rel.ts"
 export { type CallError, callError, wireHeader, wireRefusals } from "#compiler/live/events.ts"
 export {
 	batchesOf,

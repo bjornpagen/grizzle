@@ -180,20 +180,20 @@ export const heterogeneousUnionsAreDeliveredPerHeadingGroupMergedUnderTheTakesOr
 								? {
 										kind: "take",
 										bound: { kind: "literal" as const, k: consumer.k },
-										take: orderBy(consumer.take)
+										take: [orderBy(consumer.take), orderBy(consumer.take)]
 									}
 								: consumer.kind === "bounded and reordered"
 									? consumer.delivery === consumer.take
 										? {
 												kind: "take",
 												bound: { kind: "literal" as const, k: 1n },
-												take: orderBy(consumer.take)
+												take: [orderBy(consumer.take), orderBy(consumer.take)]
 											}
 										: {
 												kind: "takeThenOrder",
 												bound: { kind: "literal" as const, k: 1n },
-												take: orderBy(consumer.take),
-												order: orderBy(consumer.delivery)
+												take: [orderBy(consumer.take), orderBy(consumer.take)],
+												orders: [orderBy(consumer.delivery), orderBy(consumer.delivery)]
 											}
 									: { kind: "concat" }
 						)
@@ -220,8 +220,9 @@ export const heterogeneousUnionsAreDeliveredPerHeadingGroupMergedUnderTheTakesOr
 			{
 				file: "packages/engine/src/lower/conservative/deliver.ts",
 				original:
-					'\t\t\treturn { kind: "takeThenOrder", bound: b.take.bound, take: b.take.order, order: b.order }',
-				replacement: '\t\t\treturn { kind: "take", bound: b.take.bound, take: b.take.order }',
+					'\t\t\t\tkind: "takeThenOrder",\n\t\t\t\tbound: b.take.bound,\n\t\t\t\ttake: b.take.orders,\n\t\t\t\torders: b.orders\n\t\t\t}',
+				replacement:
+					'\t\t\t\tkind: "take",\n\t\t\t\tbound: b.take.bound,\n\t\t\t\ttake: b.take.orders\n\t\t\t}',
 				why: "A take delivered in another order is merged by its take alone; the heterogeneous unions' delivery and merge search fails."
 			}
 		]

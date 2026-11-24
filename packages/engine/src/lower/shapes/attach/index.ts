@@ -6,7 +6,7 @@ import {
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import { resultTextCasts } from "#compiler/codec/scalar.ts"
 import type { Cardinality } from "#compiler/ir/cardinality.ts"
-import type { CompletedOrder, Heading, NodeOf, RelNode } from "#compiler/ir/rel.ts"
+import type { Heading, NodeOf, RelNode } from "#compiler/ir/rel.ts"
 import { sameScalarType } from "#compiler/ir/scalar.ts"
 import {
 	columnIn,
@@ -35,7 +35,7 @@ import { attachmentRead } from "#compiler/lower/optimize/cte-policy/index.ts"
 import { keyedGroup } from "#compiler/lower/shapes/aggregate/index.ts"
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
 import type { ChoiceInput } from "#compiler/lower/shapes/take/index.ts"
-import { orderIsTotal } from "#compiler/lower/shapes/take/order.ts"
+import { type DeliveryOrder, orderIsTotal } from "#compiler/lower/shapes/take/order.ts"
 import { type FusedColumn, type FusedLayout, fusedElement } from "#compiler/runtime/lower/fused.ts"
 import type { Expr, OperandSelect, OrderItem, Select, Target } from "#compiler/sql/ast.ts"
 import {
@@ -205,7 +205,7 @@ export const withFusedAttachments = (
 	attachments: ReadonlyArray<NodeOf<"Attach">>,
 	facts: ShapeFacts,
 	/** The delivered rows' order, or undefined for an unordered delivery. */
-	order: CompletedOrder | undefined
+	ordered: DeliveryOrder | undefined
 ): { readonly query: Select; readonly columns: ReadonlyArray<string> } => {
 	const source = cx.wrap(parent, heading, { kind: "node", node: origin.id })
 	const targets: Array<Target> = [...headingTargets(heading, source.map)]
@@ -213,11 +213,11 @@ export const withFusedAttachments = (
 		targets.push(target(fusedAttachment(cx, attach, spine, source.map, facts)))
 	}
 	const orderBy: ReadonlyArray<OrderItem> =
-		order === undefined || heading.length === 0
+		ordered === undefined || heading.length === 0
 			? []
-			: orderItemsOf(order, heading, source.map, {
+			: orderItemsOf(ordered.order, heading, source.map, {
 					leading: [],
-					total: orderIsTotal(facts, origin, order, heading),
+					total: ordered.total,
 					fixed: []
 				})
 	const subject = cx.options.subject

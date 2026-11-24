@@ -72,7 +72,7 @@ const lateFetchChain = (cx: RewriteCx, takeCell: Cell, take: Take): RegionChain 
 	if (chain === undefined) {
 		return undefined
 	}
-	const ordered = new Set(take.order.keys.map((k) => k.column))
+	const ordered = new Set(take.orders.flatMap((o) => o.keys.map((k) => k.column)))
 	return take.input.current.heading.some((c) => widePayload(c.type) && !ordered.has(c.name)) &&
 		chain.region.occurrences.some((o) => o.source.current.kind === "Base")
 		? chain
@@ -91,7 +91,7 @@ const lateFetchPlans = (
 ): ReadonlyArray<Plan> => {
 	const stage = take.input.current
 	const region = chain.region
-	const ordered = new Set(take.order.keys.map((k) => k.column))
+	const ordered = new Set(take.orders.flatMap((o) => o.keys.map((k) => k.column)))
 	/** Each stage column by the region variable it carries. */
 	const columnsOf = new Map<VarId, Array<string>>()
 	for (const [col, v] of chain.columns) {
@@ -189,7 +189,7 @@ const fetch = (cx: RewriteCx, plan: Plan): void => {
 	const selected = ed.add({
 		kind: "Take",
 		input: narrow,
-		order: take.order,
+		orders: take.orders,
 		bound: take.bound,
 		correlation: [],
 		heading: plan.narrow,
@@ -281,7 +281,7 @@ const lateFetchPotential: Potential = (cx) => {
 		if (node.kind !== "Take") {
 			continue
 		}
-		const ordered = new Set(node.order.keys.map((k) => k.column))
+		const ordered = new Set(node.orders.flatMap((o) => o.keys.map((k) => k.column)))
 		count += node.heading.filter((c) => widePayload(c.type) && !ordered.has(c.name)).length
 	}
 	return count

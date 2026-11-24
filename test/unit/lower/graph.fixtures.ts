@@ -225,7 +225,7 @@ export const shared = (q: LogicalQuery, sharing: Sharing): LogicalQuery => {
 	const ordered = relNode(NodeId("n_ordered"), {
 		kind: "OrderedResult",
 		input: rec,
-		order: { keys: Arr.map(rec.heading, (c) => ({ column: c.name, dir: "asc" as const })) },
+		orders: [{ keys: Arr.map(rec.heading, (c) => ({ column: c.name, dir: "asc" as const })) }],
 		heading: rec.heading,
 		meta: metaSpecOf(rec.meta),
 		loc: undefined

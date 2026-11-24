@@ -98,22 +98,34 @@ export const checkQuery = (
 	)
 
 /**
- * A definition, a derived relation's or a role's query entry's, checked over its base's checked schema as every query
- * is, read as rows, under `label`. A definition is a relation, so its rows are a set: a take it ends in bounds them and
- * orders nothing (checker.ts rootOrder). A role's view evaluates its definition's expressions on facts outside the
- * world too, which raises nothing, since every operation is total (scalar/compute/registry.ts Totality).
+ * A query whose rows are a relation the database itself reads, a set no caller reads in an order (checker.ts RootRole
+ * `relation`), checked over `checked` as every query is, read as rows: a take it ends in bounds them and orders nothing
+ * (checker.ts rootOrder). A rule's violation, which its judge reads (analysis/theory/theory.ts ruleViolation), and a
+ * relation parameter a ChangeSet binds to a query (write/frontend/compile.ts), each under its own label and clock.
+ */
+export const checkRelation = (
+	checked: SchemaReading,
+	query: InferredQuery,
+	options: Omit<CheckOptions, "read">
+): Result.Result<AdmittedQuery, CompileError> =>
+	Result.flatMap(validateQueryStructure(query, { read: "rows", session: options.session }), (q) =>
+		catchRefusal(() =>
+			run(checked, q, { ...options, read: "rows" }, rootLoc(options.label), { kind: "relation" })
+		)
+	)
+
+/**
+ * A definition, a derived relation's or a role's query entry's, checked over its base's checked schema as a relation
+ * (checkRelation) under `label`, reading no clock. A role's view evaluates its definition's expressions on facts
+ * outside the world too, which raises nothing, since every operation is total (scalar/compute/registry.ts Totality).
  */
 export const checkDefinition = (
 	base: SchemaReading,
 	label: string,
 	query: InferredQuery,
 	session: CheckSession
-): Result.Result<AdmittedQuery, CompileError> => {
-	const options: CheckOptions = { read: "rows", label, clock: noClock, session }
-	return Result.flatMap(validateQueryStructure(query, { read: "rows", session }), (q) =>
-		catchRefusal(() => run(base, q, options, rootLoc(label), { kind: "definition" }))
-	)
-}
+): Result.Result<AdmittedQuery, CompileError> =>
+	checkRelation(base, query, { label, clock: noClock, session })
 
 /** A read-back of a ChangeSet. */
 export const checkReadBack = (

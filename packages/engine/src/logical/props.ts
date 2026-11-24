@@ -10,7 +10,7 @@ import { TupleSet } from "@bjornpagen/grizzle-text/base/tuple-map"
 import { canonicalTextOf } from "#compiler/core/canonical.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { NodeId, OccurrenceId, ParamId } from "#compiler/core/ids.ts"
-import type { NodeScope, OuterRefs } from "#compiler/ir/dag.ts"
+import { type NodeScope, type OuterRefs, relNode } from "#compiler/ir/dag.ts"
 import { type EvidenceContext, type Premise, strongest } from "#compiler/ir/evidence.ts"
 import {
 	type EqualityKey,
@@ -74,6 +74,7 @@ import {
 	closedColumn,
 	edgesOf,
 	type Heading,
+	type HeadingGroupOver,
 	type KeySet,
 	type KindOver,
 	type NodeOf,
@@ -274,6 +275,12 @@ export interface Props {
 	 */
 	readonly discriminant: ReadonlyArray<string>
 	/**
+	 * Each heading group of the rows of a node of several (`discriminant`), in group order, its rows as one relation
+	 * (GroupView): none for one heading group. Every node that keeps a subset of its rows carries them, as it carries its
+	 * discriminant, so an order of the node's rows is completed over each group's (logical/annotate.ts orderSubjectOf).
+	 */
+	readonly groups: ReadonlyArray<GroupView>
+	/**
 	 * The columns fixed per evaluation, what nothing determines, in the order their closure reached them, each with every
 	 * value a step fixes it to (fixedNames): one value wherever the node has a row, so each names it, whatever order the
 	 * steps are stated in; none for a column only a computation fixes.
@@ -288,6 +295,26 @@ export interface Props {
 }
 
 /** A node as the logical analysis reads it: each input replaced by that input's properties. */
+/**
+ * A heading group's rows as one relation: its one arm, or the union of its arms of one heading, which no node of the
+ * DAG is (unionProps), with the keys of its rows, the columns it fixes per evaluation and how its rows are told apart:
+ * what an order of the group's rows is completed over (logical/annotate.ts orderSubjectOf).
+ */
+export interface GroupView {
+	readonly node: RelNode
+	readonly keys: ReadonlyArray<KeyProof>
+	readonly fixed: ReadonlyArray<string>
+	readonly distinct: Distinctness
+}
+
+/** The group view of a relation's properties (GroupView). */
+const groupView = (props: Props): GroupView => ({
+	node: props.node,
+	keys: props.keys,
+	fixed: fixedColumns(props),
+	distinct: props.distinct
+})
+
 export type PropsReading = NodeOver<ValueRefs<Props>>
 
 /**
@@ -1594,6 +1621,8 @@ interface Rest {
 	 * whose rows are distinct tuples of its heading.
 	 */
 	readonly inner: ReadonlyArray<KeyProof>
+	/** Its heading groups as relations, where its rows are of several (Props groups). */
+	readonly groups: ReadonlyArray<GroupView>
 	/**
 	 * The node's columns equal in every row, each pair with its witness: those its own equal dependencies state, and those
 	 * equal by an input's classes or by copying columns of one.
@@ -2385,6 +2414,7 @@ const finish = (subject: Finished, dependencies: ReadonlyArray<Dependency>, rest
 		provenance,
 		context: rest.context,
 		discriminant,
+		groups: rest.groups,
 		fixed,
 		nothing
 	}
@@ -2407,6 +2437,7 @@ const keptRest = (
 	context,
 	discriminant: input.discriminant,
 	inner: innerOf(input),
+	groups: input.groups,
 	equal: keptEqualities(input, (c) => node.heading.some((h) => h.name === c)),
 	attributes: attributesOver(
 		node.heading.map((h) => h.name),
@@ -2580,12 +2611,13 @@ export const logicalPropsOf = (node: RelNode, reading: PropsReading, env: PropsE
 	 * attributes of its rows it does not deliver `hidden`: none, unless it states them.
 	 */
 	const oneGroup = (
-		rest: Omit<Rest, "discriminant" | "inner" | "attributes">,
+		rest: Omit<Rest, "discriminant" | "inner" | "groups" | "attributes">,
 		hidden: ReadonlyArray<string>
 	): Rest => ({
 		...rest,
 		discriminant: [],
 		inner: [],
+		groups: [],
 		attributes: attributesOver(all, hidden)
 	})
 	switch (reading.kind) {
@@ -3206,6 +3238,7 @@ const regionProps = (subject: Subject, node: ReadingOf<"MatchRegion">, env: Prop
 		context: strongest(contexts),
 		discriminant: [],
 		inner: [],
+		groups: [],
 		equal,
 		attributes: attributesOver(
 			node.heading.map((c) => c.name),
@@ -3373,6 +3406,7 @@ const projectProps = (subject: Subject, node: ReadingOf<"ProjectSet">): Props =>
 		context: input.context,
 		discriminant: [],
 		inner: [],
+		groups: [],
 		equal,
 		attributes
 	})
@@ -3425,6 +3459,50 @@ const everyArm = <A, B>(
  * meet of its arms' classes by equalities alone, each column of one with the class's first column in heading order, both
  * ways, by every arm's path between them.
  */
+/**
+ * The properties of heading group `group` of the union `node`, of several, its rows as one relation: its arm's, where
+ * it has one; else those of the union of its arms alone, of one heading group, which no node of the DAG is, read under
+ * the union's own label and scope.
+ */
+const groupProps = (
+	subject: Subject,
+	node: ReadingOf<"Union">,
+	group: HeadingGroupOver<Props>
+): Props => {
+	const [only, ...more] = group.arms
+	if (more.length === 0) {
+		return only
+	}
+	const at = subject.node
+	if (at.kind !== "Union") {
+		throw defect("a union's properties are of a union")
+	}
+	const alone = relNode(at.id, {
+		...at,
+		groups: [{ heading: group.heading, arms: mapNonEmpty(group.arms, (a) => a.node) }],
+		discriminant: [],
+		heading: group.heading
+	})
+	const reading: ReadingOf<"Union"> = {
+		...node,
+		groups: [group],
+		discriminant: [],
+		heading: group.heading
+	}
+	return unionProps(
+		{
+			node: alone,
+			reading,
+			views: viewsOf(reading),
+			attachment: subject.attachment,
+			outer: subject.outer,
+			distinct: distinctOf(alone, reading),
+			factFields: factFieldsOf(alone, reading)
+		},
+		reading
+	)
+}
+
 const unionProps = (subject: Subject, node: ReadingOf<"Union">): Props => {
 	const all = node.heading.map((c) => c.name)
 	const attributes = attributesOver(all, [])
@@ -3607,6 +3685,10 @@ const unionProps = (subject: Subject, node: ReadingOf<"Union">): Props => {
 		context: strongest(arms.map((a) => a.context)),
 		discriminant,
 		inner: single ? [] : unionKeys,
+		groups:
+			node.groups.length === 1
+				? []
+				: node.groups.map((group) => groupView(groupProps(subject, node, group))),
 		equal,
 		attributes
 	}
@@ -3648,6 +3730,7 @@ export const relativeProps = (child: Props, attach: NodeOf<"Attach">): Props =>
 			context: child.context,
 			discriminant: child.discriminant,
 			inner: innerOf(child),
+			groups: child.groups,
 			equal: [...child.forest].map(([column, edge]): Equality => ({
 				a: edge.parent,
 				b: column,

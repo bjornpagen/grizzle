@@ -16,8 +16,7 @@ export {
 	callError,
 	type EventDescriptor,
 	events,
-	type AnsweredShape,
-	type ReadShape,
+	type ListEvent,
 	type Retry,
 	type Shape,
 	type UnavailableCause,
@@ -29,13 +28,12 @@ export {
 	fold,
 	foldWrite,
 	opening,
-	type ReadEvent,
 	type ReadState,
 	type WriteState,
 	writeOpening
 } from "#compiler/live/fold.ts"
 export { RowKey } from "#compiler/live/key.ts"
-export { Keyed, type KeyedList, type KeyedSet } from "#compiler/live/keyed.ts"
+export { KeyedList } from "#compiler/live/keyed.ts"
 export type {
 	Anchor,
 	EventOf,

@@ -40,8 +40,8 @@ import type {
 } from "#compiler/plan/common.ts"
 import type {
 	CarrierHost,
-	CompletedOrder,
 	GroupMerge,
+	GroupOrders,
 	Heading,
 	ProgramDelivery,
 	RelationInput,
@@ -55,6 +55,7 @@ import {
 	compareValues,
 	defined,
 	mergeHeadingGroups,
+	mergeOrder,
 	rowCell,
 	runsLargeForm,
 	scalarReader
@@ -101,17 +102,27 @@ type BoundPlan =
 /** One value of an ordered column, converted from its text: a host value of its carrier. */
 type OrderValue = CarrierHost[Carrier]
 
-/** A row's key under an order: the order's columns converted from the row's cells, in the order's key order. */
-type OrderKey = ReadonlyArray<OrderValue>
+/**
+ * A row's key under the order of its heading group (GroupOrders): its group's index, and its group's order's column at
+ * a key position converted from the row's cell, the first time a comparison reads it. A comparison reads a key no
+ * further than two rows differ, and rows of two groups differ by the run's first keys, the stated ones and the
+ * discriminant, so a field only a keyless heading's completion appends, bytes or a search document, which the host
+ * never reads as an order's value (scalar/registry.ts breaksTies), is never converted.
+ */
+interface OrderKey {
+	readonly group: number
+	readonly value: (at: number) => OrderValue
+}
 
 /** How a heading group reads a row's key from its statement's cells. */
 type KeyReader = (cells: ReadonlyArray<Cell>) => OrderKey
 
 /**
  * An order over a heterogeneous union's heading groups: each group, in group order, with its reading of a row's key
- * from the group statement's texts; and the comparator of two keys, PostgreSQL's B-tree order per column
- * (values/identity.ts compareValues: numeric and float with NaN last, text in code point order, closed ids in code
- * order, which is their roster's order), reversed for a descending key.
+ * from the group statement's texts; and the comparator of two keys, the run every group's order begins with, then the
+ * group, then the group's own order, each column PostgreSQL's B-tree order (values/identity.ts compareValues: numeric
+ * and float with NaN last, text in code point order, closed ids in code order, which is their roster's order),
+ * reversed for a descending key.
  */
 export interface GroupOrder<G> {
 	readonly groups: Arr.NonEmptyReadonlyArray<{ readonly group: G; readonly key: KeyReader }>
@@ -192,54 +203,69 @@ const readChoice = (choice: ServedChoice<RelationInput>): ReadChoice => ({
 })
 
 /**
- * The order `order` over heading groups `groups`, in group order, of headings `headingOf`, under the union's heading
- * `heading` and the installation's codes `codes`. Each ordered column has the union's type, the one type every group
- * delivers it as, so every group's texts convert alike and the comparator reads one carrier per column; each group
- * reads the column at its own position.
+ * The orders `orders` over heading groups `groups`, one each, in group order, of headings `headingOf`, under the union's
+ * heading `heading` and the installation's codes `codes`. The run every group's order begins with (mergeOrder) is of
+ * columns every group holds, each of the union's type, the one type every group delivers it as, so every group's texts
+ * convert alike and the comparator reads one carrier per column; it tells rows of two groups apart, and a group's own
+ * columns after it are read only against its own rows. Each group reads a column at its own position.
  */
 export const groupOrder = <G>(
-	order: CompletedOrder,
+	orders: GroupOrders,
 	heading: Heading,
 	groups: Arr.NonEmptyReadonlyArray<G>,
 	headingOf: (group: G) => Heading,
 	codes: Codebook
 ): GroupOrder<G> => {
-	const keys = Arr.map(order.keys, (k) => {
-		const type = columnType(heading, k.column)
+	const run = mergeOrder(orders, heading).keys.length
+	const read = Arr.map(groups, (group, gi) => {
+		const own = headingOf(group)
+		const keys = defined(orders[gi], `the order of heading group ${gi}`).keys.map((k, at) => {
+			const type = columnType(at < run ? heading : own, k.column)
+			return {
+				at: columnPosition(own, k.column),
+				spec: carrierSpecOf(type, codes),
+				convert: scalarReader(type, codes).convert,
+				sign: k.dir === "desc" ? -1 : 1
+			}
+		})
 		return {
-			column: k.column,
-			spec: carrierSpecOf(type, codes),
-			convert: scalarReader(type, codes).convert,
-			sign: k.dir === "desc" ? -1 : 1
+			group,
+			keys,
+			key: (row: ReadonlyArray<Cell>): OrderKey => {
+				const converted = new Map<number, OrderValue>()
+				return {
+					group: gi,
+					value: (at) =>
+						converted.getOrInsertComputed(at, () => {
+							const k = defined(keys[at], "an ordered column")
+							return k.convert(rowCell(row, k.at))
+						})
+				}
+			}
 		}
 	})
+	/** The ordered columns of `a`'s group from `from` to `to`, `a`'s values there compared with `b`'s. */
+	const compareFrom = (a: OrderKey, b: OrderKey, from: number, to: number): number => {
+		const keys = defined(read[a.group], "a key's heading group").keys
+		for (let at = from; at < to; at++) {
+			const k = defined(keys[at], "an ordered column")
+			const c = compareValues(k.spec, a.value(at), b.value(at))
+			if (c !== 0) {
+				return c * k.sign
+			}
+		}
+		return 0
+	}
 	return {
-		groups: Arr.map(groups, (group) => {
-			const own = headingOf(group)
-			const cells = Arr.map(keys, (k) => ({
-				at: columnPosition(own, k.column),
-				convert: k.convert
-			}))
-			return {
-				group,
-				key: (row): OrderKey => {
-					const key: Array<OrderValue> = []
-					for (const cell of cells) {
-						key.push(cell.convert(rowCell(row, cell.at)))
-					}
-					return key
-				}
-			}
-		}),
-		/** Every key holds one value per ordered column, in the order's column order, as `keys` does. */
+		groups: Arr.map(read, (r) => ({ group: r.group, key: r.key })),
 		compare: (a, b) => {
-			for (const [k, [x, y]] of Arr.zip(keys, Arr.zip(a, b))) {
-				const c = compareValues(k.spec, x, y)
-				if (c !== 0) {
-					return c * k.sign
-				}
+			const byRun = compareFrom(a, b, 0, run)
+			if (byRun !== 0) {
+				return byRun
 			}
-			return 0
+			return a.group === b.group
+				? compareFrom(a, b, run, defined(read[a.group], "a key's heading group").keys.length)
+				: a.group - b.group
 		}
 	}
 }
@@ -264,7 +290,7 @@ const mergePlan = (
 		case "concat":
 			return { kind: "concat" }
 		case "order":
-			return { kind: "order", order: groupOrder(merge.order, heading, groups, headingOf, codes) }
+			return { kind: "order", order: groupOrder(merge.orders, heading, groups, headingOf, codes) }
 		case "take":
 			return {
 				kind: "take",
@@ -272,7 +298,7 @@ const mergePlan = (
 				bound: boundPlan(merge.bound)
 			}
 		case "takeThenOrder": {
-			const order = groupOrder(merge.order, heading, groups, headingOf, codes)
+			const order = groupOrder(merge.orders, heading, groups, headingOf, codes)
 			return {
 				kind: "takeThenOrder",
 				take: groupOrder(merge.take, heading, order.groups, (r) => headingOf(r.group), codes),
@@ -394,7 +420,9 @@ const groupRows = (
 
 /**
  * The Rows of the heading groups of `order` merged on it, each with its group, the first `limit` of them when it is a
- * number.
+ * number. Each group's Rows arrive in its order, its statement's ORDER BY (lower/conservative/deliver.ts groupOrder),
+ * PostgreSQL's B-tree order of every column, so the merge compares only the heads of two groups, which differ by the
+ * run's first keys.
  */
 const mergedOn = <G>(
 	order: GroupOrder<G>,
@@ -402,12 +430,10 @@ const mergedOn = <G>(
 	limit: number | undefined
 ): ReadonlyArray<Keyed<G>> => {
 	const compare = (a: Keyed<G>, b: Keyed<G>) => order.compare(a.key, b.key)
-	const sorted = order.groups.map(({ group, key }) =>
-		rowsOfGroup(group)
-			.map((row): Keyed<G> => ({ row, group, key: key(row.cells) }))
-			.toSorted(compare)
+	const ordered = order.groups.map(({ group, key }) =>
+		rowsOfGroup(group).map((row): Keyed<G> => ({ row, group, key: key(row.cells) }))
 	)
-	return mergeHeadingGroups(sorted, compare, limit).map((one) => one.row)
+	return mergeHeadingGroups(ordered, compare, limit).map((one) => one.row)
 }
 
 /** Each kept Row emitted with its group, `emit` reading the HeadingGroup off a take's reordered group. */

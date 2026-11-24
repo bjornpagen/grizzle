@@ -345,15 +345,14 @@ export interface ServedRead {
 }
 
 /**
- * What tells a read's delivered rows apart under one binding, by the shape its answer is (live/events.ts): the tuple of
- * the decoded values of `fields`, head fields of its records, in order. A set's rows are keyed by the key its delivery
- * proves (lower/conservative/keys.ts KeySetProof), or by every head field of every heading group where it proves none,
- * and none at all is the key of at most one row; a list's, an ordered read's or a page's, by the fields of the completed
- * order it delivers them in, which a row after another is placed by.
+ * What tells a read's delivered rows apart under one binding, and orders them: the tuple of the decoded values of
+ * `fields`, head fields of its records, in order, the fields of the completed order it delivers them in (its stated
+ * order completed by its key, or its key ascending where it states none, check/checker.ts rootOrder), which a row after
+ * another is placed by (live/events.ts). None at all is the key of at most one row.
  */
-export type ServedKey =
-	| { readonly kind: "set"; readonly fields: ReadonlyArray<string> }
-	| { readonly kind: "list"; readonly fields: ReadonlyArray<string> }
+export interface ServedKey {
+	readonly fields: ReadonlyArray<string>
+}
 
 /**
  * The routes of an installed table a read reads (logical/routes.ts Routes): each routed column, by its installed

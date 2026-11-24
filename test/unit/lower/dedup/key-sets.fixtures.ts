@@ -205,7 +205,7 @@ const orderedQuery = (c: QueryCase): LogicalQuery | undefined => {
 	const node = relNode(NodeId("ordered"), {
 		kind: "OrderedResult",
 		input: top,
-		order: { keys: Arr.map(top.heading, (col) => ({ column: col.name, dir: "asc" as const })) },
+		orders: [{ keys: Arr.map(top.heading, (col) => ({ column: col.name, dir: "asc" as const })) }],
 		heading: top.heading,
 		meta: top.meta,
 		loc: undefined

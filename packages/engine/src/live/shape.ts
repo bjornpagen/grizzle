@@ -155,9 +155,9 @@ export type WireOutcome<L> = {
 }
 
 /**
- * A served program on the wire, over its leaf L: a read's shape (a set or a list), its key fields, its input, its
- * record and its key columns; or a write's input and outcome. The witnesses a refusal may name are its role's
- * (RoleWitness), one for every program of the role.
+ * A served program on the wire, over its leaf L: a read's shape (its list, live or answered), its key fields, its
+ * input, its record and its key columns; or a write's input and outcome. The witnesses a refusal may name are its
+ * role's (RoleWitness), one for every program of the role.
  */
 export type MemberShape<L> =
 	| {
@@ -679,11 +679,9 @@ const payloadSlot = (slot: Slot, schemas: PayloadSchemas): WireSchema => {
 	return schemas[slot]
 }
 
-/** The answer of each read shape (live/events.ts ShapeAnswers): a set or ordered read's live, an answered one's its own. */
+/** The answer of each read shape (live/events.ts ShapeAnswers): a read's live, an answered one's its own. */
 const readAnswers: { readonly [S in Exclude<Shape, "write">]: ShapeAnswers[S] } = {
-	set: "live",
 	list: "live",
-	answeredSet: "answered",
 	answeredList: "answered"
 }
 

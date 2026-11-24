@@ -2,7 +2,7 @@
 
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { defined } from "@bjornpagen/testing/assert"
-import { array, constant, element, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
+import { array, element, type Gen, int, map } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { type Direction, directions } from "#compiler/core/order.ts"
@@ -29,24 +29,31 @@ const int4 = plainType("int4")
 /**
  * What a column of a case is, by how an order reads it: an integer and an ordered roster's closed id have an admitted
  * order, which a stated key reads and a completion breaks ties by; an unordered roster's closed id has none to state,
- * and its codes, which never move, still break a tie a completion leaves; a set has neither.
+ * and its codes, which never move, still break a tie a completion leaves; a set, bytes and a search document have none
+ * to state, and PostgreSQL's B-tree order of each breaks a tie a completion leaves.
  */
-const columnKinds = ["integer", "ordered closed id", "unordered closed id", "set"] as const
+const columnKinds = [
+	"integer",
+	"ordered closed id",
+	"unordered closed id",
+	"set",
+	"bytes",
+	"search document"
+] as const
 type ColumnKind = (typeof columnKinds)[number]
 
 /** Whether an order the caller states may name a column of `kind`: its type has an admitted order. */
 export const statesOrder = (kind: ColumnKind): boolean =>
 	kind === "integer" || kind === "ordered closed id"
 
-/** Whether a completion may break a tie by a column of `kind`: an admitted order, or a closed id's codes. */
-const breaksTie = (kind: ColumnKind): boolean => kind !== "set"
-
 /** The type of a column of each kind. */
 const kindTypes: { readonly [K in ColumnKind]: ScalarType } = {
 	integer: int4,
 	"ordered closed id": closedIdTypeOf("Kind", "ordered", ["Automatic", "Manual"]),
 	"unordered closed id": closedIdTypeOf("Hue", "unordered", ["Automatic", "Manual"]),
-	set: scalarOf({ kind: "bits", roster: "Kind" }, { Kind: ["Automatic", "Manual"] })
+	set: scalarOf({ kind: "bits", roster: "Kind" }, { Kind: ["Automatic", "Manual"] }),
+	bytes: scalarOf({ kind: "bytes" }, {}),
+	"search document": scalarOf({ kind: "search", configuration: "english" }, {})
 }
 
 const col = (name: string, type: ScalarType): HeadingColumn => ({ name, type })
@@ -63,22 +70,24 @@ const subsetsOf = <A>(items: ReadonlyArray<A>): ReadonlyArray<ReadonlyArray<A>> 
 	])
 
 /**
- * A subject of the order completion, read from an ORDER BY, with no fixed column and no discriminant unless stated, each
- * key one factor of one minimal key.
+ * A subject of the order completion, rows of one heading group read from an ORDER BY, with no fixed column unless
+ * stated, each key one factor of one minimal key, and no column copying a declared key's field, so a key's columns keep
+ * the order given them, the heading's (logical/key-order.ts declaredKeyOrder over a column that copies none).
  */
 const subject = (
 	heading: ReadonlyArray<HeadingColumn>,
 	keys: ReadonlyArray<KeyClasses>,
-	stated: Pick<OrderSubject, "fixed" | "discriminant">
+	stated: Pick<OrderSubject, "fixed">
 ): OrderSubject => ({
 	heading,
 	keys: Arr.map(keys, (k) => [[k]] as const),
 	loc: SourceLoc("orderBy", []),
+	keyOrder: (columns) => columns,
 	...stated
 })
 
 /** Every key a subject states: one minimal key of each of a key's factors, together. */
-const keysOf = (s: OrderSubject): ReadonlyArray<KeyClasses> =>
+export const keysOf = (s: OrderSubject): ReadonlyArray<KeyClasses> =>
 	Arr.flatMap(s.keys, (factors) =>
 		Arr.reduce(factors, [[]], (keys: ReadonlyArray<KeyClasses>, alternatives) =>
 			Arr.flatMap(keys, (k) => Arr.map(alternatives, (a): KeyClasses => [...k, ...a]))
@@ -86,11 +95,11 @@ const keysOf = (s: OrderSubject): ReadonlyArray<KeyClasses> =>
 	)
 
 /**
- * What the completion policy gives, written from its statement (logical/order.ts) by search rather than by key: the
- * user's fields, each in the heading and once; then the discriminant; then the fewest further fields, in heading order,
+ * What the completion policy gives rows of one heading group, written from its statement (logical/order.ts) by search
+ * rather than by key: the user's fields, each in the heading and once; then the fewest further fields, in heading order,
  * that with the user's and the fixed ones contain a key narrower than the heading, the lexicographically least set of
- * names among the fewest; else every remaining field in heading order, which over arms of different headings is total
- * only when it contains a key. A set contains a key over classes when it holds a column of each of its classes.
+ * names among the fewest; else every remaining field in heading order: every kind here breaks ties, a set by its bits,
+ * bytes and a search document by PostgreSQL's order (scalar/registry.ts breaksTies). A set contains a key over classes when it holds a column of each of its classes.
  */
 type Spec =
 	| { readonly kind: "refused"; readonly reason: Refusal }
@@ -98,7 +107,7 @@ type Spec =
 			readonly kind: "order"
 			readonly keys: ReadonlyArray<OrderKey>
 			/** The step that made the order total. */
-			readonly step: "stated" | "discriminant" | "key" | "heading"
+			readonly step: "stated" | "key" | "heading"
 	  }
 
 export const specOrder = (
@@ -127,31 +136,17 @@ export const specOrder = (
 	if (names.length === 0 || covered([])) {
 		return { kind: "order", keys: user, step: "stated" }
 	}
-	const discriminant = Arr.filter(
-		s.discriminant,
-		(d) => names.includes(d) && !ordered.has(d) && !fixed.has(d)
-	)
-	const withDiscriminant = [...user, ...Arr.map(discriminant, asc)]
-	if (covered(discriminant)) {
-		return { kind: "order", keys: withDiscriminant, step: "discriminant" }
-	}
-	const remaining = Arr.filter(
-		names,
-		(c) => !ordered.has(c) && !fixed.has(c) && !discriminant.includes(c)
-	)
+	const remaining = Arr.filter(names, (c) => !ordered.has(c) && !fixed.has(c))
 	const narrow = Arr.filter(keysOf(s), (key) => key.length < names.length)
 	const reaches = (extra: ReadonlyArray<string>) =>
 		Arr.some(narrow, (key) =>
 			Arr.every(key, (members) =>
-				Arr.some(
-					members,
-					(c) => ordered.has(c) || fixed.has(c) || discriminant.includes(c) || extra.includes(c)
-				)
+				Arr.some(members, (c) => ordered.has(c) || fixed.has(c) || extra.includes(c))
 			)
 		)
 	/** Every set of remaining fields that break ties, the fewest first, then by its sorted names. */
 	const sets = Arr.sort(
-		subsetsOf(Arr.filter(remaining, (c) => breaksTie(kindOf(c)))),
+		subsetsOf(remaining),
 		Order.combine(
 			Order.mapInput(Order.Number, (set: ReadonlyArray<string>) => set.length),
 			Order.mapInput(Arr.makeOrder(Order.String), (set: ReadonlyArray<string>) =>
@@ -165,7 +160,7 @@ export const specOrder = (
 		return {
 			kind: "order",
 			keys: [
-				...withDiscriminant,
+				...user,
 				...Arr.map(
 					Arr.filter(remaining, (c) => least.includes(c)),
 					asc
@@ -174,17 +169,13 @@ export const specOrder = (
 			step: "key"
 		}
 	}
-	const all = [...withDiscriminant, ...Arr.map(remaining, asc)]
-	return Arr.some(remaining, (c) => !breaksTie(kindOf(c))) ||
-		(s.discriminant.length > 0 && !covered([...discriminant, ...remaining]))
-		? { kind: "refused", reason: "UnsupportedOperation" }
-		: { kind: "order", keys: all, step: "heading" }
+	return { kind: "order", keys: [...user, ...Arr.map(remaining, asc)], step: "heading" }
 }
 
 /**
  * A generated subject: a heading of up to four integer columns, each column joined to the class of an earlier one or
- * none, keys and fixed columns as masks over it, a key over the classes of the columns its mask holds, at most one
- * discriminant column, and a user order of columns of the heading or one outside it.
+ * none, keys and fixed columns as masks over it, a key over the classes of the columns its mask holds, and a user order
+ * of columns of the heading or one outside it.
  */
 const names = ["a", "b", "c", "d"] as const
 
@@ -206,9 +197,6 @@ interface CaseDraw {
 	readonly links: readonly [number, number, number, number]
 	readonly keys: ReadonlyArray<number>
 	readonly fixed: number
-	readonly discriminant:
-		| { readonly kind: "none" }
-		| { readonly kind: "column"; readonly index: number }
 	readonly user: ReadonlyArray<{ readonly column: number; readonly dir: Direction }>
 	readonly rows: ReadonlyArray<ReadonlyArray<number>>
 }
@@ -223,12 +211,6 @@ const caseDrawGen: Gen<CaseDraw> = (source) => ({
 	links: [0, source.draw(int(0, 1)), source.draw(int(0, 2)), source.draw(int(0, 3))],
 	keys: source.draw(array(int(0, 15), { min: 0, max: 3 })),
 	fixed: source.draw(int(0, 15)),
-	discriminant: source.draw(
-		oneOf<CaseDraw["discriminant"]>([
-			constant({ kind: "none" }),
-			map(int(0, 3), (index) => ({ kind: "column", index }))
-		])
-	),
 	user: source.draw(
 		array(
 			(key) => ({
@@ -256,16 +238,12 @@ export const caseGen = map(caseDrawGen, (c) => {
 	/** A mask's key: the classes of the columns it holds, each once. */
 	const keyOf = (mask: number): KeyClasses =>
 		Arr.dedupeWith(Arr.map(columnsOf(heading, mask), classOf), (x, y) => x[0] === y[0])
-	const discriminant =
-		c.discriminant.kind === "column" && c.discriminant.index < heading.length
-			? [defined(heading[c.discriminant.index], "the discriminant column")]
-			: []
 	const kindOf = (column: string): ColumnKind =>
 		defined(c.kinds[heading.indexOf(column)], "a heading column's kind")
 	const s = subject(
 		Arr.map(heading, (n) => col(n, kindTypes[kindOf(n)])),
 		Arr.map(c.keys, keyOf),
-		{ fixed: columnsOf(heading, c.fixed), discriminant }
+		{ fixed: columnsOf(heading, c.fixed) }
 	)
 	/** A column of the heading, or, past its width, one outside it. */
 	const user = Arr.map(c.user, (u): OrderKey => ({
@@ -321,18 +299,31 @@ export type OrderFeature =
 	| "an order stated over a column of no order"
 	| "a tie broken by an unordered closed id"
 	| "total as stated"
-	| "completed by the discriminant"
 	| "completed by a narrower key"
 	| "completed by the heading"
 	| "a fixed column skipped"
-	| "a fixed discriminant skipped"
 	| "the empty heading"
 
 /**
- * Task's two payload arms, (id, account, kind, budget) and (id, account, kind, operator), or without the id when
- * `keyed` is false, so that the fields common to every arm hold no key of the union.
+ * How a union of payloads is keyed: by the id every arm holds; by it, the manual arm holding its id again as aid, a
+ * field of that group alone whose name precedes id's, so the group's own completion would choose it; or by no field
+ * every arm holds, the arms without the id.
  */
-export const payloads = (q: Ir, keyed: boolean): RelNode => {
+export type Payloads = "keyed" | "keyed, a group's own key first" | "keyless"
+
+export const payloadForms: Arr.NonEmptyReadonlyArray<Payloads> = [
+	"keyed",
+	"keyed, a group's own key first",
+	"keyless"
+]
+
+/**
+ * Task's two payload arms, (id, account, kind, budget) and (id, account, kind, operator), the manual one with its id
+ * again as aid where `form` says, or without the id where it is keyless, so that the fields common to every arm hold
+ * no key of the union.
+ */
+export const payloads = (q: Ir, form: Payloads): RelNode => {
+	const keyed = form !== "keyless"
 	const arm = (kind: string, payload: string, field: string) => {
 		const task = q.base("Task")
 		const m = q.region(
@@ -350,6 +341,9 @@ export const payloads = (q: Ir, keyed: boolean): RelNode => {
 			m,
 			[
 				...(keyed ? [["id", "id"] as const] : []),
+				...(form === "keyed, a group's own key first" && kind === "Manual"
+					? [["aid", "id"] as const]
+					: []),
 				["account", "account"],
 				["kind", q.lit(kind, q.column(task, "kind").type)],
 				[field, field]
@@ -393,7 +387,8 @@ export const subjectAt = (built: BuiltQuery, at: RelNode) => {
 
 /**
  * What the union is read through: nothing, a take(k), that take ordered again or taken again, a semi-join or an
- * anti-join with the notes, an intersection with itself, a difference, or an attachment of the notes.
+ * anti-join with the notes, an intersection with itself, a difference, an attachment of the notes, or a filter that
+ * fixes its discriminant to the manual arm's kind, which no order then appends.
  */
 type Wrapper =
 	| "the union"
@@ -405,6 +400,7 @@ type Wrapper =
 	| "intersection"
 	| "difference"
 	| "attachment"
+	| "filtered to one kind"
 
 export const wrapped = (q: Ir, union: RelNode, keyed: boolean, wrapper: Wrapper): RelNode => {
 	const byKey = keyed ? ascending("account", "kind", "id") : ascending("account", "kind")
@@ -447,6 +443,8 @@ export const wrapped = (q: Ir, union: RelNode, keyed: boolean, wrapper: Wrapper)
 			})
 		case "attachment":
 			return q.attach(union, notes(q, "task and note"), "note", correlation, "array", undefined)
+		case "filtered to one kind":
+			return q.filter(union, q.op("eq", [q.col(union, "kind"), q.litFor(union, "kind", "Manual")]))
 	}
 }
 
@@ -459,7 +457,8 @@ export const wrappers: Arr.NonEmptyReadonlyArray<Wrapper> = [
 	"anti-join",
 	"intersection",
 	"difference",
-	"attachment"
+	"attachment",
+	"filtered to one kind"
 ]
 
 export const users: Arr.NonEmptyReadonlyArray<ReadonlyArray<OrderKey>> = [
@@ -470,4 +469,9 @@ export const users: Arr.NonEmptyReadonlyArray<ReadonlyArray<OrderKey>> = [
 	[asc("account"), desc("id")]
 ]
 
-export type UnionFeature = `${Wrapper} ${"completed" | "refused"}`
+/**
+ * A union case's situation: its wrapper, and whether the fields common to every arm hold a key of the union (keyed),
+ * whose one order every group takes, a group's own key first by its policy among them, or none, where each group's
+ * order needs the group's own fields.
+ */
+export type UnionFeature = `${Wrapper} ${Payloads}`

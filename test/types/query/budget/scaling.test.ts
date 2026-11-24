@@ -33,6 +33,12 @@ export const scaling = growthGate(queryDimensions, {
 			why: "A bundle's parameters are read through an Exclude over its phantom's union: a second difference of 1,600."
 		},
 		{
+			file: "packages/engine/src/live/program.ts",
+			original: "\t? ListOf<ServedRow<X>>",
+			replacement: "\t? KeyedList<ServedRow<X>>",
+			why: "A read's value named by its class directly rather than through the alias over its row: each once call instantiates its program whole, its schema with it, a second difference of 1,600."
+		},
+		{
 			file: "packages/engine/src/types/db/workload.ts",
 			original: 'type ChecksOf<S, X, K> = [K] extends ["read"]',
 			replacement: 'type ChecksOf<S, X, K> = [Kinds<X>] extends ["read"]',

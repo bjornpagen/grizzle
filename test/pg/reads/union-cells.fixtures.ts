@@ -62,8 +62,8 @@ import { schemaAdmits } from "#test/support/openapi/validator.ts"
  * key schema admits (live/shape.ts slotSchemas over live/wire.ts scalarSchema), which decodes (decodeKey) back to that
  * key, form for form (formOf). The oracle is the in-process key itself and the schema, judged by the validator the CLI
  * generator pins (test/support/openapi/validator.ts). A union of two heading groups delivers each group by a statement
- * of its own, so its key is every head field of every group (program/served.ts templateKey), a column one group lacks
- * among them, spelled null on the wire for that group's rows.
+ * of its own; its key is the fields of the completed order its root delivers in (program/served.ts templateKey), and a
+ * key column one group lacks is spelled null on the wire for that group's rows.
  */
 const handles = ["A", "B", "C"] as const
 
