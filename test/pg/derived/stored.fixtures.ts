@@ -38,7 +38,7 @@ import { bytesOfHex } from "#test/pg/live/source.fixtures.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import { installGenerated } from "#test/support/install-migrate.ts"
-import { standUpJudge } from "#test/support/judge.ts"
+import { standUpRelations } from "#test/support/judge.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
@@ -85,6 +85,9 @@ const compile = fn("compile", {
 	body: fn.body`\nBEGIN\n  PERFORM pg_catalog.set_config('stored_test.compiled', (COALESCE(NULLIF(pg_catalog.current_setting('stored_test.compiled', true), ''), '0')::integer + 1)::text, false);\n  RETURN x * 7 + 1;\nEND\n`
 })
 
+/** The relations a case's writer writes, each of which it stands up before its first write, and no other. */
+const written = ["Doc", "Link"] as const
+
 /** Whether Doc is closed or open. */
 export type Openness = "closed" | "open"
 
@@ -111,11 +114,12 @@ const baseOf = (openness: Openness, name: string) =>
  * The stored relations, each over the document's unit: a projection, a count by document, a negation within it, the
  * rows of a function each place's document and place are passed to, which a restriction to the written units reads at
  * the unit's channels (analysis/theory/unit.ts channelled), and Programmed, each linked place's value's program, a
- * function called once per distinct value of a document (ir/expr.ts evaluatesCall); and, a level above them, Hops, the places a
- * document reaches from its place 0 back along links from placed places, a recursion whose base and step read the stored
- * Placed, which its upkeep reads through Placed's definition, the step's among them (analysis/theory/query.ts
- * liveQuery, theory.ts `maintained`), so it never reads Placed's table as phase A leaves it: Hops sorts before Placed,
- * so its upkeep runs first.
+ * function called once per distinct value of a document (ir/expr.ts evaluatesCall); and, a level above them, Hops, the
+ * places a document reaches from its place 0 back along links from placed places, a recursion whose base and step read
+ * the stored Placed's table and whose step reads the links through the live Linked's definition (analysis/theory/query.ts
+ * liveQuery): its upkeep runs a stratum after Placed's (physical/ddl/rules.ts), though Hops sorts before Placed by
+ * name, and reads Placed's table as Placed's upkeep left it in the same COMMIT, at the units whose places or links the
+ * transaction changed and those whose Placed rows that upkeep changed.
  */
 const storedNames = [
 	"Placed",
@@ -125,7 +129,8 @@ const storedNames = [
 	"Programmed",
 	"Hops",
 	"Dense",
-	"Weighted"
+	"Weighted",
+	"Crowded"
 ] as const
 
 const topOf = (openness: Openness, name: string) => {
@@ -200,10 +205,18 @@ const topOf = (openness: Openness, name: string) => {
 				.find({ doc, at, program })
 		})
 	)
+	/** Each link, a live derived relation a recursion's step reads through its definition. */
+	const Linked = derived(
+		"Linked",
+		query(base).rule((r) => {
+			const { doc, at, to } = v(Link, "l")
+			return r.match(Link, { doc, at, to }).find({ doc, at, to })
+		})
+	)
 	const lower = schema.extend(
 		[base],
 		`${name}_top`,
-		[Placed, Counted, Unlinked, Coded, Programmed, Heavy],
+		[Placed, Counted, Unlinked, Coded, Programmed, Heavy, Linked],
 		[]
 	)
 	const hop = { doc: pg.integer, at: pg.integer }
@@ -220,17 +233,17 @@ const topOf = (openness: Openness, name: string) => {
 			rec: [
 				(r, self: SelfSource<typeof hop>) => {
 					const s = v(self, "s")
-					const l = v(Link, "l")
+					const l = v(Linked, "l")
 					return r
 						.match(self, { doc: s.doc, at: s.at })
-						.match(Link, { doc: s.doc, at: l.at, to: s.at })
+						.match(Linked, { doc: s.doc, at: l.at, to: s.at })
 						.match(Placed, { doc: s.doc, at: l.at })
 						.find({ doc: s.doc, at: l.at })
 				}
 			]
 		})
 	)
-	/** The documents of two places or more, a stored relation over the stored Counted, kept in the same COMMIT. */
+	/** The documents of two places or more, a stored relation over the stored Counted's table, kept a stratum after it. */
 	const Dense = derived.stored(
 		"Dense",
 		query(lower).rule((r) => {
@@ -248,42 +261,60 @@ const topOf = (openness: Openness, name: string) => {
 		})
 	)
 	const top = schema.extend([lower], `${name}_reach`, [Hops, Dense, Weighted], [])
-	/** Each stored relation read whole by a query over the top level, which reads its table. */
+	/**
+	 * The dense documents placed at 0, a level above Dense, over the stored Dense and Placed alone: its upkeep runs a
+	 * stratum above Dense's, which is two above Counted's, and reads Dense's table, whose writes in phase A its captures
+	 * take, so a writer's stand-up of Doc makes Dense's deltas, two upkeeps above it and beside no block that reads Doc
+	 * (physical/ddl/rules.ts besidesOf).
+	 */
+	const Crowded = derived.stored(
+		"Crowded",
+		query(top).rule((r) => {
+			const { doc } = v(Dense, "d")
+			return r.match(Dense, { doc }).match(Placed, { doc, at: 0 }).find({ doc })
+		})
+	)
+	const crowd = schema.extend([top], `${name}_crowd`, [Crowded], [])
+	/** Each stored relation read whole by a query over the highest level, which reads its table. */
 	const reads: Readonly<Record<(typeof storedNames)[number], unknown>> = {
-		Placed: query(top).rule((r) => {
+		Crowded: query(crowd).rule((r) => {
+			const s = v(Crowded, "s")
+			return r.match(Crowded, s).find(s)
+		}),
+		Placed: query(crowd).rule((r) => {
 			const s = v(Placed, "s")
 			return r.match(Placed, s).find(s)
 		}),
-		Counted: query(top).rule((r) => {
+		Counted: query(crowd).rule((r) => {
 			const s = v(Counted, "s")
 			return r.match(Counted, s).find(s)
 		}),
-		Unlinked: query(top).rule((r) => {
+		Unlinked: query(crowd).rule((r) => {
 			const s = v(Unlinked, "s")
 			return r.match(Unlinked, s).find(s)
 		}),
-		Coded: query(top).rule((r) => {
+		Coded: query(crowd).rule((r) => {
 			const s = v(Coded, "s")
 			return r.match(Coded, s).find(s)
 		}),
-		Programmed: query(top).rule((r) => {
+		Programmed: query(crowd).rule((r) => {
 			const s = v(Programmed, "s")
 			return r.match(Programmed, s).find(s)
 		}),
-		Hops: query(top).rule((r) => {
+		Hops: query(crowd).rule((r) => {
 			const s = v(Hops, "s")
 			return r.match(Hops, s).find(s)
 		}),
-		Dense: query(top).rule((r) => {
+		Dense: query(crowd).rule((r) => {
 			const s = v(Dense, "s")
 			return r.match(Dense, s).find(s)
 		}),
-		Weighted: query(top).rule((r) => {
+		Weighted: query(crowd).rule((r) => {
 			const s = v(Weighted, "s")
 			return r.match(Weighted, s).find(s)
 		})
 	}
-	return { top, Placed, Counted, Unlinked, reads }
+	return { top: crowd, Placed, Counted, Unlinked, reads }
 }
 
 /**
@@ -381,7 +412,7 @@ export const upkeepRun = (
 		const s = yield* Substrate
 		const built = topOf(c.openness, "stored_upkeep")
 		const opened = yield* installDerived(built.top, {}, "upkeep", [])
-		yield* standUpJudge(s.admin, opened.installed.installation)
+		yield* standUpRelations(s.admin, opened.installed.installation, written)
 		/** Each stored relation's read, compiled once for the installation as a query of its rows is (oracle/union-take
 		 * compiled), its one statement's text, which reads the relation's table, never its definition. */
 		const readSql = new Map(
@@ -588,7 +619,7 @@ export const watchRun = (
 			{ label: "upkeep_live", ambient: ordinarySession }
 		)
 		const { installed } = generated
-		yield* standUpJudge(s.admin, installed.installation)
+		yield* standUpRelations(s.admin, installed.installation, written)
 		if (c.openness === "open") {
 			reached.note("Doc open")
 		}
@@ -783,7 +814,7 @@ export const lawfulRun = (
 	Effect.gen(function* () {
 		const s = yield* Substrate
 		const opened = yield* installDerived(lawfulOf(c.openness, "stored_lawful"), {}, "lawful", [])
-		yield* standUpJudge(s.admin, opened.installed.installation)
+		yield* standUpRelations(s.admin, opened.installed.installation, written)
 		if (c.openness === "open") {
 			reached.note("Doc open")
 		}
@@ -923,7 +954,7 @@ export const callsRun = (
 		const s = yield* Substrate
 		const opened = yield* installDerived(topOf(c.openness, "stored_calls").top, {}, "calls", [])
 		const installation = opened.installed.installation
-		yield* standUpJudge(s.admin, installation)
+		yield* standUpRelations(s.admin, installation, written)
 		if (c.openness === "open") {
 			reached.note("Doc open")
 		}

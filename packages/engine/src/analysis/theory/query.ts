@@ -1570,11 +1570,13 @@ export const liveReading = (definition: LiveEnv["definition"]): LiveReading => {
 }
 
 /**
- * A definition read live: every derived relation it matches or negates, at any depth, a recursion's base and steps
- * among it, read as its own definition, live, imported (`LiveReading`), and every query it imports read so in turn. Each
- * stays a query of its own, so its rows are computed at a level of their own, joined to the level that reads them by
- * the columns that level binds; none stays a relation by its name, which a walk of the query (analysis/theory/unit.ts)
- * would read as a closed relation, the same at every state and in no unit.
+ * A definition read live: every derived relation it matches or negates, at any depth, read as its own definition, live,
+ * imported (`LiveReading`), and every query it imports read so in turn. Each stays a query of its own, so its rows are
+ * computed at a level of their own, joined to the level that reads them by the columns that level binds; none stays a
+ * relation by its name, which a walk of the query (analysis/theory/unit.ts) would read as a closed relation, the same
+ * at every state and in no unit. A recursion is read as it stands: only a definition holds one, and the query builder
+ * that built it reads a live derived relation through its definition and a stored one by its table, as the reading
+ * does (query/build/state.ts), so no step or base of it matches a relation the reading reads otherwise.
  */
 const liveQuery = (query: InferredQuery, live: LiveReading): InferredQuery => {
 	/** A query read under a bind map, live, and each query's rows its bind map binds a relation parameter to. */
@@ -1622,14 +1624,6 @@ const liveQuery = (query: InferredQuery, live: LiveReading): InferredQuery => {
 			case "named":
 				return { ...st, input: stage(st.input) }
 			case "recursive":
-				return {
-					...st,
-					recursive: {
-						...st.recursive,
-						base: mapNonEmpty(st.recursive.base, rule),
-						rec: mapNonEmpty(st.recursive.rec, rule)
-					}
-				}
 			case "attach":
 			case "order":
 			case "take":

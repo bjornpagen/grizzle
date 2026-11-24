@@ -175,16 +175,20 @@
  * and renames it as a TABLE, and drops and creates it again where its primary key changes, where format 7 created a
  * materialized view, object kind `materializedView`, its keys every one a unique index, and filled it by REFRESH. The
  * rule judge keeps it equal to its definition at every COMMIT: each table its definition reads carries the capture
- * triggers of a judged table, both sides captured, and the judge runs in two passes: its upkeep parts, each a function
- * of its own named by its pass beside its deltas (identity.ruleJudgePart), each block of which, identity.storedUpkeep
- * (physical/ddl/rules.ts upkeepBlock, analysis/theory/unit.ts storedUpkeep), deletes the stored rows at the units its
- * holders' written rows reach that the definition no longer gives and inserts the definition's rows there that it
- * lacks, each statement with the index requests of its reads, an index they earn justified as the enforcement of the
- * derived relation (ir/law.ts LawIndexRequest justification); then the written set read again and the sentinel's row
- * deleted; then its rule parts, as before; then each delta only an upkeep part read emptied, where format 7 kept no
- * stored row but by a refresh. A stored relation is a relation of the theory (ir/law.ts StoredDerivedRelation): a law
+ * triggers of a judged table, both sides captured, and the judge runs in two passes: its upkeep parts, stratum by
+ * stratum, each stored relation's upkeep a stratum after the upkeep of every stored relation it reads, each part a
+ * function of its own named by its pass beside its deltas (identity.ruleJudgePart), each block of which,
+ * identity.storedUpkeep (physical/ddl/rules.ts upkeepBlock, analysis/theory/unit.ts storedUpkeep), deletes the stored
+ * rows at the units its holders' written rows reach that the definition no longer gives and inserts the definition's
+ * rows there that it lacks, each statement with the index requests of its reads, an index they earn justified as the
+ * enforcement of the derived relation (ir/law.ts LawIndexRequest justification), the written set read again after each
+ * stratum; then the sentinel's row deleted; then its rule parts, as before; then each delta only an upkeep part read
+ * emptied, where format 7 kept no stored row but by a refresh. A definition reads a stored relation it names as its
+ * table, a holder of its unit, kept a stratum below it in the same COMMIT, and a table's stand-up makes the deltas of
+ * every stored relation the judge keeps from it, however high above it (physical/ddl/rules.ts besidesOf). A stored
+ * relation is a relation of the theory (ir/law.ts StoredDerivedRelation): a law
  * over it reads its table, a containment with it on either side a rule over a query judged in the rule pass, never a
- * foreign key, its table carrying the captures of a judged table where a rule reads it; a key over it is a UNIQUE on
+ * foreign key, its table carrying the captures of a judged table where a rule or an upkeep reads it; a key over it is a UNIQUE on
  * its table, its proven key's index where it is one, and a check over it a CHECK on its table, each installed by its
  * table's extension (physical/derived/objects.ts) and refusing at the upkeep's insert, never a rule. A read of a stored relation names its table in its footprint as an
  * authored relation's, routed by the fields it fixes, and the live source publishes it under the replica identity its

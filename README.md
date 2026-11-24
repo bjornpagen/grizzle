@@ -4283,7 +4283,10 @@ where it fails: `notUnitLocal`, with `inPlace`, `unitKey`, `split`, `negation`, 
 - **When its rows are written.** At COMMIT, where the rule judge runs: for each unit whose rows a transaction wrote,
   on either side of every relation its definition reads, the judge deletes the stored rows there its definition no
   longer delivers and inserts the ones it delivers anew, two statements over the rows the transaction wrote, its work
-  the written units' and never the table's. A stored row that stays is never touched. After `SET CONSTRAINTS ALL
+  the written units' and never the table's. A stored row that stays is never touched. A definition that reads another
+  stored relation reads its table, which the judge keeps first in the same COMMIT: it keeps each stored relation after
+  every stored relation it reads, at the units whose rows the transaction wrote or whose stored rows the keeping of
+  those below it changed, so no work below is done twice. After `SET CONSTRAINTS ALL
   IMMEDIATE` the judge runs at the end of each statement, so the stored rows are current after each. A statement
   earlier in the writing transaction reads them as the transaction found them, for the units it wrote.
 - **Laws over it.** A rule over a stored relation reads its table, its rows as the transaction leaves them. A key

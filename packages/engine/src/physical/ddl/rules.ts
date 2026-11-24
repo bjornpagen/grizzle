@@ -32,7 +32,7 @@ import { unsupported } from "#compiler/core/errors.ts"
 import { type Identity, identifierOf, identity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
-import { compareStrings } from "#compiler/core/order.ts"
+import { compareNumbers, compareStrings } from "#compiler/core/order.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { noClock } from "#compiler/ir/clock.ts"
 import type { InferredQuery } from "#compiler/ir/desc.ts"
@@ -951,10 +951,12 @@ const judgedTables = (b: InstallBuilder): ReadonlyArray<JudgedTable> => {
 	}
 	for (const upkeep of b.model.theory.upkeeps) {
 		for (const r of upkeep.reads) {
-			const relation = defined(
-				b.model.relations.get(r.relation)?.relation,
-				`${r.relation}, a stored relation the upkeep of ${upkeep.relation} reads`
-			)
+			const relation = b.model.theory.relations[r.relation]
+			if (relation?.kind !== "relation" && relation?.kind !== "stored") {
+				throw defect(
+					`${r.relation}, a table the upkeep of ${upkeep.relation} reads: an ordinary relation or a stored derived one`
+				)
+			}
 			const held = heldOf(relation)
 			if (!held.upkeeps.includes(upkeep)) {
 				held.upkeeps.push(upkeep)
@@ -1108,32 +1110,49 @@ const partsOf = (
 
 /**
  * The deltas that stand beside each delta, by its name: for a delta, every other delta a block of the judge reads or
- * writes beside it (Judged `reads`, `writes`), in name order, none where every block holding it holds it alone: an
- * upkeep writes its stored relation's table, whose captures write its deltas inside the judge. A whole rule's
- * region reads the delta of each side it reads of each holder of its unit, and a transaction that wrote one of them need
- * not have written the others: the stand-up of a table makes its deltas and the deltas beside them (addStandUps), and
- * the capture of a statement requires them, so a block a delta's row runs finds every delta it reads and writes
- * (`partBody`).
+ * writes beside it (Judged `reads`, `writes`), and, for each delta an upkeep writes among those, the deltas beside that
+ * one in turn, in name order, none where every block holding it holds it alone. An upkeep writes its stored relation's
+ * table, whose captures write its deltas inside the judge, which the rules over the relation and the upkeep of each
+ * stored relation over it read in turn, a level up. A whole rule's region reads the delta of each side it reads of each
+ * holder of its unit, and a transaction that wrote one of them need not have written the others: the stand-up of a
+ * table makes its deltas and the deltas beside them (addStandUps), and the capture of a statement requires them, so a
+ * block a delta's row runs finds every delta it reads and writes (`partBody`), however many stored relations above
+ * the table the judge keeps from it.
  */
 const besidesOf = (
 	judged: ReadonlyArray<Judged>
 ): ReadonlyMap<string, ReadonlyArray<SessionDelta>> => {
-	const out = new Map<string, Array<SessionDelta>>()
+	const hop = new Map<string, Array<SessionDelta>>()
 	for (const group of judged.map((j) => [...j.reads, ...j.writes])) {
 		for (const d of group) {
-			const held = out.get(d.name) ?? []
+			const held = hop.getOrInsertComputed(d.name, () => [])
 			for (const e of group) {
 				if (e !== d && !held.includes(e)) {
 					held.push(e)
 				}
 			}
-			out.set(d.name, held)
 		}
 	}
+	const kept = new Set(judged.flatMap((j) => j.writes.map((d) => d.name)))
 	return new Map(
-		[...out].map(
-			([name, held]) => [name, held.toSorted((x, y) => compareStrings(x.name, y.name))] as const
-		)
+		[...hop.keys()].map((name) => {
+			const beside = new Map<string, SessionDelta>()
+			const pending = [name]
+			for (let at = pending.pop(); at !== undefined; at = pending.pop()) {
+				for (const e of hop.get(at) ?? []) {
+					if (e.name !== name && !beside.has(e.name)) {
+						beside.set(e.name, e)
+						if (kept.has(e.name)) {
+							pending.push(e.name)
+						}
+					}
+				}
+			}
+			return [
+				name,
+				[...beside.values()].toSorted((x, y) => compareStrings(x.name, y.name))
+			] as const
+		})
 	)
 }
 
@@ -1693,9 +1712,29 @@ export const addRules = (
 				return [unitBlock(rule, r)]
 		}
 	}
-	/** Phase A's blocks, each stored relation's upkeep, and phase B's, every rule's blocks in trigger-name order, each
-	 * pass in parts of its own (`partsOf`), so every rule reads each stored relation as the transaction leaves it. */
-	const upkept = b.model.theory.upkeeps.map(upkeepBlock)
+	/**
+	 * Phase A's blocks, each stored relation's upkeep, each in its stratum: 0 where the upkeep reads no stored relation,
+	 * else one past the stratum of each stored relation it reads, which the theory admits before it, a level below
+	 * (analysis/theory/theory.ts `stored`), so its upkeep runs after theirs and reads their tables as this COMMIT leaves
+	 * them, at the units their upkeeps' writes changed. A definition reads only the levels below its own, so no stratum
+	 * waits on itself.
+	 */
+	const stratumOf = new Map<string, number>()
+	const upkept = b.model.theory.upkeeps.map((u) => {
+		const below = u.reads.flatMap((r) => {
+			const at = stratumOf.get(r.relation)
+			return at === undefined ? [] : [at + 1]
+		})
+		const stratum = below.reduce((most, at) => Math.max(most, at), 0)
+		stratumOf.set(u.relation, stratum)
+		return { stratum, block: upkeepBlock(u) }
+	})
+	/** Phase A's blocks stratum by stratum, and phase B's, every rule's blocks in trigger-name order, each stratum and
+	 * the rules in parts of their own (`partsOf`), so every upkeep reads each stored relation below it, and every rule each
+	 * stored relation, as the transaction leaves it. */
+	const upkeptStrata = [...Map.groupBy(upkept, (x) => x.stratum)]
+		.toSorted(([x], [y]) => compareNumbers(x, y))
+		.map(([, blocks]) => blocks.map((x) => x.block))
 	const ruled = b.model.rules.flatMap(judgedBy).toSorted((x, y) => compareStrings(x.order, y.order))
 	/** Each judged table's side by its delta's name: the side a part nets, where it is a side of news. */
 	const sideOf = new Map(
@@ -1754,7 +1793,8 @@ export const addRules = (
 		)
 		return { fn, node }
 	}
-	const parts = [...partsOf(upkept, "upkeep"), ...partsOf(ruled, "rules")].map((part) => {
+	const upkeepParts = upkeptStrata.map((stratum) => partsOf(stratum, "upkeep"))
+	const parts = [...upkeepParts.flat(), ...partsOf(ruled, "rules")].map((part) => {
 		const relation = defined(
 			sideOf.get(headNonEmpty(part.deltas).name),
 			"a part's first delta, a judged table's side"
@@ -1804,14 +1844,15 @@ export const addRules = (
 		return { part, fn, node }
 	})
 	/**
-	 * The judge's run, in two passes (d11-design §3.2): the transaction's written set read from the sentinel's row
-	 * (`marked`); phase A, each upkeep part run where the transaction wrote one of its deltas, with the set, whose writes
-	 * of a stored relation's table fire that table's captures where a rule reads it, which mark the standing row; the set
-	 * read again, the stored relations' deltas in it, and the row deleted only then, so a later statement arms the judge
-	 * again and marks its deltas into a new set; phase B, each rule part run likewise, each emptying its deltas; and last
-	 * each delta only phase A read, emptied. It reads no catalog and no delta the transaction did not write: a session
-	 * holds a delta of every relation any of its transactions wrote, none of whose rows outlives its COMMIT. None where
-	 * the installation holds no delta, nor any rule over a query.
+	 * The judge's run, in two passes: the transaction's written set read from the sentinel's row (`marked`); phase A,
+	 * stratum by stratum (`stratumOf`), each upkeep part of the stratum run where the transaction wrote one of its deltas,
+	 * with the set, whose writes of a stored relation's table fire that table's captures where a rule or an upkeep a
+	 * stratum up reads it, which mark the standing row, and the set read again after each stratum, the deltas its upkeeps
+	 * wrote in it, so the next stratum's parts run where the stored relations below them changed; the row deleted only
+	 * after phase A, so a later statement arms the judge again and marks its deltas into a new set; phase B, each rule
+	 * part run likewise, each emptying its deltas; and last each delta only phase A read, emptied. It reads no catalog and
+	 * no delta the transaction did not write: a session holds a delta of every relation any of its transactions wrote,
+	 * none of whose rows outlives its COMMIT. None where the installation holds no delta, nor any rule over a query.
 	 */
 	const consumed: PlStatement = {
 		kind: "modify",
@@ -1837,31 +1878,26 @@ export const addRules = (
 			)
 		}
 	}
-	/** Each part of `pass` run where the transaction wrote one of its deltas. */
-	const passRun = (pass: JudgePart["pass"]): ReadonlyArray<PlStatement> =>
-		parts.flatMap(({ part, fn }): ReadonlyArray<PlStatement> =>
-			part.pass === pass
-				? [
-						{
-							kind: "if",
-							branches: [
-								{
-									condition: {
-										kind: "binary",
-										op: "&&",
-										left: written,
-										right: namesOf(mapNonEmpty(part.deltas, (d) => d.name)),
-										schema: undefined
-									},
-									body: [performed(fn, [written])]
-								}
-							],
-							else: []
-						}
-					]
-				: []
-		)
-	const upkeep = passRun("upkeep")
+	const functionOf = new Map(parts.map(({ part, fn }) => [part, fn] as const))
+	/** Each of `run` run where the transaction wrote one of its deltas. */
+	const partsRun = (run: ReadonlyArray<JudgePart>): ReadonlyArray<PlStatement> =>
+		run.map((part): PlStatement => ({
+			kind: "if",
+			branches: [
+				{
+					condition: {
+						kind: "binary",
+						op: "&&",
+						left: written,
+						right: namesOf(mapNonEmpty(part.deltas, (d) => d.name)),
+						schema: undefined
+					},
+					body: [performed(defined(functionOf.get(part), "a part's function"), [written])]
+				}
+			],
+			else: []
+		}))
+	const upkeep = upkeepParts.flatMap((stratum) => [...partsRun(stratum), readWritten])
 	/** The deltas phase A reads that no rule part reads, which no part empties. */
 	const ruledDeltas = new Set(
 		parts.flatMap(({ part }) => (part.pass === "rules" ? part.deltas.map((d) => d.name) : []))
@@ -1880,9 +1916,8 @@ export const addRules = (
 		: [
 				readWritten,
 				...upkeep,
-				...(isNonEmpty(upkeep) ? [readWritten] : []),
 				consumed,
-				...passRun("rules"),
+				...partsRun(parts.flatMap(({ part }) => (part.pass === "rules" ? [part] : []))),
 				...upkeptOnly.map(emptiedWhereWritten)
 			]
 	const judgeDdl: readonly [PlFunction, Revoke] = [
@@ -1912,7 +1947,7 @@ export const addRules = (
 		},
 		[...tablesOf(b.model.rules), ...parts.map((p) => p.node)]
 	)
-	const besides = besidesOf([...upkept, ...ruled])
+	const besides = besidesOf([...upkept.map((x) => x.block), ...ruled])
 	const standUps = addStandUps(b, tables, besides, judge, sentinel, judgeNode)
 	const events = new Set<TransitionEvent>()
 	for (const t of tables) {

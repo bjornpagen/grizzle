@@ -58,6 +58,7 @@ import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import {
+	type DeclaredMember,
 	type RegionFacts,
 	regionFactsOf,
 	type StoredUpkeep,
@@ -72,7 +73,7 @@ import {
 	StoredRelationName
 } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { compareStrings } from "#compiler/core/order.ts"
+import { compareNumbers, compareStrings } from "#compiler/core/order.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
 import { type LabelledDag, LabelSupply, topoOrder } from "#compiler/ir/dag.ts"
 import {
@@ -278,8 +279,9 @@ export interface Theory extends CheckedTheory {
 	/** Every instant field a clock or a reference (ir/instant.ts), as the classifier read them off the laws
 	 * (analysis/theory/instants.ts), which a write stamps by. */
 	readonly instants: Instants
-	/** Each stored derived relation's upkeep (analysis/theory/unit.ts StoredUpkeep), in name order: what the judge's
-	 * phase A writes at COMMIT (physical/ddl/rules.ts). */
+	/** Each stored derived relation's upkeep (analysis/theory/unit.ts StoredUpkeep), level by level and in name order
+	 * within one: what the judge's phase A writes at COMMIT (physical/ddl/rules.ts), each after the upkeep of every stored
+	 * relation it reads. */
 	readonly upkeeps: ReadonlyArray<StoredUpkeep>
 }
 
@@ -616,7 +618,7 @@ class Builder {
 	 * unit each relation's rows sit in, a stored derived relation's the one its admission decided (ir/unit.ts StoredUnit
 	 * `declared`), so a rule reading its table and its holders is judged whole under the one borrow that covers both. */
 	readonly regionFacts: RegionFacts
-	/** Each stored derived relation's upkeep (StoredUpkeep), in name order. */
+	/** Each stored derived relation's upkeep (StoredUpkeep), level by level and in name order within one. */
 	readonly upkeeps: ReadonlyArray<StoredUpkeep>
 
 	constructor(checked: CheckedSchema) {
@@ -651,23 +653,20 @@ class Builder {
 	readonly #columns: NormalizeEnv["columnType"]
 
 	/**
-	 * The definition of a derived relation the theory's laws read live, by name: a live one's, none for a stored one, whose
-	 * table the laws read as a relation's (ir/law.ts StoredDerivedRelation), nor for an authored or closed relation.
+	 * The definition of a derived relation the theory reads live, by name: a live one's, none for a stored one, whose table
+	 * every reader reads as a relation's (ir/law.ts StoredDerivedRelation), a law's violation query, a stored relation's
+	 * admission and its upkeep alike, nor for an authored or closed relation. A stored relation is one by its declaration,
+	 * so the reading holds before the theory has admitted any.
 	 */
-	readonly #readLive = (relation: string): QueryDesc | undefined =>
-		this.sides.relations.get(relation)?.kind === "stored"
+	readonly #readLive = (relation: string): QueryDesc | undefined => {
+		const declared = this.owned.relations[relation]
+		return declared?.kind === "derived" && declared.view.kind === "stored"
 			? undefined
 			: this.definitions.get(relation)
+	}
 
-	/** How the theory's violation queries read each relation, each live definition read once however many laws read it. */
+	/** How the theory reads each relation, each live definition read once however many readers read it. */
 	readonly #live = liveReading((relation) => this.#readLive(relation))
-
-	/**
-	 * How a stored relation's own upkeep and admission read its definition: every derived relation it names, at any depth,
-	 * read through its own definition, a stored one's among them (d11-design §3.4), so every stored relation is a function
-	 * of tables alone and phase A has one level.
-	 */
-	readonly #maintained = liveReading((relation) => this.definitions.get(relation))
 
 	/**
 	 * What normalizing the schema's laws reads of it: its relations, each derived relation's definition and the types its
@@ -749,11 +748,13 @@ class Builder {
 
 	/**
 	 * Each stored derived relation admitted, as the theory reads it (ir/law.ts StoredDerivedRelation, storedRelationOf),
-	 * with its upkeep, in name order: its definition, every derived relation it names read through its own definition
-	 * (`maintained`) over the authored and closed relations `relations`, unit-local at the widest unit its head
-	 * delivers, every declared function it calls immutable throughout (analysis/theory/unit.ts storedUnit), its upkeep's
-	 * region read by the closure's facts `facts`; refused,
-	 * DerivedRefused `notUnitLocal`, by the first condition of unit-locality it lacks. A function is unfit where it, or a
+	 * with its upkeep, level by level and in name order within one: its definition read live (`live`), each live derived
+	 * relation it names through its definition and each stored one as its table, over the authored and closed relations
+	 * `relations` and the stored relations of the levels below it, unit-local at the widest unit its head delivers, every
+	 * declared function it calls immutable throughout (analysis/theory/unit.ts storedUnit), its upkeep's region read by
+	 * the closure's facts `facts`; refused, DerivedRefused `notUnitLocal`, by the first condition of unit-locality it
+	 * lacks. A definition reads only the relations of the levels below its own, so every stored relation it reads is
+	 * admitted before it, and its declared unit, which its rows sit in, is known. A function is unfit where it, or a
 	 * function its body calls at any depth, is not immutable: grizzle never reads a body, so a function's declared
 	 * volatility and its declared calls are the author's promise, as PostgreSQL's IMMUTABLE is.
 	 */
@@ -791,30 +792,36 @@ class Builder {
 		const analyses = derivedAnalysis(this.checked).relations
 		const stored: Array<StoredDerivedRelation> = []
 		const upkeeps: Array<StoredUpkeep> = []
-		for (const r of Object.values(this.owned.relations).toSorted((a, b) =>
-			compareStrings(a.name, b.name)
+		const known = new Map(relations)
+		const members = new Map<string, DeclaredMember>()
+		for (const r of Object.values(this.owned.relations).toSorted(
+			(a, b) => compareNumbers(a.level, b.level) || compareStrings(a.name, b.name)
 		)) {
 			if (r.kind !== "derived" || r.view.kind !== "stored") {
 				continue
 			}
-			const definition = this.#maintained.query(r.desc.query)
-			const decided = storedUnit(definition, relations, unfit, (relation) =>
-				this.owned.unitOf.get(relation)
+			const definition = this.#live.query(r.desc.query)
+			const decided = storedUnit(
+				definition,
+				known,
+				unfit,
+				(relation) => this.owned.unitOf.get(relation) ?? members.get(relation)
 			)
 			if ("condition" in decided) {
 				throw new Refusal(
 					derivedRefused(r.desc.loc, { kind: "notUnitLocal", relation: r.name, lacks: decided })
 				)
 			}
-			stored.push(
-				storedRelationOf(
-					defined(analyses[r.name], `the derived analysis of ${r.name}`),
-					r.view.ident,
-					r.level,
-					decided
-				)
+			const admitted = storedRelationOf(
+				defined(analyses[r.name], `the derived analysis of ${r.name}`),
+				r.view.ident,
+				r.level,
+				decided
 			)
-			upkeeps.push(storedUpkeep(r.name, definition, decided, relations, facts, r.desc.loc))
+			stored.push(admitted)
+			upkeeps.push(storedUpkeep(r.name, definition, decided, known, facts, r.desc.loc))
+			known.set(r.name, admitted)
+			members.set(r.name, decided.declared)
 		}
 		return { stored: Object.freeze(stored), upkeeps: Object.freeze(upkeeps) }
 	}

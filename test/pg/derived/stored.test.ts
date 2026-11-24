@@ -8,12 +8,16 @@
  * relations over them, a projection, a count by document, a negation within the document, the rows of an immutable
  * function each place's document and place are passed to, which the judge reads at each written unit's channels, and
  * Programmed, edullm's WalkPattern in the box's terms, each linked place joined back to its value's program, a rule
- * compiling each of a document's distinct values once by an immutable function; and a level above them Hops, the places a document reaches from its place 0 back along links from placed places, a recursion over
- * the stored projection, which its upkeep reads through the projection's definition, Dense, the documents of two places
- * or more, over the stored count, kept in the COMMIT that keeps the count, and Weighted, each place with each heavy
+ * compiling each of a document's distinct values once by an immutable function; and a level above them Hops, the places
+ * a document reaches from its place 0 back along links from placed places, a recursion over the stored projection's
+ * table and, in its step, the links through a live derived relation, kept a stratum after the projection, though it
+ * sorts before it by name, Dense, the documents of two places or more, over the stored count's table, kept a stratum
+ * after the count, and Weighted, each place with each heavy
  * weight, reading the closed Weight through a live derived relation, whose rows no write changes, so its upkeep holds
- * Doc alone; and a drawn sequence of transactions of the owner's direct SQL, each putting and taking places and links at two
- * documents and three places, and changing a place's value where Doc is open, each committed before the next.
+ * Doc alone; a level above those Crowded, the dense documents placed at 0, over the stored Dense and Placed alone, kept
+ * a stratum above Dense; and a drawn sequence of transactions of the owner's direct SQL, each putting and taking places
+ * and links at two documents and three places, and changing a place's value where Doc is open, each committed before
+ * the next, the writer standing up the two tables it writes and no other (test/support/judge.ts standUpRelations).
  *
  * The oracle is PostgreSQL's: after each COMMIT, in one read-only snapshot, each stored relation's rows and its
  * definition's, the definition evaluated by the conservative lowering, which relies on no evidence (oracle/harness.ts);
@@ -110,25 +114,33 @@ export const aStoredRelationEqualsItsDefinitionAfterEveryCommitOfEveryWriteOfIts
 				file: "packages/engine/src/analysis/theory/unit.ts",
 				original: "\tconst [held, ...more] = found.reads.filter((r) => holders.has(r.relation))",
 				replacement: "\tconst [held, ...more] = found.reads",
-				why: "An upkeep's reads take the closed Weight, which Weighted reads through the live Heavy, as a holder: no installation compiles (grizzle internal invariant: Weight, a stored relation the upkeep of Weighted reads), edullm's ItemRecordVariable over the closed Declares."
+				why: "An upkeep's reads take the closed Weight, which Weighted reads through the live Heavy, as a holder: no installation compiles (grizzle internal invariant: Weight, a table the upkeep of Weighted reads: an ordinary relation or a stored derived one), edullm's ItemRecordVariable over the closed Declares."
+			},
+			{
+				file: "packages/engine/src/physical/ddl/rules.ts",
+				original: "\t\tconst stratum = below.reduce((most, at) => Math.max(most, at), 0)\n",
+				replacement: "\t\tconst stratum = 0\n",
+				why: "Every upkeep runs in one stratum, under the written set as the transaction left it: Hops's part runs only where a delta it read before phase A holds a row, so a place put at 0 under standing links, which changes Placed and no link, leaves Hops without the places it now reaches."
 			},
 			{
 				file: "packages/engine/src/analysis/theory/theory.ts",
 				original:
-					"readonly #maintained = liveReading((relation) => this.definitions.get(relation))",
-				replacement: "readonly #maintained = liveReading((relation) => this.#readLive(relation))",
-				why: "An upkeep reads a stored relation it names as its table, not through its definition: Dense's upkeep reads Counted by name, a stored relation no upkeep reads, and no installation compiles."
-			},
-			{
-				file: "packages/engine/src/analysis/theory/query.ts",
-				original: "\t\t\t\t\t\trec: mapNonEmpty(st.recursive.rec, rule)",
-				replacement: "\t\t\t\t\t\trec: st.recursive.rec",
-				why: "A stored relation's upkeep reads a recursion's steps as written, Hops's step reading the stored Placed by its table, which Hops's upkeep, kept before Placed's, finds as the transaction began: a place put with its link back to a reached place in one transaction is missing from Hops."
+					"\t\t\t(a, b) => compareNumbers(a.level, b.level) || compareStrings(a.name, b.name)\n",
+				replacement: "\t\t\t(a, b) => compareStrings(a.name, b.name)\n",
+				why: "The theory admits stored relations in name order, Hops before Placed, which it reads: Hops's upkeep reads no stored Placed, so its stratum is 0 and no change of Placed's rows puts a unit in its region."
 			},
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
-				original: "\tconst upkept = b.model.theory.upkeeps.map(upkeepBlock)\n",
-				replacement: "\tconst upkept: ReadonlyArray<Judged> = []\n",
+				original:
+					"\t\t\t\t\t\tif (kept.has(e.name)) {\n\t\t\t\t\t\t\tpending.push(e.name)\n\t\t\t\t\t\t}\n",
+				replacement: "",
+				why: "A table's stand-up makes the deltas one block away from its own alone: the writer's stand-up of Doc makes Counted's deltas, not Dense's, which Crowded's upkeep reads, so a capture in phase A finds Dense's missing and refuses the transaction (55Z03)."
+			},
+			{
+				file: "packages/engine/src/physical/ddl/rules.ts",
+				original:
+					"\tconst upkeep = upkeepParts.flatMap((stratum) => [...partsRun(stratum), readWritten])\n",
+				replacement: "\tconst upkeep: ReadonlyArray<PlStatement> = []\n",
 				why: "No upkeep runs at COMMIT: a stored relation keeps the rows its migration filled it with, empty, whatever is written after."
 			}
 		]
@@ -261,8 +273,9 @@ export const aLawOverAStoredRelationIsJudgedOverItsRowsAsTheTransactionLeavesThe
 		kills: [
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
-				original: "\t\t\t\t...(isNonEmpty(upkeep) ? [readWritten] : []),\n",
-				replacement: "",
+				original:
+					"\tconst upkeep = upkeepParts.flatMap((stratum) => [...partsRun(stratum), readWritten])\n",
+				replacement: "\tconst upkeep = upkeepParts.flatMap((stratum) => partsRun(stratum))\n",
 				why: "Phase B judges by the written set as it stood before phase A, so a place taken leaves Placed's removed rows unjudged and a link at it commits."
 			},
 			{
@@ -275,8 +288,8 @@ export const aLawOverAStoredRelationIsJudgedOverItsRowsAsTheTransactionLeavesThe
 			{
 				file: "packages/engine/src/analysis/theory/theory.ts",
 				original:
-					'\t\tthis.sides.relations.get(relation)?.kind === "stored"\n\t\t\t? undefined\n\t\t\t: this.definitions.get(relation)\n',
-				replacement: "\t\tthis.definitions.get(relation)\n",
+					'\t\treturn declared?.kind === "derived" && declared.view.kind === "stored"\n\t\t\t? undefined\n\t\t\t: this.definitions.get(relation)\n',
+				replacement: "\t\treturn this.definitions.get(relation)\n",
 				why: "A law over a stored relation reads its definition again, a key over it judged as a rule over every row of its units, and the stored rows it reads at COMMIT none of the judge's."
 			}
 		]
