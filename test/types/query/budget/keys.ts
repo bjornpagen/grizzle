@@ -65,7 +65,7 @@ const step = 10
 /**
  * What one query of each shape adds to a program's instantiations, at most: what it added once a rule's keys read each
  * key's fields' needs once per match (types/evidence/evidence.ts NeedsOfKeys) and the head's terms once
- * (HeadEntries).
+ * (HeadEntries), find reading the rule's facts by their parts (types/query/rule.ts RuleFind).
  *
  * @limitKind measured
  * @owner the query facade's type cost gates (test/types/query/budget/keys.ts)
@@ -74,15 +74,19 @@ const step = 10
  *   test/types/batch/measured.ts checks a program
  * @evidence ~/.cache/grizzle-release/PERF-TYPES-tools/hk (prof.sh, led.sh: the rule's instantiations by alias with an
  *   instrumented TypeScript 5.9, ts5/prof.cjs, over micro programs and W1's grading rule) and keys.test.ts run with
- *   each bound at 0, whose assertion states what a query of each shape adds (PERF-TYPES-tools/keys-*.log)
- * @observed 2026-11-21, 22:00 to 02:00 UTC
+ *   each bound at 0, whose assertion states what a query of each shape adds (PERF-TYPES-tools/keys-*.log,
+ *   ~/.cache/grizzle/METISREDS-logs/keys-rosterin.log)
+ * @observed 2026-11-21, 22:00 to 02:00 UTC; 2026-11-24
  * @environment cassowary, Ubuntu 26.04 arm64, 64 cores, load 200 to 400 from other sessions; Node 26.13.1, TypeScript
- *   7.1.0-beta (tsgo); grizzle at hub main 80fec8100 and lane PERF-TYPES's key cut over it
+ *   7.1.0-beta (tsgo); grizzle at hub main 80fec8100 and lane PERF-TYPES's key cut over it, then at hub main
+ *   4a0bbf034 and lane METISREDS's facts cut over it
  * @workload a schema of two relations and a bound query; 10 and 20 queries of each shape, each program checked alone
- * @result per added query: a composite key 2,287 instantiations (3,153 before the cut), a bound query beside a
- *   composite key 3,411 (5,064 before); every program clean. Of the forms tried (PERF-TYPES-tools/pins-*.log), the
- *   head's entries read once per head with a key's needs walked at once cost least at every pin: walked once per
- *   needed variable, 2,664 and 3,878; with the inputs' needs walked apart from the key's, 2,355 and 3,487
+ * @result per added query: a composite key 2,240 instantiations (2,287 before the facts cut, 3,153 before the key
+ *   cut), a bound query beside a composite key 3,306 (3,411 and 5,064 before); every program clean. Of the forms tried
+ *   (PERF-TYPES-tools/pins-*.log), the head's entries read once per head with a key's needs walked at once cost least
+ *   at every pin: walked once per needed variable, 2,664 and 3,878; with the inputs' needs walked apart from the
+ *   key's, 2,355 and 3,487. Of the facts cut's forms (METISREDS-logs/keys-rosterin.log), find's record narrowed by
+ *   r.in over the facts read whole cost 2,293 and 3,417; read by their parts, with the narrowing, 2,240 and 3,306
  * @decision the bound is the cut's own cost, exactly: a change that makes a keyed rule cost more is refused here, and a
  *   change that lowers it lowers the bound
  * @revalidate a TypeScript 7 or tsgo upgrade; another machine; any change to the evidence's key rule
@@ -90,8 +94,8 @@ const step = 10
  *   cost here
  */
 const addedAtMost: { readonly [S in KeyedShape]: number } = {
-	"a composite key": 2287,
-	"a bound query beside a composite key": 3411
+	"a composite key": 2240,
+	"a bound query beside a composite key": 3306
 }
 
 /** How a shape prints. */

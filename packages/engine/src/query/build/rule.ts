@@ -2,6 +2,7 @@ import { CompileError } from "#compiler/core/errors.ts"
 import { captureLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import { type Built, builtMark } from "#compiler/core/phantom.ts"
 import { hasProperties, isPlainRecord } from "#compiler/core/record.ts"
+import { trusted } from "#compiler/core/trusted.ts"
 import type { RuleDesc, VarDesc } from "#compiler/ir/desc.ts"
 import type {
 	BuilderScope,
@@ -519,7 +520,14 @@ const ruleValue = <S, Params, Sole, Facts, Cx>(
 				: described
 			const rows = typed ? record(entries) : refusedRows<ResultOf<HeadTerms<typeof head>>>()
 			const finished = finishRule(raw, ctx, "r.find")
-			return finishedValue(
+			/**
+			 * The arm, which find returns as its signature types it (types/query/rule.ts FinishedHead), its records as the
+			 * rule's filters restrict them (types/evidence/evidence.ts FoundOf): the decoder record() builds, each roster
+			 * field a membership test restricts typed by the handles it lists, the only ones PostgreSQL delivers there,
+			 * since the statement's WHERE holds the test of every row it returns (core/trusted.ts). The restriction is read
+			 * off the rule's statements, the type parameter Facts of find's signature, which no term of this body names.
+			 */
+			const arm = finishedValue(
 				{
 					ctx,
 					rule: finished.rule,
@@ -530,6 +538,7 @@ const ruleValue = <S, Params, Sole, Facts, Cx>(
 				},
 				{ rows, immediate: rows }
 			)
+			return trusted(arm)
 		},
 		interior: (rule) => {
 			hostArguments("r.interior", [rule])

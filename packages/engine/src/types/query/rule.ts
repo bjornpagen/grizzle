@@ -62,6 +62,8 @@ import type {
 	ContainmentProof,
 	Disjunction,
 	EqualityStates,
+	FoundOf,
+	MembershipStates,
 	EvidenceOf,
 	InferredEvidence,
 	StatesOf,
@@ -110,7 +112,6 @@ import type {
 	NoExcess,
 	ParamSource,
 	Producer,
-	ResultOf,
 	OrdinaryKind,
 	ShownCarriers,
 	HeadingIn,
@@ -138,36 +139,33 @@ import type { AnyContext, AnyWorld } from "#compiler/types/schema/world.ts"
 type T<A> = TypeOfTerm<A>
 type P<A> = ParamsOfTerm<A>
 /**
- * What find returns over a head of terms H, a head whose JavaScript values are its literal terms (HeadTerms): an arm
- * that attaches nothing yet.
+ * What find returns over a head of terms H, a head whose JavaScript values are its literal terms (HeadTerms), from the
+ * rule's facts read by their parts (RuleFacts): its matches O, what its filters state St, its filters Fl and its splits
+ * Sp. An arm that attaches nothing yet, its records each field's host value as the rule's filters keep it (FoundOf).
  */
-type FinishedHead<S, Params, Sole, Facts, Cx, H extends Carriers> = Finished<
-	ResultOf<H>,
+type FinishedHead<
+	S,
+	Params,
+	Sole,
+	O extends ReadonlyArray<unknown>,
+	St,
+	Fl,
+	Sp,
+	Cx,
+	H extends Carriers
+> = Finished<
+	FoundOf<H, St>,
 	EvidenceOf<
 		H,
-		HeadKeys<S, OccurrencesOf<Facts>, H, StatedAt<Facts>>,
-		HeadValues<H, StatedAt<Facts>>,
-		HeadOrigins<H, OccurrencesOf<Facts>>,
-		ProofsOf<
-			ContainmentProof<S, Sole, H>,
-			ReflexiveProof<OccurrencesOf<Facts>, FiltersAt<Facts>, H>,
-			ArmProofOf<S, Sole, H>
-		>,
-		BindingsProved<
-			PinnedOrSplit<
-				S,
-				HeadKeys<S, OccurrencesOf<Facts>, H, StatedAt<Facts>>,
-				H,
-				OccurrencesOf<Facts>,
-				StatedAt<Facts>,
-				SplitsAt<Facts>
-			>,
-			ProducedCard<S, H, OccurrencesOf<Facts>, StatedAt<Facts>>
-		>
+		HeadKeys<S, O, H, St>,
+		HeadValues<H, St>,
+		HeadOrigins<H, O>,
+		ProofsOf<ContainmentProof<S, Sole, H>, ReflexiveProof<O, Fl, H>, ArmProofOf<S, Sole, H>>,
+		BindingsProved<PinnedOrSplit<S, HeadKeys<S, O, H, St>, H, O, St, Sp>, ProducedCard<S, H, O, St>>
 	>,
 	Simplify<Params & ParamsOfValues<H>>,
 	S,
-	ResultOf<H>,
+	FoundOf<H, St>,
 	H,
 	Cx
 >
@@ -388,14 +386,6 @@ type FiltersAfter<Fl, Ps> =
 			: UnknownFilters
 		: UnknownFilters
 
-/** What the rule's filters state of its variables by origin, each origin the one variable of its scope's field. */
-type StatedAt<F> = F extends { readonly stated: infer St } ? St : never
-type SplitsAt<F> = F extends { readonly splits: infer Sp } ? Sp : never
-type OccurrencesOf<F> = F extends { readonly occurrences: infer O extends ReadonlyArray<unknown> }
-	? O
-	: readonly []
-type FiltersAt<F> = F extends { readonly filters: infer Fl } ? Fl : UnknownFilters
-
 /** What may stand opposite a span term: a span term that meets its type, a span parameter among them. */
 type SpanOperand<Sp> = Meets<Sp, "range">
 
@@ -581,15 +571,23 @@ type RuleWhere = <S, Params, Sole, Facts, Cx, const Ps extends ReadonlyArray<Pre
 	Cx | PredicateContexts<Ps>
 >
 
-/** Rule.find: the head of the rule it is called on (Rule). */
-type RuleFind = <S, Params, Sole, Facts, Cx, const H extends Readonly<Record<string, unknown>>>(
-	this: Rule<S, Params, Sole, Facts, Cx>,
+/** Rule.find: the head of the rule it is called on (Rule), whose facts it reads by their parts (RuleFacts). */
+type RuleFind = <
+	S,
+	Params,
+	Sole,
+	O extends ReadonlyArray<unknown>,
+	St,
+	Fl,
+	Sp,
+	Cx,
+	const H extends Readonly<Record<string, unknown>>
+>(
+	this: Rule<S, Params, Sole, RuleFacts<O, St, Fl, Sp>, Cx>,
 	head: H & {
-		readonly [K in keyof H]: HeadTerm &
-			FoldKeyed<S, OccurrencesOf<Facts>, H[K]> &
-			ProducerAlone<H, H[K]>
+		readonly [K in keyof H]: HeadTerm & FoldKeyed<S, O, H[K]> & ProducerAlone<H, H[K]>
 	}
-) => FinishedHead<S, Params, Sole, Facts, Cx, HeadTerms<H>>
+) => FinishedHead<S, Params, Sole, O, St, Fl, Sp, Cx, HeadTerms<H>>
 
 /** Rule.interior: a stage over the schema of the rule it is called on (Rule). */
 type RuleInterior = <
@@ -812,10 +810,16 @@ export interface Rule<S, Params = unknown, Sole = "no match", Facts = NoFacts, C
 		low: L,
 		high: H
 	): Predicate<P<A> & P<L> & P<H>, Reads<readonly [A, L, H]>> & Shaped<Opaque<readonly [A, L, H]>>
-	in<A extends TermBase | FirstValue>(
+	/**
+	 * A membership test: over a roster variable it keeps the variable to the handles it lists, which the head that finds
+	 * it finds alone (evidence/evidence.ts MembershipStates, FoundOf), as the WHERE holds it.
+	 */
+	in<A extends TermBase | FirstValue, const Vs extends ReadonlyArray<LiteralOf<LanguageOf<A>>>>(
 		a: A & FirstTerm<A>,
-		values: ReadonlyArray<LiteralOf<LanguageOf<A>>>
-	): Predicate<P<A>, Reads<readonly [A]>> & Shaped<Opaque<readonly [A]>>
+		values: Vs
+	): Predicate<P<A>, Reads<readonly [A]>> &
+		Shaped<Opaque<readonly [A]>> &
+		Stating<MembershipStates<A, Vs[number]>>
 	/** A conjunction states what each conjunct states; a disjunction states nothing. */
 	and<const Ps extends ReadonlyArray<Predicate<never>>>(
 		...predicates: Ps

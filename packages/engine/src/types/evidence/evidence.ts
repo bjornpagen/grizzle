@@ -1,3 +1,4 @@
+import type { FieldHost } from "#compiler/core/decoder.ts"
 import type { Built, delta, Phantom, phantom } from "#compiler/core/phantom.ts"
 import type {
 	ComputedOrigin,
@@ -15,13 +16,15 @@ import type {
 	ParamsOfTerm,
 	Refusal,
 	SourceOrigin,
+	RosterKeysOf,
 	TermBase,
+	TypeOfTerm,
 	UnionToIntersection,
 	ValueOfTerm
 } from "#compiler/types/core/phantom.ts"
 import type { AnyDerived } from "#compiler/types/derived/derived.ts"
 import type { FieldBase, GeneratedField } from "#compiler/types/fields/field.ts"
-import type { Aggregate, Producer } from "#compiler/types/query/terms.ts"
+import type { Aggregate, Producer, ResultOf } from "#compiler/types/query/terms.ts"
 import type { AnyClosed, AnyRelation, HeadingOf, NameOf } from "#compiler/types/schema/relation.ts"
 import type {
 	ContainmentsOf,
@@ -332,6 +335,25 @@ export type EqualityStates<A, B> = [Needs<B, never>] extends [never]
 		? FixedTo<OriginKey<B>, ValueOf<A>>
 		: Equal<OriginKey<A>, OriginKey<B>>
 type FixedTo<K, V> = [K] extends [never] ? never : Fixed<K & string, V>
+
+/**
+ * A variable, by origin key, whose values a filter restricts to Values: a roster term r.in or Logic.in holds to some of
+ * its handles, as the engine's WHERE holds it, so the head that finds the variable finds those handles alone (FoundOf).
+ */
+interface Restricted<out Key extends string, out Values> {
+	readonly restricted: Key
+	readonly values: Values
+}
+
+/**
+ * What a membership test of A in Members states: a roster variable restricted to the handles Members lists, its values
+ * the handles of its type among them; nothing of any other term, whose values no list of literals bounds as a type does.
+ */
+export type MembershipStates<A, Members> = [RosterKeysOf<TypeOfTerm<A>>] extends [never]
+	? never
+	: [OriginKey<A>] extends [never]
+		? never
+		: Restricted<OriginKey<A> & string, Extract<ValueOfTerm<A>, Members>>
 type Equal<A, B> = [A] extends [never]
 	? never
 	: [B] extends [never]
@@ -375,7 +397,7 @@ type EqualitiesOf<St> = St extends Dep<string, string> ? St : never
  * every member states, since either may be the one that runs: a variable every member fixes, to the names they share or
  * to unknown, and an equality every member states.
  */
-type MustState<X> = MustFix<X> | MustEqual<X>
+type MustState<X> = MustFix<X> | MustEqual<X> | MustRestrict<X>
 type MustFix<X> = [FixedKeys<StatesOfEach<X>>] extends [infer All extends string]
 	? All extends unknown
 		? false extends (
@@ -400,6 +422,35 @@ type SharedAmong<X, N, K> = N extends unknown
 		: N
 	: never
 type OrUnknown<V> = [V] extends [never] ? unknown : V
+type RestrictedKeys<St> = St extends Restricted<infer K, unknown> ? K : never
+/**
+ * The values every statement of St that restricts one of the variables Ks restricts it to: their intersection, each
+ * restriction holding at once, as the WHERE's conjuncts do; never where none restricts one.
+ */
+type RestrictedTo<St, Ks> = [RestrictedSets<St, Ks>] extends [never]
+	? never
+	: UnionToIntersection<RestrictedSets<St, Ks>> extends { readonly restricted: infer V }
+		? V
+		: never
+type RestrictedSets<St, Ks> =
+	St extends Restricted<infer K, infer V>
+		? K extends Ks
+			? { readonly restricted: V }
+			: never
+		: never
+/**
+ * What a union of predicates restricts whatever member runs (MustState): each variable every member restricts, to the
+ * values any of them restricts it to.
+ */
+type MustRestrict<X> = [RestrictedKeys<StatesOfEach<X>>] extends [infer All extends string]
+	? All extends unknown
+		? false extends (
+				X extends unknown ? (All extends RestrictedKeys<StatesOfEach<X>> ? true : false) : never
+			)
+			? never
+			: Restricted<All, X extends unknown ? RestrictedTo<StatesOfEach<X>, All> : never>
+		: never
+	: never
 type MustEqual<X> = [EqualitiesOf<StatesOfEach<X>>] extends [infer All]
 	? All extends unknown
 		? false extends (
@@ -563,6 +614,20 @@ interface RegionHead<Os> {
 
 /** The values an evidence carries, as the part of the evidence that keeps them: absent where it carries none. */
 type ValuesPart<V> = [keyof V] extends [never] ? unknown : { readonly values: V }
+
+/**
+ * The record a find over head H decodes to (types/query/terms.ts ResultOf) where its rule's filters state Stated: each
+ * field's host value, a roster term the filters restrict to some of its handles (Restricted) found as those handles
+ * alone, the variable's and every variable an equality makes it equal to (Closure), by the rule the WHERE holds them by.
+ */
+export type FoundOf<H, Stated> = [RestrictedKeys<Stated>] extends [never]
+	? ResultOf<H>
+	: { readonly [K in keyof H]: FoundAt<FieldHost<H[K]>, H[K], Stated> }
+type FoundAt<V, X, St> = [OriginKey<X>] extends [never]
+	? V
+	: [RestrictedTo<St, Closure<EqualitiesOf<St>, OriginKey<X> & string>>] extends [never]
+		? V
+		: Extract<V, RestrictedTo<St, Closure<EqualitiesOf<St>, OriginKey<X> & string>>>
 
 /**
  * Each head field's values where the rule fixes it per binding and the types name it, as a union of its names: a

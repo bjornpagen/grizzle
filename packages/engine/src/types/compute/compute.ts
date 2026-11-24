@@ -92,7 +92,12 @@ import type {
 	ValueOfTerm,
 	Zoned
 } from "#compiler/types/core/phantom.ts"
-import type { EqualityStates, StatesOf, Stating } from "#compiler/types/evidence/evidence.ts"
+import type {
+	EqualityStates,
+	MembershipStates,
+	StatesOf,
+	Stating
+} from "#compiler/types/evidence/evidence.ts"
 import type {
 	Field,
 	FieldBase,
@@ -1104,7 +1109,9 @@ export interface LogicApi {
 	>
 	/**
 	 * The list is read as it is written (Fit), every member a value of the first operand's language, so a member of
-	 * another type refuses the list as one argument; over a refused first operand it states nothing.
+	 * another type refuses the list as one argument; over a refused first operand it states nothing. In a rule's where,
+	 * over a roster variable, it keeps the variable to the handles it lists, as r.in does (evidence/evidence.ts
+	 * MembershipStates).
 	 */
 	in<A extends TermBase | FirstValue, const Vs>(
 		a: A & FirstTerm<A>,
@@ -1114,7 +1121,7 @@ export interface LogicApi {
 					ContractAdmits<Listed<A, Vs>, ColumnFacts<A>, MembersOf<Vs>>
 	): Admitted<
 		Every<[Listed<A, Vs>, Not<RefutedAt<A, MembersOf<Vs>>>]>,
-		Predicate<P<A>, ComputedOrigin<O<A>>>
+		Predicate<P<A>, ComputedOrigin<O<A>>> & Stating<MembershipStates<A, MembersOf<Vs>>>
 	>
 }
 
