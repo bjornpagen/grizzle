@@ -266,9 +266,8 @@ const dotSegmentWalk = (names: NameSupply, input: Expr): Table => {
 		kind: "function",
 		call: call("string_to_table", [input, text("/")]),
 		alias: split.alias,
-		columns: split.columns,
-		lateral: false,
-		ordinality: true
+		columns: { kind: "named", names: split.columns, ordinality: true },
+		lateral: false
 	}
 	const s = split.read
 	const counted = table(
@@ -656,9 +655,8 @@ const cutDefinition = (fn: "cutBefore" | "cutFrom"): LibraryBody => {
 		kind: "function",
 		call: call("generate_series", [integer(1), length(chars)]),
 		alias: places.alias,
-		columns: places.columns,
-		lateral: false,
-		ordinality: false
+		columns: { kind: "named", names: places.columns, ordinality: false },
+		lateral: false
 	}
 	const found = call("strpos", [subject, call("substring", [chars, places.read("i"), integer(1)])])
 	const at = firstNonNull([
@@ -731,9 +729,8 @@ const decodedPathDefinition = (): LibraryBody => {
 		kind: "function",
 		call: call("string_to_table", [concat(text(writtenFirst), path), text("%")]),
 		alias: split.alias,
-		columns: split.columns,
-		lateral: false,
-		ordinality: true
+		columns: { kind: "named", names: split.columns, ordinality: true },
+		lateral: false
 	}
 	const s = split.read
 	const hex = call("left", [s("p"), integer(2)])
@@ -932,9 +929,8 @@ const decodedPathDefinition = (): LibraryBody => {
 		kind: "function",
 		call: call("string_to_table", [path, text("/")]),
 		alias: segment.alias,
-		columns: segment.columns,
-		lateral: false,
-		ordinality: false
+		columns: { kind: "named", names: segment.columns, ordinality: false },
+		lateral: false
 	}
 	const g = segment.read("g")
 	const writtenDot = and([
@@ -1385,9 +1381,8 @@ const xsdPatternDefinition = (): LibraryBody => {
 		kind: "function",
 		call: call("regexp_split_to_table", [pattern, text("")]),
 		alias: splitNames.alias,
-		columns: splitNames.columns,
-		lateral: false,
-		ordinality: true
+		columns: { kind: "named", names: splitNames.columns, ordinality: true },
+		lateral: false
 	}
 	/** The pattern's length, one row, carried beside its characters so their aggregate groups by it: a pattern of no
 	 * character holds no row of them, and no group, and the recursion reads none, as it reads none of a pattern of n = 0. */

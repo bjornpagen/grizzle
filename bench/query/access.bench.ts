@@ -59,6 +59,7 @@ import { query, v } from "#compiler/public/query.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import type { BinaryOperator, Expr, FromSource, Select, SqlStatement } from "#compiler/sql/ast.ts"
+import { functionColumnNames } from "#compiler/sql/ast.ts"
 import { printType } from "#compiler/sql/print.ts"
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
 import type { SqlError } from "#test/support/pg.ts"
@@ -244,9 +245,10 @@ const definedBy = (
 		case "cte":
 			return { aliases: item.alias === undefined ? [] : [item.alias], columns: [] }
 		case "derived":
-		case "function":
 		case "values":
 			return { aliases: [item.alias], columns: item.columns }
+		case "function":
+			return { aliases: [item.alias], columns: functionColumnNames(item.columns) }
 		case "metRows":
 			return { aliases: [item.alias], columns: Arr.map(item.columns, (c) => c.column) }
 		case "probe":

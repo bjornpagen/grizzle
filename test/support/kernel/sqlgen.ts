@@ -1074,9 +1074,8 @@ const unitFunctionEntry = (d: Draw): Entry => {
 		kind: "function",
 		call: call("range_minus_multi", [span(), span()]),
 		alias,
-		columns: [],
-		lateral: false,
-		ordinality: false
+		columns: { kind: "named", names: [], ordinality: false },
+		lateral: false
 	}
 	return { items: [pieces], rels: [{ alias, columns: [] }] }
 }

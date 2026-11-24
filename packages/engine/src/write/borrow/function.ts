@@ -101,9 +101,8 @@ export const borrowFunctionDdl = (schema: string): readonly [CreateFunction, Rev
 											lit.int(1, types.integer)
 										]),
 										alias: "r1",
-										columns: ["c1"],
-										lateral: false,
-										ordinality: false
+										columns: { kind: "named", names: ["c1"], ordinality: false },
+										lateral: false
 									}
 								],
 								undefined

@@ -101,9 +101,8 @@ export const carrierReaderScan = (
 	kind: "function",
 	call: qualifiedCall(temporarySchema, carrierReaderName(carrier), []),
 	alias,
-	columns,
-	lateral: false,
-	ordinality: false
+	columns: { kind: "named", names: columns, ordinality: false },
+	lateral: false
 })
 
 /** What a carrier's reader's name adds to the carrier's (`carrierReaderName`). */

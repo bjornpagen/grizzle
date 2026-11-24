@@ -45,6 +45,7 @@ import type {
 	PlFunction,
 	PlStatement,
 	Revoke,
+	SelectCore,
 	SessionTableStorage,
 	TransitionTable,
 	TypeRef
@@ -62,7 +63,6 @@ import {
 	gt,
 	le,
 	lit,
-	namedType,
 	notExists,
 	objectName,
 	or,
@@ -75,7 +75,6 @@ import {
 } from "#compiler/sql/build.ts"
 import { printExpr, sessionReaderRows, sessionTableEmptied } from "#compiler/sql/print.ts"
 import { identityHooks, inertVisitor, Transform, visitSelect } from "#compiler/sql/transform.ts"
-import { installationTypes } from "#compiler/sql/type-schemas.ts"
 
 /**
  * The stem of the name of a session's delta of each side (identity.ruleDelta), which its table of pg_temp is named by:
@@ -93,8 +92,6 @@ const deltaStem = { added: "news", removed: "olds" } as const satisfies Record<P
  */
 export interface SessionDelta {
 	readonly ident: Identity<"ruleDelta">
-	/** The row type of the rows its readers return (`addReaders`). */
-	readonly row: Identity<"ruleDeltaRow">
 	readonly name: string
 	readonly columns: NonEmptyReadonlyArray<ColumnDefinition>
 	readonly table: NonEmptyReadonlyArray<ColumnDefinition>
@@ -150,7 +147,7 @@ export interface JudgedSide {
 /**
  * The delta of `relation`'s side `side` (`SessionDelta`): its columns, its relation's heading's, each of its field's
  * session type (ir/physical.ts sessionTypeRef: never an installation's domain, a set's bits too; a text column collated
- * C.UTF-8 as every stored text column is), its table's, its storage, its name and its readers' row type.
+ * C.UTF-8 as every stored text column is), its table's, its storage and its name.
  */
 export const sessionDeltaOf = (
 	b: InstallBuilder,
@@ -182,7 +179,6 @@ export const sessionDeltaOf = (
 	)
 	return {
 		ident,
-		row: identity.ruleDeltaRow(relation.name, deltaStem[side], ident),
 		name: b.name(ident),
 		columns,
 		table,
@@ -385,11 +381,15 @@ export interface ReadDelta {
 /**
  * A read of a session's delta a judged statement makes (`headed`): the side it reads; its selection, the conjuncts of
  * the statement's own over the read's columns and constants alone, each over the delta's table `r1` (`overDelta`), in
- * the order of their texts, none where the statement reads every row; and the reader that returns the rows the
- * selection admits (identity.ruleDeltaReader), named by the delta and the selection's texts.
+ * the order of their texts, none where the statement reads every row; its projection, the places in the delta's
+ * columns of those the statement reads of the selection's rows at any of its reads of them, ascending, the first column
+ * alone where it reads none, since PostgreSQL defines no call's rows by an empty list; and the reader that returns those
+ * columns of the rows the selection admits (identity.ruleDeltaReader), named by the delta, the selection's texts and
+ * the projection's columns.
  */
 export interface DeltaRead extends ReadDelta {
 	readonly selection: ReadonlyArray<Expr>
+	readonly projection: NonEmptyReadonlyArray<number>
 	readonly reader: Identity<"ruleDeltaReader">
 }
 
@@ -414,11 +414,13 @@ export class DeltaReads {
 	}
 
 	/**
-	 * The read of `of`'s delta under `selection`, conjuncts over its table `r1`: each conjunct once, in the order of
-	 * their texts as an identity reads them, each pattern by its language (row-functions.ts byLanguage), so every
-	 * statement that reads the delta under the same conditions reads one reader, and two spellings of one language one.
+	 * The read of `of`'s delta under `selection`, conjuncts over its table `r1`, of the columns at `places` in the
+	 * delta's columns: each conjunct once, in the order of their texts as an identity reads them, each pattern by its
+	 * language (row-functions.ts byLanguage), and each place once, ascending, the first alone where there is none
+	 * (DeltaRead `projection`), so every statement that reads the same columns of the delta under the same conditions
+	 * reads one reader, and two spellings of one language one.
 	 */
-	read(of: ReadDelta, selection: ReadonlyArray<Expr>): DeltaRead {
+	read(of: ReadDelta, selection: ReadonlyArray<Expr>, places: ReadonlyArray<number>): DeltaRead {
 		const named = new Transform({
 			...identityHooks,
 			expr: (e) => byLanguage((are) => this.#b.languageOf(are), e)
@@ -426,11 +428,14 @@ export class DeltaReads {
 		const conjuncts = [
 			...new Map(selection.map((e) => [printExpr(named.expr(e)), e] as const)).entries()
 		].toSorted(([x], [y]) => compareStrings(x, y))
+		const [first = 0, ...rest] = [...new Set(places)].toSorted((x, y) => x - y)
+		const projection: NonEmptyReadonlyArray<number> = [first, ...rest]
 		const reader = identity.ruleDeltaReader(
 			of.relation.name,
 			deltaStem[of.side],
 			of.delta.ident,
-			conjuncts.map(([text]) => text)
+			conjuncts.map(([text]) => text),
+			projection.map((at) => defined(of.delta.columns[at], "a projected column of the delta").name)
 		)
 		const held = this.#reads.get(of.delta.name) ?? new Map<string, DeltaRead>()
 		this.#reads.set(of.delta.name, held)
@@ -438,7 +443,7 @@ export class DeltaReads {
 		if (found !== undefined) {
 			return found
 		}
-		const read: DeltaRead = { ...of, selection: conjuncts.map(([, e]) => e), reader }
+		const read: DeltaRead = { ...of, selection: conjuncts.map(([, e]) => e), projection, reader }
 		held.set(reader.canonical, read)
 		return read
 	}
@@ -613,19 +618,15 @@ const conjunctsOf = (e: Expr): ReadonlyArray<Expr> =>
 
 /** The column of the delta's table each column `c<n>` of its CTE holds (`deltaRelation`), none for any other name. */
 const deltaColumnAt = (of: ReadDelta, column: string): string | undefined => {
-	const digits = column.startsWith("c") ? column.slice(1) : ""
-	const n = Number(digits)
-	return digits !== "" && Number.isSafeInteger(n) && String(n) === digits
-		? of.delta.columns[n - 1]?.name
-		: undefined
+	const at = columnPlace(column)
+	return at === undefined ? undefined : of.delta.columns[at]?.name
 }
 
 /**
  * A read of a delta a core's FROM holds (`headed`): the side it reads; the delta's column each column the core reads of
  * it holds, by its alias and name; and the source with the delta's CTE renamed `name`. A read is the delta's CTE itself
- * (lower/conservative/delta), or a derived table of one core that projects columns of one read alone, under no
- * condition, grouping, order or limit, its DISTINCT kept (a filter's input over a delta, and each pass-through
- * projection pruning leaves around it), whose i-th target names the column the derived table's i-th name holds.
+ * (lower/conservative/delta), or a pass-through projection of one (`passThrough`: a filter's input over a delta, and
+ * each projection pruning leaves around it), whose i-th target names the column the derived table's i-th name holds.
  */
 interface HeldRead {
 	readonly of: ReadDelta
@@ -646,45 +647,22 @@ const heldRead = (source: FromSource, reads: DeltaReads): HeldRead | undefined =
 					renamed: (name) => ({ ...source, name, alias })
 				}
 	}
-	if (source.kind !== "derived") {
+	const p = passThrough(source, (name) => reads.delta(name) !== undefined)
+	const below = p === undefined ? undefined : heldRead(p.inner, reads)
+	if (p === undefined || below === undefined) {
 		return undefined
 	}
-	const query = source.query
-	const core = query.body
-	if (
-		query.with !== undefined ||
-		query.orderBy.length > 0 ||
-		query.limit !== undefined ||
-		query.offset !== undefined ||
-		core.kind !== "core" ||
-		core.where !== undefined ||
-		core.groupBy.length > 0 ||
-		core.having !== undefined ||
-		(core.distinct !== false && core.distinct !== true)
-	) {
-		return undefined
-	}
-	const [inner, ...others] = core.from
-	if (inner === undefined || inner.kind === "joins" || others.length > 0) {
-		return undefined
-	}
-	const below = heldRead(inner, reads)
-	if (below === undefined) {
-		return undefined
-	}
-	const projected = core.targets.map((t) =>
-		t.expr.kind === "column" ? below.column(t.expr) : undefined
-	)
+	const projected = p.reads.map((read) => below.column(read))
 	if (projected.some((c) => c === undefined)) {
 		return undefined
 	}
 	return {
 		of: below.of,
 		column: (read) =>
-			read.table === source.alias ? projected[source.columns.indexOf(read.column)] : undefined,
+			read.table === p.source.alias ? projected[p.source.columns.indexOf(read.column)] : undefined,
 		renamed: (name) => ({
-			...source,
-			query: { ...query, body: { ...core, from: [below.renamed(name)] } }
+			...p.source,
+			query: { ...p.source.query, body: { ...p.core, from: [below.renamed(name)] } }
 		})
 	}
 }
@@ -700,18 +678,22 @@ const heldRead = (source: FromSource, reads: DeltaReads): HeldRead | undefined =
  * (edullm's s18 at 39989d602), where each read of its kind reads that kind's rows, by the index its delta is stood up
  * with (`deltaIndexes`).
  *
- * A reader the statement reads once is called where the read stands, which produces its rows once; one it reads twice
- * or more, the arms of a union of one relation's rows under one selection, or a region's occurrences, is read through
- * one MATERIALIZED CTE leading the statement's WITH, named past every relation the statement names, r<n> over its call
- * r<n+1>, which calls it once for the statement and holds its rows for each read: no read's rows are produced twice,
- * where a CTE over every reader held the rows its call produced a second time even for its one read.
+ * Each selection a statement reads is read through one reader, its projection the columns any of its reads reads,
+ * once the moved conditions read theirs in the reader: a pass-through projection's column nothing reads goes from it
+ * (`deadPassThrough`), so the reader returns none of it. A reader the statement reads once is called where the read
+ * stands, which produces its rows once; one it reads twice or more, the arms of a union of one relation's rows under one
+ * selection, or a region's occurrences, is read through one MATERIALIZED CTE leading the statement's WITH, named past
+ * every relation the statement names, r<n> over its call r<n+1>, which calls it once for the statement and holds its
+ * rows for each read: no read's rows are produced twice, where a CTE over every reader held the rows its call produced a
+ * second time even for its one read. Each call defines the columns it reads by their types and collations, each named
+ * c<n> by its place in the delta's columns, as the statement's reads name them.
  */
 export const headed = (statement: OperandSelect, reads: DeltaReads): OperandSelect => {
-	/** Each read's selection by the name the read's CTE is renamed to, past every name a statement holds. */
-	const selected = new Map<string, DeltaRead>()
-	const readName = (read: DeltaRead): string => {
+	/** Each selection a read was renamed under, by the name: the side it reads and the conjuncts moved into its reader. */
+	const selected = new Map<string, Selection>()
+	const readName = (of: ReadDelta, conditions: ReadonlyArray<Expr>): string => {
 		const name = `${readMark}${selected.size}`
-		selected.set(name, read)
+		selected.set(name, { of, conditions })
 		return name
 	}
 	const pushed = new Transform({
@@ -751,10 +733,10 @@ export const headed = (statement: OperandSelect, reads: DeltaReads): OperandSele
 			}
 			const renamed = (source: FromSource): FromSource => {
 				const read = held.get(source)
-				const selection = moved.get(source)
-				return read === undefined || selection === undefined
+				const conditions = moved.get(source)
+				return read === undefined || conditions === undefined
 					? source
-					: read.renamed(readName(reads.read(read.of, selection)))
+					: read.renamed(readName(read.of, conditions))
 			}
 			return {
 				...core,
@@ -771,16 +753,18 @@ export const headed = (statement: OperandSelect, reads: DeltaReads): OperandSele
 			}
 		}
 	}).select(statement)
-	/** Each read's selection by the name its CTE reads under: a marked one's, or every row of a delta read whole. */
-	const readOf = (name: string): DeltaRead | undefined => {
-		const marked = selected.get(name)
-		if (marked !== undefined) {
-			return marked
+	/** The selection a read under the name `name` reads: a renamed one's, or every row of a delta read whole. */
+	const selectionOf = (name: string): Selection | undefined => {
+		const renamed = selected.get(name)
+		if (renamed !== undefined) {
+			return renamed
 		}
 		const of = reads.delta(name)
-		return of === undefined ? undefined : reads.read(of, [])
+		return of === undefined ? undefined : { of, conditions: [] }
 	}
-	const counts = new Map<DeltaRead, number>()
+	/** Each read's selection by its alias, and each selection's places of the columns its reads read, by its key. */
+	const sites = new Map<string, string>()
+	const keyed = new Map<string, { readonly selection: Selection; readonly places: Set<number> }>()
 	let last = 0
 	/** A generated relation name, r<n>, raises `last` to its n; any other name is none of the statement's numbering. */
 	const numbered = (name: string | undefined): void => {
@@ -791,9 +775,11 @@ export const headed = (statement: OperandSelect, reads: DeltaReads): OperandSele
 		}
 	}
 	const sourceOf = (source: FromSource): void => {
-		const read = source.kind === "cte" ? readOf(source.name) : undefined
-		if (read !== undefined) {
-			counts.set(read, (counts.get(read) ?? 0) + 1)
+		const selection = source.kind === "cte" ? selectionOf(source.name) : undefined
+		if (selection !== undefined && source.kind === "cte") {
+			const key = selectionKey(selection)
+			sites.set(source.alias ?? source.name, key)
+			keyed.set(key, keyed.get(key) ?? { selection, places: new Set() })
 		}
 		numbered("alias" in source ? source.alias : undefined)
 	}
@@ -815,54 +801,261 @@ export const headed = (statement: OperandSelect, reads: DeltaReads): OperandSele
 			}
 		}
 	})
-	/** The call of `read`'s reader under `alias`, each column c<n> by its place, as the statement's reads name them. */
+	const dropped = deadPassThrough(pushed, (name) => selectionOf(name) !== undefined)
+	const live = liveReferences(pushed, dropped)
+	for (const [alias, key] of sites) {
+		for (const column of live.get(alias) ?? []) {
+			const at = columnPlace(column)
+			if (at !== undefined) {
+				defined(keyed.get(key), "a read's selection").places.add(at)
+			}
+		}
+	}
+	/** Each selection's read, its projection every column any of the statement's reads of the selection reads. */
+	const readOf = new Map(
+		[...keyed].map(
+			([key, { selection, places }]) =>
+				[key, reads.read(selection.of, selection.conditions, [...places])] as const
+		)
+	)
+	const counts = new Map<string, number>()
+	for (const key of sites.values()) {
+		counts.set(key, (counts.get(key) ?? 0) + 1)
+	}
+	/** The call of `read`'s reader under `alias`, each column it returns defined by its type and collation under its
+	 * name in the statement's reads, c<n> by its place in the delta's columns. */
 	const callOf = (read: DeltaRead, alias: string): FromSource => {
 		const reader = reads.reader(read)
 		return {
 			kind: "function",
 			call: qualifiedCall(reader.schema, reader.name, []),
 			alias,
-			columns: read.delta.columns.map((_, at) => `c${at + 1}`),
-			lateral: false,
-			ordinality: false
+			columns: {
+				kind: "defined",
+				definitions: mapNonEmpty(read.projection, (at) => {
+					const c = defined(read.delta.columns[at], "a projected column of the delta")
+					return { name: `c${at + 1}`, type: c.type, collation: c.collation }
+				})
+			},
+			lateral: false
 		}
 	}
 	/** Each reader read twice or more, its CTE named past every relation the statement names: r<n>, its call r<n+1>. */
 	const shared = new Map(
-		[...counts].flatMap(([read, n]) => {
-			if (n < 2) {
+		[...readOf].flatMap(([key, read]) => {
+			if ((counts.get(key) ?? 0) < 2) {
 				return []
 			}
 			const cte = `r${last + 1}`
 			const inner = `r${last + 2}`
 			last += 2
-			const columns = read.delta.columns.map((_, at) => `c${at + 1}`)
+			const columns = mapNonEmpty(read.projection, (at) => `c${at + 1}`)
 			const head: Cte = {
 				name: cte,
 				columns,
 				materialized: "MATERIALIZED",
 				query: simpleSelect(
-					columns.map((c) => ({ expr: col(inner, c), alias: undefined })),
+					mapNonEmpty(columns, (c) => ({ expr: col(inner, c), alias: undefined })),
 					[callOf(read, inner)],
 					undefined
 				)
 			}
-			return [[read, head] as const]
+			return [[key, head] as const]
 		})
 	)
 	const resolved = new Transform({
 		...identityHooks,
-		fromSource: (source) => {
-			const read = source.kind === "cte" ? readOf(source.name) : undefined
-			if (read === undefined || source.kind !== "cte") {
+		fromSource: (source, original) => {
+			const gone = dropped.get(original)
+			if (
+				gone !== undefined &&
+				source.kind === "derived" &&
+				source.query.body.kind === "core" &&
+				source.query.body.distinct === false
+			) {
+				const core = source.query.body
+				const kept = (_: unknown, at: number): boolean => !gone.has(at)
+				return {
+					...source,
+					query: { ...source.query, body: { ...core, targets: core.targets.filter(kept) } },
+					columns: source.columns.filter(kept)
+				}
+			}
+			const alias = source.kind === "cte" ? (source.alias ?? source.name) : undefined
+			const key = alias === undefined ? undefined : sites.get(alias)
+			if (key === undefined || alias === undefined || source.kind !== "cte") {
 				return source
 			}
-			const alias = source.alias ?? source.name
-			const head = shared.get(read)
-			return head === undefined ? callOf(read, alias) : { ...source, name: head.name, alias }
+			const head = shared.get(key)
+			return head === undefined
+				? callOf(defined(readOf.get(key), "a read's selection"), alias)
+				: { ...source, name: head.name, alias }
 		}
 	}).select(pushed)
 	return withLeading(resolved, shared.values())
+}
+
+/**
+ * A pass-through projection a statement reads a delta through (`headed`): a derived table of one core that projects
+ * columns of one source alone, a read of a delta, `read` saying which CTE names one, or another such projection, under
+ * no condition, grouping, order or limit; its alias, its columns, and each target's column read of the source.
+ */
+interface PassThrough {
+	readonly source: Extract<FromSource, { readonly kind: "derived" }>
+	readonly core: SelectCore
+	readonly inner: FromSource
+	readonly distinct: boolean
+	readonly reads: ReadonlyArray<Extract<Expr, { readonly kind: "column" }>>
+}
+
+/** `source` as a pass-through projection over a read of a delta (`PassThrough`), none where it is none. */
+const passThrough = (
+	source: FromSource,
+	read: (name: string) => boolean
+): PassThrough | undefined => {
+	if (source.kind !== "derived") {
+		return undefined
+	}
+	const query = source.query
+	const core = query.body
+	if (
+		query.with !== undefined ||
+		query.orderBy.length > 0 ||
+		query.limit !== undefined ||
+		query.offset !== undefined ||
+		core.kind !== "core" ||
+		core.where !== undefined ||
+		core.groupBy.length > 0 ||
+		core.having !== undefined ||
+		(core.distinct !== false && core.distinct !== true)
+	) {
+		return undefined
+	}
+	const [inner, ...others] = core.from
+	if (inner === undefined || inner.kind === "joins" || others.length > 0) {
+		return undefined
+	}
+	const below = inner.kind === "cte" ? read(inner.name) : passThrough(inner, read) !== undefined
+	const reads = core.targets.flatMap((t) => (t.expr.kind === "column" ? [t.expr] : []))
+	return below && reads.length === core.targets.length && reads.length === source.columns.length
+		? { source, core, inner, distinct: core.distinct, reads }
+		: undefined
+}
+
+/**
+ * The places of the columns each pass-through projection over a delta's read (`passThrough`) delivers that nothing reads,
+ * by the projection's source, once a statement's selections have moved into their readers: a column the moved conditions
+ * alone read is read no more, nor is the column each projection below it took it from. A projection under DISTINCT keeps
+ * every column, each of which tells its rows apart.
+ */
+const deadPassThrough = (
+	statement: OperandSelect,
+	read: (name: string) => boolean
+): ReadonlyMap<FromSource, ReadonlySet<number>> => {
+	const projections: Array<PassThrough> = []
+	const counts = new Map<string, number>()
+	const referenced = (e: Extract<Expr, { readonly kind: "column" }>): string =>
+		`${e.table}.${e.column}`
+	const visitSource = (source: FromSource): void => {
+		const p = passThrough(source, read)
+		if (p !== undefined) {
+			projections.push(p)
+		}
+	}
+	visitSelect(statement, {
+		...inertVisitor,
+		fromItem: (item) => {
+			if (item.kind === "joins") {
+				visitSource(item.first)
+				for (const step of item.steps) {
+					visitSource(step.source)
+				}
+				return
+			}
+			visitSource(item)
+		},
+		expr: (e) => {
+			if (e.kind === "column" && e.table !== undefined) {
+				counts.set(referenced(e), (counts.get(referenced(e)) ?? 0) + 1)
+			}
+		}
+	})
+	const dead = new Map<FromSource, Set<number>>()
+	let changed = true
+	while (changed) {
+		changed = false
+		for (const p of projections) {
+			if (p.distinct) {
+				continue
+			}
+			const gone = dead.get(p.source) ?? new Set<number>()
+			for (const [at, column] of p.source.columns.entries()) {
+				if (gone.has(at) || (counts.get(`${p.source.alias}.${column}`) ?? 0) > 0) {
+					continue
+				}
+				gone.add(at)
+				changed = true
+				const target = defined(p.reads[at], "a projection's target")
+				counts.set(referenced(target), (counts.get(referenced(target)) ?? 0) - 1)
+			}
+			dead.set(p.source, gone)
+		}
+	}
+	return dead
+}
+
+/** Each column a statement reads of each alias, but a dead projection's targets (`deadPassThrough`). */
+const liveReferences = (
+	statement: OperandSelect,
+	dead: ReadonlyMap<FromSource, ReadonlySet<number>>
+): ReadonlyMap<string, ReadonlySet<string>> => {
+	const deadReads = new Set(
+		[...dead].flatMap(([source, gone]) => {
+			if (source.kind !== "derived" || source.query.body.kind !== "core") {
+				return []
+			}
+			const targets = source.query.body.targets
+			return [...gone].flatMap((at) => {
+				const t = targets[at]?.expr
+				return t?.kind === "column" ? [t] : []
+			})
+		})
+	)
+	const live = new Map<string, Set<string>>()
+	visitSelect(statement, {
+		...inertVisitor,
+		expr: (e) => {
+			if (e.kind !== "column" || e.table === undefined || deadReads.has(e)) {
+				return
+			}
+			const columns = live.get(e.table) ?? new Set<string>()
+			columns.add(e.column)
+			live.set(e.table, columns)
+		}
+	})
+	return live
+}
+
+/** A selection a statement reads a delta under (`headed`): the side, and the conjuncts moved into its reader. */
+interface Selection {
+	readonly of: ReadDelta
+	readonly conditions: ReadonlyArray<Expr>
+}
+
+/** What tells two selections of one statement apart: the delta, then each conjunct's text, in order. */
+const selectionKey = (selection: Selection): string =>
+	[
+		selection.of.delta.name,
+		...[...new Set(selection.conditions.map(printExpr))].toSorted(compareStrings)
+	].join("\u0000")
+
+/** The place in a delta's columns of its CTE's column `c<n>` (`deltaRelation`), none for any other name. */
+const columnPlace = (column: string): number | undefined => {
+	const digits = column.startsWith("c") ? column.slice(1) : ""
+	const n = Number(digits)
+	return digits !== "" && Number.isSafeInteger(n) && String(n) === digits && n >= 1
+		? n - 1
+		: undefined
 }
 
 /**
@@ -930,8 +1123,14 @@ const deltaIndexes = (of: ReadDelta, reads: ReadonlyArray<DeltaRead>): ReadonlyA
 				: [f.column]
 		})
 	)
-	const fixed = reads.map((read) =>
-		[...new Set(read.selection.flatMap((e) => [...fixedBy(e)]))].filter((c) => indexable.has(c))
+	/** Each selection of the delta's reads once, however many projections read it. */
+	const selections = [
+		...new Map(
+			reads.map((read) => [read.selection.map(printExpr).join("\u0000"), read.selection])
+		).values()
+	]
+	const fixed = selections.map((selection) =>
+		[...new Set(selection.flatMap((e) => [...fixedBy(e)]))].filter((c) => indexable.has(c))
 	)
 	const held = new Map<string, number>()
 	for (const columns of fixed) {
@@ -965,12 +1164,17 @@ export const deltaIndex = (delta: SessionDelta, index: DeltaIndex): PlStatement 
 })
 
 /**
- * Each read delta's readers (`DeltaReads`), by the delta's name, each read once: the row type of the delta's rows
- * (SessionDelta `row`, named apart from its readers), its relation's heading's columns, and for each of its reads the
- * function the statements that read it so call, its rows' one SELECT, the read's selection its WHERE, no count of a
- * side of news among them, which the part nets before any statement reads the delta (`netted`):
+ * Each read delta's readers (`DeltaReads`), by the delta's name, each read once: for each of its reads the function the
+ * statements that read it so call, its rows' one SELECT, the read's projection its columns and its selection its WHERE,
+ * no count of a side of news among them, which the part nets before any statement reads the delta (`netted`), returning
+ * SETOF record, each call defining the columns it reads by their types and collations (headed, sql/ast.ts
+ * FunctionColumns `defined`), so no type is made for a reader and a text it returns is read under pg_c_utf8, which a
+ * declared result column of a function never carries:
  *
- *   RETURN QUERY SELECT r1.<column>, ... FROM pg_temp.<delta> AS r1 [WHERE <selection>]
+ *   RETURN QUERY SELECT r1.<projected column>, ... FROM pg_temp.<delta> AS r1 [WHERE <selection>]
+ *
+ * A reader returns the columns its statements read and no other: an upkeep's region of Node's units read Node's every
+ * column of 253,458 rows to take each row's package, 17 times in the giant pattern package's COMMIT (s18 at 39989d602).
  *
  * It deduplicates nothing. A side of news holds each image once once it is netted (`netted` keeps one row of each image
  * it keeps), and images are distinct rows; a side of olds may hold one row twice (a row found, put back and found
@@ -987,36 +1191,17 @@ export const deltaIndex = (delta: SessionDelta, index: DeltaIndex): PlStatement 
  * the judge empties the table with once it has outgrown its page (`emptied`), a new file of the table and an
  * invalidation of every plan that reads it, leaves the judge's plans standing for the next run, and only the reader's
  * own SELECT is planned again. Its EXECUTE is revoked from PUBLIC, as each part's is: only the judge's definer runs it,
- * over a table only that definer made (`ensured`). Each is installed for `reasons`.
+ * over a table only that definer made (`ensured`). Each is installed for `reasons`, by its function's name.
  */
 export const addReaders = (
 	b: InstallBuilder,
 	reads: DeltaReads,
 	reasons: ReadonlyArray<PhysicalReason>
-): ReadonlyMap<string, ReadonlyArray<Node<"validate">>> =>
+): ReadonlyMap<string, Node<"validate">> =>
 	new Map(
-		reads.all().map(({ of, reads: each }) => {
+		reads.all().flatMap(({ of, reads: each }) => {
 			const delta = of.delta
-			const rowNamed = objectName(b.schema, b.name(delta.row))
-			const rowType = b.add(
-				{
-					kind: "rowType",
-					ident: b.qualified("type", delta.row),
-					ddl: [
-						{ kind: "createRowType", name: rowNamed, attributes: delta.columns },
-						{
-							kind: "revoke",
-							privileges: ["ALL"],
-							on: { kind: "TYPE", names: [rowNamed] },
-							from: [{ kind: "PUBLIC" }]
-						}
-					],
-					reasons,
-					phase: "setup"
-				},
-				[b.levelNode(of.relation.name)]
-			)
-			const nodes = each.map((read) => {
+			return each.map((read) => {
 				const named = reads.reader(read)
 				const reader: readonly [PlFunction, Revoke] = [
 					{
@@ -1025,7 +1210,7 @@ export const addReaders = (
 						name: named,
 						params: [],
 						returns: {
-							setOf: namedType(installationTypes(b.names.installation), rowNamed.name, []),
+							setOf: types.record,
 							rows: { kind: "declared", rows: sessionReaderRows }
 						},
 						volatility: "VOLATILE",
@@ -1037,8 +1222,11 @@ export const addReaders = (
 								{
 									kind: "returnQuery",
 									query: simpleSelect(
-										mapNonEmpty(delta.columns, (c) => ({
-											expr: col("r1", c.name),
+										mapNonEmpty(read.projection, (at) => ({
+											expr: col(
+												"r1",
+												defined(delta.columns[at], "a projected column of the delta").name
+											),
 											alias: undefined
 										})),
 										[{ kind: "table", table: sessionTable(delta.name), alias: "r1" }],
@@ -1050,7 +1238,7 @@ export const addReaders = (
 					},
 					revokeOf(named, [])
 				]
-				return b.add(
+				const node = b.add(
 					{
 						kind: "lawFunction",
 						ident: b.qualified("function", read.reader),
@@ -1058,12 +1246,31 @@ export const addReaders = (
 						reasons,
 						phase: "validate"
 					},
-					[rowType]
+					[b.levelNode(of.relation.name)]
 				)
+				return [named.name, node] as const
 			})
-			return [delta.name, nodes] as const
 		})
 	)
+
+/**
+ * The names of the delta readers `body`, a block's statements, calls (`addReaders`), each once: the readers its block
+ * depends on, and no other reader of the deltas it reads, so a block's edges are its own reads however many readers
+ * other blocks' selections give its deltas.
+ */
+export const readersCalled = (body: ReadonlyArray<PlStatement>): ReadonlySet<string> => {
+	const called = new Set<string>()
+	new Transform({
+		...identityHooks,
+		fromSource: (source) => {
+			if (source.kind === "function" && source.call.fn.kind === "qualified") {
+				called.add(source.call.fn.name)
+			}
+			return source
+		}
+	}).plStatements(body)
+	return called
+}
 
 /** REVOKE EXECUTE ON FUNCTION <fn>(<args>) FROM PUBLIC. */
 export const revokeOf = (fn: ObjectName, args: ReadonlyArray<TypeRef>): Revoke => ({

@@ -22,6 +22,7 @@ import {
 	unit
 } from "#compiler/public/schema.ts"
 import type { FromItem, FromSource, OperandSelect } from "#compiler/sql/ast.ts"
+import { functionColumnNames } from "#compiler/sql/ast.ts"
 import { inertVisitor, visitSelect } from "#compiler/sql/transform.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { judgedStatementsOf } from "#test/support/judge.ts"
@@ -258,7 +259,7 @@ const scannedBy = (
 		return head === undefined ? undefined : { kind: "delta", table: head.table }
 	}
 	if (source.kind === "function") {
-		const head = calledHead(source, source.columns, readers)
+		const head = calledHead(source, functionColumnNames(source.columns), readers)
 		return head === undefined ? undefined : { kind: "delta", table: head.table }
 	}
 	if (source.kind !== "table" || typeof source.table === "string") {
@@ -315,7 +316,7 @@ const scansOf = (
 			from.kind === "cte"
 				? heads.get(from.name)?.columnOf
 				: from.kind === "function"
-					? calledHead(from, from.columns, readers)?.columnOf
+					? calledHead(from, functionColumnNames(from.columns), readers)?.columnOf
 					: undefined
 		const columns = Arr.flatMap(item.query.body.targets, (t, i) => {
 			const output = item.columns[i]
@@ -377,6 +378,15 @@ export const judged = (shape: Shape, note: (r: Reached) => void): void => {
 	const installation = succeeded(compileInstallation(owned, installOptions(owned)))
 	const read = readFields(shape)
 	const readers = readersIn(installation)
+	for (const [name, reader] of readers) {
+		const table = deltaOf(reader.delta)
+		for (const column of table === undefined ? [] : reader.columns) {
+			assert.ok(
+				table !== undefined && read[table].has(column),
+				`the reader ${name} returns ${column} of ${table ?? reader.delta}'s delta, a field its rule binds`
+			)
+		}
+	}
 	for (const { query: statement } of judgedStatementsOf(installation)) {
 		note(shape.judge === "whole" ? "a whole rule's statement" : "a probe's statement")
 		const references = referencesOf(statement)

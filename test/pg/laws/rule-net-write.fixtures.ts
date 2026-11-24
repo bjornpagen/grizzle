@@ -161,8 +161,9 @@ const newsProbesOfA = (installation: Installation): ReadonlyArray<JudgedStatemen
 }
 
 /**
- * A's side of news as the judge's statements read it: the delta A's capture creates with a count of each image, the
- * part's netting of it, the DELETE whose WHERE reads the counts' sums (physical/ddl/deltas.ts netted), and its reader.
+ * A's side of news as the judge's statements read it: the delta A's capture creates with a count of each image, its
+ * images' columns, the heading's, and the part's netting of it, the DELETE whose WHERE reads the counts' sums
+ * (physical/ddl/deltas.ts netted).
  */
 const newsOfA = (installation: Installation) => {
 	const news = defined(
@@ -170,22 +171,6 @@ const newsOfA = (installation: Installation) => {
 			Arr.contains(d.columns, countColumn)
 		).pipe(Option.getOrUndefined),
 		"A's side of news"
-	)
-	const readerName = defined(
-		Arr.findFirst([...readersOf(installation)], ([, delta]) => delta === news.name).pipe(
-			Option.getOrUndefined
-		),
-		"the reader of A's side of news"
-	)[0]
-	const reader = defined(
-		Arr.findFirst(
-			installation.statements,
-			(s) => s.kind === "createFunction" && s.name.name === readerName
-		).pipe(
-			Option.flatMap((s) => (s.kind === "createFunction" ? Option.some(s.name) : Option.none())),
-			Option.getOrUndefined
-		),
-		"the reader's function"
 	)
 	const nettings = (body: ReadonlyArray<PlStatement>): ReadonlyArray<string> =>
 		Arr.flatMap(body, (s) =>
@@ -206,15 +191,15 @@ const newsOfA = (installation: Installation) => {
 	)
 	return {
 		delta: news.name,
-		reader: `${quoteIdent(reader.schema)}.${quoteIdent(reader.name)}`,
+		images: Arr.filter(news.columns, (c) => c !== countColumn),
 		netting: defined(netting, "A's netting")
 	}
 }
 
 /**
  * That the side of news the judge reads holds each image once (`newsOfA`): its rows netted, as a part nets them before
- * any statement reads them, then read through its reader, which deduplicates nothing, as every judged statement reads
- * them, hold no row twice. A delta the session has not stood up holds none.
+ * any statement reads them, hold no image twice, since every reader of the delta deduplicates nothing
+ * (physical/ddl/deltas.ts addReaders). A delta the session has not stood up holds none.
  */
 const newsOnce = (installed: Installed, session: RawSession, where: string) =>
 	Effect.gen(function* () {
@@ -228,7 +213,7 @@ const newsOnce = (installed: Installed, session: RawSession, where: string) =>
 		}
 		yield* session.query(news.netting, [])
 		const read = yield* session.values(
-			`SELECT count(*)::int, count(DISTINCT r.*)::int FROM ${news.reader}() AS r`,
+			`SELECT count(*)::int, count(DISTINCT r.*)::int FROM (SELECT ${Arr.join(Arr.map(news.images, quoteIdent), ", ")} FROM pg_temp.${quoteIdent(news.delta)}) AS r`,
 			[]
 		)
 		if (read[0]?.[0] !== read[0]?.[1]) {

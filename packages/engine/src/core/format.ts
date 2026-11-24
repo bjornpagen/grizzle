@@ -463,8 +463,11 @@
  * called where its read stands and one read twice or more read through one MATERIALIZED CTE; and each delta's table is
  * stood up with a B-tree of each column two or more of its selections fix to constants (deltaIndexes,
  * identity.ruleDeltaIndex, sql/ast.ts PlStatement createSessionIndex), where format 8 had one reader of every row of
- * each delta, read through a MATERIALIZED CTE of each statement that read it, and no index of a delta. So every judge
- * statement, every reader and every stand-up moves.
+ * each delta, read through a MATERIALIZED CTE of each statement that read it, and no index of a delta. A reader returns
+ * the columns its statements read of its selection's rows and no other, SETOF record, each call defining them by type
+ * and collation (sql/ast.ts FunctionColumns `defined`), one reader of a selection in a statement however many of its
+ * reads read it, their columns' union, so the reader's name holds its columns too, and no delta has a row type, where
+ * format 8 created one for each delta's readers. So every judge statement, every reader and every stand-up moves.
  * Every read the index engine plans lands on an index whose leading columns are exactly the columns it binds by
  * equality, or on a unique index all of whose keys it binds, and the B-trees created for the reads no installed key
  * serves are the fewest that do, grouped so each group's sets are one chain (physical/indexes/engine.ts chainsOf,
@@ -536,7 +539,7 @@ export type FormattedFile = (typeof formattedFiles)[number]
  * @formatConstant each file's shape: the digest of its type, by test/support/record-shape.ts
  */
 export const recordShapes: { readonly [F in FormattedFile]: string } = {
-	snapshot: "46b2458739d2323ae3bba6dd2941595bc932f92323ff3ec5b037202fe4c95619",
+	snapshot: "f04542fc38339644d16f53854b927985c91457f360ab0d21143c0db21f995ce3",
 	served: "4cda9675378d4041d60b3ecda1b44e32ef16a830490c22b6d68c9792c623e85d"
 }
 

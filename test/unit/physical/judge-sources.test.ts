@@ -8,7 +8,8 @@
  *
  * Oracle: a specification, read off the shape: every scan of T, S or a delta of either in a judged statement reads only
  * fields the shape's rule binds of that relation, its witness's among them, and delivers each to some reference of the
- * statement, but a stored scan's key.
+ * statement, but a stored scan's key; and every reader of a delta returns only such fields (physical/ddl/deltas.ts
+ * headed, whose projection a statement's reads of a delta take whatever the lowering's pruning left them).
  *
  * Features: a whole rule's statement and a probe's; a stored scan and a delta narrowed below their relation's width.
  */
@@ -45,11 +46,11 @@ export const eachJudgedStatementReadsOfARelationExactlyTheColumnsItsRuleReadsAnd
 				why: "A stored scan keeps its relation's whole heading, so a judged statement reads T's pay, which no rule reads; the property fails."
 			},
 			{
-				file: "packages/engine/src/lower/optimize/prune/index.ts",
-				original:
-					'\t\t\t\treturn reach === "withSources" ? narrowedDelta(node, demanded) : undefined',
-				replacement: "\t\t\t\treturn undefined",
-				why: "A session's delta keeps its relation's whole heading, so a probe reads T's pay or S's note from it, which no rule reads; the property fails."
+				file: "packages/engine/src/physical/ddl/deltas.ts",
+				original: "reads.read(selection.of, selection.conditions, [...places])",
+				replacement:
+					"reads.read(selection.of, selection.conditions, selection.of.delta.columns.map((_, at) => at))",
+				why: "Every reader of a session's delta returns its relation's whole heading, so a probe reads T's pay or S's note from it, which no rule reads; the property fails."
 			}
 		]
 	})

@@ -11,6 +11,7 @@ import type {
 	SetOperation,
 	SqlStatement
 } from "#compiler/sql/ast.ts"
+import { functionColumnNames } from "#compiler/sql/ast.ts"
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
 
 /**
@@ -196,7 +197,9 @@ const fromFeature = (item: FromSource): ReadonlyArray<ShapeFeature> => {
 			return [
 				"from function",
 				...(item.lateral ? (["lateral"] as const) : []),
-				...(item.columns.length === 0 ? (["function of no column"] as const) : [])
+				...(functionColumnNames(item.columns).length === 0
+					? (["function of no column"] as const)
+					: [])
 			]
 		case "arrays":
 			return item.source.kind === "count" ? ["from arrays", "arrays of no column"] : ["from arrays"]

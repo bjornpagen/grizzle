@@ -5,14 +5,15 @@
  * read ran the reader's SELECT again for each (edullm's qti draft: 151 of its 1472 pairs of a judged statement and a
  * delta it reads read the delta more than once, the most 19 times). And each read of a delta that its statement selects
  * by constants reads the reader of that selection, its conjuncts moved into the reader (deltas.ts DeltaReads), never
- * the whole delta.
+ * the whole delta; and each call of a reader defines exactly the columns its statement reads of it, each text under
+ * pg_catalog.pg_c_utf8, one call of each selection a statement reads, so no reader returns a column nothing reads.
  *
  * Oracle: a specification, PostgreSQL's evaluation of a statement's CTEs: a MATERIALIZED one computed once for the
  * statement, a NOT MATERIALIZED one spelled at each of its reads (subselect.c inline_cte), a call in the body made where
- * it stands; and the shape's arms, each T's facts of one literal of `a`.
+ * it stands; the shape's arms, each T's facts of one literal of `a`; and each statement's column references.
  *
  * Features: a reader read once, twice and three times or more; a statement reading two deltas; a whole rule's
- * statement and a probe's.
+ * statement and a probe's; a text column delivered.
  */
 
 import { type Reached as ReachedOf } from "@bjornpagen/testing/features"
@@ -21,6 +22,8 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import {
 	judged,
+	type ProjectedReached,
+	projected,
 	type Reached,
 	selected,
 	shapeGen
@@ -78,6 +81,43 @@ export const aReadOfADeltaUnderASelectionOnConstantsReadsTheReaderOfThatSelectio
 				original: "\t\t\t\t\tconst over = overDelta(conjunct, read.column)",
 				replacement: "\t\t\t\t\tconst over = undefined",
 				why: "No selection moves into a reader: each arm reads T's delta whole through its one reader and keeps its literal's rows itself, every row of the delta produced for each arm; the property fails."
+			}
+		]
+	})
+
+/**
+ * Each call of a delta's reader defines exactly the columns its statement reads of it, each text under
+ * pg_catalog.pg_c_utf8, and no statement reads one selection of a delta through two calls.
+ */
+export const aReaderCallDefinesExactlyTheColumnsItsStatementReadsEachTextUnderPgCUtf8AndEachSelectionOnce =
+	property.exhaust(finite(shapeGen), {
+		needs: {},
+		situations: [
+			"a whole rule's statement",
+			"a probe's statement",
+			"a text column delivered",
+			"a reader read twice or more in one statement"
+		] satisfies ReadonlyArray<ReachedOf<ProjectedReached>>,
+		check: (_, c: Case<ProjectedReached>) => (shape) => Effect.sync(() => projected(shape, c.note)),
+		oracle: {
+			kind: "specification",
+			name: "each statement's column references: a reader's call defines the columns read under its alias, or under the aliases of the reads of the CTE that holds it, and no other; a text column's definition names pg_catalog.pg_c_utf8, which PostgreSQL reports of the column a definition list gives a function's text (pg_collation_for), where a declared result column of a function carries the database default; one call of each selection of each delta a statement reads"
+		},
+		box: "every rule over D, a union of one to four rules over T each selecting T by a literal of its own, a check, S's containment by a number or by a text or a key, whole or probed",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/physical/ddl/deltas.ts",
+				original: "reads.read(selection.of, selection.conditions, [...places])",
+				replacement:
+					"reads.read(selection.of, selection.conditions, selection.of.delta.columns.map((_, at) => at))",
+				why: "Every reader returns all of its delta's columns, as before the projection: an upkeep's region of a giant package's nodes read each node's 41 columns to take its package; the property fails."
+			},
+			{
+				file: "packages/engine/src/physical/ddl/deltas.ts",
+				original: "\t\t\tconst key = selectionKey(selection)",
+				replacement: `\t\t\tconst key = \`\${selectionKey(selection)}\\u0000\${source.alias ?? source.name}\``,
+				why: "Each read of a selection gets a reader of its own columns, so a statement that reads one selection at two sites calls two readers of it, producing the selection's rows twice; the property fails."
 			}
 		]
 	})

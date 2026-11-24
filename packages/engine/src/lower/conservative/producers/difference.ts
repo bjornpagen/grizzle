@@ -51,9 +51,8 @@ export const differenceQuery = (
 		kind: "function",
 		call: call("range_minus_multi", [a, b]),
 		alias,
-		columns: [piece],
-		lateral: true,
-		ordinality: false
+		columns: { kind: "named", names: [piece], ordinality: false },
+		lateral: true
 	}
 	return producedQuery(
 		form.produced,

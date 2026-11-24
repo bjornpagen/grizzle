@@ -18,15 +18,23 @@ import {
 	schema,
 	unit
 } from "#compiler/public/schema.ts"
-import type { Expr, OperandSelect } from "#compiler/sql/ast.ts"
-import { printExpr } from "#compiler/sql/print.ts"
+import { str } from "#compiler/public/text.ts"
+import type { ColumnDefinition, Expr, FromSource, OperandSelect } from "#compiler/sql/ast.ts"
+import { cUtf8Collation } from "#compiler/sql/build.ts"
+import { printExpr, printObjectName } from "#compiler/sql/print.ts"
 import { inertVisitor, visitSelect } from "#compiler/sql/transform.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { judgedStatementsOf } from "#test/support/judge.ts"
 import { owning } from "#test/support/policy.ts"
 
-/** A rule's law over D: a check over its facts, a containment of S into it, or a key over a projection of them. */
-type Law = "check" | "contained" | "key"
+/**
+ * A rule's law over D: a check over its facts, a containment of S into it by a number or by a text, or a key over a
+ * projection of them.
+ */
+type Law = "check" | "contained" | "tagged" | "key"
+
+/** A short lowercase word, a text of bounded bytes. */
+const word = str.regex("^[a-z]{1,8}$")
 
 /**
  * One case: its law; D's arms, each T's facts of one literal of `a`; and its judge: whole, T and S immutable, so the
@@ -41,7 +49,7 @@ interface Shape {
 }
 
 export const shapeGen: Gen<Shape> = (s) => ({
-	law: s.draw(element<Law>(["check", "contained", "key"])),
+	law: s.draw(element<Law>(["check", "contained", "tagged", "key"])),
 	arms: s.draw(element<Shape["arms"]>([1, 2, 3, 4])),
 	judge: s.draw(element<Shape["judge"]>(["whole", "probed"]))
 })
@@ -60,11 +68,15 @@ export type Reached =
  * or its `b` once per document.
  */
 const schemaOf = (shape: Shape) => {
-	const T = relation("T", { doc: pg.integer, at: pg.integer, a: pg.integer, b: pg.integer }, [
+	const T = relation(
+		"T",
+		{ doc: pg.integer, at: pg.integer, a: pg.integer, b: pg.integer, tag: word },
+		["doc", "at"]
+	)
+	const S = relation("S", { doc: pg.integer, at: pg.integer, ref: pg.integer, label: word }, [
 		"doc",
 		"at"
 	])
-	const S = relation("S", { doc: pg.integer, at: pg.integer, ref: pg.integer }, ["doc", "at"])
 	const W = relation("W", { wdoc: pg.integer }, ["wdoc"])
 	const probed = shape.judge === "probed"
 	const Base = schema(
@@ -82,11 +94,11 @@ const schemaOf = (shape: Shape) => {
 	)
 	/** The k-th arm: T's facts whose `a` is k, at a document W holds where the judge probes. */
 	const arm = (k: number) => (r: Rule<typeof Base>) => {
-		const { doc, at, b } = v(T, "t")
-		const matched = r.match(T, { doc, at, a: k, b })
+		const { doc, at, b, tag } = v(T, "t")
+		const matched = r.match(T, { doc, at, a: k, b, tag })
 		return probed
-			? matched.match(W, { wdoc: doc }).find({ doc, at, b })
-			: matched.find({ doc, at, b })
+			? matched.match(W, { wdoc: doc }).find({ doc, at, b, tag })
+			: matched.find({ doc, at, b, tag })
 	}
 	const first = query(Base).rule(arm(1))
 	const second = first.rule(arm(2))
@@ -102,6 +114,8 @@ const schemaOf = (shape: Shape) => {
 				return check("Positive", D, (d) => d.ge(d.b, 0))
 			case "contained":
 				return contained(on(S, "doc", "ref"), on(D, "doc", "b"))
+			case "tagged":
+				return contained(on(S, "doc", "label"), on(D, "doc", "tag"))
 			case "key":
 				return key(on(D, "doc", "b"))
 		}
@@ -296,3 +310,175 @@ export const selected = (shape: Shape, note: (r: Reached) => void): void => {
 		`every arm's rows of T's delta are read, a fixed to each of ${Arr.join(Arr.map(arms, String), ", ")}, not only ${Arr.join(Arr.map([...literals], String), ", ")}`
 	)
 }
+
+/** Each delta reader in `installation`, by its function's name: the delta it reads and its condition printed, empty for
+ * a reader of every row. */
+const deltaReadersIn = (
+	installation: Installation
+): ReadonlyMap<string, { readonly delta: string; readonly condition: string }> =>
+	new Map(
+		Arr.flatMap(installation.statements, (s) => {
+			if (s.kind !== "createFunction" || s.language !== "plpgsql") {
+				return []
+			}
+			const [only, ...rest] = s.body.body
+			if (only.kind !== "returnQuery" || rest.length > 0 || only.query.body.kind !== "core") {
+				return []
+			}
+			const [from] = only.query.body.from
+			const where = only.query.body.where
+			return from?.kind === "table" &&
+				typeof from.table !== "string" &&
+				Str.startsWith("__delta_")(from.table.name)
+				? [
+						[
+							s.name.name,
+							{ delta: from.table.name, condition: where === undefined ? "" : printExpr(where) }
+						] as const
+					]
+				: []
+		})
+	)
+
+/** A call of a delta's reader a statement holds: its reader, the columns it defines, and the columns read of it. */
+interface ReaderCall {
+	readonly reader: string
+	readonly definitions: ReadonlyArray<ColumnDefinition>
+	readonly read: ReadonlySet<string>
+}
+
+/**
+ * Each call of a delta's reader `statement` holds (`readers`), with the columns the statement reads of it: of a call
+ * where its read stands, the columns read under its alias; of one a CTE holds, the columns read under the alias of each
+ * read of the CTE.
+ */
+const readerCallsOf = (
+	statement: OperandSelect,
+	readers: ReadonlyMap<string, unknown>
+): ReadonlyArray<ReaderCall> => {
+	const refs = new Map<string, Set<string>>()
+	const cteReads = new Map<string, Array<string>>()
+	const calls: Array<{
+		readonly reader: string
+		readonly alias: string
+		readonly definitions: ReadonlyArray<ColumnDefinition>
+	}> = []
+	const source = (item: FromSource): void => {
+		if (item.kind === "cte") {
+			cteReads.set(item.name, [...(cteReads.get(item.name) ?? []), item.alias ?? item.name])
+		}
+		if (
+			item.kind === "function" &&
+			item.call.fn.kind === "qualified" &&
+			readers.has(item.call.fn.name)
+		) {
+			calls.push({
+				reader: item.call.fn.name,
+				alias: item.alias,
+				definitions: item.columns.kind === "defined" ? item.columns.definitions : []
+			})
+		}
+	}
+	visitSelect(statement, {
+		...inertVisitor,
+		fromItem: (item) => {
+			if (item.kind === "joins") {
+				source(item.first)
+				for (const step of item.steps) {
+					source(step.source)
+				}
+				return
+			}
+			source(item)
+		},
+		expr: (e) => {
+			if (e.kind === "column" && e.table !== undefined) {
+				refs.set(e.table, new Set([...(refs.get(e.table) ?? []), e.column]))
+			}
+		}
+	})
+	/** The CTE each call a CTE of the statement holds lies in, by the call's alias. */
+	const heldBy = new Map(
+		Arr.flatMap(statement.with?.ctes ?? [], (cte) => {
+			const body = cte.query
+			const [from] = body.kind === "select" && body.body.kind === "core" ? body.body.from : []
+			return from?.kind === "function" ? [[from.alias, cte.name] as const] : []
+		})
+	)
+	return Arr.map(calls, (call) => {
+		const cte = heldBy.get(call.alias)
+		const aliases = cte === undefined ? [call.alias] : (cteReads.get(cte) ?? [])
+		return {
+			reader: call.reader,
+			definitions: call.definitions,
+			read: new Set(Arr.flatMap(aliases, (alias) => [...(refs.get(alias) ?? [])]))
+		}
+	})
+}
+
+/**
+ * Judges each call of a delta's reader in `shape`'s installation's judged statements (support/judge.ts
+ * judgedStatementsOf): it defines exactly the columns its statement reads of it, its delta's first column alone where
+ * the statement reads none, since PostgreSQL defines no call's rows by an empty list; each text column it defines it
+ * defines under pg_catalog.pg_c_utf8, the collation a definition list gives the column a function returns; and no two
+ * calls of one statement read one selection of one delta, so a statement produces each selection's rows once.
+ */
+export const projected = (shape: Shape, note: (r: ProjectedReached) => void): void => {
+	const owned = owning(schemaOf(shape))
+	const installation = succeeded(compileInstallation(owned, installOptions(owned)))
+	const readers = deltaReadersIn(installation)
+	for (const { query: statement } of judgedStatementsOf(installation)) {
+		note(shape.judge === "whole" ? "a whole rule's statement" : "a probe's statement")
+		const calls = readerCallsOf(statement, readers)
+		const selections = new Set<string>()
+		for (const call of calls) {
+			const defined = new Set(Arr.map(call.definitions, (d) => d.name))
+			const reader = readers.get(call.reader)
+			const selection = `${reader?.delta ?? ""} ${reader?.condition ?? ""}`
+			assert.ok(
+				!selections.has(selection),
+				`a statement reads the selection ${selection} through two calls of its readers`
+			)
+			selections.add(selection)
+			if (call.read.size === 0) {
+				note("a reader of no column read")
+				assert.equal(defined.size, 1, `the call of ${call.reader} reads no column, and defines one`)
+			} else {
+				assert.ok(
+					defined.size === call.read.size && Arr.every([...call.read], (c) => defined.has(c)),
+					`the call of ${call.reader} defines ${Arr.join([...defined], ", ")}, the columns its statement reads of it being ${Arr.join([...call.read], ", ")}`
+				)
+			}
+			for (const d of call.definitions) {
+				if (d.type.kind === "builtin" && d.type.name === "text") {
+					note("a text column delivered")
+					assert.ok(
+						d.collation !== undefined &&
+							printObjectName(d.collation) === printObjectName(cUtf8Collation),
+						`the call of ${call.reader} defines its text column ${d.name} under pg_catalog.pg_c_utf8`
+					)
+				}
+			}
+		}
+		if (statement.with !== undefined && Arr.some(calls, (call) => call.read.size > 0)) {
+			const shared = Arr.some(statement.with.ctes, (cte) => {
+				const body = cte.query
+				const [from] = body.kind === "select" && body.body.kind === "core" ? body.body.from : []
+				return (
+					from?.kind === "function" &&
+					readers.has(from.call.fn.kind === "qualified" ? from.call.fn.name : "")
+				)
+			})
+			if (shared) {
+				note("a reader read twice or more in one statement")
+			}
+		}
+	}
+}
+
+export type ProjectedReached =
+	| "a whole rule's statement"
+	| "a probe's statement"
+	| "a text column delivered"
+	| "a reader read twice or more in one statement"
+	| "a reader of no column read"

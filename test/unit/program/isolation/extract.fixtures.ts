@@ -1446,9 +1446,8 @@ const fromSource = (
 						kind: "function",
 						call: call("generate_series", [lit.int(1, types.integer), lit.int(2, types.integer)]),
 						alias: p.alias,
-						columns: [OWN_COLUMN],
-						lateral: false,
-						ordinality: false
+						columns: { kind: "named", names: [OWN_COLUMN], ordinality: false },
+						lateral: false
 					}
 				case "context":
 					return {

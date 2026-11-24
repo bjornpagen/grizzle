@@ -51,7 +51,8 @@ import {
 	type Target,
 	type TypeRef,
 	tableConstraints,
-	type Update
+	type Update,
+	functionColumnNames
 } from "#compiler/sql/ast.ts"
 import { types } from "#compiler/sql/build.ts"
 import { type Lexed, lex, type Token } from "#compiler/sql/lexer.ts"
@@ -1522,7 +1523,9 @@ class StatementAuditor {
 				return register(item.alias, { columns })
 			}
 			case "function": {
-				const columns = this.at("columns", () => this.columnList(item.columns, "function", true))
+				const columns = this.at("columns", () =>
+					this.columnList(functionColumnNames(item.columns), "function", true)
+				)
 				const ctx = context("query", item.lateral ? scope : outer, ctes, plVars)
 				this.at("call", () => {
 					this.call(item.call, ctx)

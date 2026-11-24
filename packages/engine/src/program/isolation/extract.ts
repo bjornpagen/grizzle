@@ -2229,7 +2229,8 @@ const carrierReads = (s: SqlStatement): SqlStatement =>
 		fromSource: (source) => {
 			if (
 				source.kind !== "function" ||
-				source.ordinality ||
+				source.columns.kind !== "named" ||
+				source.columns.ordinality ||
 				source.call.args.length > 0 ||
 				source.call.fn.kind !== "qualified" ||
 				source.call.fn.schema !== temporarySchema

@@ -106,9 +106,8 @@ export const packQuery = (
 		kind: "function",
 		call: call("unnest", [col(groupAlias, groupCoverageColumn)]),
 		alias: componentAlias,
-		columns: [component],
-		lateral: true,
-		ordinality: false
+		columns: { kind: "named", names: [component], ordinality: false },
+		lateral: true
 	}
 	return producedQuery(
 		form.produced,

@@ -492,7 +492,18 @@ export class Transform {
 			}
 			case "function": {
 				const call = this.plainCall(item.call)
-				return call === item.call ? item : { ...item, call }
+				const columns =
+					item.columns.kind === "named"
+						? item.columns
+						: (() => {
+								const definitions = mapNonEmptyKept(item.columns.definitions, (c) =>
+									this.columnDefinition(c)
+								)
+								return definitions === item.columns.definitions
+									? item.columns
+									: { ...item.columns, definitions }
+							})()
+				return call === item.call && columns === item.columns ? item : { ...item, call, columns }
 			}
 			case "arrays": {
 				const source = item.source

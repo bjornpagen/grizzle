@@ -105,9 +105,8 @@ const calledItem = (
 			kind: "function",
 			call: qualifiedCall(fn.ref.schema, fn.ref.name, args),
 			alias,
-			columns,
-			lateral: false,
-			ordinality: false
+			columns: { kind: "named", names: columns, ordinality: false },
+			lateral: false
 		},
 		columns: columns.map((c) => col(alias, c))
 	}
@@ -531,9 +530,8 @@ const fieldRows = (
 		kind: "function",
 		call: call("unnest", [array]),
 		alias,
-		columns,
-		lateral: evaluated.from.length > 0,
-		ordinality: false
+		columns: { kind: "named", names: columns, ordinality: false },
+		lateral: evaluated.from.length > 0
 	}
 	const noNullRow = refusingNull(
 		cx,
@@ -577,9 +575,8 @@ const splitItem = (
 	kind: "function",
 	call: fn,
 	alias: columns.alias,
-	columns: columns.names,
-	lateral: false,
-	ordinality
+	columns: { kind: "named", names: columns.names, ordinality },
+	lateral: false
 })
 
 /** A split's rows: each column of its heading as `delivered` reads it, from `item`, where `where` holds. */
@@ -851,9 +848,8 @@ const lowerSeries = (node: NodeOf<"Call">, cx: LowerContext, env: Env): OperandS
 		kind: "function",
 		call: call("generate_series", [end(seriesArguments.low), end(seriesArguments.high)]),
 		alias,
-		columns: [element],
-		lateral: false,
-		ordinality: false
+		columns: { kind: "named", names: [element], ordinality: false },
+		lateral: false
 	}
 	const [column, ...more] = node.heading
 	if (column?.name !== seriesHeading.at || more.length > 0) {

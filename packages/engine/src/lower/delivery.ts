@@ -232,9 +232,8 @@ export const deliveredRows = (
 		kind: "function",
 		call: call("generate_series", [lit.int(0, types.integer), last]),
 		alias: g,
-		columns: [i],
-		lateral: true,
-		ordinality: false
+		columns: { kind: "named", names: [i], ordinality: false },
+		lateral: true
 	}
 	return {
 		kind: "select",

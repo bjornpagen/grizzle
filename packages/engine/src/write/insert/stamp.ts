@@ -201,9 +201,8 @@ export const headStampsCte = (
 							...clock
 						]),
 						alias: stamped,
-						columns: [],
-						lateral: true,
-						ordinality: false
+						columns: { kind: "named", names: [], ordinality: false },
+						lateral: true
 					}
 				],
 				undefined

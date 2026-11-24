@@ -1993,20 +1993,22 @@ export const identity = Object.freeze({
 		),
 	/**
 	 * A reader of a session's delta `delta` of `relation`'s writes on one side (physical/ddl/deltas.ts DeltaReads): the
-	 * set-returning function a statement of the judge reads the rows of the delta a selection admits through, the
-	 * selection's conjuncts over the delta's table, each by its text in canonical order, none for every row; named by
-	 * the delta's identity and the selection, so a migration that changes the delta's declaration or a read's selection
-	 * names another reader.
+	 * set-returning function a statement of the judge reads the columns `projection` of the rows of the delta a selection
+	 * admits through, the selection's conjuncts over the delta's table, each by its text in canonical order, none for
+	 * every row, the projection's columns by name in the delta's order; named by the delta's identity, the selection and
+	 * the projection, so a migration that changes the delta's declaration or a read's selection or columns names another
+	 * reader.
 	 */
 	ruleDeltaReader: (
 		relation: string,
 		side: "news" | "olds",
 		delta: Identity<"ruleDelta">,
-		selection: ReadonlyArray<string>
+		selection: ReadonlyArray<string>,
+		projection: ReadonlyArray<string>
 	): Identity<"ruleDeltaReader"> =>
 		mint(
 			"ruleDeltaReader",
-			[delta, selection],
+			[delta, selection, projection],
 			["reader", side, ...nameSegments(relation)],
 			`the reader of the delta of ${side} of ${relation}`,
 			hashed
@@ -2027,24 +2029,6 @@ export const identity = Object.freeze({
 			[delta, column],
 			["index", side, ...nameSegments(relation)],
 			`the index of the delta of ${side} of ${relation} over ${column}`,
-			hashed
-		),
-	/**
-	 * The row type of the rows a session's delta `delta` of `relation`'s writes on one side holds, which its reader
-	 * returns (`ruleDeltaReader`; physical/ddl/rules.ts addRules), named by the delta's identity and apart from its
-	 * reader: an object is named by its schema and its name alone wherever a statement's text names it, so a type and a
-	 * function of one name are one name to every reader of the text.
-	 */
-	ruleDeltaRow: (
-		relation: string,
-		side: "news" | "olds",
-		delta: Identity<"ruleDelta">
-	): Identity<"ruleDeltaRow"> =>
-		mint(
-			"ruleDeltaRow",
-			[delta],
-			["row", side, ...nameSegments(relation)],
-			`the row type of the delta of ${side} of ${relation}`,
 			hashed
 		),
 	/**

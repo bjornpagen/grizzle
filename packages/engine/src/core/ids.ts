@@ -105,7 +105,6 @@ export type IdentityKind =
 	| "storedUpkeep"
 	| "ruleDelta"
 	| "ruleDeltaReader"
-	| "ruleDeltaRow"
 	| "ruleDeltaIndex"
 	| "ruleSentinel"
 	| "refusal"

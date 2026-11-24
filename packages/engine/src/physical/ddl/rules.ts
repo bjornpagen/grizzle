@@ -65,6 +65,7 @@ import {
 	foreignOf,
 	headed,
 	holding,
+	readersCalled,
 	type JudgedSide,
 	netted,
 	revokeOf,
@@ -1798,7 +1799,13 @@ export const addRules = (
 				reasons: j.reasons,
 				phase: "validate"
 			},
-			[...tablesNamed(j.relations), ...j.reads.flatMap((d) => readers.get(d.name) ?? [])]
+			[
+				...tablesNamed(j.relations),
+				...[...readersCalled(j.body)].flatMap((name) => {
+					const reader = readers.get(name)
+					return reader === undefined ? [] : [reader]
+				})
+			]
 		)
 		return { fn, node }
 	}
@@ -1844,7 +1851,6 @@ export const addRules = (
 			},
 			[
 				...tablesNamed(part.blocks.flatMap((j) => j.relations)),
-				...part.deltas.flatMap((d) => readers.get(d.name) ?? []),
 				...[...blocks.values()].map((block) => block.node)
 			]
 		)

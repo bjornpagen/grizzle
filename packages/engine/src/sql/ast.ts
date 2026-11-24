@@ -881,17 +881,12 @@ export type FromSource =
 			readonly lateral: boolean
 	  }
 	| {
-			/**
-			 * A function's rows, each `WITH ORDINALITY` numbered by its place among them, from 1, in one more column
-			 * after the function's own: the one order SQL states of a function's rows.
-			 */
+			/** A function's rows, its columns as the call names or defines them (FunctionColumns). */
 			readonly kind: "function"
 			readonly call: Call
 			readonly alias: string
-			/** The column alias list, the number's column last where the rows are numbered; an empty one is none. */
-			readonly columns: ReadonlyArray<string>
+			readonly columns: FunctionColumns
 			readonly lateral: boolean
-			readonly ordinality: boolean
 	  }
 	| {
 			/**
@@ -913,6 +908,28 @@ export type FromSource =
 			readonly columns: NonEmptyReadonlyArray<string>
 	  }
 	| ContextSource
+
+/**
+ * The columns of a function's rows as its FROM item states them: `named`, the column alias list of a function whose
+ * result type its declaration states, an empty one none, each row `WITH ORDINALITY` numbered by its place among them,
+ * from 1, in one more column after the function's own where `ordinality` says so, the one order SQL states of a
+ * function's rows, the number's column last in the list; or `defined`, the column definition list of a function that
+ * returns SETOF record, each column's name, type and collation stated at the call, which is the type its rows are read
+ * by (a rule judge's delta reader, physical/ddl/deltas.ts addReaders): a function's result column carries no collation
+ * of its own, so only a definition list reads a text a function returns under pg_catalog.pg_c_utf8. PostgreSQL numbers
+ * no row of a call whose columns it defines (ROWS FROM alone does), and defines no empty list.
+ */
+export type FunctionColumns =
+	| {
+			readonly kind: "named"
+			readonly names: ReadonlyArray<string>
+			readonly ordinality: boolean
+	  }
+	| { readonly kind: "defined"; readonly definitions: NonEmptyReadonlyArray<ColumnDefinition> }
+
+/** The names a function's FROM item gives its rows' columns (FunctionColumns), the number's last where it numbers them. */
+export const functionColumnNames = (columns: FunctionColumns): ReadonlyArray<string> =>
+	columns.kind === "named" ? columns.names : columns.definitions.map((c) => c.name)
 
 /** One join of a join chain: its source joined to everything before it, on a condition or crosswise. */
 /**

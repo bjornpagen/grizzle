@@ -260,9 +260,8 @@ const stampFunction = (
 								kind: "function",
 								call: call("unnest", [argument(first)]),
 								alias: unnested,
-								columns: [element, position],
-								lateral: false,
-								ordinality: true
+								columns: { kind: "named", names: [element, position], ordinality: true },
+								lateral: false
 							}
 						],
 						undefined

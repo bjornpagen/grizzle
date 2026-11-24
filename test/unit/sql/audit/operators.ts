@@ -32,7 +32,7 @@ import type {
 	Update,
 	WindowSpec
 } from "#compiler/sql/ast.ts"
-import { isSetQuery } from "#compiler/sql/ast.ts"
+import { isSetQuery, functionColumnNames } from "#compiler/sql/ast.ts"
 import {
 	and,
 	asc,
@@ -1789,9 +1789,10 @@ const columnOfItem = (item: FromItem): Expr | undefined => {
 		case "table":
 			return at(item.alias, storedColumn)
 		case "derived":
-		case "function":
 		case "values":
 			return at(item.alias, item.columns[0])
+		case "function":
+			return at(item.alias, functionColumnNames(item.columns)[0])
 		case "metRows":
 			return at(item.alias, item.columns[0].column)
 		case "probe":
