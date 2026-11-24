@@ -77,10 +77,16 @@ const equalityKeys = (keys: ReadonlyArray<IndexKey>): ReadonlyArray<string> => {
 }
 
 /** A crossing's bound as a refusal names it. */
-const boundText = (b: CrossingBound): string =>
-	b.kind === "key"
-		? `key (${b.columns.join(", ")}) binds one row`
-		: `(${b.columns.join(", ")}), where ${b.binding.by} stops on an index short of (${b.binding.columns.join(", ")}), binds two rows or more`
+const boundText = (b: CrossingBound): string => {
+	switch (b.kind) {
+		case "key":
+			return `key (${b.columns.join(", ")}) binds one row`
+		case "pair":
+			return `the pair (${b.columns.join(", ")}), which a dependency ties, binds two rows or more`
+		case "apart":
+			return `(${b.columns.join(", ")}), where ${b.binding.by} stops on an index short of (${b.binding.columns.join(", ")}), binds two rows or more`
+	}
+}
 
 /** The refusal of a relation whose statements no declared statistics rank. */
 const declarationRefused = (

@@ -6325,8 +6325,9 @@ statistics from the schema's facts, so the estimate is grizzle's proof order at 
   selectivity. So a unit's key's first field of many values, and the first column of many values of each other key and
   index, is an anchor: it holds 2^y rows a value at any size (`-1/2^y`). Where two anchors stand in one set an index's
   equalities stop at, a functional dependency of the one on the other (`CREATE STATISTICS ... (dependencies)`, its
-  degree restored by `pg_restore_extended_stats` and its statistics target 0) prices the two at two rows, where
-  PostgreSQL would multiply them below one; an anchor may be in several. So an equality on a column of many values that
+  degree restored by `pg_restore_extended_stats` and its statistics target 0) prices the two at 2^m rows, m ≥ 1 the
+  pair's own exponent, which every set holding the pair bounds as it bounds an anchor's, where PostgreSQL would
+  multiply them below one; an anchor may be in several. So an equality on a column of many values that
   leads an index binds a number of rows the table's size does not move. A later field of the unit's key holds one value; every other column 2^x values, x ≥ 1, at most its roster's
   handles, a boolean's 2. A column of few values is never priced by the table's size. The exponents are integers
   under which every key binds one row and every set an index's equalities stop at short of a statement's binding binds

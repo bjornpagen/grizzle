@@ -3,7 +3,7 @@
  * is polynomial in the system's size.
  *
  * Property: over small systems, a free one time in four (one or two anchors, one to four columns, one to six key and
- * apart bounds, each over an anchor or a pair of anchors a dependency ties, most of them crossing) and else one planted
+ * apart bounds, each over an anchor, most of them crossing) and else one planted
  * under drawn exponents (up to four anchors, ten columns and eighteen bounds), the raise's exponents meet every bound,
  * at the exact least's largest anchor exponent, and the exact search finds exponents for that system; a crossing is a
  * system the exact search finds none for, its named bounds holding none together; an unsettled raise, grizzle's
@@ -45,16 +45,12 @@ export const theRaiseMeetsEveryBoundAtTheExactLeastsLargestExponentAndCallsCross
 			"a crossing",
 			"an anchor above 1",
 			"a column above 1",
-			"two anchors",
-			"a bound over a pair"
+			"two anchors"
 		] satisfies ReadonlyArray<Reached<ExponentsFeature>>,
 		check: (_, c: Case<ExponentsFeature>) => (system) =>
 			Effect.sync(() => {
 				if (system.anchors > 1) {
 					c.note("two anchors")
-				}
-				if (Arr.some(system.bounds, (b) => b.over.kind === "pair")) {
-					c.note("a bound over a pair")
 				}
 				const raised = exponentsOf(system)
 				const exact = exactLeast(system)
@@ -122,16 +118,10 @@ export const onAWideSchemasSystemTheRaiseEndsWithinItsBoundedRaisesAndItsExponen
 			Effect.sync(() => {
 				const aparts = Array.from(
 					{ length: system.anchors },
-					(_, a) =>
-						Arr.filter(
-							system.bounds,
-							(b) => b.kind === "apart" && b.over.kind === "anchor" && b.over.at === a
-						).length
+					(_, a) => Arr.filter(system.bounds, (b) => b.kind === "apart" && b.anchor === a).length
 				)
-				const keys = Arr.filter(system.bounds, (b) => b.kind === "key" && b.over.kind === "anchor")
-				const perRound = Arr.reduce(keys, 0, (n, b) =>
-					b.over.kind === "anchor" ? n + (aparts[b.over.at] ?? 0) : n
-				)
+				const keys = Arr.filter(system.bounds, (b) => b.kind === "key")
+				const perRound = Arr.reduce(keys, 0, (n, b) => n + (aparts[b.anchor] ?? 0))
 				const raised = exponentsOf(system)
 				assert.ok(
 					raised.raises <= (keys.length + 1) * perRound,

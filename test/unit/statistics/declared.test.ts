@@ -1,18 +1,20 @@
 /**
- * A relation's declared statistics (physical/statistics/declared.ts) rank every statement's access path by how much of a
- * key it binds, as PostgreSQL estimates them: its independence product of each column's selectivity.
+ * A relation's declared statistics (physical/statistics/declared.ts) rank every statement's access path by how much of
+ * a key it binds, as PostgreSQL estimates them: its independence product of each column's selectivity.
  *
  * Property: over drawn relation shapes (two to six columns, rosters among them, a unit of one or two leading columns or
  * none, keys, indexes and the bindings of keys, index prefixes and drawn sets, half of them holding a crossed pair of
- * keys and sets apart besides), a declaration gives every column one number of distinct values, its anchors relative and
- * every other column absolute; a column of few values is never relative and holds no more values than its roster's
+ * keys and sets apart besides), a declaration gives every column one number of distinct values, its anchors relative
+ * and every other column absolute; a column of few values is never relative and holds no more values than its roster's
  * handles; the unit's key's fields after its first of many values, and a roster of one handle, hold exactly one; a
- * declared dependency ties two anchors at two rows; every key holding one anchor, or one pair, binds at most one row;
- * every set an index's equalities stop at short of a binding, holding no key, holds at most one anchor or one pair, and
- * where it holds one binds two rows or more, as PostgreSQL prices a pair under its dependency; every column of many values
- * that leads an index, but a unit's later field, is an anchor, alone or in a pair, so an equality on it alone is priced
- * at a number of rows the table's size does not move (metis's hold gate, the kept case); and a relation refused is
- * refused as a crossing of its own keys and sets, or for a column asked beyond its values.
+ * declared dependency ties two anchors at 2^m rows, m at least 1 and at most its determinant's exponent; every key
+ * holding one anchor, or one pair, binds at most one row; every set an index's equalities stop at short of a binding,
+ * holding no key, holds at most one anchor or one pair, and where it holds one binds two rows or more, as PostgreSQL
+ * prices a pair under its dependency, beside whatever other columns it holds; every column of many values that leads an
+ * index, but a unit's later field, is an anchor, alone or in a pair, so an equality on it alone is priced at a number
+ * of rows the table's size does not move (metis's hold gate and metis's submit, the kept cases); and a relation refused
+ * is refused as a crossing of its own keys and sets, a raise grizzle did not settle over them, or for a column asked
+ * beyond its values.
  *
  * Oracle: specification, PostgreSQL's estimate over the declared values (declared.fixtures.ts estimate).
  */
@@ -103,8 +105,9 @@ export const declaredStatisticsBindOneRowAtAKeyAndTwoOrMoreAtEverySetApartAsPost
 					assert.ok(
 						y?.kind === "relative" &&
 							declared.get(dep.dependent)?.kind === "relative" &&
-							dep.exponent === y.exponent - 1,
-						`the dependency of ${dep.dependent} on ${dep.determinant} ties two anchors at two rows`
+							dep.exponent >= 0 &&
+							dep.exponent <= y.exponent - 1,
+						`the dependency of ${dep.dependent} on ${dep.determinant} ties two anchors at 2^m rows, m at least 1 and at most its determinant's exponent`
 					)
 				}
 				for (const col of shape.columns) {
@@ -184,9 +187,24 @@ export const declaredStatisticsBindOneRowAtAKeyAndTwoOrMoreAtEverySetApartAsPost
 				reason:
 					"c1 leads index (c1, c2) beside the unit's anchor c0, the two in the sets the key (c0, c1, c2)'s other indexes stop at: e2abf18f2's declarations, pairing no anchors, left c1 absolute, so an equality on it alone was priced at a share of the table, as metis's assignment.user, leading four indexes beside the anchor child, was priced at half of 100,000 rows and its hold gate sorted a five-arm union whole (1.9 ms at 9653f3d5c, 409 ms at 2635639dd); c1 and c0 are a pair now",
 				since: "2026-11-23"
+			},
+			{
+				token: ReplayToken(
+					"test/unit/statistics/declared.test.ts#declaredStatisticsBindOneRowAtAKeyAndTwoOrMoreAtEverySetApartAsPostgresqlEstimatesThem:-:1.1.0.0.0.0.0.0.0.0.0.0.0.1.0.1.1.0.0.0.0.0.0.0.0.0"
+				),
+				reason:
+					"c2 leads index (c2, c1), and the set (c0, c2, c4) index (c0, c2, c4) stops at, short of the binding (c0, c2, c4, c1), holds it beside the unit's anchor c0 and c4, a column of many values: 56851404d paired an anchor only beside columns of one value, so it left c2 absolute, as it left metis's test_presented.stage, leading index (stage, package, child) and held beside the anchor child, package and path in the set (child, package, path, stage) a statement's (child, k, package, path, stage) stops at, at 2 values, which priced (package, stage) at a quarter of 1.43 million rows and took metis's submit 13.7 s; c2 pairs with c0 now at its own exponent",
+				since: "2026-11-23"
 			}
 		],
 		kills: [
+			{
+				file: "packages/engine/src/physical/statistics/declared.ts",
+				original: "\t\t\t\treturn more.length === 0",
+				replacement:
+					"\t\t\t\treturn more.length === 0 && p.columns.every((o) => o === c || o === only || single.has(o))",
+				why: "A pair only beside columns of one value, as 56851404d paired: a column leading an index beside an anchor and another column in a set apart is left absolute, and an equality on it alone priced at a share of the table (the second kept case, metis's submit)."
+			},
 			{
 				file: "packages/engine/src/physical/statistics/declared.ts",
 				original: "\t\tif (admitted && sharers.size <= 1) {",

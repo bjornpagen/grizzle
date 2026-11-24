@@ -8,11 +8,11 @@ import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonemp
  * Each anchor `a` of a relation, a column whose values PostgreSQL is told are a fixed number of rows each at any size of
  * the table, holds 2^y_a rows a value; each other column `c` the planner multiplies by halves a bound set's rows
  * 2^x_c times. A bound is one column set over one anchor, the anchor among its columns and no other, its other
- * columns `columns`:
+ * columns `columns`; a pair of anchors a declared dependency ties is an anchor of its own here, its exponent the
+ * pair's (declared.ts):
  * - a key binds at most one row: Σ x_c ≥ y_a;
  * - a set apart, which holds no key, binds two rows or more: Σ x_c ≤ y_a − 1 (an anchor that is no key alone is a set
  *   apart with no other column, y_a ≥ 1; one that is a key alone a key with none, y_a = 0).
- * A bound over a pair of anchors a declared dependency ties is the same with 1 in y_a's place: the pair binds two rows.
  * The unknowns are integers, y_a ≥ 0 and x_c ≥ 1: PostgreSQL rounds a declared absolute number of distinct values to an
  * integer (selfuncs.c get_variable_numdistinct, clamp_row_est), and every column at least halves the rows it binds.
  *
@@ -31,9 +31,8 @@ import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonemp
  *   keys where it holds no cycle; past that many rounds and one more the raise is ended.
  * What the raise cannot meet is refused in one of two ways:
  * - a crossing, which holds no solution at all, by its proof: a key held whole by a set apart over its anchor
- *   (Σ_K x ≤ Σ_S x ≤ y − 1 < y ≤ Σ_K x), a key over a pair holding no column (Σ x ≥ 1), a set apart over a pair holding
- *   one (Σ x ≤ 0); or the key and set apart pairs of the raise's last round, where their differences 1_K − 1_S sum to no
- *   positive column: then no x > 0 meets them all (Gordan's alternative);
+ *   (Σ_K x ≤ Σ_S x ≤ y − 1 < y ≤ Σ_K x); or the key and set apart pairs of the raise's last round, where their
+ *   differences 1_K − 1_S sum to no positive column: then no x > 0 meets them all (Gordan's alternative);
  * - otherwise an unsettled raise: grizzle's raise found no exponents within its rounds, which the system may hold all the
  *   same, so it is a limitation of grizzle's, refused as one.
  * The work is at most keys + 1 rounds, each raising every key at most once for each set apart over its anchor, each
@@ -41,16 +40,10 @@ import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonemp
  * metis's, edullm's and den's 621 tables the raise declares what e2abf18f2's exact search did, table for table.
  */
 
-/**
- * What a bound's set holds of the relation's anchors: one anchor, by its position, whose exponent is the bound's; or a
- * pair of anchors a declared dependency ties (declared.ts), which binds two rows at any size, an exponent of 1.
- */
-export type Over = { readonly kind: "anchor"; readonly at: number } | { readonly kind: "pair" }
-
-/** One bound of a system, over an anchor or a pair and other columns by their positions (see the module's doc). */
+/** One bound of a system, over an anchor and other columns by their positions (see the module's doc). */
 export interface Bound {
 	readonly kind: "key" | "apart"
-	readonly over: Over
+	readonly anchor: number
 	readonly columns: ReadonlyArray<number>
 }
 
@@ -87,7 +80,7 @@ export type Exponents =
 
 /** Two bounds are one where they hold one kind, one anchor and one set of columns. */
 const boundKey = (b: Bound): string =>
-	`${b.kind}\u0000${b.over.kind === "anchor" ? b.over.at : "pair"}\u0000${[...new Set(b.columns)].toSorted((x, y) => x - y).join(",")}`
+	`${b.kind}\u0000${b.anchor}\u0000${[...new Set(b.columns)].toSorted((x, y) => x - y).join(",")}`
 
 /** A bound of the system, by its position, with its set of columns. */
 interface Placed {
@@ -176,18 +169,11 @@ const raiser = (
 	)
 }
 
-/** The crossing a bound or two hold alone (see the module's doc), or none. */
+/** The crossing a key and a set apart over its anchor holding it whole prove (see the module's doc), or none. */
 const staticCrossing = (
 	keys: ReadonlyArray<ReadonlyArray<Placed>>,
-	aparts: ReadonlyArray<ReadonlyArray<Placed>>,
-	pairs: ReadonlyArray<Placed>
+	aparts: ReadonlyArray<ReadonlyArray<Placed>>
 ): NonEmptyReadonlyArray<number> | undefined => {
-	const lone = pairs.find((p) =>
-		p.bound.kind === "key" ? p.columns.size === 0 : p.columns.size > 0
-	)
-	if (lone !== undefined) {
-		return [lone.at]
-	}
 	for (const [a, overA] of keys.entries()) {
 		for (const k of overA) {
 			const holding = defined(aparts[a], "an anchor's sets apart").find((s) =>
@@ -232,17 +218,11 @@ export const exponentsOf = (system: ExponentSystem): Exponents => {
 		})
 	const overAnchor = (kind: Bound["kind"]): ReadonlyArray<ReadonlyArray<Placed>> =>
 		Array.from({ length: system.anchors }, (_, a) =>
-			placed.filter(
-				(p) => p.bound.kind === kind && p.bound.over.kind === "anchor" && p.bound.over.at === a
-			)
+			placed.filter((p) => p.bound.kind === kind && p.bound.anchor === a)
 		)
 	const keys = overAnchor("key")
 	const aparts = overAnchor("apart")
-	const crossing = staticCrossing(
-		keys,
-		aparts,
-		placed.filter((p) => p.bound.over.kind === "pair")
-	)
+	const crossing = staticCrossing(keys, aparts)
 	if (crossing !== undefined) {
 		return { kind: "crossing", bounds: crossing, raises: 0 }
 	}

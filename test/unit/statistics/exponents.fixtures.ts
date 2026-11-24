@@ -6,7 +6,7 @@
 import { defined } from "@bjornpagen/testing/assert"
 import { array, boolean, type Gen, int, subset, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option } from "effect"
-import type { Bound, ExponentSystem, Over } from "#compiler/physical/statistics/exponents.ts"
+import type { Bound, ExponentSystem } from "#compiler/physical/statistics/exponents.ts"
 
 export type ExponentsFeature =
 	| "exponents"
@@ -16,11 +16,10 @@ export type ExponentsFeature =
 	| "an anchor above 1"
 	| "a column above 1"
 	| "two anchors"
-	| "a bound over a pair"
 
 /**
  * A small system drawn free: one or two anchors, one to four columns, one to six bounds over them, each bound of its
- * kind, its anchor, or one time in four a pair of anchors a dependency ties, and a subset of the columns; most cross.
+ * kind, its anchor and a subset of the columns; most cross.
  */
 const freeSystemGen: Gen<ExponentSystem> = (source) => {
 	const anchors = source.draw(int(1, 2))
@@ -28,12 +27,7 @@ const freeSystemGen: Gen<ExponentSystem> = (source) => {
 	const indexes = Array.from({ length: columns }, (_, c) => c)
 	const bound: Gen<Bound> = (s) => ({
 		kind: s.draw(boolean) ? "key" : "apart",
-		over: s.draw(
-			weighted<Over>([
-				[3, (t) => ({ kind: "anchor", at: t.draw(int(0, anchors - 1)) })],
-				[1, () => ({ kind: "pair" })]
-			])
-		),
+		anchor: s.draw(int(0, anchors - 1)),
 		columns: s.draw(subset(indexes, { min: 0, max: columns }))
 	})
 	return { anchors, columns, bounds: source.draw(array(bound, { min: 1, max: 6 })) }
@@ -42,8 +36,7 @@ const freeSystemGen: Gen<ExponentSystem> = (source) => {
 /**
  * A system of exponents drawn first and bounds drawn after, each kept where the exponents meet it: one to `anchors`
  * anchors of exponents 0 to 11, one to `columns` columns of exponents 1 to 5, up to `bounds` bounds, each a key or a set
- * apart over an anchor, one time in twenty over a pair, and a subset of at most `width` columns. Every such system holds
- * a solution, the drawn one.
+ * apart over an anchor and a subset of at most `width` columns. Every such system holds a solution, the drawn one.
  */
 const plantedSystemGen =
 	(size: {
@@ -62,12 +55,7 @@ const plantedSystemGen =
 			array<Bound>(
 				(s) => ({
 					kind: s.draw(boolean) ? "key" : "apart",
-					over: s.draw(
-						weighted<Over>([
-							[19, (t) => ({ kind: "anchor", at: t.draw(int(0, anchors - 1)) })],
-							[1, () => ({ kind: "pair" })]
-						])
-					),
+					anchor: s.draw(int(0, anchors - 1)),
 					columns: s.draw(subset(indexes, { min: 0, max: Math.min(columns, size.width) }))
 				}),
 				{ min: 1, max: size.bounds }
@@ -77,10 +65,7 @@ const plantedSystemGen =
 		return {
 			anchors,
 			columns,
-			bounds:
-				bounds.length > 0
-					? bounds
-					: [{ kind: "apart", over: { kind: "anchor", at: 0 }, columns: [] }]
+			bounds: bounds.length > 0 ? bounds : [{ kind: "apart", anchor: 0, columns: [] }]
 		}
 	}
 
@@ -114,7 +99,7 @@ export const meets = (
 	Arr.every(columns, (x) => x >= 1) &&
 	Arr.every(system.bounds, (b) => {
 		const sum = Arr.reduce(b.columns, 0, (s, c) => s + (columns[c] ?? 0))
-		const y = b.over.kind === "pair" ? 1 : (anchors[b.over.at] ?? 0)
+		const y = anchors[b.anchor] ?? 0
 		return b.kind === "key" ? sum >= y : sum <= y - 1
 	})
 
@@ -153,7 +138,7 @@ const less = (a: Fraction, b: Fraction): boolean => a.n * b.d < b.n * a.d
 /**
  * The bounds as rows over the rational unknowns z ≥ 0, each `Σ coefficients·z ≤ limit`: z holds each anchor's exponent
  * first, then each column's exponent less 1, so z ≥ 0 states x ≥ 1. A key's row is y_a − Σ (x_c − 1) ≤ |columns|, a set
- * apart's Σ (x_c − 1) − y_a ≤ −1 − |columns|; over a pair, −Σ (x_c − 1) ≤ |columns| − 1 and Σ (x_c − 1) ≤ −|columns|.
+ * apart's Σ (x_c − 1) − y_a ≤ −1 − |columns|.
  */
 const rowsOf = (
 	system: ExponentSystem,
@@ -162,16 +147,13 @@ const rowsOf = (
 	Arr.map(bounds, (b) => {
 		const coefficients = Array.from({ length: system.anchors + system.columns }, () => 0n)
 		const sense = b.kind === "key" ? -1n : 1n
-		if (b.over.kind === "anchor") {
-			coefficients[b.over.at] = -sense
-		}
+		coefficients[b.anchor] = -sense
 		for (const c of b.columns) {
 			coefficients[system.anchors + c] =
 				defined(coefficients[system.anchors + c], "a column") + sense
 		}
 		const width = BigInt(b.columns.length)
-		const fixed = b.over.kind === "pair" ? 1n : 0n
-		return { coefficients, limit: b.kind === "key" ? width - fixed : fixed - 1n - width }
+		return { coefficients, limit: b.kind === "key" ? width : -1n - width }
 	})
 
 /**
@@ -288,19 +270,15 @@ const ceiling = (system: ExponentSystem, point: ReadonlyArray<Fraction>): number
 interface Indexed {
 	readonly apart: ReadonlyArray<ReadonlyArray<Bound>>
 	readonly key: ReadonlyArray<ReadonlyArray<Bound>>
-	readonly pairApart: ReadonlyArray<Bound>
-	readonly pairKey: ReadonlyArray<Bound>
 }
 
 const indexed = (system: ExponentSystem, bounds: ReadonlyArray<Bound>): Indexed => ({
 	apart: Array.from({ length: system.anchors }, (_, a) =>
-		Arr.filter(bounds, (b) => b.kind === "apart" && b.over.kind === "anchor" && b.over.at === a)
+		Arr.filter(bounds, (b) => b.kind === "apart" && b.anchor === a)
 	),
 	key: Array.from({ length: system.anchors }, (_, a) =>
-		Arr.filter(bounds, (b) => b.kind === "key" && b.over.kind === "anchor" && b.over.at === a)
-	),
-	pairApart: Arr.filter(bounds, (b) => b.kind === "apart" && b.over.kind === "pair"),
-	pairKey: Arr.filter(bounds, (b) => b.kind === "key" && b.over.kind === "pair")
+		Arr.filter(bounds, (b) => b.kind === "key" && b.anchor === a)
+	)
 })
 
 /**
@@ -315,8 +293,8 @@ const anchorFloor = (ix: Indexed, anchor: number, low: (c: number) => number): n
 /**
  * Whether a partial assignment of the columns' exponents may complete under the largest anchor exponent `Y`: each
  * anchor's least exponent, every unassigned column at 1, at most the least of `Y` and each of its keys' sums, every
- * unassigned column at the most a set apart it is in leaves it (`Y` − 1 less the rest of the set at their least, 0 over
- * a pair) or the greater of `Y` and 1; and each key over a pair at least 1. At a full assignment it is exact.
+ * unassigned column at the most a set apart it is in leaves it (`Y` − 1 less the rest of the set at their least) or the
+ * greater of `Y` and 1. At a full assignment it is exact.
  */
 const atMost = (
 	ix: Indexed,
@@ -331,21 +309,15 @@ const atMost = (
 			return v
 		}
 		let most = Math.max(1, Y)
-		for (const [family, top] of [
-			...Arr.map(ix.apart, (apart) => [apart, Y - 1] as const),
-			[ix.pairApart, 0] as const
-		]) {
+		for (const family of ix.apart) {
 			for (const b of family) {
 				if (b.columns.includes(c)) {
 					const rest = Arr.reduce(b.columns, 0, (s, other) => (other === c ? s : s + low(other)))
-					most = Math.min(most, top - rest)
+					most = Math.min(most, Y - 1 - rest)
 				}
 			}
 		}
 		return most
-	}
-	if (Arr.some(ix.pairKey, (b) => Arr.reduce(b.columns, 0, (s, c) => s + high(c)) < 1)) {
-		return false
 	}
 	for (let a = 0; a < anchors; a++) {
 		const floor = anchorFloor(ix, a, low)
