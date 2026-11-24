@@ -154,28 +154,49 @@ const readsStored = (query: OperandSelect): boolean => {
 	return stored
 }
 
-/** The CTEs of a statement's own WITH, the statement-wide ones, that read a stored table. */
-const statementWide = (query: OperandSelect): ReadonlyArray<Cte> =>
-	Arr.filter(query.with?.ctes ?? [], (cte) => cte.query.kind === "select" && readsStored(cte.query))
-
-/** Every CTE of any WITH of a statement, at any depth. */
-const everyCte = (query: OperandSelect): ReadonlyArray<Cte> => {
-	const ctes: Array<Cte> = []
+/** Whether a statement's FROM sources read a CTE of `names`, at any depth: rows the statement holds of its own. */
+const readsCte = (query: OperandSelect, names: ReadonlySet<string>): boolean => {
+	let reads = false
+	const source = (s: FromSource): void => {
+		if (s.kind === "cte" && names.has(s.name)) {
+			reads = true
+		}
+	}
 	visitSelect(query, {
 		...inertVisitor,
-		with: (w) => {
-			for (const cte of w.ctes) {
-				ctes.push(cte)
+		fromItem: (i) => {
+			if (i.kind === "joins") {
+				source(i.first)
+				for (const step of i.steps) {
+					source(step.source)
+				}
+				return
 			}
+			source(i)
 		}
 	})
-	return ctes
+	return reads
 }
 
 /**
- * Judges case `c`: no statement of its whole rule reads a stored table through a CTE of its own WITH, one computed once
- * for the statement over every unit's rows; and one of them reads Node through a CTE of a WITH inside it, the roots its
- * readers each keep at the unit, computed once per unit.
+ * The CTEs of a statement's own WITH, the statement-wide ones, that read a stored table whole: none of the statement's
+ * own rows restricts them, no CTE of the WITH they read (a key set of the units' keys, or the units' delta rows), so
+ * computed once for the statement they read every unit's rows.
+ */
+const statementWide = (query: OperandSelect): ReadonlyArray<Cte> => {
+	const ctes = query.with?.ctes ?? []
+	const names = new Set(Arr.map(ctes, (c) => c.name))
+	return Arr.filter(
+		ctes,
+		(cte) => cte.query.kind === "select" && readsStored(cte.query) && !readsCte(cte.query, names)
+	)
+}
+
+/**
+ * Judges case `c`: no statement of its whole rule reads a stored table through a CTE of its own WITH computed whole,
+ * once for the statement over every unit's rows: the roots are read at the units' keys, inline at each read where each
+ * reader reads them at its unit's values (keys.ts KeyAnalysis readsAtValues, `rows`), or once at every unit's keys, a
+ * CTE that reads the units' key set.
  */
 export const judgedOverUnits = (c: Roots, note: (r: Reached) => void): void => {
 	const owned = owning(schemaOf(c))
@@ -195,13 +216,7 @@ export const judgedOverUnits = (c: Roots, note: (r: Reached) => void): void => {
 		assert.deepEqual(
 			Arr.map(statementWide(statement), (cte) => cte.name),
 			[],
-			`${Formatter.format(c)}: a whole rule's statement reads no stored table through a CTE of its own WITH, which reads every unit's rows`
+			`${Formatter.format(c)}: a whole rule's statement reads no stored table through a CTE of its own WITH computed whole, which reads every unit's rows`
 		)
 	}
-	assert.ok(
-		Arr.some(statements, (s) =>
-			Arr.some(everyCte(s.query), (cte) => cte.query.kind === "select" && readsStored(cte.query))
-		),
-		`${Formatter.format(c)}: the roots its readers keep at the unit are one CTE inside the statement, computed once per unit`
-	)
 }

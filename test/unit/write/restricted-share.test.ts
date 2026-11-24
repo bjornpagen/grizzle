@@ -49,12 +49,12 @@ export const aJoinTheStatementsPartsReadJoinedToACarriedPartIsComputedOnceAtTheK
 					`${box.reading} arguments reading the labels ${box.content}: Tag scanned ${restricted ? "once" : "at each"}\n${sql}`
 				)
 				const parts = labelParts(sql)
-				const held = Arr.map(parts, (p) => `${p.name}${p.keptByKeys ? " kept by its key set" : ""}`)
+				const held = Arr.map(parts, (p) => `${p.name}${p.keptByKeys ? " read at its key set" : ""}`)
 				const heldOnce: boolean = parts.length === 1 && Arr.every(parts, (p) => p.keptByKeys)
 				assert.equal(
 					heldOnce,
 					restricted,
-					`${box.reading} arguments reading the labels ${box.content}: ${restricted ? "one part holds them, kept by an EXISTS over its key set" : "no part holds them"} (${Arr.join(held, ", ")})\n${sql}`
+					`${box.reading} arguments reading the labels ${box.content}: ${restricted ? "one part holds them, read LATERAL per key of its key set" : "no part holds them"} (${Arr.join(held, ", ")})\n${sql}`
 				)
 			}),
 		oracle: {
@@ -71,11 +71,12 @@ export const aJoinTheStatementsPartsReadJoinedToACarriedPartIsComputedOnceAtTheK
 				why: "No share is carried at its keys, as before: each argument that reads the labels restates the join of Tag and Label, and Tag is scanned once per argument."
 			},
 			{
-				file: "packages/engine/src/lower/shapes/share/statements.ts",
+				file: "packages/engine/src/lower/shapes/share/keyed.ts",
 				original:
-					"\t\t\t\texists(simpleSelect([target(lit.int(1, types.integer))], [keyRows.item], conjunction(on)))\n",
-				replacement: "\t\t\t\tundefined\n",
-				why: "The keyed share's part holds the join whole, every item's labels, no EXISTS over its key set: the join materialized whole, unrestricted."
+					"\t\t\tdistinctCore(headingTargetsOf(node, atKey.map), [keyRows.item, atKey.item], undefined)\n",
+				replacement:
+					"\t\t\tdistinctCore(headingTargetsOf(node, rows.map), [rows.item], undefined)\n",
+				why: "The keyed share's part holds the join whole, every item's labels, no LATERAL per key of its key set: the join materialized whole, unrestricted."
 			}
 		]
 	})

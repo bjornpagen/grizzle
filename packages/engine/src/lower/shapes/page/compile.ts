@@ -99,6 +99,7 @@ import {
 	type WindowStart
 } from "#compiler/lower/shapes/page/seek.ts"
 
+import type { StatementKeys } from "#compiler/lower/shapes/share/keyed.ts"
 import {
 	discardCertificates,
 	type ShapeFacts,
@@ -181,13 +182,14 @@ export interface PageCompileInput {
 	 */
 	readonly stated: StatedOrder
 	/**
-	 * The template's optimized lowering: the rewritten query, its duplicate-elimination placement and its CTE plan
-	 * (lower/optimize/pipeline.ts OptimizedProgram).
+	 * The template's optimized lowering: the rewritten query, its duplicate-elimination placement, its CTE plan and its
+	 * key sets (lower/optimize/pipeline.ts OptimizedProgram).
 	 */
 	readonly optimized: {
 		readonly query: LogicalQuery
 		readonly plan: DedupPlan
 		readonly cte: CtePlan
+		readonly keys: StatementKeys
 	}
 	readonly names: PhysicalNames
 }
@@ -336,7 +338,7 @@ const optimizedKit = <F extends PageFill>(
 	facts: ShapeFacts
 ): Kit<F, DeliveredPart, PageProgram<F>> => {
 	const query = input.optimized.query
-	const state = new ShapeState<ChoiceInput>("small", input.optimized.cte)
+	const state = new ShapeState<ChoiceInput>("small", input.optimized.cte, input.optimized.keys)
 	const options: ConservativeOptions = {
 		names: input.names,
 		params: query.params,

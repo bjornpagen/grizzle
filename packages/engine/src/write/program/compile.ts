@@ -63,6 +63,7 @@ import {
 	type SentStatement,
 	ShapeState
 } from "#compiler/lower/shapes/index.ts"
+import { noKeys } from "#compiler/lower/shapes/share/keyed.ts"
 import { keySetReads } from "#compiler/lower/shapes/share/keys.ts"
 import { type ShapeFacts, shapeFactsFromPlan } from "#compiler/lower/shapes/share/physical.ts"
 import {
@@ -2016,7 +2017,7 @@ const compileAt = (
 	const share = new StatementShare()
 	/** A write's described members lower statement by statement in each per-execution mode, and no CTE policy shares
 	 * their stages. */
-	const state = new ShapeState<RelationInput>("small", emptyCtePlan)
+	const state = new ShapeState<RelationInput>("small", emptyCtePlan, noKeys)
 	/**
 	 * The templates of the compile's nodes (ir/dag-digest.ts DagTemplates), which its share planning's keys, its
 	 * lowering's evaluation keys and attachment share keys and its read-backs' digests and lowerings all read, each

@@ -179,12 +179,10 @@ export const aWholeRulesStatementReadsTheUnitsATransactionWroteAloneBesideAnyNum
  * judge locks all of a relation the other writes: each whole rule's statement is read per unit of the region its
  * transaction wrote (analysis/theory/unit.ts unitStep), so it reads its own unit's rows and the two share no page a
  * judge reads and the other writes. metis's concurrent pantry imports, each of its own package, failed each other with
- * 40001 (2026-11-21), each import's judge reading every package. The shared restriction
- * (lower/optimize/pushdown/shared.ts) changes no statement of this judge: the roots it reads twice are inlined at each
- * read, inside Reached's recursion and in Reach's second arm, each correlated to the unit, and with the pass cut each
- * whole rule's statement is the same text but for the installation's names, its plan alike (at dab1ca210). Its mutant
- * is equivalent here, so neither this property nor the locality one states it as a kill; test/unit/physical/judge-units
- * is its proof.
+ * 40001 (2026-11-21), each import's judge reading every package. The roots this judge reads twice are inlined at each
+ * read, inside Reached's recursion and in Reach's second arm, each correlated to the unit, no one node a key set
+ * computes (lower/shapes/share/keys.ts); test/unit/physical/judge-units is the proof of a node shared across those
+ * reads, computed at the units' keys.
  *
  * Its budget is the runner's: a new property, with no suite before it to carry a count from.
  */

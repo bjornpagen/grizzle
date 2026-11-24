@@ -16,6 +16,7 @@ import {
 import { LowerContext } from "#compiler/lower/conservative/context.ts"
 import { emptyCtePlan } from "#compiler/lower/optimize/cte-policy/index.ts"
 import { OptimizedDelivery, optimizedDispatch, ShapeState } from "#compiler/lower/shapes/index.ts"
+import { noKeys } from "#compiler/lower/shapes/share/keyed.ts"
 import type { RelationInput } from "#compiler/lower/shapes/take/index.ts"
 import { asc, Q, T, Task } from "#test/unit/lower/conservative/fixtures.ts"
 import { shapedFacts, testOptions } from "#test/unit/lower/shapes/support.ts"
@@ -91,7 +92,7 @@ export const lowered = (
 	query: LogicalQuery
 ): { readonly visits: number; readonly regions: number } => {
 	const { facts } = shapedFacts(query.dag, {}, "placement")
-	const state = new ShapeState<RelationInput>("small", emptyCtePlan)
+	const state = new ShapeState<RelationInput>("small", emptyCtePlan, noKeys)
 	const cx = new LowerContext(
 		query.dag,
 		{ ...testOptions("Ledger"), params: query.params },

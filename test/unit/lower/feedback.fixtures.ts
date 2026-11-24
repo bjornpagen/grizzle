@@ -17,6 +17,7 @@ import { conservativeInput } from "#compiler/lower/conservative/types.ts"
 import { emptyCtePlan } from "#compiler/lower/optimize/cte-policy/index.ts"
 import { optimizedDispatch, ShapeState } from "#compiler/lower/shapes/index.ts"
 import { recursionLowerer } from "#compiler/lower/shapes/recursion/index.ts"
+import { noKeys } from "#compiler/lower/shapes/share/keyed.ts"
 import type { RelationInput } from "#compiler/lower/shapes/take/index.ts"
 import { placeOf, refusalLoc } from "#test/support/assert.ts"
 import { localVectorSchema, productionNames } from "#test/support/kernel/naming.ts"
@@ -310,7 +311,7 @@ export const optimized = (b: Built): Result.Result<unknown, CompileError> => {
 			params: [],
 			subject: { kind: "query" }
 		},
-		optimizedDispatch(facts, new ShapeState<RelationInput>("small", emptyCtePlan)),
+		optimizedDispatch(facts, new ShapeState<RelationInput>("small", emptyCtePlan, noKeys)),
 		evaluatedAsItStands
 	)
 	return catchRefusal(() => recursionLowerer(facts)(b.rec, cx, emptyEnv))

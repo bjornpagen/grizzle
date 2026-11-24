@@ -24,7 +24,6 @@ import {
 } from "#compiler/lower/optimize/demand/phases.ts"
 import { graphPass } from "#compiler/lower/optimize/graph/index.ts"
 import { sourcePrunePass } from "#compiler/lower/optimize/prune/index.ts"
-import { sharedPushdownPass } from "#compiler/lower/optimize/pushdown/shared.ts"
 import { catalogPass } from "#compiler/lower/shapes/catalog/rewrite.ts"
 import {
 	OptimizedDelivery,
@@ -33,6 +32,7 @@ import {
 	type RelationChoice,
 	ShapeState
 } from "#compiler/lower/shapes/index.ts"
+import { noKeys, queryKeys, type StatementKeys } from "#compiler/lower/shapes/share/keyed.ts"
 import { type ShapeFacts, shapeFactsFromPlan } from "#compiler/lower/shapes/share/physical.ts"
 import { everyParentTakes } from "#compiler/lower/shapes/take/decorrelate.ts"
 import type { RelationInput } from "#compiler/lower/shapes/take/index.ts"
@@ -62,6 +62,8 @@ export interface OptimizedProgram extends OptimizedDeliveryProgram<RelationChoic
 	readonly query: LogicalQuery
 	readonly plan: DedupPlan
 	readonly cte: CtePlan
+	/** The key sets its statements compute their nodes at (lower/shapes/share/keyed.ts queryKeys). */
+	readonly keys: StatementKeys
 	/**
 	 * Every certificate the compilation recorded, in order: the rewrites', the catalog's, the placement's, the CTE
 	 * policy's and the shapes'.
@@ -115,7 +117,6 @@ export const rewritePipeline = (
 	sequence("rewrite pipeline", [
 		semanticSimplification,
 		relationalRewrites,
-		...(subject === "ruleRegion" ? [sharedPushdownPass] : []),
 		catalogPass(subject === "derivedDefinition" ? "whole" : "auto"),
 		graphPass,
 		sourcePrunePass
@@ -137,10 +138,11 @@ const deliver = (
 	query: LogicalQuery,
 	facts: ShapeFacts,
 	cte: CtePlan,
+	keys: StatementKeys,
 	options: OptimizedOptions
 ): Result.Result<OptimizedDeliveryProgram<RelationChoice>, CompileError> =>
 	catchRefusal(() => {
-		const state = new ShapeState<RelationInput>("small", cte)
+		const state = new ShapeState<RelationInput>("small", cte, keys)
 		const lowering: ConservativeOptions = {
 			names: options.names,
 			params: query.params,
@@ -179,7 +181,10 @@ const optimizedLowering = (options: OptimizedOptions): Pass<LogicalQuery, Optimi
 		}
 		const cte = planned.value.cte
 		const facts = factsOf(plan, ctx, options)
-		const delivered = deliver(query, facts, cte, options)
+		/** A derived relation's definition wants every row: none of its nodes is computed at keys. */
+		const keys =
+			options.subject.kind === "derivedDefinition" ? noKeys : queryKeys(query.dag, cte, facts.fixed)
+		const delivered = deliver(query, facts, cte, keys, options)
 		if (!delivered.ok) {
 			return delivered
 		}
@@ -188,6 +193,7 @@ const optimizedLowering = (options: OptimizedOptions): Pass<LogicalQuery, Optimi
 			query,
 			plan,
 			cte,
+			keys,
 			certificates: ctx.certificates.all()
 		})
 	}

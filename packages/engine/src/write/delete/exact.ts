@@ -442,7 +442,7 @@ export const buildAnchoredDelete = (
 			occurrences: others,
 			heading: region.heading.filter((c) => !alone.has(c.name))
 		}
-		const parts = regionParts(rest, w.cx, emptyEnv, undefined)
+		const parts = regionParts(rest, w.cx, emptyEnv)
 		/** The region's columns as the Filters and the constants read them: the rest's from its parts, and each variable
 		 * the occurrence alone binds from the stored column its first binding names. */
 		const columns = new Map<string, Expr>(parts.columns.map((c) => [c.column.name, c.value]))

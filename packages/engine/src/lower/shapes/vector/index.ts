@@ -323,7 +323,7 @@ const carried = (
  */
 export const approximateLowerer =
 	(facts: ShapeFacts): NodeLowerer<"ApproximateNearest"> =>
-	(node, cx, env) => {
+	(node, cx: LowerContext, env) => {
 		const at = nodeLabel(node)
 		refuseMisuse(cx, facts, at)
 		const trace = traceOf(node, at)

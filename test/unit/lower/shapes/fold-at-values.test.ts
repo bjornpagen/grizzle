@@ -1,7 +1,7 @@
 /**
  * A fold every reader of a workload's read reads at a value of a grouping column is read where it stands at each
- * (lower/optimize/cte-policy perKeyReads, fixedAtValues, rule 5c), so PostgreSQL moves each reader's value below the
- * grouping, where two readers made it one MATERIALIZED CTE of the whole fold, filtered beside: edullm's
+ * (lower/shapes/share/keys.ts KeyAnalysis readsAtValues, share/keyed.ts StatementKeys atValues), so PostgreSQL moves
+ * each reader's value below the grouping, where two readers made it one MATERIALIZED CTE of the whole fold, filtered beside: edullm's
  * learning-commons crosswalk reader, a rule at the asked state and one at the asked hub over one fold of every pair of
  * supports, folded all 28,271 pairs for each call (7,986 and 9,235 ms, where inline each read 545 to 632 and 5.8 ms;
  * D11's reader median 66 ms against 13,092).
@@ -54,9 +54,10 @@ export const aFoldEveryReaderReadsAtAValueOfAGroupingColumnIsReadInlineAtEachNev
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/lower/optimize/cte-policy/index.ts",
-				original: "\t\t\tconst at = filteredAtValues(node)\n",
-				replacement: "\t\t\tconst at = undefined\n",
+				file: "packages/engine/src/lower/shapes/share/keys.ts",
+				original:
+					'\t\tif (!reads.every((read) => read.kind === "keys" && read.sources.every(atValues))) {\n',
+				replacement: "\t\tif (reads.length >= 0) {\n",
 				why: "A fold two rules read at their values is MATERIALIZED for the statement, as before (rule 5, sharedExpensive): one CTE of the whole fold, every pair of supports, each rule's value applied beside it."
 			}
 		]

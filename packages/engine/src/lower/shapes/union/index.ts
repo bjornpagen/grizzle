@@ -140,8 +140,8 @@ export const unionLowerer =
 /**
  * A union read inside a statement (unionLowerer), its rows those `restriction` keeps, inside every arm: each column it
  * names equal to its value in each arm, by the arm's column of that name, so each arm is read at those values alone,
- * as a region that reads the union per key reads it (lower/optimize/cte-policy probesByKey, lower/shapes/region
- * keyedProbes); PostgreSQL moves no join of its reader into a UNION's arms, so the union read whole and joined
+ * as a union computed at its key set reads it (lower/shapes/share/keyed.ts KeyedLowering atKeys); PostgreSQL moves no
+ * join of its reader into a UNION's arms, so the union read whole and joined
  * beside reads every row of every arm. A row of the union is a row of an arm, so the union of each arm at the values
  * is the union at them.
  */

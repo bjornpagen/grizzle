@@ -79,13 +79,6 @@ export const aFoldACallsArgumentsReadAtItsParentRowIsComputedOncePerParentRow = 
 			{
 				file: "packages/engine/src/lower/optimize/cte-policy/index.ts",
 				original:
-					"\t(e.deps.params.length > 0 || e.deps.nodes.length > 0) && e.deps.nodes.every((n) => outside.has(n))\n",
-				replacement: "\te.deps.params.length > 0 && e.deps.nodes.length === 0\n",
-				why: "An outer row's value restricts nothing, as before: the fold at the parent's sitting is a probe each argument reads per key of its own values, spelled at each read, and Attempt is scanned once per read."
-			},
-			{
-				file: "packages/engine/src/lower/optimize/cte-policy/index.ts",
-				original:
 					"\t\treturn innermost !== undefined && evaluationSees(innermost, read) ? innermost : undefined\n",
 				replacement: "\t\treturn undefined\n",
 				why: "No call's evaluation holds a CTE, as before: the fold its arguments share is correlated and no region inside the evaluation dominates its reads, so it is inlined at each, and Attempt is scanned once per read."

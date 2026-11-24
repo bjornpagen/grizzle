@@ -1,4 +1,4 @@
-import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	extendNonEmpty,
 	isNonEmpty,
@@ -17,7 +17,6 @@ import {
 	readsOnlyParameters
 } from "#compiler/lower/conservative/call/index.ts"
 import {
-	type ColumnEqualities,
 	type ColumnMap,
 	columnIn,
 	type Env,
@@ -34,7 +33,7 @@ import {
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
 import { columnType } from "#compiler/runtime/lower/columns.ts"
 import { nativeOp } from "#compiler/scalar/compute/registry.ts"
-import type { Expr, FromSource, OperandSelect, Target } from "#compiler/sql/ast.ts"
+import type { Expr, FromSource, Target } from "#compiler/sql/ast.ts"
 import { col, conjunction, derived, select, target, unitTargets } from "#compiler/sql/build.ts"
 
 type Region = NodeOf<"MatchRegion">
@@ -226,40 +225,6 @@ const readsLocal = (
 		return local.has(x.column.node)
 	})
 
-/**
- * An occurrence of a fold or a union a region reads per key: the node, its lowering for one binding's keys,
- * `restriction` each column equal to its variable's value there, and each column it restricts with the variable the
- * occurrence binds through it, which another occurrence binds.
- */
-export interface KeyedProbe {
-	readonly probed: NodeOf<"Group"> | NodeOf<"Union">
-	readonly lower: (cx: LowerContext, env: Env, restriction: ColumnEqualities) => OperandSelect
-	readonly keys: NonEmptyReadonlyArray<{ readonly column: string; readonly variable: VarDecl }>
-}
-
-/**
- * The occurrences of a region whose folds and unions a lowering reads per key (lower/optimize/cte-policy probesByKey,
- * through lower/shapes/region keyedProbes), each placed once its keys hold values and read for each binding of the
- * occurrences placed before it as the node at that binding's keys alone (`keyedRead`). The conservative lowering reads
- * every fold and union whole, and passes none.
- */
-export type KeyedProbes = (region: Region) => ReadonlyMap<Occurrence, KeyedProbe>
-
-/**
- * A keyed occurrence read for one binding (`KeyedProbes`): its source lowered with the probed node restricted to the
- * binding's keys, `restriction`, as a LATERAL derived table, every other node as the region's lowering lowers it.
- */
-const keyedRead = (
-	cx: LowerContext,
-	o: Occurrence,
-	keyed: KeyedProbe,
-	env: Env,
-	restriction: ColumnEqualities
-): InputSource =>
-	cx
-		.withLowering(keyed.probed, (_node, within, at) => keyed.lower(within, at, restriction))
-		.sourceAs(o.source, env, true)
-
 /** One occurrence of a lowered region: its derived table, the table's alias, and the source's columns through it. */
 export interface PlacedOccurrence {
 	readonly occurrence: Occurrence
@@ -342,7 +307,7 @@ const regionEvaluations = (
  * does not say which of them it reads, and is refused as MalformedDescription.
  */
 const lowerMatchRegion: NodeLowerer<"MatchRegion"> = (node, cx, env) => {
-	const parts = regionParts(node, cx, env, undefined)
+	const parts = regionParts(node, cx, env)
 	return bindsEveryColumn(node)
 		? wholeSelect(cx, node, parts.from, parts.targets, parts.conditions)
 		: select(cx.setOf(node, parts.targets, parts.from, conjunction(parts.conditions)))
@@ -369,12 +334,7 @@ const bindsEveryColumn = (node: Region): boolean => {
  * equality or a correlation names is one the region declares, and every column a binding or a constant names is one of
  * its source's heading (valid DAG).
  */
-export const regionParts = (
-	node: Region,
-	cx: LowerContext,
-	env: Env,
-	keyedProbes: KeyedProbes | undefined
-): RegionParts => {
+export const regionParts = (node: Region, cx: LowerContext, env: Env): RegionParts => {
 	const at = nodeLabel(node)
 	const local = localNodes(node)
 	const varOf = new Map(node.vars.map((v) => [v.name, v]))
@@ -395,8 +355,6 @@ export const regionParts = (
 	const items: Array<FromSource> = []
 	const shared = sharedSources(node)
 	const evaluating = regionEvaluations(cx, node, env)
-	const keyed: ReadonlyMap<Occurrence, KeyedProbe> =
-		keyedProbes === undefined ? new Map() : keyedProbes(node)
 	/** The attributes of each call's evaluation the region placed, by its evaluation key. */
 	const evaluated = new Map<string, NonEmptyReadonlyArray<Expr>>()
 	/** Each probed occurrence's law columns, by the field each stands for (`probeKeys`). */
@@ -438,8 +396,7 @@ export const regionParts = (
 				return v !== undefined && value.has(v)
 			})
 			const sourcesReady = [...needs.sources].every((s) => placedSources.has(s))
-			const keysReady = keyed.get(o)?.keys.every((k) => value.has(k.variable)) ?? true
-			return varsReady && sourcesReady && keysReady
+			return varsReady && sourcesReady
 		})
 		if (ready === undefined) {
 			return refuse(
@@ -453,27 +410,12 @@ export const regionParts = (
 		const needs = occurrenceNeeds(cx, node, o, shared)
 		const key = evaluating.get(o)
 		const correlated = needs.vars.size > 0 || needs.sources.size > 0 || key !== undefined
-		const probed = keyed.get(o)
 		const read =
-			probed !== undefined
-				? keyedRead(
-						cx,
-						o,
-						probed,
-						scope(),
-						probed.keys.map((k) => ({
-							column: k.column,
-							value: defined(
-								value.get(k.variable),
-								"a keyed occurrence is placed once its keys hold values"
-							)
-						}))
-					)
-				: key === undefined || o.source.kind !== "Call"
-					? cx.sourceAs(o.source, scope(), correlated)
-					: cx
-							.withEvaluations(placedEvaluation(cx, o.source, key, scope(), evaluated, items))
-							.sourceAs(o.source, scope(), correlated)
+			key === undefined || o.source.kind !== "Call"
+				? cx.sourceAs(o.source, scope(), correlated)
+				: cx
+						.withEvaluations(placedEvaluation(cx, o.source, key, scope(), evaluated, items))
+						.sourceAs(o.source, scope(), correlated)
 		const probe = shared.has(o.source.id)
 			? undefined
 			: withLawColumns(cx, o, read, probeKeys(cx, o))

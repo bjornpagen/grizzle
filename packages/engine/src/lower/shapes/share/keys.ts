@@ -2,16 +2,24 @@ import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { isNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { FixedFacts } from "#compiler/analysis/physical/props.ts"
 import { outerOf } from "#compiler/analysis/physical/rules.ts"
-import type { ScalarExpr } from "#compiler/ir/expr.ts"
+import type { NodeId } from "#compiler/core/ids.ts"
+import { exprClosure, type ScalarExpr } from "#compiler/ir/expr.ts"
+import { Fold } from "#compiler/ir/fold.ts"
 import {
 	inputsOf,
 	type NodeOf,
 	type Occurrence,
 	type RelNode,
 	regionVarClasses,
+	unionArms,
 	type VarDecl
 } from "#compiler/ir/rel.ts"
-import { restrictedByValues, valueFixings } from "#compiler/lower/optimize/cte-policy/index.ts"
+import { conjuncts } from "#compiler/logical/props.ts"
+import {
+	renamedSource,
+	restrictedByValues,
+	valueFixings
+} from "#compiler/lower/optimize/cte-policy/index.ts"
 
 /**
  * The keys a shared node is read at, by every one of its reads (magic sets): the rows a statement needs of the node are
@@ -30,20 +38,26 @@ export type KeyRestriction =
 /**
  * One read's keys: a conjunctive query over slots, its atoms each a relation the statement reads where the key source
  * stands, each column it binds at a slot, two atoms equal where they bind one slot, and `keys` the slot each of the
- * node's restricted columns is at. Its atoms are the read's seeds, what the statement fixes (a carried or value-restricted
- * source, a stored relation read at a value, the reading region's own keys, an existence test's left side, an outer row
- * a correlation reads), and the fewest occurrences of the reading region that join them to the read's variables.
+ * node's restricted columns is at. Its `seeds` are what the statement fixes (a carried or value-restricted source, a
+ * stored relation read at a value, the reading region's own keys, an existence test's left side, an outer row a
+ * correlation reads), joined where they stand; its `steps` the fewest occurrences of the reading region that join them
+ * to the read's variables, in the order the crossing reached them, each read at the slots an atom before it binds, as a
+ * navigation's step is read at the values the steps before it bound.
  */
 export interface KeySource {
-	readonly atoms: ReadonlyArray<KeyAtom>
+	readonly seeds: ReadonlyArray<KeyAtom>
+	readonly steps: ReadonlyArray<ReadAtom>
 	/** Slots a value of the statement's own fixes: a correlation to a parameter. */
 	readonly fixed: ReadonlyArray<{ readonly slot: string; readonly expr: ScalarExpr }>
 	readonly keys: NonEmptyReadonlyArray<{ readonly column: string; readonly slot: string }>
 }
 
 /**
- * An atom of a key source: a node read where it stands, at its constants, each of `bindings`' columns at its slot; or
- * the keys of a node, the key set of the region the source crosses, read where the source stands.
+ * An atom of a key source: a node read where it stands, at its constants, each of `bindings`' columns at its slot; the
+ * source of the outer row the reading region is evaluated for, read where it stands (`outer`), each column of that row
+ * the read is fixed to at its slot, every outer row's values at once; a stored relation read where it stands at a condition of the statement's values over its columns (`filtered`), the
+ * condition stated over the columns of node `at` and each read as the column of the relation `columns` names; or the
+ * keys of a node, the key set of the region the source crosses, read where the source stands.
  */
 export type KeyAtom =
 	| {
@@ -53,11 +67,27 @@ export type KeyAtom =
 			readonly constants: ReadonlyArray<{ readonly column: string; readonly expr: ScalarExpr }>
 	  }
 	| {
+			readonly kind: "outer"
+			readonly node: RelNode
+			readonly bindings: ReadonlyArray<{ readonly column: string; readonly slot: string }>
+	  }
+	| {
+			readonly kind: "filtered"
+			readonly node: RelNode
+			readonly bindings: ReadonlyArray<{ readonly column: string; readonly slot: string }>
+			readonly condition: ScalarExpr
+			readonly at: NodeId
+			readonly columns: ReadonlyMap<string, string>
+	  }
+	| {
 			readonly kind: "keys"
 			readonly of: RelNode
 			readonly keys: Keys
 			readonly bindings: ReadonlyArray<{ readonly column: string; readonly slot: string }>
 	  }
+
+/** A node read where a key source stands: what a key source's step is, a lookup at the slots before it (KeyAnalysis #lookup). */
+export type ReadAtom = Extract<KeyAtom, { readonly kind: "read" }>
 
 /** A key set that restricts: the keys a node's reads read it at. */
 export type Keys = Extract<KeyRestriction, { readonly kind: "keys" }>
@@ -65,13 +95,30 @@ export type Keys = Extract<KeyRestriction, { readonly kind: "keys" }>
 /** What each column of a node is fixed to per evaluation (PhysicalProps fixed), which a correlated read's equalities are. */
 export type FixedOf = (node: RelNode) => ReadonlyMap<string, FixedFacts>
 
+/** Every atom of a key source: its seeds, then its steps. */
+export const atomsOf = (source: KeySource): ReadonlyArray<KeyAtom> => [
+	...source.seeds,
+	...source.steps
+]
+
 /** The nodes a key set's sources read where they stand, through the key sets they read in turn. */
 export const keySetReads = (keys: Keys): ReadonlyArray<RelNode> =>
 	keys.sources.flatMap((s) =>
-		s.atoms.flatMap((a): ReadonlyArray<RelNode> =>
-			a.kind === "read" ? [a.node] : keySetReads(a.keys)
+		atomsOf(s).flatMap((a): ReadonlyArray<RelNode> =>
+			a.kind === "keys" ? keySetReads(a.keys) : [a.node]
 		)
 	)
+
+/**
+ * What a region's crossing may read for one of its occurrences (KeyAnalysis #crossing): the slots it binds, and the
+ * atoms it reads them by, read together: those what the statement fixes restricts, its seeds, a seed of the crossing
+ * where it has one, and those read at the slots an atom before them binds, its steps, in that order.
+ */
+interface Candidate {
+	readonly slots: ReadonlyArray<string>
+	readonly seeds: ReadonlyArray<KeyAtom>
+	readonly steps: ReadonlyArray<ReadAtom>
+}
 
 /** The key set of a node every row of which a statement reads. */
 export const whole: KeyRestriction = { kind: "whole" }
@@ -105,20 +152,29 @@ export class KeyAnalysis {
 	readonly #readers = new Map<RelNode, Array<RelNode>>()
 	readonly #known = new Map<RelNode, KeyRestriction>()
 	readonly #fixed: FixedOf
+	/** Which nodes a key source reads by an index lookup, a step of its (Lookups). */
+	readonly #lookups: Lookups
+	/** The statement's nodes and every input of theirs, by label: what an outer column a node reads names. */
+	readonly #byId = new Map<string, RelNode>()
 
 	/**
 	 * The key sets of `nodes`, a statement's, each read by those of them that read it, each of `roots` at the key set it
 	 * is given: whole for a statement's own, the keys every read of a share reads it at for the statement that fills it;
-	 * a correlated read's columns equal to the outer columns `fixed` fixes them to.
+	 * a correlated read's columns equal to the outer columns `fixed` fixes them to; each step of a key source a node
+	 * `lookups` reads by an index lookup.
 	 */
 	constructor(
 		nodes: Iterable<RelNode>,
 		roots: ReadonlyMap<RelNode, KeyRestriction>,
-		fixed: FixedOf
+		fixed: FixedOf,
+		lookups: Lookups
 	) {
 		this.#fixed = fixed
+		this.#lookups = lookups
 		for (const node of nodes) {
+			this.#byId.set(node.id, node)
 			for (const input of inputsOf(node)) {
+				this.#byId.set(input.id, input)
 				const readers = this.#readers.getOrInsertComputed(input, () => [])
 				if (!readers.includes(node)) {
 					readers.push(node)
@@ -158,6 +214,31 @@ export class KeyAnalysis {
 	}
 
 	/**
+	 * How the reads of `copies` read it where they stand, where every read reads it at values fixed where it stands alone,
+	 * a key the node is computed at by itself (computedAt) fixed by a parameter, or by the outer row the reading region is
+	 * evaluated for, with no relation read beside: some read so per outer row (`rows`), or none (`values`). PostgreSQL
+	 * moves such a value below a fold's grouping and into a union's arms where the node stands inline at each read, each
+	 * at its own value, where reads restricting different columns share no key set and computed once the node would be
+	 * derived whole; and a read evaluated per outer row reads it at that row's values, an index lookup, where computed once
+	 * at every row's keys, a CTE no index reads, each evaluation would scan the computed rows whole: a whole rule's judge
+	 * read the seeds of its walk, a union of each written document's root rows, once per document written, 31 documents
+	 * scanning 31 rows each.
+	 */
+	readsAtValues(copies: ReadonlyArray<RelNode>): "values" | "rows" | undefined {
+		const reads = copies.flatMap((c) =>
+			(this.#readers.get(c) ?? []).map((reader) =>
+				computedAt(c, this.#readAt(reader, c, undefined))
+			)
+		)
+		if (!reads.every((read) => read.kind === "keys" && read.sources.every(atValues))) {
+			return undefined
+		}
+		return reads.some((read) => read.kind === "keys" && read.sources.some(perRow))
+			? "rows"
+			: "values"
+	}
+
+	/**
 	 * The keys `reader` reads `node` at (KeyAnalysis), whole where it keeps none; a region's crossing to the `wanted`
 	 * columns alone where given, the columns every read restricts, so no occurrence joins in for a column the union drops.
 	 */
@@ -169,13 +250,15 @@ export class KeyAnalysis {
 				)
 				return unionOf(reads)
 			}
-			case "Filter":
-				return fixedAt(
+			case "Filter": {
+				const fixed = fixedAt(
 					this.keysOf(reader),
 					valueFixings(reader).flatMap((f) =>
 						statementValue(f.value) ? [{ column: f.column, expr: f.value }] : []
 					)
 				)
+				return fixed.kind === "keys" ? fixed : conditionAt(reader)
+			}
 			case "Step":
 			case "Union":
 				return this.keysOf(reader)
@@ -187,8 +270,17 @@ export class KeyAnalysis {
 				return reader.left === node
 					? this.keysOf(reader)
 					: reader.right === node
-						? this.#testRight(reader, wanted)
+						? this.#atLeftRows(reader, reader.left, reader.on, wanted)
 						: whole
+			case "Attach":
+				return reader.child === node
+					? this.#atLeftRows(
+							reader,
+							reader.parent,
+							reader.correlation.map((c) => ({ left: c.parent, right: c.child })),
+							wanted
+						)
+					: this.keysOf(reader)
 			case "ProjectSet": {
 				const above = this.keysOf(reader)
 				return above.kind === "whole"
@@ -205,7 +297,6 @@ export class KeyAnalysis {
 					: renamed(above, (column) => (reader.keys.includes(column) ? column : undefined))
 			}
 			case "ApproximateNearest":
-			case "Attach":
 			case "Base":
 			case "Call":
 			case "Closed":
@@ -225,37 +316,33 @@ export class KeyAnalysis {
 	}
 
 	/**
-	 * An existence test's right side's keys: its left side's rows, at the test's own keys, each pair's right column at
-	 * the left column's value, a left row's verdict reading the right side at its pair values alone; the pairs of the
-	 * `wanted` right columns alone where given.
+	 * The keys of a node read per row of `left` by `reader` at its pairs `on`: an existence test's right side, a left
+	 * row's verdict reading it at that row's pair values alone, or an attachment's child, a parent row's attachment
+	 * reading it at the correlated values: `left`'s rows, at `reader`'s own keys, each pair's right column at the left
+	 * column's value; the pairs of the `wanted` right columns alone where given.
 	 */
-	#testRight(
-		test: NodeOf<"SemiJoin"> | NodeOf<"AntiJoin">,
+	#atLeftRows(
+		reader: RelNode,
+		left: RelNode,
+		on: ReadonlyArray<{ readonly left: string; readonly right: string }>,
 		wanted: ReadonlySet<string> | undefined
 	): KeyRestriction {
-		const pairs = test.on.filter((p) => wanted === undefined || wanted.has(p.right))
-		if (outerOf(test.left).length > 0 || !isNonEmpty(pairs)) {
+		const pairs = on.filter((p) => wanted === undefined || wanted.has(p.right))
+		if (!isNonEmpty(pairs)) {
 			return whole
 		}
-		const above = this.keysOf(test)
-		const slotOf = (left: string): string => `left:${left}`
+		if (outerOf(left).length > 0) {
+			return this.#atFixedLeft(left, pairs)
+		}
+		const above = this.keysOf(reader)
+		const slotOf = (column: string): string => `left:${column}`
 		const restricted = above.kind === "keys" ? above.columns : []
 		const leftColumns = [...new Set([...pairs.map((p) => p.left), ...restricted])]
-		const atoms: Array<KeyAtom> = [
-			{
-				kind: "read",
-				node: test.left,
-				bindings: leftColumns.map((c) => ({ column: c, slot: slotOf(c) })),
-				constants: []
-			}
-		]
-		if (above.kind === "keys") {
-			atoms.push({
-				kind: "keys",
-				of: test,
-				keys: above,
-				bindings: above.columns.map((c) => ({ column: c, slot: slotOf(c) }))
-			})
+		const leftRead: ReadAtom = {
+			kind: "read",
+			node: left,
+			bindings: leftColumns.map((c) => ({ column: c, slot: slotOf(c) })),
+			constants: []
 		}
 		const [first, ...rest] = pairs
 		return {
@@ -263,7 +350,19 @@ export class KeyAnalysis {
 			columns: [first.right, ...rest.map((p) => p.right)],
 			sources: [
 				{
-					atoms,
+					...(above.kind === "keys" && this.#lookups.readByLookup(left)
+						? {
+								seeds: [
+									{
+										kind: "keys",
+										of: reader,
+										keys: above,
+										bindings: above.columns.map((c) => ({ column: c, slot: slotOf(c) }))
+									}
+								],
+								steps: [leftRead]
+							}
+						: { seeds: [leftRead], steps: [] }),
 					fixed: [],
 					keys: [
 						{ column: first.right, slot: slotOf(first.left) },
@@ -272,6 +371,62 @@ export class KeyAnalysis {
 				}
 			]
 		}
+	}
+
+	/**
+	 * The keys of a node read per row of a correlated `left` at `pairs`: each pair whose left column the physical
+	 * analysis fixes to an outer row's column (PhysicalProps fixed, outer), every left row's value there that row's, read
+	 * from that outer node where it stands, each outer row (#outerSource `row`) one atom binding every column of it the
+	 * pairs read; whole where no pair's left column is so fixed.
+	 */
+	#atFixedLeft(
+		left: RelNode,
+		pairs: NonEmptyReadonlyArray<{ readonly left: string; readonly right: string }>
+	): KeyRestriction {
+		const facts = this.#fixed(left)
+		const slotOf = (column: string): string => `left:${column}`
+		const byOuter = new Map<
+			object,
+			{
+				readonly node: RelNode
+				readonly bindings: Array<{ readonly column: string; readonly slot: string }>
+			}
+		>()
+		const keys: Array<{ readonly column: string; readonly slot: string }> = []
+		for (const p of pairs) {
+			const outer = (facts.get(p.left) ?? []).flatMap((f) => {
+				const source =
+					f.fixed.kind === "outer" ? this.#outerSource(f.fixed.node, f.fixed.column) : undefined
+				return source === undefined ? [] : [source]
+			})
+			const [first] = outer
+			if (first === undefined) {
+				continue
+			}
+			byOuter
+				.getOrInsertComputed(first.row, () => ({ node: first.node, bindings: [] }))
+				.bindings.push({ column: first.column, slot: slotOf(p.left) })
+			keys.push({ column: p.right, slot: slotOf(p.left) })
+		}
+		const [head, ...tail] = keys
+		return head === undefined
+			? whole
+			: {
+					kind: "keys",
+					columns: [head.column, ...tail.map((k) => k.column)],
+					sources: [
+						{
+							seeds: [...byOuter.values()].map((o): KeyAtom => ({
+								kind: "outer",
+								node: o.node,
+								bindings: o.bindings
+							})),
+							steps: [],
+							fixed: [],
+							keys: [head, ...tail]
+						}
+					]
+				}
 	}
 
 	/**
@@ -327,21 +482,29 @@ export class KeyAnalysis {
 				}
 			}
 		}
-		const atoms: Array<KeyAtom> = []
+		/** Each atom reached, in order, with whether it is a seed, joined where it stands, or a step, read at earlier slots. */
+		const atoms: Array<
+			| { readonly seed: true; readonly atom: KeyAtom }
+			| { readonly seed: false; readonly atom: ReadAtom }
+		> = []
 		const fixed: Array<{ readonly slot: string; readonly expr: ScalarExpr }> = []
 		/** Each slot reached, with the atom that first bound it. */
 		const reached = new Map<string, number>()
-		const reach = (atom: KeyAtom): number => {
+		const reach = (
+			entry:
+				| { readonly seed: true; readonly atom: KeyAtom }
+				| { readonly seed: false; readonly atom: ReadAtom }
+		): number => {
 			const at = atoms.length
-			atoms.push(atom)
-			for (const b of atom.bindings) {
+			atoms.push(entry)
+			for (const b of entry.atom.bindings) {
 				if (!reached.has(b.slot)) {
 					reached.set(b.slot, at)
 				}
 			}
 			return at
 		}
-		const readOf = (q: Occurrence): KeyAtom => ({
+		const readOf = (q: Occurrence): ReadAtom => ({
 			kind: "read",
 			node: q.source,
 			bindings: q.bindings.map((b) => ({ column: b.column, slot: slot(b.var) })),
@@ -352,32 +515,43 @@ export class KeyAnalysis {
 		const above = this.keysOf(region)
 		if (above.kind === "keys") {
 			reach({
-				kind: "keys",
-				of: region,
-				keys: above,
-				bindings: above.columns.flatMap((c) => {
-					const v = region.vars.find((x) => x.name === c)
-					return v === undefined ? [] : [{ column: c, slot: slot(v) }]
-				})
+				seed: true,
+				atom: {
+					kind: "keys",
+					of: region,
+					keys: above,
+					bindings: above.columns.flatMap((c) => {
+						const v = region.vars.find((x) => x.name === c)
+						return v === undefined ? [] : [{ column: c, slot: slot(v) }]
+					})
+				}
 			})
+		}
+		/** The outer rows the read is fixed to, by the row (#outerSource `row`), each the columns it reads of it. */
+		const outerRows = new Map<
+			object,
+			{
+				readonly node: RelNode
+				readonly bindings: Array<{ readonly column: string; readonly slot: string }>
+			}
+		>()
+		/** An outer row's column `column` of node `id` at `at`, where its source is read where it stands. */
+		const outerAt = (id: string, column: string, at: string): boolean => {
+			const source = this.#outerSource(id, column)
+			if (source === undefined) {
+				return false
+			}
+			outerRows
+				.getOrInsertComputed(source.row, () => ({ node: source.node, bindings: [] }))
+				.bindings.push({ column: source.column, slot: at })
+			return true
 		}
 		for (const c of region.correlated) {
 			if (statementValue(c.expr)) {
 				fixed.push({ slot: slot(c.var), expr: c.expr })
 				reached.set(slot(c.var), -1)
-				continue
-			}
-			const [outer, ...more] = c.expr.deps.nodes
-			if (c.expr.kind === "column" && outer !== undefined && more.length === 0) {
-				const source = this.#nodeOf(region, outer)
-				if (source !== undefined && outerOf(source).length === 0) {
-					reach({
-						kind: "read",
-						node: source,
-						bindings: [{ column: c.expr.column.name, slot: slot(c.var) }],
-						constants: []
-					})
-				}
+			} else if (c.expr.kind === "column") {
+				outerAt(c.expr.column.node, c.expr.column.name, slot(c.var))
 			}
 		}
 		/** The read's own columns it fixes: at a value of the statement's, or at an outer row's column. */
@@ -392,43 +566,91 @@ export class KeyAnalysis {
 				own.push({ column: c.column, slot: at })
 				continue
 			}
-			const [outer, ...more] = c.expr.deps.nodes
-			const source =
-				c.expr.kind === "column" && outer !== undefined && more.length === 0
-					? this.#nodeOf(region, outer)
-					: undefined
-			if (c.expr.kind === "column" && source !== undefined && outerOf(source).length === 0) {
-				reach({
-					kind: "read",
-					node: source,
-					bindings: [{ column: c.expr.column.name, slot: at }],
-					constants: []
-				})
+			if (c.expr.kind === "column" && outerAt(c.expr.column.node, c.expr.column.name, at)) {
 				own.push({ column: c.column, slot: at })
 			}
 		}
-		const pending = new Set(region.occurrences.filter(readable))
-		for (const q of pending) {
-			if (restrictedByValues(q.source) || q.constants.some((c) => statementValue(c.expr))) {
-				pending.delete(q)
-				reach(readOf(q))
+		for (const row of outerRows.values()) {
+			reach({ seed: true, atom: { kind: "outer", node: row.node, bindings: row.bindings } })
+		}
+		/**
+		 * Each other occurrence as the atoms the key source reads for it: its source where it reads no outer row, or a
+		 * correlated one decorrelated (#decorrelated); a seed where what the statement fixes restricts it.
+		 */
+		const pending = new Set(
+			region.occurrences.flatMap((q): ReadonlyArray<Candidate> => {
+				if (q === o) {
+					return []
+				}
+				if (readable(q)) {
+					const atom = readOf(q)
+					const seed =
+						restrictedByValues(q.source) || q.constants.some((c) => statementValue(c.expr))
+					/** A source no index reads at keys (#lookup), a fold, a union or a computed node among them, is no step: a seed alone. */
+					const readWhole = !seed && !this.#lookups.readByLookup(q.source)
+					return readWhole
+						? []
+						: [
+								{
+									slots: atom.bindings.map((b) => b.slot),
+									seeds: seed ? [atom] : [],
+									steps: seed ? [] : [atom]
+								}
+							]
+				}
+				const decorrelated = this.#decorrelated(q, slot, (id, column) => {
+					if (id === region.id) {
+						const v = region.vars.find((x) => x.name === column)
+						return v === undefined ? undefined : slot(v)
+					}
+					const sibling = bySource.get(id)
+					const b =
+						sibling === undefined || sibling === "twice" || sibling === q
+							? undefined
+							: sibling.bindings.find((x) => x.column === column)
+					return b === undefined ? undefined : slot(b.var)
+				})
+				return decorrelated === undefined ? [] : [decorrelated]
+			})
+		)
+		/** The atom each atom was reached from, by its place: its parent on the path; and the atoms read together. */
+		const parent = new Map<number, number>()
+		const together = new Map<number, ReadonlyArray<number>>()
+		/**
+		 * A candidate's atoms reached, its seeds first, then its steps, the first from `via` where it has no seed, all kept
+		 * where one is.
+		 */
+		const take = (c: Candidate, via: number | undefined): void => {
+			const at = [
+				...c.seeds.map((atom) => reach({ seed: true, atom })),
+				...c.steps.map((atom) => reach({ seed: false, atom }))
+			]
+			for (const i of at) {
+				together.set(i, at)
+			}
+			const [first] = at
+			if (via !== undefined && first !== undefined) {
+				parent.set(first, via)
+			}
+		}
+		for (const c of pending) {
+			if (c.seeds.length > 0) {
+				pending.delete(c)
+				take(c, undefined)
 			}
 		}
 		const aimed = o.bindings.filter((b) => wanted === undefined || wanted.has(b.column))
 		const targets = new Set(aimed.map((b) => slot(b.var)))
-		/** The atom an occurrence was reached from, by the atom's place: its parent on the path. */
-		const parent = new Map<number, number>()
 		const done = (): boolean => [...targets].every((t) => reached.has(t))
 		for (let grew = true; grew && !done();) {
 			grew = false
-			for (const q of pending) {
-				const via = q.bindings.map((b) => reached.get(slot(b.var))).find((x) => x !== undefined)
+			for (const c of pending) {
+				const via = c.slots.map((at) => reached.get(at)).find((x) => x !== undefined)
 				if (via === undefined) {
 					continue
 				}
-				pending.delete(q)
-				const at = reach(readOf(q))
-				parent.set(at, via)
+				pending.delete(c)
+				take(c, via)
 				grew = true
 				if (done()) {
 					break
@@ -447,23 +669,28 @@ export class KeyAnalysis {
 		}
 		/** The atoms on the paths from the seeds to the keys: the minimal crossing. */
 		const kept = new Set<number>()
-		for (const k of keys) {
-			for (
-				let at = reached.get(k.slot);
-				at !== undefined && at >= 0 && !kept.has(at);
-				at = parent.get(at)
-			) {
-				kept.add(at)
+		const keep = (from: number | undefined): void => {
+			for (let at = from; at !== undefined && at >= 0 && !kept.has(at); at = parent.get(at)) {
+				for (const i of together.get(at) ?? [at]) {
+					kept.add(i)
+					if (i !== at) {
+						keep(parent.get(i))
+					}
+				}
 			}
 		}
+		for (const k of keys) {
+			keep(reached.get(k.slot))
+		}
 		const used = atoms.filter((_, i) => kept.has(i))
-		const bound = new Set(used.flatMap((a) => a.bindings.map((b) => b.slot)))
+		const bound = new Set(used.flatMap((a) => a.atom.bindings.map((b) => b.slot)))
 		return {
 			kind: "keys",
 			columns: mapKeys(keys, (k) => k.column),
 			sources: [
 				{
-					atoms: used,
+					seeds: used.flatMap((a) => (a.seed ? [a.atom] : [])),
+					steps: used.flatMap((a) => (a.seed ? [] : [a.atom])),
 					fixed: fixed.filter((f) => bound.has(f.slot) || keys.some((k) => k.slot === f.slot)),
 					keys
 				}
@@ -471,14 +698,304 @@ export class KeyAnalysis {
 		}
 	}
 
-	/** The node of label `id` a region's correlation reads, among the nodes the DAG holds above or beside it. */
-	#nodeOf(region: NodeOf<"MatchRegion">, id: string): RelNode | undefined {
-		for (const [node] of this.#readers) {
-			if (node.id === id) {
-				return node
+	/**
+	 * A correlated occurrence `q` as atoms a key source reads where it stands: its source's rows, through steps, filters
+	 * and projections of columns, are one region's single read of a source that reads no outer row, its correlations and
+	 * constants equating columns of it to outer rows' columns; read decorrelated, that source with each such column at the
+	 * value the outer source holds (#outerSource), its rows those of every outer row at once, a relaxation of what `q`
+	 * reads for each, beside each outer source, one atom for each outer row, binding every column `q` reads of it. Where
+	 * the statement's values restrict an outer source (a delta's keys, the unit a probe's chain steps from), the
+	 * candidate is a seed: those sources first, the source read at the values they bind, then the other outer sources at
+	 * the values it binds; where a constant of the statement's restricts the source itself, it is the seed; and where
+	 * neither, every atom is a step, the source first, read at the slots a read beside `q` binds. None for any other
+	 * occurrence, which the crossing does not step through.
+	 */
+	#decorrelated(
+		q: Occurrence,
+		slot: (v: VarDecl) => string,
+		beside: (node: string, column: string) => string | undefined
+	): Candidate | undefined {
+		/** Each column of `at` that `q` binds, by the slot its variable stands at. */
+		let map = new Map(q.bindings.map((b) => [b.column, slot(b.var)] as const))
+		let at = q.source
+		for (;;) {
+			if (at.kind === "Step" || at.kind === "Filter") {
+				at = at.input
+				continue
+			}
+			if (at.kind === "ProjectSet") {
+				const input = at.input
+				const out = at.out
+				map = new Map(
+					[...map].flatMap(([column, s]) => {
+						const e = out.find((x) => x.name === column)?.expr
+						return e?.kind === "column" && e.column.node === input.id
+							? [[e.column.name, s] as const]
+							: []
+					})
+				)
+				at = input
+				continue
+			}
+			break
+		}
+		const [p, ...more] = at.kind === "MatchRegion" ? at.occurrences : []
+		if (
+			at.kind !== "MatchRegion" ||
+			p === undefined ||
+			more.length > 0 ||
+			outerOf(p.source).length > 0 ||
+			!this.#lookups.readByLookup(p.source)
+		) {
+			return undefined
+		}
+		const region = at
+		const classOf = regionVarClasses(region)
+		const bindings: Array<{ readonly column: string; readonly slot: string }> = []
+		/** Each outer row's source and the columns `q` reads of it, by the row (#outerSource `row`). */
+		const outers = new Map<
+			object,
+			{
+				readonly node: RelNode
+				readonly bindings: Array<{ readonly column: string; readonly slot: string }>
+			}
+		>()
+		const constants = p.constants.filter((c) => statementValue(c.expr))
+		/**
+		 * `column` of the source equated to an outer row's column: the slot a variable of the reading region holds it at,
+		 * where a read beside `q` binds it (`beside`), or an atom of the outer source that holds it (#outerSource).
+		 */
+		const equate = (column: string, node: string, outerColumn: string): void => {
+			const besideSlot = beside(node, outerColumn)
+			if (besideSlot !== undefined) {
+				bindings.push({ column, slot: besideSlot })
+				return
+			}
+			const outer = this.#outerSource(node, outerColumn)
+			if (outer !== undefined) {
+				const corr = `corr:${q.id}:${column}`
+				bindings.push({ column, slot: corr })
+				outers
+					.getOrInsertComputed(outer.row, () => ({ node: outer.node, bindings: [] }))
+					.bindings.push({ column: outer.column, slot: corr })
 			}
 		}
-		return region.id === id ? region : undefined
+		for (const b of p.bindings) {
+			const bound = [...map].find(([name]) => {
+				const v = region.vars.find((x) => x.name === name)
+				return v !== undefined && classOf(v) === classOf(b.var)
+			})?.[1]
+			if (bound !== undefined) {
+				bindings.push({ column: b.column, slot: bound })
+			}
+			const c = region.correlated.find((x) => classOf(x.var) === classOf(b.var))
+			if (c?.expr.kind === "column") {
+				equate(b.column, c.expr.column.node, c.expr.column.name)
+			}
+		}
+		for (const c of p.constants) {
+			if (c.expr.kind === "column") {
+				equate(c.column, c.expr.column.node, c.expr.column.name)
+			}
+		}
+		if (bindings.length === 0) {
+			return undefined
+		}
+		const read: ReadAtom = { kind: "read", node: p.source, bindings, constants }
+		const outerReads = [...outers.values()].map((o) => ({
+			atom: { kind: "read", node: o.node, bindings: o.bindings, constants: [] } satisfies ReadAtom,
+			restricted: restrictedByValues(o.node)
+		}))
+		const restricted = outerReads.flatMap((o) => (o.restricted ? [o.atom] : []))
+		/** The outer sources read as steps, each a lookup (#lookup); one that is none only relaxes the source, so it goes. */
+		const others = outerReads.flatMap((o) =>
+			o.restricted || !this.#lookups.readByLookup(o.atom.node) ? [] : [o.atom]
+		)
+		const steps = outerReads.flatMap((o) =>
+			this.#lookups.readByLookup(o.atom.node) ? [o.atom] : []
+		)
+		return {
+			slots: bindings.map((b) => b.slot),
+			...(constants.length > 0
+				? { seeds: [read], steps }
+				: restricted.length > 0
+					? { seeds: restricted, steps: [read, ...others] }
+					: { seeds: [], steps: [read, ...others] })
+		}
+	}
+
+	/**
+	 * Where an outer row's column `column` of node `id` is read where it stands: the node itself where it reads no outer
+	 * row and holds no node it would be read beside; an enclosing region's variable, by the occurrence that binds it, a
+	 * source of the region read where it stands, or by the outer column its correlation reads in turn; a projection's
+	 * column, by its input's. The region whose row a correlated node reads encloses that node, so reading the region
+	 * itself would read the node it restricts: its binding occurrence gives the same values without it.
+	 */
+	#outerSource(
+		id: string,
+		column: string
+	): { readonly node: RelNode; readonly column: string; readonly row: object } | undefined {
+		const node = this.#byId.get(id)
+		if (node === undefined) {
+			return undefined
+		}
+		if (node.kind === "MatchRegion") {
+			const v = node.vars.find((x) => x.name === column)
+			if (v === undefined) {
+				return undefined
+			}
+			for (const q of node.occurrences) {
+				const b = q.bindings.find((x) => x.var === v)
+				if (b !== undefined && outerOf(q.source).length === 0) {
+					return { node: q.source, column: b.column, row: q }
+				}
+			}
+			const c = node.correlated.find((x) => x.var === v)
+			return c?.expr.kind === "column"
+				? this.#outerSource(c.expr.column.node, c.expr.column.name)
+				: undefined
+		}
+		if (node.kind === "ProjectSet") {
+			const e = node.out.find((o) => o.name === column)?.expr
+			return e?.kind === "column" && e.column.node === node.input.id
+				? this.#outerSource(node.input.id, e.column.name)
+				: undefined
+		}
+		return outerOf(node).length === 0 ? { node, column, row: node } : undefined
+	}
+}
+
+/**
+ * The keys a filter reads its input region at by a conjunct that fixes no column to a value: a condition of the
+ * statement's values over columns one stored relation of the region binds, `state = $1 OR hub = $1`, that relation's
+ * rows at the condition, each column at a slot of its own; whole where no conjunct is one. learning-commons' crosswalk
+ * of one standard reads the pairs whose state or hub it is, beside how many components support each end, a fold of
+ * every standard's supports, which no value fixed: its key set reads those pairs' ends alone.
+ */
+const conditionAt = (filter: NodeOf<"Filter">): KeyRestriction => {
+	const region = filter.input
+	if (region.kind !== "MatchRegion") {
+		return whole
+	}
+	for (const e of conjuncts(filter.pred)) {
+		if (e.deps.params.length === 0 || !e.deps.nodes.every((n) => n === region.id)) {
+			continue
+		}
+		const read = [
+			...new Set(
+				exprClosure([e]).flatMap((x) =>
+					x.kind === "column" && x.column.node === region.id ? [x.column.name] : []
+				)
+			)
+		]
+		const bound = (
+			q: Occurrence
+		): ReadonlyArray<{ readonly name: string; readonly column: string }> =>
+			read.flatMap((name) => {
+				const b = q.bindings.find((x) => x.var.name === name)
+				return b === undefined ? [] : [{ name, column: b.column }]
+			})
+		const o = region.occurrences.find(
+			(q) => q.source.kind === "Base" && bound(q).length === read.length
+		)
+		const [first, ...rest] = o === undefined ? [] : bound(o)
+		if (o === undefined || first === undefined) {
+			continue
+		}
+		const columns: NonEmptyReadonlyArray<{ readonly name: string; readonly column: string }> = [
+			first,
+			...rest
+		]
+		const slotOf = (name: string): string => `filter:${name}`
+		return {
+			kind: "keys",
+			columns: mapKeys(columns, (c) => c.name),
+			sources: [
+				{
+					seeds: [
+						{
+							kind: "filtered",
+							node: o.source,
+							bindings: columns.map((c) => ({ column: c.column, slot: slotOf(c.name) })),
+							condition: e,
+							at: region.id,
+							columns: new Map(columns.map((c) => [c.name, c.column] as const))
+						}
+					],
+					steps: [],
+					fixed: [],
+					keys: mapKeys(columns, (c) => ({ column: c.name, slot: slotOf(c.name) }))
+				}
+			]
+		}
+	}
+	return whole
+}
+
+/**
+ * Which nodes are read at keys by an index lookup, as a key source's step reads a node at the values the atoms before
+ * it bind (keyed.ts KeyedLowering #sourceRows) and a node computed at keys is read LATERAL per key (KeyedLowering body):
+ * a stored relation; a step, a projection of columns or a filter over such a read; a region of stored relations alone;
+ * never a node the statement computes once and reads where it stands (`computed`: a CTE, a carrier), nor anything over
+ * one, which no index reads. Any other read would meet a key set in a join whose plan depends on its estimate:
+ * PostgreSQL rescans a CTE on a nested loop's inner side for each outer row, and at an estimate of one row it chose to,
+ * lower-shapes/read-once's derived relation of 450 rows scanned for each of 52 keys.
+ */
+export class Lookups {
+	readonly #computed: (node: RelNode) => boolean
+	/** Whether each node is read by a lookup, worked out once. */
+	readonly #known = new Map<RelNode, boolean>()
+
+	constructor(computed: (node: RelNode) => boolean) {
+		this.#computed = computed
+	}
+
+	readByLookup(node: RelNode): boolean {
+		const known = this.#known.get(node)
+		if (known !== undefined) {
+			return known
+		}
+		const lookup = ((): boolean => {
+			if (this.#computed(node)) {
+				return false
+			}
+			switch (node.kind) {
+				case "Base":
+					return true
+				case "Step":
+				case "ProjectSet":
+				case "Filter":
+					return this.readByLookup(node.input)
+				case "MatchRegion":
+					return node.occurrences.every(
+						(o) => o.source.kind === "Base" && !this.#computed(o.source)
+					)
+				case "AntiJoin":
+				case "ApproximateNearest":
+				case "Attach":
+				case "Call":
+				case "Closed":
+				case "Context":
+				case "Delta":
+				case "Difference":
+				case "Forbid":
+				case "Group":
+				case "InputSet":
+				case "Intersect":
+				case "OrderedResult":
+				case "OrderedSetAggregate":
+				case "Produce":
+				case "Recursive":
+				case "SelfRef":
+				case "SemiJoin":
+				case "Take":
+				case "Union":
+				case "Window":
+					return false
+			}
+		})()
+		this.#known.set(node, lookup)
+		return lookup
 	}
 }
 
@@ -487,6 +1004,18 @@ const mapKeys = <T, U>(xs: NonEmptyReadonlyArray<T>, f: (x: T) => U): NonEmptyRe
 	const [first, ...rest] = xs
 	return [f(first), ...rest.map(f)]
 }
+
+/** Whether a source reads values of the statement's alone: no relation, only key sets that read values alone in turn. */
+const atValues = (source: KeySource): boolean =>
+	atomsOf(source).every(
+		(a) => a.kind === "outer" || (a.kind === "keys" && a.keys.sources.every(atValues))
+	)
+
+/** Whether a source reads the outer row its region is evaluated for, or a key set that does in turn. */
+const perRow = (source: KeySource): boolean =>
+	atomsOf(source).some(
+		(a) => a.kind === "outer" || (a.kind === "keys" && a.keys.sources.some(perRow))
+	)
 
 /**
  * A key set over the columns `rename` maps to, each kept column renamed: the columns a reader keeps of its input under
@@ -522,12 +1051,19 @@ const renamed = (keys: Keys, rename: (column: string) => string | undefined): Ke
 
 /**
  * The key set a node is computed at by itself: a fold's on its grouping columns alone, a group being its input's rows
- * at one key, its aggregate known only once the group is whole; any other node's whole key set.
+ * at one key, its aggregate known only once the group is whole; a call's none, its rows its function's at its
+ * arguments, evaluated whole wherever it stands and held by the statement once (lower/conservative/call
+ * evaluationQuery, StatementSharing carryEvaluation), so a copy at keys evaluates it again beside the one the statement
+ * holds: metis's submit carried the texts of its response processing at their readers' keys, the call's 230 KB
+ * evaluated a second time in a nested WITH beside the statement's own, and seventeen of its fields each at a key set
+ * of its own; any other node's whole key set.
  */
 export const computedAt = (node: RelNode, keys: KeyRestriction): KeyRestriction =>
-	node.kind !== "Group" || keys.kind === "whole"
-		? keys
-		: renamed(keys, (column) => (node.keys.includes(column) ? column : undefined))
+	node.kind === "Call"
+		? whole
+		: node.kind !== "Group" || keys.kind === "whole"
+			? keys
+			: renamed(keys, (column) => (node.keys.includes(column) ? column : undefined))
 
 /**
  * A key set narrowed by `fixings`, columns a filter keeps at values of the statement's: each fixed column a key at its
@@ -549,14 +1085,14 @@ const fixedAt = (
 		return {
 			kind: "keys",
 			columns: mapKeys(fixedKeys, (k) => k.column),
-			sources: [{ atoms: [], fixed, keys: fixedKeys }]
+			sources: [{ seeds: [], steps: [], fixed, keys: fixedKeys }]
 		}
 	}
 	const extra = fixedKeys.filter((k) => !above.columns.includes(k.column))
 	const [head, ...tail] = above.sources
 	const widen = (s: KeySource): KeySource => {
 		const [k, ...ks] = s.keys
-		return { atoms: s.atoms, fixed: [...s.fixed, ...fixed], keys: [k, ...ks, ...extra] }
+		return { ...s, fixed: [...s.fixed, ...fixed], keys: [k, ...ks, ...extra] }
 	}
 	const [c, ...cs] = above.columns
 	return {
@@ -593,4 +1129,221 @@ const unionOf = (reads: ReadonlyArray<KeyRestriction>): KeyRestriction => {
 	)
 	const [head, ...tail] = sources
 	return head === undefined ? whole : { kind: "keys", columns: common, sources: [head, ...tail] }
+}
+
+/**
+ * Which of `candidates`, each a sub-query computed once (its copies), are computed at their key sets, and the height
+ * each is computed at: each with a key set, lowest first, at its keys unless the nodes its key set reads (keys.ts
+ * keySetReads) or a node below one hold a copy of a candidate whose computation reaches it in turn, which no order computes
+ * first; a candidate's computation reads every candidate below its copies, and one at its keys every candidate its key
+ * set's reads hold too, so it stands past each of them.
+ */
+export const keyedOrder = (
+	inputs: (node: RelNode) => ReadonlyArray<RelNode>,
+	candidates: ReadonlyArray<{
+		readonly copies: ReadonlyArray<RelNode>
+		readonly keys: KeyRestriction
+		readonly height: number
+	}>
+): ReadonlyArray<{ readonly keys: Keys | undefined; readonly height: number }> => {
+	const owner = new Map<RelNode, number>()
+	for (const [i, c] of candidates.entries()) {
+		for (const copy of c.copies) {
+			owner.set(copy, i)
+		}
+	}
+	const none: ReadonlySet<number> = new Set()
+	/** The candidates a node or a node below it holds a copy of. */
+	const under = new Fold<RelNode, ReadonlySet<number>>(function* (node) {
+		const own = owner.get(node)
+		let met: ReadonlySet<number> = own === undefined ? none : new Set([own])
+		for (const input of inputsOf(node)) {
+			const below: ReadonlySet<number> = yield input
+			met = below.isSubsetOf(met) ? met : met.union(below)
+		}
+		return met
+	})
+	/** The candidates whose copies `from` or a node below them hold. */
+	const held = (from: ReadonlyArray<RelNode>): Set<number> =>
+		new Set(from.flatMap((node) => [...under.of(node)]))
+	const below = candidates.map((c, i) => {
+		const met = held(c.copies.flatMap((copy) => inputs(copy)))
+		met.delete(i)
+		return met
+	})
+	const throughKeys = candidates.map((c) =>
+		c.keys.kind === "keys" ? held(keySetReads(c.keys)) : new Set<number>()
+	)
+	const keyed = new Set<number>()
+	const edges = (i: number): ReadonlyArray<number> => [
+		...defined(below[i], "a candidate's reads"),
+		...(keyed.has(i) ? defined(throughKeys[i], "a candidate's key set's reads") : [])
+	]
+	/** Whether a candidate's computation reaches `to` from `from`. */
+	const reaches = (from: Iterable<number>, to: number): boolean => {
+		const seen = new Set<number>()
+		const queue = [...from]
+		for (const at of queue) {
+			if (at === to) {
+				return true
+			}
+			if (!seen.has(at)) {
+				seen.add(at)
+				for (const next of edges(at)) {
+					queue.push(next)
+				}
+			}
+		}
+		return false
+	}
+	const lowestFirst = [...candidates.keys()].toSorted(
+		(a, b) =>
+			defined(candidates[a], "a candidate").height - defined(candidates[b], "a candidate").height ||
+			a - b
+	)
+	for (const i of lowestFirst) {
+		const c = defined(candidates[i], "a candidate")
+		if (
+			c.keys.kind === "keys" &&
+			!reaches(defined(throughKeys[i], "a candidate's key set's reads"), i)
+		) {
+			keyed.add(i)
+		}
+	}
+	const heights = new Map<number, number>()
+	const heightOf = (i: number): number => {
+		const known = heights.get(i)
+		if (known !== undefined) {
+			return known
+		}
+		const h = edges(i).reduce(
+			(most, j) => Math.max(most, heightOf(j) + 1),
+			defined(candidates[i], "a candidate").height
+		)
+		heights.set(i, h)
+		return h
+	}
+	return candidates.map((c, i) => ({
+		keys: keyed.has(i) && c.keys.kind === "keys" ? c.keys : undefined,
+		height: heightOf(i)
+	}))
+}
+
+/**
+ * The key sets a statement computes its nodes at (KeyAnalysis over the statement's own `nodes`, each of `roots` at the
+ * key set it is given): each sub-query it computes once (`once`, its copies, a CTE or a part) at its copies' key set,
+ * and each union or fold it lowers in place, uncorrelated, at its own, where no value of the statement restricts it and
+ * no cycle closes (keyedOrder); every other node whole. A fold is computed at its grouping keys alone (computedAt).
+ */
+export const keyPlan = (statement: {
+	readonly nodes: ReadonlyArray<RelNode>
+	readonly roots: ReadonlyMap<RelNode, KeyRestriction>
+	readonly once: ReadonlyArray<ReadonlyArray<RelNode>>
+	readonly fixed: FixedOf
+	readonly inputs: (node: RelNode) => ReadonlyArray<RelNode>
+	readonly height: (node: RelNode) => number
+}): {
+	readonly once: ReadonlyArray<Keys | undefined>
+	readonly atValues: ReadonlyArray<boolean>
+	readonly inPlace: ReadonlyMap<RelNode, Keys>
+} => {
+	const computedOnce = new Set(statement.once.flat())
+	const analysis = new KeyAnalysis(
+		statement.nodes,
+		statement.roots,
+		statement.fixed,
+		new Lookups((node) => computedOnce.has(node))
+	)
+	/**
+	 * Whether a union's arm or a fold's input is a node the statement computes once, through projections, filters,
+	 * steps and regions that read one source as it stands (cte-policy renamedSource):
+	 * read at keys, each key would scan those computed rows whole, which no index reads, where they are restricted at
+	 * their own key set already and the node over them computed once is too (a fold of 52 keys over 1,800 computed rows
+	 * scanned them 52 times).
+	 */
+	const overComputed = (node: RelNode): boolean => {
+		const computed = (n: RelNode): boolean => {
+			if (computedOnce.has(n)) {
+				return true
+			}
+			switch (n.kind) {
+				case "ProjectSet":
+				case "Filter":
+				case "Step":
+					return computed(n.input)
+				case "MatchRegion": {
+					const one = renamedSource(n)
+					return one !== undefined && computed(one.occurrence.source)
+				}
+				case "ApproximateNearest":
+				case "Attach":
+				case "Base":
+				case "Call":
+				case "Closed":
+				case "Context":
+				case "Delta":
+				case "Difference":
+				case "Forbid":
+				case "Group":
+				case "InputSet":
+				case "Intersect":
+				case "OrderedResult":
+				case "OrderedSetAggregate":
+				case "Produce":
+				case "Recursive":
+				case "SelfRef":
+				case "SemiJoin":
+				case "AntiJoin":
+				case "Take":
+				case "Union":
+				case "Window":
+					return false
+			}
+		}
+		return node.kind === "Group"
+			? computed(node.input)
+			: node.kind === "Union" && unionArms(node.groups).some(computed)
+	}
+	const inPlace = statement.nodes.filter(
+		(node) =>
+			!computedOnce.has(node) &&
+			!statement.roots.has(node) &&
+			(node.kind === "Union" || node.kind === "Group") &&
+			outerOf(node).length === 0
+	)
+	const candidates = [
+		...statement.once.map((copies) => {
+			const [first] = copies
+			return {
+				copies,
+				keys:
+					first === undefined || copies.some(restrictedByValues) || overComputed(first)
+						? whole
+						: computedAt(first, analysis.keysOfAll(copies)),
+				height: copies.reduce((h, c) => Math.max(h, statement.height(c)), 0)
+			}
+		}),
+		...inPlace.map((node) => ({
+			copies: [node],
+			keys:
+				restrictedByValues(node) || overComputed(node)
+					? whole
+					: computedAt(node, analysis.keysOf(node)),
+			height: statement.height(node)
+		}))
+	]
+	const order = keyedOrder(statement.inputs, candidates)
+	return {
+		once: statement.once.map((_, i) => order[i]?.keys),
+		atValues: statement.once.map((copies, i) => {
+			const at = copies.length > 0 ? analysis.readsAtValues(copies) : undefined
+			return at === "rows" || (at === "values" && order[i]?.keys === undefined)
+		}),
+		inPlace: new Map(
+			inPlace.flatMap((node, i) => {
+				const at = order[statement.once.length + i]?.keys
+				return at === undefined ? [] : [[node, at] as const]
+			})
+		)
+	}
 }

@@ -21,6 +21,7 @@ import { LowerContext } from "#compiler/lower/conservative/context.ts"
 import { conservativeInput, flight } from "#compiler/lower/conservative/types.ts"
 import { emptyCtePlan } from "#compiler/lower/optimize/cte-policy/index.ts"
 import { OptimizedDelivery, optimizedDispatch, ShapeState } from "#compiler/lower/shapes/index.ts"
+import { noKeys } from "#compiler/lower/shapes/share/keyed.ts"
 import type { RelationInput } from "#compiler/lower/shapes/take/index.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import type { OperandBody, OperandSelect } from "#compiler/sql/ast.ts"
@@ -76,7 +77,7 @@ export const conservative = (built: LogicalQuery): number =>
 /** The attachments a program delivers, pipelined or fused into their parent statement. */
 export const optimized = (built: LogicalQuery): number => {
 	const { facts } = shapedFacts(built.dag, {}, "placement")
-	const state = new ShapeState<RelationInput>("small", emptyCtePlan)
+	const state = new ShapeState<RelationInput>("small", emptyCtePlan, noKeys)
 	const cx = new LowerContext(
 		built.dag,
 		testOptions("Ledger"),

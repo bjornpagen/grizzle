@@ -89,15 +89,22 @@ export const optimizedOf = (box: Box): string =>
 		"\n"
 	)
 
-/** How many MATERIALIZED CTEs of `sql` hold a UNION: the status derived whole for the statement. */
-export const unionCtes = (sql: string): number =>
-	Arr.filter(Arr.drop(Str.split("AS MATERIALIZED (")(sql), 1), (rest) => {
-		const [body] = Str.split("\n)")(rest)
-		return Str.includes(" UNION ")(body)
-	}).length
+/** The bodies of the MATERIALIZED CTEs of `sql` that hold a UNION. */
+const unionBodies = (sql: string): ReadonlyArray<string> =>
+	Arr.filter(
+		Arr.map(Arr.drop(Str.split("AS MATERIALIZED (")(sql), 1), (rest) => {
+			const [body] = Str.split("\n)")(rest)
+			return body
+		}),
+		Str.includes(" UNION ")
+	)
 
-/** Whether the status is read LATERAL, its union inside the LATERAL and the parent's number compared there. */
-export const unionInsideLateral = (sql: string): boolean => {
-	const [, lateral = ""] = Str.split("LATERAL (SELECT DISTINCT ")(sql)
-	return Str.includes(" UNION ")(lateral)
-}
+/** Whether a CTE's body reads its node at a key set: LATERAL per key of a key set's CTE, each arm at the key. */
+const atKeys = (body: string): boolean => Str.includes(", LATERAL ((SELECT ")(body)
+
+/** How many MATERIALIZED CTEs of `sql` hold the status union whole: derived for the statement over every row. */
+export const wholeUnionCtes = (sql: string): number =>
+	Arr.filter(unionBodies(sql), (b) => !atKeys(b)).length
+
+/** Whether the status union is computed at the parent rows' keys: a CTE of it read LATERAL per key of its key set. */
+export const unionAtKeys = (sql: string): boolean => Arr.some(unionBodies(sql), atKeys)

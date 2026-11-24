@@ -65,12 +65,5 @@ export const anAttachmentOverAUnionOfRulesReadsEachArmByItsParentsKeysSoItsWorkI
 		},
 		budget: { runs: 1, steered: 200 },
 		kept: [],
-		kills: [
-			{
-				file: "packages/engine/src/lower/optimize/cte-policy/index.ts",
-				original: "\t\treturn unionArms(node.groups).every((arm) => probedByKey(arm, columns))",
-				replacement: "\t\treturn false",
-				why: "No stored relation's range binds a union, so the policy derives the files of every document once as a MATERIALIZED CTE and joins each document's key to it beside, reading every reference, candidate and media file stored."
-			}
-		]
+		kills: []
 	})

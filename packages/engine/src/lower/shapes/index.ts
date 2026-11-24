@@ -68,7 +68,7 @@ import {
 	filteredRegion
 } from "#compiler/lower/optimize/cte-policy/index.ts"
 import { partQuery, shiftedPart, type TaggedPart, taggedParts } from "#compiler/lower/parts.ts"
-import { aggregateLowerer } from "#compiler/lower/shapes/aggregate/index.ts"
+import { aggregateLowerer, keyedGroup } from "#compiler/lower/shapes/aggregate/index.ts"
 import { seededAttachment } from "#compiler/lower/shapes/attach-recursive/index.ts"
 import {
 	boundTimes,
@@ -86,6 +86,13 @@ import { regionLowerer } from "#compiler/lower/shapes/region/index.ts"
 import { inputSetLowerer } from "#compiler/lower/shapes/relparam/index.ts"
 import { searchFenced } from "#compiler/lower/shapes/search/index.ts"
 import { shareKey } from "#compiler/lower/shapes/share/index.ts"
+import {
+	KeyedLowering,
+	type KeyScope,
+	readAtKeys,
+	type StatementKeys
+} from "#compiler/lower/shapes/share/keyed.ts"
+import { type Keys, Lookups } from "#compiler/lower/shapes/share/keys.ts"
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
 import { producerLowerer } from "#compiler/lower/shapes/spans/index.ts"
 import {
@@ -102,7 +109,7 @@ import {
 	type WholeRelationShape
 } from "#compiler/lower/shapes/take/index.ts"
 import { orderIsTotal } from "#compiler/lower/shapes/take/order.ts"
-import { groupRows, unionLowerer } from "#compiler/lower/shapes/union/index.ts"
+import { groupRows, keyedUnion, unionLowerer } from "#compiler/lower/shapes/union/index.ts"
 import { approximateLowerer } from "#compiler/lower/shapes/vector/index.ts"
 import { executableQuery, executableQueryFrom } from "#compiler/lower/template.ts"
 import { columnType } from "#compiler/runtime/lower/columns.ts"
@@ -437,6 +444,10 @@ export interface ShapeLog<I extends ChoiceInput> {
 	/** `lower`'s query of `holder` with the CTEs it holds leading its WITH (ShapeState). */
 	withHeldCtes<Q extends OperandSelect>(holder: NodeId, lower: () => Q): Q
 	readonly record: (choice: ShapeChoice<I>) => void
+	/** The key sets the statement computes its nodes at (share/keyed.ts StatementKeys). */
+	readonly keys: StatementKeys
+	/** Where the statement being lowered holds its key sets: its WITH, and each key set's CTE once defined. */
+	readonly keyScope: KeyScope
 }
 
 /**
@@ -478,18 +489,22 @@ export interface ShapeLog<I extends ChoiceInput> {
  */
 export class ShapeState<I extends ChoiceInput> implements ShapeLog<I> {
 	readonly cte: CtePlan
+	readonly keys: StatementKeys
 	#mode: InputChoiceMode
 	#log: CteLog = freshCtes()
+	/** Each key set's CTE in the statement being lowered (share/keyed.ts KeyScope). */
+	#keySets = new Map<Keys, DefinedCte>()
 	#choices: Array<ShapeChoice<I>> = []
 	/** The holders whose query holds a CTE (cte-policy `sharedCorrelated`): regions and calls' evaluations. */
 	readonly #holding: ReadonlySet<NodeId>
 	/** The CTEs of each holder being lowered, by the holder (`withHeldCtes`). */
 	readonly #held = new Map<NodeId, CteLog>()
 
-	/** A state whose first statement is lowered in `mode`. */
-	constructor(mode: InputChoiceMode, cte: CtePlan) {
+	/** A state whose first statement is lowered in `mode`, its nodes shared by `cte` and computed at `keys`. */
+	constructor(mode: InputChoiceMode, cte: CtePlan, keys: StatementKeys) {
 		this.#mode = mode
 		this.cte = cte
+		this.keys = keys
 		this.#holding = new Set(
 			Object.values(cte.decisions).flatMap((d) => (d.scope.kind === "held" ? [d.scope.holder] : []))
 		)
@@ -503,6 +518,7 @@ export class ShapeState<I extends ChoiceInput> implements ShapeLog<I> {
 	begin(mode: InputChoiceMode): void {
 		this.#mode = mode
 		this.#log = freshCtes()
+		this.#keySets = new Map()
 		this.#choices = []
 	}
 
@@ -518,9 +534,27 @@ export class ShapeState<I extends ChoiceInput> implements ShapeLog<I> {
 	drain(): StatementLog<ShapeChoice<I>> {
 		const log = { ...this.#log, choices: this.#choices }
 		this.#log = freshCtes()
+		this.#keySets = new Map()
 		this.#choices = []
 		return log
 	}
+
+	get keyScope(): KeyScope {
+		return { ctes: this.#log.ctes, keySets: this.#keySets, lookups: this.#lookups }
+	}
+
+	/**
+	 * Which nodes the statement reads by an index lookup at keys (share/keys.ts Lookups): none the policy computes in the
+	 * statement's WITH, a CTE read where it stands.
+	 */
+	readonly #lookups = new Lookups((node) => {
+		const decision = this.cte.decisions[node.id]
+		return (
+			decision?.scope.kind === "statement" &&
+			!this.keys.atValues.has(node.id) &&
+			cteMaterialization(decision.strategy) !== undefined
+		)
+	})
 
 	strategy(node: RelNode): CteStrategy | undefined {
 		return this.cte.decisions[node.id]?.strategy
@@ -747,11 +781,7 @@ const optimizedLowerers = <I extends ChoiceInput>(
 	Delta: realized(facts, conservativeLowerers.Delta),
 	MatchRegion: realized(
 		facts,
-		regionLowerer(
-			facts,
-			(n) => state.strategy(n) === "materialized",
-			(n) => state.strategy(n) !== undefined
-		)
+		regionLowerer(facts, (n) => state.strategy(n) === "materialized")
 	),
 	Filter: realized(facts, searchFenced(conservativeLowerers.Filter)),
 	ProjectSet: realized(facts, conservativeLowerers.ProjectSet),
@@ -803,9 +833,22 @@ const dispatchIn = <I extends ChoiceInput>(
 		const lower: NodeLowerer<K> = table[node.kind]
 		return lower(node, cx, env)
 	}
+	const keyed = new KeyedLowering(
+		(node, cx, env, restriction) =>
+			node.kind === "Union"
+				? keyedUnion(facts, node, cx, env, restriction)
+				: keyedGroup(facts, node, cx, env, restriction),
+		(node) => node.id
+	)
 	return (node, cx, env) => {
-		const decision = state.decision(node)
+		const shared = state.decision(node)
+		/** A node every read of which reads it at values is read inline at each (StatementKeys atValues). */
+		const decision = shared !== undefined && state.keys.atValues.has(node.id) ? undefined : shared
 		const materialized = decision === undefined ? undefined : cteMaterialization(decision.strategy)
+		const inPlace = decision === undefined ? state.keys.inPlace.get(node) : undefined
+		if (inPlace !== undefined && readAtKeys(node) && !cx.readsFeedback(node)) {
+			return keyed.atKeys(node, inPlace, cx, env, state.keyScope)
+		}
 		if (decision === undefined || materialized === undefined || cx.readsFeedback(node)) {
 			const region = filteredRegion(node)
 			return region === undefined
@@ -814,10 +857,14 @@ const dispatchIn = <I extends ChoiceInput>(
 		}
 		const scope = decision.scope
 		switch (scope.kind) {
-			case "statement":
+			case "statement": {
+				const keys = state.keys.once.get(node.id)
 				return cteAtFirstUse(cx, node, state.log, node, materialized, () =>
-					plugIn(node, cx, emptyEnv)
+					keys === undefined
+						? plugIn(node, cx, emptyEnv)
+						: keyed.body(node, keys, cx, state.keyScope, (within) => plugIn(node, within, emptyEnv))
 				)
+			}
 			case "held": {
 				const ctes = state.heldCtes(scope.holder)
 				return ctes === undefined

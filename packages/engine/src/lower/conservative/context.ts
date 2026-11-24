@@ -83,6 +83,7 @@ import {
 	type DefinedCte,
 	derived,
 	distinctCore,
+	keyedRead,
 	lit,
 	operandSelect,
 	operandUnionAll,
@@ -574,6 +575,11 @@ interface Scope {
 	readonly evaluations: EvaluationHost | undefined
 	/** How a call's evaluation's query is built (EvaluationHolding). */
 	readonly holding: EvaluationHolding
+	/**
+	 * The nodes read in this scope at some of their columns' values alone (`withRestricted`), each with its equalities:
+	 * every lowering of such a node is its rows at those values.
+	 */
+	readonly restricted: ReadonlyMap<RelNode, ColumnEqualities>
 }
 
 /** Each write DAG's fact spine (factSpine), made once: a DAG is immutable. */
@@ -718,7 +724,8 @@ export class LowerContext {
 			dispatch,
 			sharing: undefined,
 			evaluations: undefined,
-			holding
+			holding,
+			restricted: new Map()
 		}
 	}
 
@@ -769,6 +776,21 @@ export class LowerContext {
 	/** The scope whose nodes lower through `dispatch`. */
 	withDispatch(dispatch: NodeDispatch): LowerContext {
 		return this.#within({ ...this.#scope, dispatch })
+	}
+
+	/**
+	 * The scope in which each node of `restricted` is read at its equalities' values alone, beside those this scope
+	 * restricts: wherever it is lowered inside, its rows are those at the values (`lower`), so a restriction a fence
+	 * would stop at its edge stands inside it (lower/shapes/share/keyed.ts pushedInto). Each value is an expression in
+	 * scope wherever the node is lowered in this scope.
+	 */
+	withRestricted(restricted: ReadonlyMap<RelNode, ColumnEqualities>): LowerContext {
+		return restricted.size === 0
+			? this
+			: this.#within({
+					...this.#scope,
+					restricted: new Map([...this.#scope.restricted, ...restricted])
+				})
 	}
 
 	/** The scope whose node `node` lowers through `lower`, and every other node as this scope's dispatch lowers it. */
@@ -1042,9 +1064,24 @@ export class LowerContext {
 		}
 	}
 
-	/** The query of a node, output columns in heading order, as the scope's dispatch lowers it. */
+	/**
+	 * The query of a node, output columns in heading order, as the scope's dispatch lowers it; at the values the scope
+	 * restricts it to where it does (`withRestricted`), its rows read apart and kept at them.
+	 */
 	lower(node: RelNode, env: Env): OperandSelect {
-		return this.#scope.dispatch(node, this, env)
+		const query = this.#scope.dispatch(node, this, env)
+		const restriction = this.#scope.restricted.get(node)
+		if (restriction === undefined) {
+			return query
+		}
+		const rows = this.wrap(query, node.heading, { kind: "node", node: node.id })
+		return operandSelect(
+			keyedRead(
+				headingTargets(node.heading, rows.map),
+				[rows.item],
+				conjunction(equalitiesOver(this, node.heading, rows.map, restriction))
+			)
+		)
 	}
 
 	/**

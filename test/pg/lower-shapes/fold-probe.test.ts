@@ -1,8 +1,8 @@
 /**
- * A region that joins a fold by its grouping columns reads it per key (lower/conservative/match-region KeyedProbes,
- * lower/shapes/region keyedProbes): for each binding of the occurrences before it, the fold of that binding's keys
- * alone, LATERAL, the keys restricted below the aggregate, where the index the workload requests on them reads one
- * group's rows. On PostgreSQL 19, over learning-commons' crosswalk (fold-probe.fixtures.ts): the pairs of one standard, each
+ * A region that joins a fold by its grouping columns reads it at the key set its other reads give it
+ * (lower/shapes/share/keys.ts, magic sets; share/keyed.ts KeyedLowering): for each key of a DISTINCT key set, the fold
+ * of that key alone, LATERAL, the key restricted below the aggregate, where the index the workload requests on it reads
+ * one group's rows. On PostgreSQL 19, over learning-commons' crosswalk (fold-probe.fixtures.ts): the pairs of one standard, each
  * with how many components support each of its ends, two occurrences of one fold of Supports by its standard. A grouped
  * derived table is never flattened, so the join of a whole fold stays above its aggregate, which then folds every
  * standard's supports twice for each read (edullm materialized it: 100 ms counting against 0.1 to 1 ms stored).
@@ -69,23 +69,10 @@ export const aReadThatJoinsAFoldByItsKeysFoldsEachBindingsGroupAloneSoItsWorkIsT
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/lower/shapes/region/index.ts",
-				original: "\t\tconst lowered = regionParts(node, cx, env, keyedProbes(facts, shared))",
-				replacement: "\t\tconst lowered = regionParts(node, cx, env, undefined)",
-				why: "The region reads every fold whole, joined by its keys beside its aggregate, so each count folds every standard's supports for the read, whatever pairs it delivers."
-			},
-			{
-				file: "packages/engine/src/lower/optimize/cte-policy/index.ts",
-				original: "\t\t\t(perKey.get(node) ?? 0) >= references\n",
-				replacement: "\t\t\tfalse\n",
-				why: "A fold two occurrences share is MATERIALIZED for the statement (rule 5, sharedExpensive), which the region's probe never reads per key: the CTE folds every standard's supports, and the read's scans of Supports read all of them."
-			},
-			{
-				file: "packages/engine/src/lower/conservative/match-region/index.ts",
-				original:
-					"\t\t\tconst keysReady = keyed.get(o)?.keys.every((k) => value.has(k.variable)) ?? true",
-				replacement: "\t\t\tconst keysReady = true",
-				why: "A fold matched before the pair that binds its keys is placed first, its keys holding no value yet, so the read of the counts matched first dies compiling (`defined`)."
+				file: "packages/engine/src/lower/shapes/share/keys.ts",
+				original: '\t\t\t\treturn fixed.kind === "keys" ? fixed : conditionAt(reader)\n',
+				replacement: "\t\t\t\treturn fixed\n",
+				why: "A filter's condition of the call's values seeds no key set: the pairs whose state or hub is the asked standard key nothing, the fold of every standard's supports is computed whole, and the read's scans of Supports read all of them."
 			}
 		]
 	})

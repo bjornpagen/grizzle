@@ -151,23 +151,18 @@ export type PotentialFeature =
 
 /**
  * What the readers property counts: each state of the cells worked out (editor.ts DagEditor cellState), a driver's for
- * its rules or a rule's for its own edit, each reader map worked out over one (DagEditor.readersIn), and each cell the
- * shared restriction weighs (pushdown/shared.ts restrictable), at each of which it reads one.
+ * its rules or a rule's for its own edit, and each reader map worked out over one (DagEditor.readersIn).
  */
 export const readersSites = Object.freeze({
 	state: { file: "packages/engine/src/lower/optimize/demand/editor.ts", name: "#state" },
 	readers: { file: "packages/engine/src/lower/optimize/demand/editor.ts", name: "#keptReaders" },
-	walked: { file: "packages/engine/src/lower/optimize/demand/editor.ts", name: "readersIn" },
-	restrictable: {
-		file: "packages/engine/src/lower/optimize/pushdown/shared.ts",
-		name: "restrictable"
-	}
+	walked: { file: "packages/engine/src/lower/optimize/demand/editor.ts", name: "readersIn" }
 } satisfies Readonly<Record<string, CountedFunction>>)
 
-/** What the readers property reaches: a state whose readers a rule read, and the shared restriction at several cells. */
-export type ReadersFeature =
-	| "a state whose readers a rule read"
-	| "a state the shared restriction weighed several cells of"
+/** What the readers property reaches: a state whose readers a rule read. */
+export const readersFeatures = ["a state whose readers a rule read"] as const
+
+export type ReadersFeature = (typeof readersFeatures)[number]
 
 /**
  * What the shape property counts: each cell the editor made and each node set in a cell (editor.ts Readers created and

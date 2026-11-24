@@ -325,20 +325,17 @@
  * `hiddenFor`), where it took the term's variables for its own. A judged step that binds a column to a term computed
  * from the channels it passes in, a sum, a conditional or a bounded text's guarded cast, asks an index holding that
  * column (physical/access/extract.ts regionFacts `fixing`), where the term fixed nothing and the step's index held only
- * the columns its channels bind directly. A region that joins a union by columns an occurrence the statement's values
- * restrict binds reads it per binding, LATERAL, each arm at those values (lower/optimize/cte-policy probesByKey,
- * lower/shapes/union keyedUnion), and a fold the same way beside such an occurrence, where format 8 read the union
- * whole and joined it beside, and probed a fold only beside a stored relation; a fold or a union the statement's values
- * restrict itself is no such probe, read as it stands. A fold or a union every reader of a
- * workload's read reads at a value of a key column is read inline at each (lower/optimize/cte-policy perKeyReads, rule
- * 5c), where format 8 made one MATERIALIZED CTE of the whole node, read beside. A restricted share's EXISTS reads the
- * union of its readers' partners (lower/shapes/share/statements.ts restrictedShares), where 96b46005e's read one
- * partner. A unit delete of a relation that is a member of two counted families or more keeps none of a group of any of
+ * the columns its channels bind directly. A union, a fold or a shared join every read of a statement restricts is
+ * computed at its key set, the keys its reads reach it at from what the statement fixes (lower/shapes/share/keys.ts,
+ * magic sets): the key set a MATERIALIZED DISTINCT CTE of the statement, a union LATERAL per key with each arm at it, a
+ * fold with the key below its aggregate, a join LATERAL per key into it (share/keyed.ts KeyedLowering), in place or
+ * as the body of the CTE or the part that shares it, where format 8 read a union or a fold whole, joined beside, probed
+ * a fold beside a stored relation, and carried a write's shared nodes whole. A unit delete of a relation that is a member of two counted families or more keeps none of a group of any of
  * them a doomed row it removes reaches, across the crossing, by one recursive read over its removed rows
  * (write/delete/unit.ts wholeAcross), where format 8 kept each family's groups by that family's own exclusions alone.
  * An attachment whose child reads a union or a fold through a rule that matches it as it stands reads it per parent key
- * inside its LATERAL (lower/optimize/cte-policy probedByKey, perKeyReads), where format 8 derived it whole, a
- * MATERIALIZED CTE the LATERAL filtered.
+ * inside its LATERAL (lower/optimize/cte-policy probedByKey), where format 8 derived it whole, a MATERIALIZED CTE the
+ * LATERAL filtered.
  * Each capture's branch and each part stands its session tables up in one read of pg_catalog.pg_class
  * (physical/ddl/rules.ts standing, sql/print.ts sessionTablesStanding), where format 8 asked whether each table stood
  * and whether it was the definer's own in two statements of its own, so every capture function's and part's body moves.

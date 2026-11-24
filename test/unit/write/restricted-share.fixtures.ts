@@ -212,8 +212,8 @@ const partsOf = (sql: string): ReadonlyArray<{ readonly name: string; readonly t
 
 /**
  * The part of `sql` that holds the labels once restricted: the text of each MATERIALIZED CTE of the statement's WITH, its
- * name, that scans Tag and Item none, and whether it keeps its rows by an EXISTS over its key set, a DISTINCT CTE of
- * its own that reads its readers' keys from their parts.
+ * name, that scans Tag and Item none, and whether it reads its rows LATERAL per key of its key set, a DISTINCT CTE of its
+ * own that reads its readers' keys from their parts.
  */
 export const labelParts = (
 	sql: string
@@ -225,7 +225,7 @@ export const labelParts = (
 						name: part.name,
 						keptByKeys:
 							Str.includes("AS MATERIALIZED (SELECT DISTINCT ")(part.text) &&
-							Str.includes('WHERE EXISTS (SELECT 1 FROM "r')(part.text)
+							Str.includes(", LATERAL (SELECT ")(part.text)
 					}
 				]
 			: []

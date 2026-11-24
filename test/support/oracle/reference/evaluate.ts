@@ -1771,9 +1771,8 @@ export class Reference {
 	 * holds an outer value through the whole of a correlated subquery, so an occurrence's source correlated with the
 	 * region reads it and an occurrence that binds it is held to it (`extended`). Every producer of a region correlates
 	 * its variables with outer values alone, never the region or its occurrences: the checker with an attachment's parent
-	 * column or an importer's (check/checker.ts #defineRegion), the pushdown with its holder's column
-	 * (lower/optimize/pushdown/shared.ts), the oracle's generator with an enclosing region's source (gen/query.ts
-	 * boundRegion), so each is read in the scope around the region.
+	 * column or an importer's (check/checker.ts #defineRegion), the oracle's generator with an enclosing region's source
+	 * (gen/query.ts boundRegion), so each is read in the scope around the region.
 	 */
 	correlatedStart(node: NodeOf<"MatchRegion">, scope: Bindings): ReadonlyMap<VarDecl, Value> {
 		const start = new Map<VarDecl, Value>()

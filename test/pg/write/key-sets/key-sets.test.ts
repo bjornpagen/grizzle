@@ -231,7 +231,7 @@ export const contentEveryReadRestrictsIsComputedAtItsReadsKeysAtEveryDepthItsRow
 			},
 			{
 				file: "packages/engine/src/lower/shapes/share/keys.ts",
-				original: "\t\t\t\t\t\t? this.#testRight(reader, wanted)\n",
+				original: "\t\t\t\t\t\t? this.#atLeftRows(reader, reader.left, reader.on, wanted)\n",
 				replacement: "\t\t\t\t\t\t? this.keysOf(reader)\n",
 				why: "An existence test's right side is keyed as its left, by the test's own readers, not by its left rows through its pairs: the labels on the anti-join's right are whole, and the content rows read grow with the content."
 			},
@@ -251,8 +251,8 @@ export const contentEveryReadRestrictsIsComputedAtItsReadsKeysAtEveryDepthItsRow
 			{
 				file: "packages/engine/src/lower/shapes/share/keys.ts",
 				original:
-					"\t\t\tif (restrictedByValues(q.source) || q.constants.some((c) => statementValue(c.expr))) {\n",
-				replacement: "\t\t\tif (q.constants.some((c) => statementValue(c.expr))) {\n",
+					"\t\t\t\t\t\trestrictedByValues(q.source) || q.constants.some((c) => statementValue(c.expr))\n",
+				replacement: "\t\t\t\t\t\tq.constants.some((c) => statementValue(c.expr))\n",
 				why: "A read the statement's values restrict seeds no crossing: the open items no longer key the content, which is computed whole, and the content rows read grow with the content."
 			},
 			{
@@ -271,8 +271,8 @@ export const contentEveryReadRestrictsIsComputedAtItsReadsKeysAtEveryDepthItsRow
 			},
 			{
 				file: "packages/engine/src/lower/shapes/share/keys.ts",
-				original: '\tnode.kind !== "Group" || keys.kind === "whole"\n',
-				replacement: '\tkeys.kind === "whole" || keys.kind === "keys"\n',
+				original: '\t\t: node.kind !== "Group" || keys.kind === "whole"\n',
+				replacement: '\t\t: keys.kind === "whole" || keys.kind === "keys"\n',
 				why: "A fold is computed at keys on its aggregate: the labels read by the folds' aggregate restrict each fold below it, which keyedGroup refuses."
 			}
 		]

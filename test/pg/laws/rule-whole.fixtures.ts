@@ -358,8 +358,8 @@ const judgeSchema = (judge: Judge, shape: ShapeKey) => {
 	 * The roots, each a node its own parent, as a union of those of kind 2 and the rest: read by the walk's seed, inside
 	 * Reached's recursion, and again by Reach beside the walk, each read keeping it at the unit: the judge's statement
 	 * inlines the union at each read, each correlated to the unit, so PostgreSQL seeks each arm by the unit's key. The two
-	 * reads are no one node, so the shared restriction (lower/optimize/pushdown/shared.ts) changes no statement of this
-	 * judge (rule-whole.test.ts, the commute property).
+	 * reads are no one node, so the key sets (lower/shapes/share/keys.ts) share none of it in this judge's statements
+	 * (rule-whole.test.ts, the commute property).
 	 */
 	const roots = query(Base)
 		.rule((r) => {
