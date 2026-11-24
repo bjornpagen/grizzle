@@ -248,13 +248,7 @@ export type {
 	ParamValue,
 	Refusal
 } from "#compiler/types/core/phantom.ts"
-export type {
-	AnyWorkload,
-	Clocked,
-	Paged,
-	ReadOf,
-	Workload
-} from "#compiler/types/db/workload.ts"
+export type { AnyWorkload, Clocked, Paged, ReadOf, Workload } from "#compiler/types/db/workload.ts"
 export type { Evidence } from "#compiler/types/evidence/evidence.ts"
 export type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
 export { constraintNamesOf, lawsByStatement, lawsOf } from "#compiler/program/laws.ts"
