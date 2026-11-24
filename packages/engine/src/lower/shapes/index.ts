@@ -102,10 +102,9 @@ import {
 	type Carrier,
 	KeyedLowering,
 	type KeyScope,
-	readAtKeys,
 	type StatementKeys
 } from "#compiler/lower/shapes/share/keyed.ts"
-import { type Keys, Lookups } from "#compiler/lower/shapes/share/keys.ts"
+import { type Keys, Lookups, readAtKeys } from "#compiler/lower/shapes/share/keys.ts"
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
 import { producerLowerer } from "#compiler/lower/shapes/spans/index.ts"
 import {
@@ -579,22 +578,8 @@ export class ShapeState<I extends ChoiceInput> implements ShapeLog<I> {
 			ctes: this.#log.ctes,
 			keySets: this.#keySets,
 			statement,
-			lookups: this.#lookups,
-			inPlace: this.#inPlace
+			lookups: this.#lookups
 		}
-	}
-
-	/**
-	 * Whether the statement lowers a node where it is read (dispatchIn): no CTE the policy materializes, or one every read
-	 * of which reads it at values (StatementKeys atValues), inline at each.
-	 */
-	readonly #inPlace = (node: RelNode): boolean => {
-		const decision = this.cte.decisions[node.id]
-		return (
-			decision === undefined ||
-			this.keys.atValues.has(node.id) ||
-			cteMaterialization(decision.strategy) === undefined
-		)
 	}
 
 	/**
@@ -897,6 +882,15 @@ const dispatchIn = <I extends ChoiceInput>(
 		(node) => node.id
 	)
 	const placed: NodeDispatch = (node, cx: LowerContext, env) => {
+		/**
+		 * Whether a restriction reaches the node (share/keys.ts restrictionWalk): it is lowered where it is read, at the
+		 * values, where its CTE, its key set's or the statement's whole, would be read at them for each row of what reads
+		 * it, which no index reads.
+		 */
+		const restricted = env.restricted.has(node)
+		if (restricted) {
+			return plugIn(node, cx, env)
+		}
 		const shared = state.decision(node)
 		/** A node every read of which reads it at values is read inline at each (StatementKeys atValues). */
 		const decision = shared !== undefined && state.keys.atValues.has(node.id) ? undefined : shared

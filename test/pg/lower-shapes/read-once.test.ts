@@ -95,17 +95,17 @@ export const aWorkloadReadDerivesEachDerivedRelationOncePerStatementSoNoScanRead
 		kills: [
 			{
 				file: "packages/engine/src/lower/optimize/cte-policy/index.ts",
-				original:
-					'\treturn keys.length > 0 && probedByKey(probed, keys) ? { kind: "perKey" } : { kind: "once", rows }',
-				replacement: '\treturn { kind: "perKey" }',
-				why: "Every attachment's child is read for each parent key, the items attachment's fold restricted to each term inside its grouping though no stored relation's range binds the term, so ItemSet is derived once per term."
+				original: '\t\t\t? { kind: "perKey" }\n\t\t\t: { kind: "coGroup" }\n',
+				replacement: '\t\t\t? { kind: "perKey" }\n\t\t\t: { kind: "perKey" }\n',
+				why: "A child no declared-key prefix binds is read per parent key: the items attachment reads each term's ItemSet through its purpose's value, which no key of Node leads with, every package's node scanned again for each term."
 			},
 			{
 				file: "packages/engine/src/lower/shapes/attach/index.ts",
-				original: '\tconst inside = attachmentRead(attach).kind === "perKey"',
+				original:
+					"\t\t\t\tconst source = cx.wrapAs(keyedRows(cx, attach, env, parentMap), child.heading, origin, true)\n\t\t\t\treturn { from: [parent.item, source.item], keys: parentMap, child: source.map, where: [] }\n",
 				replacement:
-					'\tconst inside = attachmentRead(attach).kind === "perKey" && foldedByCorrelation(child, attach) !== undefined',
-				why: "An attachment's child that is no fold is joined to its parents' keys beside it: the heads read's classifications, derived beside every head, read 4.61 to 7.15 times the rows stored where read per key they read at most 1.79 times them, and take 4.7 times as long to plan."
+					"\t\t\t\tconst source = cx.sourceAs(child, env, true)\n\t\t\t\treturn { from: [parent.item, source.item], keys: parentMap, child: source.map, where: correlationEqualities(cx, attach, child.heading, source.map, parentMap) }\n",
+				why: "An attachment's child its key proves is joined to its parents' keys beside it: the heads read's classifications, derived beside every head, read 4.61 to 7.15 times the rows stored where read per key they read at most 1.79 times them, and take 4.7 times as long to plan."
 			}
 		]
 	})

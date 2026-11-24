@@ -20,6 +20,7 @@ import {
 	keptRowsOf,
 	type NodeOf,
 	type Occurrence,
+	regionVarClasses,
 	type RelKind,
 	type RelNode,
 	unionArms,
@@ -148,47 +149,6 @@ interface Decided {
 	readonly decision: CteDecision
 }
 
-/**
- * Whether every column of `columns` of `node` is bound, through the rows a node keeps of its input (ir/rel.ts
- * keptRowsOf: a filter's, a semi- or anti-join's left side's), projections of columns, regions that read a node as it
- * stands (`renamedSource`) and every arm of a union, by one occurrence of a stored relation in a region: a restriction
- * by them is then a range of that relation, which the index
- * the workload's access paths request for it reads (physical/access), and the rest of the region joins each row of that
- * range by the variables it binds. A union's arms read its columns by name (lower/conservative/union/arms.ts), and
- * PostgreSQL moves a restriction of a UNION into each arm, so a restriction of a union is that range in each arm.
- */
-const probedByKey = (node: RelNode, columns: ReadonlyArray<string>): boolean => {
-	if (node.kind === "Union") {
-		return unionArms(node.groups).every((arm) => probedByKey(arm, columns))
-	}
-	if (node.kind === "ProjectSet") {
-		const read = columns.flatMap((c) => {
-			const e = node.out.find((o) => o.name === c)?.expr
-			return e?.kind === "column" && e.column.node === node.input.id ? [e.column.name] : []
-		})
-		return read.length === columns.length && probedByKey(node.input, read)
-	}
-	if (node.kind === "MatchRegion") {
-		const renamed = renamedSource(node)
-		if (renamed !== undefined && renamed.occurrence.source.kind !== "Base") {
-			const read = columns.flatMap((c) => {
-				const column = renamed.occurrence.bindings.find((b) => b.var.name === c)?.column
-				return column === undefined ? [] : [column]
-			})
-			return read.length === columns.length && probedByKey(renamed.occurrence.source, read)
-		}
-		const vars = columns.flatMap((c) => node.vars.filter((v) => v.name === c))
-		return (
-			vars.length === columns.length &&
-			node.occurrences.some(
-				(o) => o.source.kind === "Base" && vars.every((v) => o.bindings.some((b) => b.var === v))
-			)
-		)
-	}
-	const kept = node.kind === "Take" ? undefined : keptRowsOf(node)
-	return kept !== undefined && probedByKey(kept.input, columns)
-}
-
 /** The sources whose rows a restriction of any column restricts as it stands: each reads no input it could fix. */
 const restrictedLeaves: ReadonlyArray<RelKind> = ["Base", "Closed", "Context", "InputSet", "Delta"]
 
@@ -198,8 +158,7 @@ const restrictedLeaves: ReadonlyArray<RelKind> = ["Base", "Closed", "Context", "
  * take's aside, whose bound is counted before any restriction above it), a step's, its input's rows unchanged,
  * projections of columns, every arm of a union and a fold's grouping columns, to a stored or given relation; in a region, each column a variable some occurrence
  * binds whose source the column restricts so, PostgreSQL carrying a fixed value through the region's equalities to every
- * occurrence that binds it. Where probedByKey asks one stored relation's range to bind them all, the range an index
- * reads per key, this asks only that no fixed value stop at a fold's aggregate, a bound, a window or a recursion, past
+ * occurrence that binds it: no fixed value stops at a fold's aggregate, a bound, a window or a recursion, past
  * which PostgreSQL derives the rows whole for each value (an existence test's right side read per left row,
  * lower/conservative/semi-join/exists.ts).
  */
@@ -236,6 +195,185 @@ export const restrictedByKeys = (node: RelNode, columns: ReadonlyArray<string>):
 	}
 	const kept = node.kind === "Take" ? undefined : keptRowsOf(node)
 	return kept !== undefined && restrictedByKeys(kept.input, columns)
+}
+
+/**
+ * The length of the longest prefix of one of a stored relation's declared keys (its primary key, then each other in
+ * declared order) whose every column is bound, by `bound` or by a constant, holding at least one `bound` column: the
+ * rows a seek at such a prefix reads share the key's own value, never another's; 0 where no such prefix stands. A prefix
+ * of constants alone is none: its rows are every key value's.
+ */
+const boundPrefix = (
+	base: NodeOf<"Base">,
+	bound: ReadonlySet<string>,
+	constant: ReadonlySet<string>
+): number => {
+	let longest = 0
+	for (const key of [base.primaryKey, ...base.keys]) {
+		let length = 0
+		let keyed = false
+		for (const column of key) {
+			if (bound.has(column)) {
+				keyed = true
+			} else if (!constant.has(column)) {
+				break
+			}
+			length += 1
+		}
+		if (keyed && length > longest) {
+			longest = length
+		}
+	}
+	return longest
+}
+
+/**
+ * A region's occurrences in the order a read of it at `columns` chains them (keyedRegionChain): first the occurrence
+ * the columns bind on the longest declared-key prefix, then each occurrence the columns or those before it bind on the
+ * longest, ties broken by placement, the canonical order of the region's occurrences, never by an estimate; undefined where an occurrence is never bound on one, a stored relation by no
+ * declared-key prefix (boundPrefix) or any other source by none of its keys (keyPrefixBound).
+ */
+export const keyedRegionChain = (
+	region: NodeOf<"MatchRegion">,
+	columns: ReadonlyArray<string>
+): ReadonlyArray<Occurrence> | undefined => {
+	const classOf = regionVarClasses(region)
+	const bound = new Set(
+		columns.flatMap((c) => region.vars.filter((v) => v.name === c).map((v) => classOf(v)))
+	)
+	const chain: Array<Occurrence> = []
+	const pending = [...region.occurrences]
+	/** Whether every variable of the region a source reads from outside itself is bound. */
+	const readsBound = (source: RelNode): boolean =>
+		outerOf(source).every(
+			(c) =>
+				c.node !== region.id ||
+				region.vars.some((v) => v.name === c.column && bound.has(classOf(v)))
+		)
+	/**
+	 * How long a prefix `o` is bound on now, 0 for none: a stored relation's longest bound declared-key prefix
+	 * (boundPrefix); any other source 1 where its bound columns prove it (keyPrefixBound); and below every such, a set the
+	 * statement holds (none of the store's rows) or a row function of values once every value its arguments read is
+	 * bound, which reads no store and is evaluated per row of what it follows (`statementHeld`).
+	 */
+	const prefixOf = (o: Occurrence): number => {
+		const at = o.bindings.flatMap((b) => (bound.has(classOf(b.var)) ? [b.column] : []))
+		const constant = new Set(o.constants.map((c) => c.column))
+		const source = o.source
+		return source.kind === "Base"
+			? boundPrefix(source, new Set(at), constant)
+			: at.length > 0 && keyPrefixBound(source, at)
+				? 1
+				: statementHeld.includes(source.kind) ||
+					  (source.kind === "Call" &&
+							source.args.every((a) => a.kind === "value") &&
+							readsBound(source))
+					? 0.5
+					: 0
+	}
+	while (pending.length > 0) {
+		let best: { readonly at: number; readonly prefix: number } | undefined
+		for (const [at, o] of pending.entries()) {
+			const prefix = prefixOf(o)
+			if (prefix > 0 && (best === undefined || prefix > best.prefix)) {
+				best = { at, prefix }
+			}
+		}
+		if (best === undefined) {
+			return undefined
+		}
+		const [next] = pending.splice(best.at, 1)
+		if (next === undefined) {
+			return undefined
+		}
+		chain.push(next)
+		for (const b of next.bindings) {
+			bound.add(classOf(b.var))
+		}
+	}
+	return chain
+}
+
+/**
+ * Whether fixing each of `columns` of `node` binds every stored relation its rows read on a non-empty prefix of one of
+ * its declared keys, by the columns or by a relation bound before it (keyedRegionChain): each read at the values a
+ * seek of that prefix, its rows the key's own, never another key's, whatever PostgreSQL estimates, so the node at one
+ * key reads rows of that key alone, however many keys the store holds. Through the rows a node keeps of its input,
+ * a step's, projections of columns, every arm of a union, a fold's grouping columns (a fold over a keyed relation, its
+ * groups that key's) and a region's chain; a set the statement holds (a delta, the call's input or context, a closed
+ * relation's rows) is read whole, none of the store's. The proof a per-key read stands on (cte-policy attachmentRead
+ * `perKey`), the declared facts alone, never a reading of selectivity: a prefix of constants alone, or a value no key
+ * leads with, reads every key's rows (read-once's terms, each read by its purpose's value, every package's).
+ */
+/** The sources a statement holds itself, none of the store's rows: a delta, the call's input or context, a closed relation. */
+const statementHeld: ReadonlyArray<RelKind> = ["InputSet", "Delta", "Context", "Closed"]
+
+const keyPrefixBound = (node: RelNode, columns: ReadonlyArray<string>): boolean => {
+	if (columns.length === 0) {
+		return false
+	}
+	switch (node.kind) {
+		case "InputSet":
+		case "Delta":
+		case "Context":
+		case "Closed":
+			return true
+		case "Base":
+			return boundPrefix(node, new Set(columns), new Set()) > 0
+		case "Union":
+			return unionArms(node.groups).every((arm) => keyPrefixBound(arm, columns))
+		case "ProjectSet": {
+			/**
+			 * A column the projection holds at a value that reads no relation (a parameter the constant-column pass reads in
+			 * its place, or a literal) is one value at every key: the key's other columns prove the read, and a key every
+			 * column of which is so held is one, read once, the statement's own.
+			 */
+			const read: Array<string> = []
+			for (const c of columns) {
+				const e = node.out.find((o) => o.name === c)?.expr
+				if (e?.kind === "column" && e.column.node === node.input.id) {
+					read.push(e.column.name)
+				} else if (e === undefined || e.deps.nodes.length > 0) {
+					return false
+				}
+			}
+			return read.length === 0 || keyPrefixBound(node.input, read)
+		}
+		case "Group": {
+			/** A fold's groups are its input's rows at its keys; a bound aggregate beside them filters those groups alone. */
+			const keyed = columns.filter((c) => node.keys.includes(c))
+			return keyed.length > 0 && keyPrefixBound(node.input, keyed)
+		}
+		case "Step":
+		case "Filter":
+			return keyPrefixBound(node.input, columns)
+		case "SemiJoin":
+		case "AntiJoin":
+			return (
+				keyPrefixBound(node.left, columns) &&
+				keyPrefixBound(
+					node.right,
+					node.on.map((p) => p.right)
+				)
+			)
+		case "MatchRegion":
+			return keyedRegionChain(node, columns) !== undefined
+		case "Attach":
+			return keyPrefixBound(node.parent, columns)
+		case "ApproximateNearest":
+		case "Call":
+		case "Difference":
+		case "Forbid":
+		case "Intersect":
+		case "OrderedResult":
+		case "OrderedSetAggregate":
+		case "Produce":
+		case "Recursive":
+		case "SelfRef":
+		case "Take":
+		case "Window":
+			return false
+	}
 }
 
 /** Each node's restriction by the statement's own values (restrictedByValues), for as long as the node lives. */
@@ -456,29 +594,33 @@ const attachedRows = (child: RelNode): RelNode => {
  * How a pipelined attachment's part reads its child's rows (lower/shapes/attach pipelinedAttachment), so that no form
  * derives them again for each parent row:
  *
- * - `perKey`: one stored relation's range binds every column the attachment correlates, in each arm of a union
- *   (probedByKey; for a fold by them, its input's), so the part reads the child once per parent key, the key's values
- *   fixed inside a LATERAL derived table PostgreSQL never pulls up: a fold restricted inside its grouping, any other
- *   child under DISTINCT. A union is restricted in each arm: edullm's `files`, ReferencePath ⋈ Media ∪ CandidatePath ⋈
- *   Media, read once for the statement, read every reference and media file stored for each item read.
- * - `once`: no stored relation's range binds them, so the statement derives `rows` once (rule 5b, a MATERIALIZED CTE)
- *   and the part joins each parent key to them beside.
+ * - `perKey`: a declared-key prefix binds every relation the child reads at the correlated columns (keyPrefixBound):
+ *   once per parent key, the key's values fixed inside a LATERAL derived table PostgreSQL never pulls up and carried
+ *   into every node under the child that reads them (lower/shapes/share/keys.ts restrictionWalk), a fold's below its
+ *   aggregate, a union's in each arm, a region's chain led by its longest bound prefix: edullm's `files`, ReferencePath ⋈ Media ∪ CandidatePath ⋈ Media, read
+ *   once for the statement, read every reference and media file stored for each item read.
+ * - `coGroup`: no declared-key prefix binds the correlated columns (keyPrefixBound), so a read at one key would read
+ *   other keys' rows: the child derived once, whole, and co-grouped with the parent keys by one GROUP BY
+ *   (lower/shapes/attach coGroupedRows). A child that reads its parent row's values itself is read per key, whatever
+ *   binds it: no derivation of it holds for every parent at once.
  * - `take`: a take, which the take policy reads its own way (R20, lower/shapes/take), beside.
  */
 export type AttachmentRead =
 	| { readonly kind: "perKey" }
-	| { readonly kind: "once"; readonly rows: RelNode }
+	| { readonly kind: "coGroup" }
 	| { readonly kind: "take" }
 
 export const attachmentRead = (attach: NodeOf<"Attach">): AttachmentRead => {
 	const rows = attachedRows(attach.child)
-	if (rows.kind === "Take") {
-		return { kind: "take" }
-	}
-	const keys = attach.correlation.map((c) => c.child)
-	const probed =
-		rows.kind === "Group" && keys.every((k) => rows.keys.includes(k)) ? rows.input : rows
-	return keys.length > 0 && probedByKey(probed, keys) ? { kind: "perKey" } : { kind: "once", rows }
+	return rows.kind === "Take"
+		? { kind: "take" }
+		: outerOf(attach.child).length > 0 ||
+			  keyPrefixBound(
+					rows,
+					attach.correlation.map((c) => c.child)
+			  )
+			? { kind: "perKey" }
+			: { kind: "coGroup" }
 }
 
 /** The variables of a region a value fixes: a correlation that reads no relation, a parameter or a literal. */
@@ -489,8 +631,7 @@ const fixedByValue = (region: NodeOf<"MatchRegion">): ReadonlySet<VarDecl> =>
  * The nodes a reader reads once per row of its other input, as PostgreSQL evaluates them where they stand: the source
  * of a region's occurrence no value restricts (no constant fixes one of its columns, and no parameter or literal one of
  * the variables it binds), which the region joins to its other occurrences; the right side of a semi- or anti-join,
- * which it tests for each row of its left; and an attachment's rows no stored relation's range binds by the columns it
- * correlates (attachmentRead `once`), which its part would otherwise read for each parent row.
+ * which it tests for each row of its left.
  */
 const readPerRow = (order: ReadonlyArray<RelNode>): ReadonlySet<RelNode> => {
 	const out = new Set<RelNode>()
@@ -504,11 +645,6 @@ const readPerRow = (order: ReadonlyArray<RelNode>): ReadonlySet<RelNode> => {
 			}
 		} else if (node.kind === "SemiJoin" || node.kind === "AntiJoin") {
 			out.add(node.right)
-		} else if (node.kind === "Attach") {
-			const read = attachmentRead(node)
-			if (read.kind === "once") {
-				out.add(read.rows)
-			}
 		}
 	}
 	return out
@@ -901,13 +1037,23 @@ const holderOf = (
  *    attachment's ItemSet once per term). Its readers then join or test each row against rows the statement holds, and
  *    read no relation again. A rule's probe and every other compilation keep rule 1: they read a unit's rows, which a
  *    once-derived relation would read all of.
- * 5c. A union or a fold that every read of a statement restricts is read at its key set (lower/shapes/share/keys.ts,
- *    magic sets), the keys its reads reach it at from what the statement fixes: lowered in place at the key set's rows,
- *    or, shared, a CTE whose body is the node at those rows (lower/shapes dispatchIn, share/keyed.ts KeyedLowering),
- *    each arm at them or the keys below its aggregate, the key set a MATERIALIZED DISTINCT CTE of the statement; and so
- *    is any node this policy shares, a join LATERAL per key of its key set. PostgreSQL moves no restriction into a
- *    UNION's arms or below a grouping, so one evaluation of either for the statement read every row of its arms or its
- *    input (learning-commons' crosswalk, two counts of one standard's supports, each a read of one shared fold).
+ * 5c. Magic sets: a union, a fold or a join a statement reads is computed at its reads' keys alone
+ *    (lower/shapes/share/keys.ts KeyAnalysis), each read a site of one of two kinds. A site read once per row of a
+ *    driver, an attachment's child per parent key (attachmentRead `perKey`), is lowered there at that row's values,
+ *    each carried into the nodes under it that read them (keys.ts restrictionWalk), a fold's keys below its aggregate,
+ *    a union's in each arm, a region's chain led by the relation its key binds on the longest declared-key prefix
+ *    (keyedRegionChain), never read from a CTE, which no index reads: each per-key read is a seek of each relation at a
+ *    prefix of one of its keys, its rows that key's alone. Every other site reads one evaluation of the node at the
+ *    DISTINCT union of their keys, the key set a MATERIALIZED DISTINCT CTE of the statement and the node LATERAL per
+ *    key (lower/shapes dispatchIn, share/keyed.ts KeyedLowering), each arm at it or the key below its aggregate; a site
+ *    read per row adds no key to it, so a fold a head reads at its parameters and its attachment at each head row is
+ *    computed at the head's keys, where the attachment's keys, the head's rows of the fold, closed a cycle no order
+ *    computes first and derived it whole (edullm's latest decision, ~176k buffers a call for any child). PostgreSQL
+ *    moves no restriction into a UNION's arms or below a grouping, so one evaluation of either for the statement read
+ *    every row of its arms or its input (learning-commons' crosswalk, two counts of one standard's supports, each a
+ *    read of one shared fold). A child no declared-key prefix binds at its correlation, which a read per key would read
+ *    other keys' rows of, is derived once and co-grouped with its parents' keys by one GROUP BY (attachmentRead
+ *    `coGroup`, lower/shapes/attach coGroupedRows), never joined beside them.
  * 5. A node that folds, sorts, bounds, deduplicates a set operation or recurses is expensive. Shared, it is
  *    MATERIALIZED: one evaluation feeds every use.
  * 5d. A shared join the statement's own values restrict (restrictedByValues: every occurrence reached from a

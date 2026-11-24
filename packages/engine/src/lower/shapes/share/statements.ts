@@ -27,12 +27,7 @@ import {
 	restrictedByValues
 } from "#compiler/lower/optimize/cte-policy/index.ts"
 import { feedbackReadsOf, nodeGraph } from "#compiler/lower/optimize/demand/editor.ts"
-import {
-	type KeyedRead,
-	KeyedLowering,
-	type KeyScope,
-	readAtKeys
-} from "#compiler/lower/shapes/share/keyed.ts"
+import { type KeyedRead, KeyedLowering, type KeyScope } from "#compiler/lower/shapes/share/keyed.ts"
 import {
 	computedAt,
 	type FixedOf,
@@ -42,6 +37,7 @@ import {
 	type Keys,
 	type KeyRestriction,
 	Lookups,
+	readAtKeys,
 	whole as wholeKeys
 } from "#compiler/lower/shapes/share/keys.ts"
 import type { Cte, FromSource, OperandSelect, Select } from "#compiler/sql/ast.ts"
@@ -937,8 +933,14 @@ export class StatementSharing {
 	): Q {
 		const carried = (n: RelNode): boolean => this.#carrierIn(n, filling) !== undefined
 		const materialize = statementCtes(this.index, node, carried)
+		/**
+		 * A node a restriction reaches (keyed.ts restrictionWalk) is lowered where it is read, at the values, never read
+		 * from its carrier or its CTE, whose rows are its whole.
+		 */
 		const inScope: NodeDispatch = (n, ncx, nenv) =>
-			this.#readCarrier(n, ncx, filling) ?? this.#inPlace(n, ncx, nenv, scope)
+			nenv.restricted.has(n)
+				? this.#inner(n, ncx, nenv)
+				: (this.#readCarrier(n, ncx, filling) ?? this.#inPlace(n, ncx, nenv, scope))
 		const root = cx.withDispatch(inScope)
 		const ctes = new Set<Cte>()
 		const statement = root
@@ -958,8 +960,7 @@ export class StatementSharing {
 			),
 			keySets: new Map(),
 			statement,
-			lookups: new Lookups((n) => carried(n) || materialize.get(n.id) !== undefined),
-			inPlace: (n) => !carried(n) && materialize.get(n.id) === undefined
+			lookups: new Lookups((n) => carried(n) || materialize.get(n.id) !== undefined)
 		}
 		return withLeading(lower(statement, scope), scope.ctes)
 	}

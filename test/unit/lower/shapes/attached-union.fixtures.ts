@@ -99,12 +99,32 @@ const unionBodies = (sql: string): ReadonlyArray<string> =>
 		Str.includes(" UNION ")
 	)
 
-/** Whether a CTE's body reads its node at a key set: LATERAL per key of a key set's CTE, each arm at the key. */
-const atKeys = (body: string): boolean => Str.includes(", LATERAL ((SELECT ")(body)
-
 /** How many MATERIALIZED CTEs of `sql` hold the status union whole: derived for the statement over every row. */
-export const wholeUnionCtes = (sql: string): number =>
-	Arr.filter(unionBodies(sql), (b) => !atKeys(b)).length
+export const wholeUnionCtes = (sql: string): number => unionBodies(sql).length
 
-/** Whether the status union is computed at the parent rows' keys: a CTE of it read LATERAL per key of its key set. */
-export const unionAtKeys = (sql: string): boolean => Arr.some(unionBodies(sql), atKeys)
+/**
+ * Whether the status union is read at each parent's number inside the attachment's LATERAL: each of its three arms
+ * compares one outer reference, the parent key's number, the arms read at it alone.
+ */
+export const unionPerParentKey = (sql: string): boolean => {
+	const [, lateral] = Str.split(", LATERAL (SELECT DISTINCT ")(sql)
+	if (lateral === undefined) {
+		return false
+	}
+	const arms = Str.split(" UNION ")(lateral)
+	/** The column references an arm compares a column with: each text after ` = ` up to its closing quote. */
+	const compared = Arr.map(
+		arms,
+		(arm) =>
+			new Set(
+				Arr.flatMap(Arr.drop(Str.split(' = "')(arm), 1), (rest) => {
+					const [table, column] = Str.split('"."')(rest)
+					return column === undefined ? [] : [`${table}.${Str.split('"')(column)[0]}`]
+				})
+			)
+	)
+	const [first, ...rest] = compared
+	return (
+		arms.length === 3 && Arr.some([...first], (ref) => Arr.every(rest, (others) => others.has(ref)))
+	)
+}

@@ -123,6 +123,23 @@ export interface Env {
 
 export const emptyEnv: Env = { columns: new Map(), restricted: new Map() }
 
+/**
+ * Whether a node restricted in a scope (`restrictedEnv`) restricts its own rows inside: a union, each arm at the values
+ * (lower/shapes/union keyedUnion), a fold, its keys below its aggregate (lower/shapes/aggregate keyedGroup), where a
+ * restriction over either reaches no arm and no group, and a region, at the occurrence its chain leads with
+ * (lower/shapes/region keyedChain), whose order a restriction over it would leave to PostgreSQL's estimates.
+ */
+export const restrictsInside = (node: RelNode): boolean =>
+	node.kind === "Union" || node.kind === "Group" || node.kind === "MatchRegion"
+
+/**
+ * Whether `node`'s rows reach a reader in `env` already at the values its scope restricts them to: the node holds a
+ * restriction of its own (`restrictedEnv`), which its lowering places inside it (`restrictsInside`), so a fold over it
+ * or a union of it restricts nothing again.
+ */
+export const heldIn = (env: Env, node: RelNode): boolean =>
+	restrictsInside(node) && (env.restricted.get(node)?.length ?? 0) > 0
+
 /** A scope of `entries` alone, no node restricted in it. */
 export const envOf = (entries: Iterable<readonly [NodeId, ColumnMap]>): Env => ({
 	columns: new Map(entries),
@@ -140,8 +157,9 @@ export const extendEnv = (env: Env, entries: Iterable<readonly [NodeId, ColumnMa
 
 /**
  * `env` with each node of `restricted` read at its equalities' values alone, beside those it restricts: wherever the
- * node is lowered in the scope, its rows are those at the values (LowerContext `lower`), so a restriction a fence would
- * stop at its edge stands inside it (lower/shapes/share/keyed.ts pushedInto).
+ * node is lowered in the scope, it is lowered where it is read (lower/shapes dispatchIn), never as a CTE or a carrier,
+ * its rows those at the values (LowerContext `lower`), so a restriction a fence would stop at its edge stands inside it
+ * (lower/shapes/share/keyed.ts restrictionWalk); a node of no equalities only passes the values on to nodes under it.
  */
 export const restrictedEnv = (env: Env, restricted: ReadonlyMap<RelNode, ColumnEqualities>): Env =>
 	restricted.size === 0
@@ -1141,7 +1159,7 @@ export class LowerContext {
 	lower(node: RelNode, env: Env): OperandSelect {
 		const query = this.#scope.dispatch(node, this, env)
 		const restriction = env.restricted.get(node)
-		if (restriction === undefined) {
+		if (restriction === undefined || restriction.length === 0 || restrictsInside(node)) {
 			return query
 		}
 		const rows = this.wrap(query, node.heading, { kind: "node", node: node.id })

@@ -13,6 +13,7 @@ import {
 	type Env,
 	equalitiesOver,
 	extendEnv,
+	heldIn,
 	type LowerContext,
 	type NodeLowerer,
 	namedMap,
@@ -225,7 +226,10 @@ export const keyedGroup = (
 			throw defect(`a restriction of ${e.column}, a key of the fold ${at}`)
 		}
 	}
-	const restricted = equalitiesOver(cx, node.heading, bound, restriction)
+	/** An input that holds the restriction itself (context.ts heldIn) is read at the keys already. */
+	const restricted = heldIn(env, node.input)
+		? []
+		: equalitiesOver(cx, node.heading, bound, restriction)
 	return select({
 		...core(
 			targets.length === 0 ? [target(lit.bool(true))] : targets,
@@ -237,8 +241,11 @@ export const keyedGroup = (
 	})
 }
 
-/** The fold of a Group node, its groups unrestricted (`keyedGroup`). */
+/**
+ * The fold of a Group node, its groups those a restriction of the scope keeps (conservative/context.ts restrictedEnv),
+ * below its aggregate, every other group unrestricted (`keyedGroup`).
+ */
 export const aggregateLowerer =
 	(facts: ShapeFacts): NodeLowerer<"Group"> =>
 	(node, cx, env) =>
-		keyedGroup(facts, node, cx, env, noRestriction)
+		keyedGroup(facts, node, cx, env, env.restricted.get(node) ?? noRestriction)

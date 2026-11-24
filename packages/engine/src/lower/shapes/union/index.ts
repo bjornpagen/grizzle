@@ -9,6 +9,7 @@ import {
 	type Env,
 	equalitiesOver,
 	headingTargets,
+	heldIn,
 	type LowerContext,
 	type NodeLowerer,
 	noRestriction
@@ -54,7 +55,10 @@ const armBody = (
 ): SelectCore => {
 	const source = cx.source(arm, env)
 	const targets = armTargets(cx, heading, source.map)
-	const where = conjunction(equalitiesOver(cx, heading, source.map, restriction))
+	/** An arm that holds the restriction itself (context.ts heldIn) is read at the values already. */
+	const where = heldIn(env, arm)
+		? undefined
+		: conjunction(equalitiesOver(cx, heading, source.map, restriction))
 	return form === "certified"
 		? provedCore("certified", targets, [source.item], where)
 		: core(targets, [source.item], where)
@@ -131,7 +135,7 @@ const groupsConcatenated = (groups: NonEmptyReadonlyArray<OperandBody>): Operand
 export const unionLowerer =
 	(facts: ShapeFacts): NodeLowerer<"Union"> =>
 	(node, cx, env) =>
-		keyedUnion(facts, node, cx, env, noRestriction)
+		keyedUnion(facts, node, cx, env, env.restricted.get(node) ?? noRestriction)
 
 /**
  * A union read inside a statement (unionLowerer), its rows those `restriction` keeps, inside every arm: each column it
@@ -162,7 +166,9 @@ export const keyedUnion = (
 			node.groups.length > 1
 				? armTargets(cx, node.heading, source.map)
 				: headingTargets(node.heading, source.map)
-		const where = conjunction(equalitiesOver(cx, node.heading, source.map, restriction))
+		const where = heldIn(env, only)
+			? undefined
+			: conjunction(equalitiesOver(cx, node.heading, source.map, restriction))
 		switch (form) {
 			case "union":
 				return distinctCore(targets, [source.item], where)

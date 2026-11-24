@@ -4,7 +4,7 @@ import {
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import { exprClosure, type ScalarExpr } from "#compiler/ir/expr.ts"
-import type { NodeOf, RelNode, VarDecl } from "#compiler/ir/rel.ts"
+import { type NodeOf, type RelNode, regionVarClasses, type VarDecl } from "#compiler/ir/rel.ts"
 import { baseOf, type Carrier } from "#compiler/ir/scalar.ts"
 import { conjuncts } from "#compiler/logical/props.ts"
 import {
@@ -12,13 +12,16 @@ import {
 	type Env,
 	extendEnv,
 	type LowerContext,
-	type NodeLowerer
+	type NodeLowerer,
+	noRestriction
 } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
 import {
 	type PlacedOccurrence,
 	regionParts
 } from "#compiler/lower/conservative/match-region/index.ts"
+import { fencedRead } from "#compiler/lower/conservative/step/index.ts"
+import { keyedRegionChain } from "#compiler/lower/optimize/cte-policy/index.ts"
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
 import { type NativeOp, nativeOp, operandCarriers } from "#compiler/scalar/compute/registry.ts"
 import type { Expr, FromItem, JoinStep, OperandBody, Select, Target } from "#compiler/sql/ast.ts"
@@ -424,9 +427,37 @@ export const regionLowerer =
 	(facts: ShapeFacts, once: (node: RelNode) => boolean): NodeLowerer<"MatchRegion"> =>
 	(node, cx, env) => {
 		const lowered = regionParts(node, cx, env)
+		/**
+		 * The restriction the region holds (context.ts restrictsInside): each restricted variable at its value in every
+		 * occurrence that binds it or one its equalities join, so each relation the chain reads seeks the value itself.
+		 */
+		const restriction = env.restricted.get(node) ?? noRestriction
+		const classOf = regionVarClasses(node)
+		const held = restriction.flatMap((e) => {
+			const v = node.vars.find((x) => x.name === e.column)
+			return v === undefined
+				? []
+				: lowered.occurrences.flatMap((p) =>
+						p.occurrence.bindings.flatMap((b) => {
+							const x = classOf(b.var) === classOf(v) ? p.map.get(b.column) : undefined
+							return x === undefined ? [] : [cx.equal(v.type, x, e.value)]
+						})
+					)
+		})
 		const parts = {
 			...lowered,
-			conditions: [...lowered.conditions, ...impliedBounds(node, cx, env, lowered)]
+			conditions: [...lowered.conditions, ...held, ...impliedBounds(node, cx, env, lowered)]
+		}
+		const chain =
+			isNonEmpty(restriction) && parts.from.length === parts.occurrences.length
+				? keyedRegionChain(
+						node,
+						restriction.map((e) => e.column)
+					)
+				: undefined
+		const keyed = chain === undefined ? undefined : keyedChain(cx, node, parts, chain)
+		if (keyed !== undefined) {
+			return keyed
 		}
 		const [first, ...others] = parts.occurrences
 		if (
@@ -491,6 +522,67 @@ export const regionLowerer =
 			within
 		)
 	}
+
+/**
+ * A region read at a restriction it holds (context.ts restrictsInside), its occurrences in the order its key proves
+ * (cte-policy keyedRegionChain): the occurrence the restriction binds on the longest declared-key prefix leads, read
+ * where it stands, and each next one is a LATERAL derived table read at the values those before it bind, a fenced read
+ * PostgreSQL neither pulls up nor reorders:
+ *
+ *   SELECT <targets> FROM <lead>, LATERAL (SELECT <its columns> FROM <next> AS n WHERE <its terms> OFFSET 0) AS <next>, ...
+ *     WHERE <the lead's terms>
+ *
+ * So each per-key read seeks every relation at a prefix of one of its keys, the lead's at the restriction's values,
+ * whatever PostgreSQL estimates of either: a fold of a child's attempts at a stage reads the stage's item sessions by
+ * (child, stage), then each session's attempts by its key, never every attempt of the child first. Each term stands at
+ * the step that brings in the last occurrence it reads, as in a JOIN chain (regionLowerer). None where an occurrence's
+ * table is no derived table of named columns, which the chain reads apart.
+ */
+const keyedChain = (
+	cx: LowerContext,
+	node: NodeOf<"MatchRegion">,
+	parts: ReturnType<typeof regionParts>,
+	chain: ReadonlyArray<NodeOf<"MatchRegion">["occurrences"][number]>
+): Select | undefined => {
+	const steps = chain.flatMap((o) => parts.occurrences.filter((p) => p.occurrence === o))
+	const [lead, ...rest] = steps
+	if (lead === undefined || steps.length !== parts.occurrences.length) {
+		return undefined
+	}
+	const within = new Set(steps.map((p) => p.alias))
+	const terms = parts.conditions.flatMap(sqlConjuncts).map((e) => termOf(e, within))
+	const placed = terms.map((t) => ({
+		expr: t.expr,
+		step: steps.reduce((at, o, i) => (t.reads.has(o.alias) ? i : at), 0)
+	}))
+	const at = (step: number): ReadonlyArray<Expr> =>
+		placed.flatMap((t) => (t.step === step ? [t.expr] : []))
+	const fenced: Array<FromItem> = []
+	for (const [i, p] of rest.entries()) {
+		const item = p.item
+		if (item.kind !== "derived" || !isNonEmpty(item.columns)) {
+			return undefined
+		}
+		const inner = cx.relationAlias({ kind: "node", node: p.occurrence.source.id })
+		const renamed = {
+			...identityHooks,
+			expr: (e: Expr) => (e.kind === "column" && e.table === p.alias ? { ...e, table: inner } : e)
+		}
+		fenced.push(
+			derived(
+				fencedRead(
+					mapNonEmpty(item.columns, (c) => target(col(inner, c))),
+					{ ...item, alias: inner },
+					conjunction(at(i + 1).map((e) => transformExpr(e, renamed)))
+				),
+				p.alias,
+				item.columns,
+				true
+			)
+		)
+	}
+	return select(cx.setOf(node, parts.targets, [lead.item, ...fenced], conjunction(at(0))))
+}
 
 /**
  * A chain that starts at an occurrence its statement derives once (`start`, a CTE), read as that set and, for each of
