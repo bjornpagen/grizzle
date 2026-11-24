@@ -23,6 +23,7 @@ import type {
 	Target,
 	With
 } from "#compiler/sql/ast.ts"
+import { selectColumns } from "#compiler/sql/ast.ts"
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
 import { changeSetDesc } from "#compiler/write/changeset/value.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
@@ -313,7 +314,7 @@ const storedRead = (
 		const e = t.expr
 		return e.kind === "column" && e.table === read.alias && e.column === read.child
 	})
-	const child = Option.isSome(at) ? source.columns[at.value] : undefined
+	const child = Option.isSome(at) ? selectColumns(source.query)[at.value] : undefined
 	return child === undefined ? undefined : { table: read.table, alias: source.alias, child }
 }
 
@@ -431,7 +432,7 @@ const withDefined = (w: With | undefined, outer: Defined): Defined => {
 	const out = new Map(outer)
 	for (const cte of w?.ctes ?? []) {
 		if (cte.query.kind === "select") {
-			out.set(cte.name, { query: cte.query, columns: cte.columns })
+			out.set(cte.name, { query: cte.query, columns: selectColumns(cte.query) })
 		}
 	}
 	return out
@@ -450,7 +451,7 @@ const bodyCarries = (
 			const scope = new Map(defined)
 			for (const source of sourcesOf(body.from).sources) {
 				if (source.kind === "derived") {
-					scope.set(source.alias, { query: source.query, columns: source.columns })
+					scope.set(source.alias, { query: source.query, columns: selectColumns(source.query) })
 				} else if (source.kind === "cte") {
 					const d = defined.get(source.name)
 					if (d !== undefined) {

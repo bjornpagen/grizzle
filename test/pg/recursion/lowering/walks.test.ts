@@ -336,9 +336,9 @@ export const counterShapesThroughTheOptimizedLoweringEachLowersToTheRecursiveCTE
 		kills: [
 			{
 				file: "packages/engine/src/lower/shapes/recursion/index.ts",
-				original: '\t\t\t\t\tquery: select({ kind: "setOp", op: "UNION", arms: [base, step] }),',
+				original: '\t\t\t\t\t\tselect({ kind: "setOp", op: "UNION", arms: [base, step] }),',
 				replacement:
-					'\t\t\t\t\tquery: select({ kind: "setOp", op: "UNION ALL", rows: "operand", arms: [base, step] }),',
+					'\t\t\t\t\t\tselect({ kind: "setOp", op: "UNION ALL", rows: "operand", arms: [base, step] }),',
 				why: "The optimized lowering's recursive CTE feeds back with UNION ALL, so repeated states are kept and a cycle never reaches its fixed point."
 			}
 		]

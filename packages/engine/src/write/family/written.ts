@@ -69,7 +69,7 @@ import {
 } from "#compiler/sql/build.ts"
 import { emitText } from "#compiler/sql/emit.ts"
 import { assignments } from "#compiler/sql/generation.ts"
-import type { NameSupply } from "#compiler/sql/naming.ts"
+import { namedBody, type NameSupply } from "#compiler/sql/naming.ts"
 import {
 	type GroupState,
 	type PerGroup,
@@ -356,7 +356,6 @@ const slotFacts = (
 	ctes.push(
 		cte(
 			facts.name,
-			[...facts.columns.values()],
 			select(
 				provedCore(
 					"input",
@@ -394,7 +393,7 @@ export const taggedRows = (
 		const rows = returnedRows("keyed", r.columns, [cteRef(r.cte)], undefined)
 		const partName = supply.relation(internal("family write part"))
 		const partColumns = r.columns.map(() => supply.column(internal("family write part column")))
-		ctes.push(cte(partName, partColumns, rows))
+		ctes.push(cte(partName, namedBody(rows, partColumns)))
 		return provedCore(
 			"keyed",
 			[
@@ -493,7 +492,7 @@ export const recountUpdate = <L extends RecountedLast>(
 	const returning = updateReturning(w, supply, owner, fields, update)
 	const reached = reach()
 	ctes.push(
-		cte(update, [], {
+		cte(update, {
 			kind: "update",
 			with: undefined,
 			table: w.names.relation(name),
@@ -597,20 +596,7 @@ export const drawnScan = (
 		),
 		through: []
 	}
-	ctes.push(
-		cte(
-			rows.name,
-			[
-				...rows.group,
-				rows.slot,
-				rows.first,
-				rows.count,
-				...rows.columns.values(),
-				...rows.owner.values()
-			],
-			draw.rows(rows)
-		)
-	)
+	ctes.push(cte(rows.name, draw.rows(rows)))
 	const scan = scanOf(writeLowering(w), supply, {
 		family,
 		member,
@@ -672,7 +658,6 @@ const seedOf = (
 	ctes.push(
 		cte(
 			seed.name,
-			[...seed.group, ...seed.columns.values()],
 			select(
 				provedCore(
 					"keyed",

@@ -161,10 +161,11 @@ import {
 import { emit } from "#compiler/sql/emit.ts"
 import {
 	freshNames,
+	namedQuery,
 	type NameMap,
 	type NameOrigin,
-	NameSupply,
-	namesPast
+	namesPast,
+	NameSupply
 } from "#compiler/sql/naming.ts"
 import { seekingSuffixes } from "#compiler/sql/suffix.ts"
 
@@ -367,12 +368,13 @@ export const partedConservative = <Slot extends ConservativeParamSlot>(
 		const { query, columns, shape } = partQuery(executable, supply)
 		const name = supply.relation({ kind: "internal", purpose: "statement part" })
 		return {
-			cte: { name, columns, materialized: undefined, query },
+			cte: { name, materialized: undefined, query: query },
+			columns,
 			shape: { ...shape, delivered: shift.query }
 		}
 	})
 	const { body } = taggedParts(
-		mapNonEmpty(tagged, (p) => ({ name: p.cte.name, columns: p.cte.columns })),
+		mapNonEmpty(tagged, (p) => ({ name: p.cte.name, columns: p.columns })),
 		0
 	)
 	const ast: Select = {
@@ -1110,7 +1112,11 @@ export class OptimizedDelivery<
 	#hold(query: OperandSelect, width: number, origin: NameOrigin): Omit<DefinedCte, "set"> {
 		const name = this.cx.relationAlias(origin)
 		const columns = this.cx.supply.columns(Array.from({ length: width }, () => origin))
-		this.state.log.ctes.add({ name, columns, materialized: "MATERIALIZED", query })
+		this.state.log.ctes.add({
+			name,
+			materialized: "MATERIALIZED",
+			query: namedQuery(query, columns)
+		})
 		return { name, columns }
 	}
 
@@ -1312,12 +1318,13 @@ export class OptimizedDelivery<
 			const { query, columns, shape } = partQuery(executable, supply)
 			const name = supply.relation({ kind: "internal", purpose: "statement part" })
 			return {
-				cte: { name, columns, materialized: undefined, query },
+				cte: { name, materialized: undefined, query: query },
+				columns,
 				shape: { ...shape, delivered: refined }
 			}
 		})
 		const { body } = taggedParts(
-			mapNonEmpty(parts, (p) => ({ name: p.cte.name, columns: p.cte.columns })),
+			mapNonEmpty(parts, (p) => ({ name: p.cte.name, columns: p.columns })),
 			0
 		)
 		const ast = bindLaterally(
@@ -1681,7 +1688,7 @@ export class OptimizedDelivery<
 			...select(
 				keyedSet(
 					columns.map((c) => target(col(alias, c))),
-					[derived(held.rows(), alias, columns, false)],
+					[derived(namedQuery(held.rows(), columns), alias, false)],
 					undefined,
 					"an attachment's held rows"
 				)

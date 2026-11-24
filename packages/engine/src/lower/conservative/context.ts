@@ -100,6 +100,7 @@ import {
 } from "#compiler/sql/build.ts"
 import {
 	freshNames,
+	namedQuery,
 	type NameOrigin,
 	NameSupply,
 	type NameSupplyStart
@@ -582,7 +583,7 @@ export const cteAtFirstUse = <K>(
 		const query = body()
 		const name = cx.relationAlias(origin)
 		const columns = cx.supply.columns(outputNames(node.heading).map(() => origin))
-		table.ctes.add({ name, columns, materialized, query })
+		table.ctes.add({ name, materialized, query: namedQuery(query, columns) })
 		cte = { name, columns, set: isSetQuery(query) }
 		table.defined.set(key, cte)
 	}
@@ -1241,7 +1242,7 @@ export class LowerContext {
 		const columns = named.map((n) => n.column)
 		const alias = this.supply.relation(origin)
 		return {
-			item: derived(query, alias, columns, lateral),
+			item: derived(namedQuery(query, columns), alias, lateral),
 			alias,
 			columns,
 			map: namedMap(alias, named)

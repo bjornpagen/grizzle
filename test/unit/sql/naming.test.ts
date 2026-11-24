@@ -17,7 +17,8 @@ import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
-import { bodyPositionNames, renameToPublicHeading } from "#compiler/sql/naming.ts"
+import { bodyPositionNames } from "#compiler/sql/ast.ts"
+import { renameToPublicHeading } from "#compiler/sql/naming.ts"
 import {
 	admitted,
 	headings,

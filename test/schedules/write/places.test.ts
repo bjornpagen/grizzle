@@ -457,7 +457,7 @@ export const aDeleteOfAPlacesWholeGroupsDeletesTheirHeadsSoEachClearedGroupStamp
 		kills: [
 			{
 				file: "packages/engine/src/write/insert/stamp.ts",
-				original: '\treturn [cte(supply.relation(internal("place release")), [], release)]\n',
+				original: '\treturn [cte(supply.relation(internal("place release")), release)]\n',
 				replacement: "\treturn []\n",
 				why: "A delete of whole groups leaves their heads, so a cleared group's next insert stamps one past its old head, not 0, and the cleared item's place departs."
 			}

@@ -27,6 +27,7 @@ import {
 	provedSelect,
 	table,
 	target,
+	targetAs,
 	types
 } from "#compiler/sql/build.ts"
 import { printStatement } from "#compiler/sql/print.ts"
@@ -73,11 +74,10 @@ const statementOf = (k: number): string => {
 		const fenced = `r${1001 + 2 * i}`
 		ctes.push({
 			name: plain,
-			columns: [`c${1000 + 2 * i}`],
 			materialized: undefined,
 			query: operandSelect(
 				core(
-					[target(col(`r${100000 + 2 * i}`, "a"))],
+					[targetAs(col(`r${100000 + 2 * i}`, "a"), `c${1000 + 2 * i}`)],
 					[table("pg_temp", "print_once", `r${100000 + 2 * i}`)],
 					undefined
 				)
@@ -85,11 +85,10 @@ const statementOf = (k: number): string => {
 		})
 		ctes.push({
 			name: fenced,
-			columns: [`c${1001 + 2 * i}`],
 			materialized: "MATERIALIZED",
 			query: operandSelect(
 				core(
-					[target(col(`r${100001 + 2 * i}`, `c${1000 + 2 * i}`))],
+					[targetAs(col(`r${100001 + 2 * i}`, `c${1000 + 2 * i}`), `c${1001 + 2 * i}`)],
 					[cteRefAs(plain, `r${100001 + 2 * i}`)],
 					undefined
 				)

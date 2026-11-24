@@ -51,7 +51,7 @@ import type {
 	TransitionTable,
 	TypeRef
 } from "#compiler/sql/ast.ts"
-import { transitionTables } from "#compiler/sql/ast.ts"
+import { selectColumns, transitionTables } from "#compiler/sql/ast.ts"
 import {
 	and,
 	call,
@@ -345,7 +345,7 @@ export const netted = (relation: TheoryTable, side: JudgedSide): PlStatement => 
 				expr: col("r1", "ctid"),
 				query: simpleSelect(
 					[{ expr: col("r3", "c1"), alias: undefined }],
-					[derived(counts, "r3", ["c1", "c2", "c3"], false)],
+					[derived(counts, "r3", false)],
 					or([
 						le(col("r3", "c2"), lit.int(0, types.bigint)),
 						gt(col("r3", "c3"), lit.int(1, types.bigint))
@@ -660,7 +660,9 @@ const heldRead = (source: FromSource, reads: DeltaReads): HeldRead | undefined =
 	return {
 		of: below.of,
 		column: (read) =>
-			read.table === p.source.alias ? projected[p.source.columns.indexOf(read.column)] : undefined,
+			read.table === p.source.alias
+				? projected[selectColumns(p.source.query).indexOf(read.column)]
+				: undefined,
 		renamed: (name) => ({
 			...p.source,
 			query: { ...p.source.query, body: { ...p.core, from: [below.renamed(name)] } }
@@ -856,7 +858,6 @@ export const headed = (statement: OperandSelect, reads: DeltaReads): OperandSele
 			const columns = mapNonEmpty(read.projection, (at) => `c${at + 1}`)
 			const head: Cte = {
 				name: cte,
-				columns,
 				materialized: "MATERIALIZED",
 				query: simpleSelect(
 					mapNonEmpty(columns, (c) => ({ expr: col(inner, c), alias: undefined })),
@@ -881,8 +882,7 @@ export const headed = (statement: OperandSelect, reads: DeltaReads): OperandSele
 				const kept = (_: unknown, at: number): boolean => !gone.has(at)
 				return {
 					...source,
-					query: { ...source.query, body: { ...core, targets: core.targets.filter(kept) } },
-					columns: source.columns.filter(kept)
+					query: { ...source.query, body: { ...core, targets: core.targets.filter(kept) } }
 				}
 			}
 			const alias = source.kind === "cte" ? (source.alias ?? source.name) : undefined
@@ -963,7 +963,7 @@ const passThrough = (
 	}
 	const below = inner.kind === "cte" ? read(inner.name) : passThrough(inner, read) !== undefined
 	const reads = core.targets.flatMap((t) => (t.expr.kind === "column" ? [t.expr] : []))
-	return below && reads.length === core.targets.length && reads.length === source.columns.length
+	return below && reads.length === core.targets.length
 		? { source, core, inner, distinct: core.distinct, reads }
 		: undefined
 }
@@ -1015,7 +1015,7 @@ const deadPassThrough = (
 				continue
 			}
 			const gone = dead.get(p.source) ?? new Set<number>()
-			for (const [at, column] of p.source.columns.entries()) {
+			for (const [at, column] of selectColumns(p.source.query).entries()) {
 				if (gone.has(at) || (counts.get(`${p.source.alias}.${column}`) ?? 0) > 0) {
 					continue
 				}

@@ -28,7 +28,7 @@ import {
 	target,
 	targetAs
 } from "#compiler/sql/build.ts"
-import type { NameSupply } from "#compiler/sql/naming.ts"
+import { namedBody, type NameSupply } from "#compiler/sql/naming.ts"
 import { type FieldColumns, fieldColumns } from "#compiler/write/defined.ts"
 import type { DeleteAnchor } from "#compiler/write/delete/anchor.ts"
 import { statedKey } from "#compiler/write/family/keyset.ts"
@@ -145,7 +145,7 @@ const deletion = (
 		cte: r2,
 		column: (f) => returned.of(f)
 	})
-	const [first, ...rest] = appendNonEmpty(match.leading, cte(r2, [], del))
+	const [first, ...rest] = appendNonEmpty(match.leading, cte(r2, del))
 	const ctes: NonEmptyReadonlyArray<Cte> = [first, ...rest, ...releases]
 	return {
 		ast: {
@@ -266,7 +266,7 @@ const buildDelete = (
 							name: r1,
 							columns: inputs
 						})
-					: [cte(r1, [...inputs.columns, ...signs], operandSelect(body))],
+					: [cte(r1, namedBody(operandSelect(body), [...inputs.columns, ...signs]))],
 				using: [cteRef(r1)],
 				where: [where]
 			},
@@ -338,20 +338,22 @@ const keyGeneratedLeading = (
 		(f) => col(scanned, read.compared.of(f))
 	)
 	return [
-		cte(scanned, [...read.compared.columns, ...read.signs], read.body),
+		cte(scanned, namedBody(read.body, [...read.compared.columns, ...read.signs])),
 		cte(
 			read.name,
-			[...read.columns.columns, ...read.signs],
-			select(
-				provedCore(
-					"keyed",
-					[
-						...read.columns.pairs.map((p) => target(value(p.field))),
-						...read.signs.map((c) => target(col(scanned, c)))
-					],
-					[cteRef(scanned)],
-					undefined
-				)
+			namedBody(
+				select(
+					provedCore(
+						"keyed",
+						[
+							...read.columns.pairs.map((p) => target(value(p.field))),
+							...read.signs.map((c) => target(col(scanned, c)))
+						],
+						[cteRef(scanned)],
+						undefined
+					)
+				),
+				[...read.columns.columns, ...read.signs]
 			)
 		)
 	]

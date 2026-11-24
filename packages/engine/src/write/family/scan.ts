@@ -61,15 +61,15 @@ import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { envOf } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr, lowerLiteral } from "#compiler/lower/conservative/expr/index.ts"
-import type {
-	Cte,
-	Expr,
-	FromItem,
-	FromSource,
-	Select,
-	SetCore,
-	Target,
-	TypeRef
+import {
+	type Cte,
+	type Expr,
+	type FromItem,
+	type Select,
+	selectColumns,
+	type SetCore,
+	type Target,
+	type TypeRef
 } from "#compiler/sql/ast.ts"
 import {
 	and,
@@ -480,19 +480,7 @@ export const scanOf = (lowering: ScanLowering, supply: NameSupply, spec: ScanSpe
 			spec.group.kind === "stored" ? [fromBase, seededFrom(spec.group.seed)] : [fromBase]
 		)
 	)
-	let below: Layer = {
-		query: based,
-		columns: [
-			...group,
-			slot,
-			first,
-			count,
-			...through,
-			...own.values(),
-			...owner.values(),
-			...seed.values()
-		]
-	}
+	let below: Select = based
 	const drawn = new Set<ColumnKey>()
 	const chains = chainsOf(spec)
 	const chained = new Set(chains.flatMap((chain) => chain.columns.map((c) => columnKey(c.column))))
@@ -526,20 +514,17 @@ export const scanOf = (lowering: ScanLowering, supply: NameSupply, spec: ScanSpe
 			waitingChains.splice(waitingChains.indexOf(chain), 1)
 			continue
 		}
-		below = {
-			query: select(
-				provedCore(
-					"keyed",
-					[
-						...below.columns.map((n) => targetAs(col(at, n), n)),
-						...ready.map(({ expr, name: n }) => targetAs(expr, n))
-					],
-					[over(below, at)],
-					undefined
-				)
-			),
-			columns: [...below.columns, ...ready.map(({ name: n }) => n)]
-		}
+		below = select(
+			provedCore(
+				"keyed",
+				[
+					...selectColumns(below).map((n) => targetAs(col(at, n), n)),
+					...ready.map(({ expr, name: n }) => targetAs(expr, n))
+				],
+				[derived(below, at, false)],
+				undefined
+			)
+		)
 		for (const { c } of ready) {
 			drawn.add(columnKey(c.column))
 			pending.splice(pending.indexOf(c), 1)
@@ -552,33 +537,15 @@ export const scanOf = (lowering: ScanLowering, supply: NameSupply, spec: ScanSpe
 			[...group, slot, first, count, ...through, ...columns.values()].map((n) =>
 				targetAs(col(top, n), n)
 			),
-			[over(below, top)],
+			[derived(below, top, false)],
 			undefined
 		)
 	)
 	return {
-		cte: {
-			name,
-			columns: [...group, slot, first, count, ...through, ...columns.values()],
-			materialized: undefined,
-			query: body
-		},
+		cte: { name, materialized: undefined, query: body },
 		rows: out
 	}
 }
-
-/**
- * A layer of a scan: its query and the names of the columns it delivers, in order, which the layer above lists where it
- * reads it as a derived table, and reads by name.
- */
-interface Layer {
-	readonly query: Select
-	readonly columns: ReadonlyArray<string>
-}
-
-/** `layer` as the derived table `alias`, its columns listed as it delivers them. */
-const over = (layer: Layer, alias: string): FromSource =>
-	derived(layer.query, alias, layer.columns, false)
 
 /**
  * One drawn column of a scanned member over the layer `at` below it, which holds `drawn`: its fill rule over the row's
@@ -938,16 +905,17 @@ const chainLayer = (
 	supply: NameSupply,
 	spec: ScanSpec,
 	layout: Layout,
-	below: Layer,
+	below: Select,
 	chain: Chain
-): Layer => {
+): Select => {
 	const rows = supply.relation(internal("scan chain rows"))
 	const name = supply.relation(internal("scan chain"))
 	const inChain = new Set(chain.columns.map((c) => columnKey(c.column)))
 	const names = chain.columns.map((c) =>
 		defined(layout.scanned.get(columnKey(c.column)), "a drawn column")
 	)
-	const columns = [...below.columns, ...names]
+	const carried = selectColumns(below)
+	const columns = [...carried, ...names]
 	/** A row's column at `alias`, by its scanned name: every carried and drawn column the layer below holds. */
 	const held =
 		(alias: string): Read =>
@@ -1028,7 +996,7 @@ const chainLayer = (
 			return collated
 		}
 		return [
-			...below.columns.map((n) => targetAs(col(at, n), n)),
+			...carried.map((n) => targetAs(col(at, n), n)),
 			...chain.columns.map((c, i) =>
 				targetAs(chained(columnKey(c.column)), defined(names[i], "a chain column's name"))
 			)
@@ -1063,28 +1031,20 @@ const chainLayer = (
 		undefined
 	)
 	return {
-		query: {
-			...select(
-				provedCore(
-					"keyed",
-					columns.map((n) => targetAs(col(top, n), n)),
-					[cteRefAs(name, top)],
-					undefined
-				)
-			),
-			with: {
-				recursive: true,
-				ctes: [
-					{ name: rows, columns: below.columns, materialized: undefined, query: below.query },
-					{
-						name,
-						columns,
-						materialized: undefined,
-						query: select(unionAll("disjoint", [seeded, stepped]))
-					}
-				]
-			}
-		},
-		columns
+		...select(
+			provedCore(
+				"keyed",
+				columns.map((n) => targetAs(col(top, n), n)),
+				[cteRefAs(name, top)],
+				undefined
+			)
+		),
+		with: {
+			recursive: true,
+			ctes: [
+				{ name: rows, materialized: undefined, query: below },
+				{ name, materialized: undefined, query: select(unionAll("disjoint", [seeded, stepped])) }
+			]
+		}
 	}
 }

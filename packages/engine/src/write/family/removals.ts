@@ -518,7 +518,6 @@ const leftByPut = (
 	ctes.push(
 		cte(
 			out.name,
-			[...out.columns.values()],
 			select(
 				provedCore(
 					"input",
@@ -716,7 +715,6 @@ const cascaded = (
 	ctes.push(
 		cte(
 			out.name,
-			[...out.columns.values()],
 			select(
 				provedCore(
 					"keyed",
@@ -787,7 +785,6 @@ const merged = (
 	ctes.push(
 		cte(
 			out.name,
-			[...out.columns.values()],
 			select(
 				provedCore(
 					"keyed",
@@ -917,7 +914,6 @@ const readEdit = (
 	ctes.push(
 		cte(
 			removed.name,
-			[...removed.columns.values()],
 			select(
 				isNonEmpty(removing)
 					? provedCore(
@@ -938,7 +934,6 @@ const readEdit = (
 		ctes.push(
 			cte(
 				updated.name,
-				[...updated.columns.values()],
 				select(
 					provedCore(
 						"keyed",
@@ -962,7 +957,6 @@ const readEdit = (
 		ctes.push(
 			cte(
 				updated.name,
-				[...updated.columns.values()],
 				select(
 					provedCore(
 						"keyed",
@@ -1142,7 +1136,6 @@ const redraw = (
 	ctes.push(
 		cte(
 			touched.name,
-			[...touched.group, touched.slot, touched.removed],
 			select(
 				unionAll("disjoint", [
 					provedCore(
@@ -1247,7 +1240,6 @@ const redraw = (
 	ctes.push(
 		cte(
 			groups.name,
-			[...groups.group, groups.stored, groups.kept, groups.first, groups.recounted],
 			select(
 				distinctCore(
 					[
@@ -1486,7 +1478,6 @@ const redraw = (
 				ctes.push(
 					cte(
 						movers.name,
-						[...movers.group, movers.slot, movers.rank, ...movers.key],
 						select(
 							provedCore(
 								"keyed",
@@ -1530,7 +1521,6 @@ const redraw = (
 				ctes.push(
 					cte(
 						freed.name,
-						[...freed.group, freed.slot, freed.rank],
 						select(
 							provedCore(
 								"keyed",
@@ -1716,7 +1706,7 @@ const deleteOf = (
 	}))
 	const del = supply.relation(internal("family delete"))
 	ctes.push(
-		cte(del, [], {
+		cte(del, {
 			kind: "delete",
 			with: undefined,
 			table: w.names.relation(name),
@@ -1750,9 +1740,7 @@ const barrierOf = (
 	}))
 	const total =
 		first === undefined ? lit.int(0, types.bigint) : rest.reduce((a, b) => binary("+", a, b), first)
-	ctes.push(
-		cte(name, [column], select(provedCore("oneRow", [targetAs(total, column)], [], undefined)))
-	)
+	ctes.push(cte(name, select(provedCore("oneRow", [targetAs(total, column)], [], undefined))))
 	return name
 }
 
@@ -1808,13 +1796,7 @@ const writesOf = (
 	if (firstKeyed === undefined) {
 		throw defect("a member's writes read its updates")
 	}
-	ctes.push(
-		cte(
-			written_.name,
-			[...written_.columns.values()],
-			select(unionAll("disjoint", [firstKeyed, ...restKeyed]))
-		)
-	)
+	ctes.push(cte(written_.name, select(unionAll("disjoint", [firstKeyed, ...restKeyed]))))
 	/** A written row's final value of a column: the scan of the family that draws it where it redrew the row, else the
 	 * row's own as the edit leaves it, read as COALESCE since a drawn value is never NULL. */
 	const finalOf = (a: string, key: ColumnKey): Expr => {
@@ -1901,7 +1883,7 @@ const writesOf = (
 		const into = supply.relation(internal("re-inserted table"))
 		const insert = supply.relation(internal("family re-insert"))
 		ctes.push(
-			cte(insert, [], {
+			cte(insert, {
 				kind: "insert",
 				with: undefined,
 				table: w.names.relation(name),
@@ -1973,7 +1955,7 @@ const writesOf = (
 		const update = supply.relation(internal("family update"))
 		const returning = updateReturning(w, supply, relation, [firstField, ...restFields], update)
 		ctes.push(
-			cte(update, [], {
+			cte(update, {
 				kind: "update",
 				with: undefined,
 				table: w.names.relation(name),
@@ -2161,13 +2143,7 @@ const recountOf = (
 				and([here(g3), eq(col(g3, r.groups.kept), lit.int(0, bigint))])
 			)
 		]
-		ctes.push(
-			cte(
-				last.name,
-				[...last.group, last.count, ...last.columns.values()],
-				select(unionAll("disjoint", arms))
-			)
-		)
+		ctes.push(cte(last.name, select(unionAll("disjoint", arms))))
 		return { family, last }
 	})
 	const o = supply.relation(internal("recounted owner"))

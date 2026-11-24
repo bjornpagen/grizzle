@@ -38,7 +38,7 @@ import {
 	targetAs,
 	types
 } from "#compiler/sql/build.ts"
-import type { NameSupply } from "#compiler/sql/naming.ts"
+import { namedQuery, type NameSupply } from "#compiler/sql/naming.ts"
 import { borrowFunctionName } from "#compiler/write/borrow/function.ts"
 import { type LockKey, lockId } from "#compiler/write/borrow/lock.ts"
 
@@ -96,9 +96,8 @@ export const borrowQuery = (
 			[target(col(each, id)), target(call("bool_or", [col(each, exclusive)]))],
 			[
 				derived(
-					operandSelect(operandUnionAll(mapNonEmpty(arms, arm))),
+					namedQuery(operandSelect(operandUnionAll(mapNonEmpty(arms, arm))), [id, exclusive]),
 					each,
-					[id, exclusive],
 					false
 				)
 			],
@@ -124,7 +123,7 @@ export const borrowQuery = (
 				names.column(internal("borrowed"))
 			)
 		],
-		[derived(operandSelect(byId), locks, [id, exclusive], false)],
+		[derived(namedQuery(operandSelect(byId), [id, exclusive]), locks, false)],
 		undefined
 	)
 }

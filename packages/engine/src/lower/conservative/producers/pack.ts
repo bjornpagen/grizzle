@@ -30,6 +30,7 @@ import {
 	select,
 	target
 } from "#compiler/sql/build.ts"
+import { namedQuery } from "#compiler/sql/naming.ts"
 
 /**
  * r.pack(s): the maximal covered segments of the spans of each group, one fact per component.
@@ -89,7 +90,7 @@ export const packQuery = (
 				...carried.map((e) => target(e)),
 				target(call("range_agg", [col(memberAlias, memberSpanColumn)]))
 			],
-			[derived(members, memberAlias, memberColumns, false)],
+			[derived(namedQuery(members, memberColumns), memberAlias, false)],
 			undefined
 		),
 		rows: ungrouped ? "oneRow" : "grouped",
@@ -115,7 +116,7 @@ export const packQuery = (
 			groupCarriedColumns.map((c) => target(col(groupAlias, c))),
 			target(col(componentAlias, component))
 		),
-		[derived(grouped, groupAlias, groupColumns, false), components],
+		[derived(namedQuery(grouped, groupColumns), groupAlias, false), components],
 		undefined
 	)
 }

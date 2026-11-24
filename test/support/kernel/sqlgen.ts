@@ -967,13 +967,7 @@ const derivedEntry = (d: Draw, env: Env, outer: ReadonlyArray<Rel>, lateral: boo
 	const q = nestedQuery(d, { visible: outer, ctes: env.ctes, depth: env.depth + 1 }, undefined)
 	const alias = d.relation()
 	const columns = generatedColumns(q.types)
-	const item: FromSource = {
-		kind: "derived",
-		query: q.select,
-		alias,
-		columns: Arr.map(columns, (c) => c.name),
-		lateral: lateral
-	}
+	const item = derived(q.select, alias, lateral)
 	return { items: [item], rels: [{ alias, columns }] }
 }
 
@@ -1053,7 +1047,7 @@ const unitQuery = (d: Draw, env: Env): Select =>
 const unitDerivedEntry = (d: Draw, env: Env, outer: ReadonlyArray<Rel>): Entry => {
 	const q = unitQuery(d, { visible: outer, ctes: env.ctes, depth: env.depth + 1 })
 	const alias = d.relation()
-	return { items: [derived(q, alias, [], false)], rels: [{ alias, columns: [] }] }
+	return { items: [derived(q, alias, false)], rels: [{ alias, columns: [] }] }
 }
 
 /**
@@ -1517,7 +1511,6 @@ const ctesOf = (d: Draw, env: Env, recursive: boolean): Scoped | undefined => {
 		const counter = col(step, "c1")
 		const counting: Cte = {
 			name,
-			columns: ["c1"],
 			query: select({
 				kind: "setOp",
 				op: "UNION",
@@ -1545,7 +1538,7 @@ const ctesOf = (d: Draw, env: Env, recursive: boolean): Scoped | undefined => {
 			const query = unitQuery(d, { visible: [], ctes, depth: env.depth + 1 })
 			const name = d.relation()
 			ctes.push({ name, columns: [] })
-			return { name, columns: [], materialized: undefined, query }
+			return { name, materialized: undefined, query: query }
 		}
 		const q = nestedQuery(d, { visible: [], ctes, depth: env.depth + 1 }, undefined)
 		const name = d.relation()
@@ -1554,7 +1547,11 @@ const ctesOf = (d: Draw, env: Env, recursive: boolean): Scoped | undefined => {
 			? d.from(["MATERIALIZED", "NOT MATERIALIZED"] as const)
 			: undefined
 		ctes.push({ name, columns })
-		return { name, columns: Arr.map(columns, (c) => c.name), materialized, query: q.select }
+		return {
+			name,
+			materialized,
+			query: q.select
+		}
 	}
 	const extra = d.count(0, 1)
 	const first = defined()
@@ -2019,7 +2016,7 @@ const statementWith = (d: Draw, env: Env, kind: "select" | WriteKind): Scoped | 
 		throw new Error("a data-modifying CTE's write drew no RETURNING")
 	}
 	const name = d.relation()
-	const cte: Cte = { name, query: write.statement, columns: [], materialized: undefined }
+	const cte: Cte = { name, query: write.statement, materialized: undefined }
 	const columns = write.returned.columns
 	return {
 		with: {

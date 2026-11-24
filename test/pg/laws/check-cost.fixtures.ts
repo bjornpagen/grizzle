@@ -46,6 +46,7 @@ import {
 	nameKey,
 	type OperandSelect,
 	type Select,
+	selectColumns,
 	type SelectCore
 } from "#compiler/sql/ast.ts"
 import { type Lexeme, lexemesOf } from "#compiler/sql/lexer.ts"
@@ -342,7 +343,7 @@ const declarationsOf = (
 /** The columns of a derived table a core reads, as `<alias>.<column>`, where its query is a set; none for any other source. */
 const setColumns = (source: FromSource): ReadonlyArray<string> =>
 	source.kind === "derived" && isSetQuery(source.query)
-		? Arr.map(source.columns, (column) => `${source.alias}.${column}`)
+		? Arr.map(selectColumns(source.query), (column) => `${source.alias}.${column}`)
 		: []
 
 /**

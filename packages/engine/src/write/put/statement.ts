@@ -55,7 +55,7 @@ import {
 } from "#compiler/sql/build.ts"
 import { emitText } from "#compiler/sql/emit.ts"
 import { assignments } from "#compiler/sql/generation.ts"
-import { NameSupply } from "#compiler/sql/naming.ts"
+import { namedBody, NameSupply } from "#compiler/sql/naming.ts"
 import { type FieldColumns, fieldColumns } from "#compiler/write/defined.ts"
 import { arbiterLaw, type WrittenRelation } from "#compiler/write/frontend/compile.ts"
 import {
@@ -285,7 +285,7 @@ const putHead = (w: WriteContext, spec: PutSpec, supply: NameSupply, at: string)
 					columns: inputs
 				})
 			]
-		: [cte(r1, inputs.columns, read.select)]
+		: [cte(r1, namedBody(read.select, inputs.columns))]
 	if (r4 !== undefined) {
 		ctes.push(sameKeyCte(r4, r1, pk, keys, inCol))
 	}
@@ -354,7 +354,6 @@ const guardedPut = (
 	const rv = supply.relation(internal("verdicts"))
 	const verdictCte: Cte = {
 		name: rv,
-		columns: verdicts.columns,
 		materialized: "MATERIALIZED",
 		query: select(verdicts.body)
 	}
@@ -455,7 +454,7 @@ export const buildUpsert = (w: WriteContext, spec: UpsertSpec): PutStatement => 
 			},
 			returning: returned.pairs.map((p) => targetAs(col(r3, column(p.field)), p.column))
 		}
-		ctes.push(cte(r2, [], insert))
+		ctes.push(cte(r2, insert))
 		const columns = factColumns(all)
 		const result: PutResult = {
 			kind: "upsert",
@@ -567,7 +566,7 @@ export const buildUpdateFrom = (w: WriteContext, spec: PutSpec): PutStatement =>
 			],
 			with: undefined
 		}
-		ctes.push(cte(r2, [], update))
+		ctes.push(cte(r2, update))
 		const text = (alias: string) =>
 			[...fresh.pairs, ...old.pairs].map((p) =>
 				returnedColumn(col(alias, p.column), rowType(p.field), p.column)
@@ -725,7 +724,7 @@ export const buildMerge = (w: WriteContext, spec: MergeSpec): PutStatement => {
 			],
 			with: undefined
 		}
-		ctes.push(cte(r2, [], merge))
+		ctes.push(cte(r2, merge))
 		const text = (alias: string): ReadonlyArray<ReturnedColumn> => [
 			{ expr: col(alias, actionCol), delivered: textItself, alias: actionCol },
 			...returned.pairs.map((p) => returnedColumn(col(alias, p.column), rowType(p.field), p.column))

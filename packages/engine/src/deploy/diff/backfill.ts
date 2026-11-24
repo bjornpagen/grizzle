@@ -153,7 +153,7 @@ import {
 	unionAll
 } from "#compiler/sql/build.ts"
 import { assignments, type TableGeneration } from "#compiler/sql/generation.ts"
-import { freshNames, NameSupply } from "#compiler/sql/naming.ts"
+import { freshNames, namedBody, NameSupply } from "#compiler/sql/naming.ts"
 import { identityHooks, transformSelect } from "#compiler/sql/transform.ts"
 import {
 	rowColumns,
@@ -676,7 +676,6 @@ const scanOver = (
 	return {
 		rows: cte(
 			name,
-			[],
 			select(
 				provedCore(
 					"keyed",
@@ -903,7 +902,6 @@ const streamed = (spec: {
 			])
 		),
 		"u",
-		[],
 		false
 	)
 	const sourcesFirst: WindowSpec = {
@@ -927,7 +925,6 @@ const streamed = (spec: {
 			)
 		),
 		"w",
-		[],
 		false
 	)
 	return provedCore(
@@ -1108,7 +1105,6 @@ const treeDerivation = (
 	const roles = derived(
 		select(unionAll("disjoint", [arm(owner, 0n, undefined), arm(parent, 1n, not(isRoot))])),
 		"e",
-		[],
 		false
 	)
 	const passed = [...carried, rootName, "__child", "__self"]
@@ -1136,13 +1132,11 @@ const treeDerivation = (
 			)
 		),
 		"w",
-		[],
 		false
 	)
 	const siblings = [...parent.map((p) => col("w", p)), col("w", rootName)]
 	const ranked = cte(
 		rankedName,
-		[],
 		select(
 			provedCore(
 				"keyed",
@@ -1215,7 +1209,6 @@ const treeDerivation = (
 	const drawnSet = assigned.map((c, n) => ({ c, value: drawnName(n) }))
 	const drawnCte = cte(
 		"__drawn",
-		[],
 		select(
 			unionAll(
 				"disjoint",
@@ -1331,7 +1324,6 @@ const parentDerivation = (
 		)
 	const levels = cte(
 		levelsName,
-		[],
 		select(
 			provedCore(
 				"keyed",
@@ -1348,9 +1340,7 @@ const parentDerivation = (
 						"__level"
 					)
 				],
-				[
-					derived(select(unionAll("disjoint", [bound(start, 1n), bound(end, -1n)])), "e", [], false)
-				],
+				[derived(select(unionAll("disjoint", [bound(start, 1n), bound(end, -1n)])), "e", false)],
 				undefined
 			)
 		)
@@ -1369,7 +1359,6 @@ const parentDerivation = (
 		)
 	const roles = cte(
 		rolesName,
-		[],
 		select(
 			provedCore(
 				"keyed",
@@ -1396,7 +1385,6 @@ const parentDerivation = (
 							])
 						),
 						"d",
-						[],
 						false
 					)
 				],
@@ -1406,7 +1394,6 @@ const parentDerivation = (
 	)
 	const heads = cte(
 		headsName,
-		[],
 		select(
 			provedCore(
 				"keyed",
@@ -1898,8 +1885,10 @@ const treeChainDerivation = (
 			ctes: [
 				cte(
 					chainTable,
-					[...carried, ...chain.map((_, n) => chainName(n))],
-					select(unionAll("disjoint", [roots, children]))
+					namedBody(select(unionAll("disjoint", [roots, children])), [
+						...carried,
+						...chain.map((_, n) => chainName(n))
+					])
 				)
 			]
 		},
@@ -2269,7 +2258,6 @@ const derivationCte = (
 				views.push(
 					cte(
 						name,
-						[],
 						staged(table, columns, (column) => presented({ table, column }), { kind: "every" })
 					)
 				)
@@ -2279,7 +2267,7 @@ const derivationCte = (
 	)
 	const ctes = [...views, ...(read.with?.ctes ?? [])]
 	return {
-		cte: cte(n.name, [], {
+		cte: cte(n.name, {
 			...read,
 			with: isNonEmpty(ctes) ? { recursive: read.with?.recursive ?? false, ctes } : undefined
 		}),
@@ -2421,7 +2409,6 @@ const passes = (
 							)
 					}),
 					"b",
-					[],
 					false
 				)
 			],

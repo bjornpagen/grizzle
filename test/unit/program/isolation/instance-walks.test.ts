@@ -111,14 +111,12 @@ const inserting = (last: string, negated: boolean, w: Insert["with"]): Insert =>
 const statementOf = (d: Drawn): SqlStatement => {
 	const chain = Array.from({ length: d.depth }, (_, i): Cte => ({
 		name: `q${i}`,
-		columns: [],
 		materialized: undefined,
 		query: reading(i === 0 ? undefined : `q${i - 1}`)
 	}))
 	const last = `q${d.depth - 1}`
 	const writers = Array.from({ length: d.writes - 1 }, (_, i): Cte => ({
 		name: `w${i}`,
-		columns: [],
 		materialized: undefined,
 		query: inserting(last, false, undefined)
 	}))

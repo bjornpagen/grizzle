@@ -106,7 +106,7 @@ import {
 	types,
 	windowOf
 } from "#compiler/sql/build.ts"
-import { NameSupply } from "#compiler/sql/naming.ts"
+import { namedBody, namedQuery, NameSupply } from "#compiler/sql/naming.ts"
 import { fieldColumns } from "#compiler/write/defined.ts"
 import { nestedRowsCte } from "#compiler/write/family/additions.ts"
 import {
@@ -437,7 +437,7 @@ export const unitSql = (
 		query: Select
 	): RowKeyset => {
 		const name = supply.relation(internal(`kept ${relation.name}`))
-		ctes.push({ ...cte(name, [...columns, row], query), materialized: "MATERIALIZED" })
+		ctes.push({ ...cte(name, namedBody(query, [...columns, row])), materialized: "MATERIALIZED" })
 		return { name, access: { kind: "key", relation }, columns, row }
 	}
 	/**
@@ -479,7 +479,7 @@ export const unitSql = (
 				provedCore(
 					"keyed",
 					[...keys.map((c) => target(col(o, c))), target(col(o, tid))],
-					[derived(inner, o, [...keys, tid, at], false)],
+					[derived(inner, o, false)],
 					not(col(o, at))
 				)
 			)
@@ -594,7 +594,7 @@ export const unitSql = (
 						reach
 					)
 				],
-				[derived(locally, n, [...keys, ...roots, start, end, tid, local], false)],
+				[derived(locally, n, false)],
 				undefined
 			)
 		)
@@ -606,7 +606,7 @@ export const unitSql = (
 				provedCore(
 					"keyed",
 					[...keys.map((c) => target(col(o, c))), target(col(o, tid))],
-					[derived(reached, o, [...keys, start, tid, reach], false)],
+					[derived(reached, o, false)],
 					le(col(o, reach), col(o, start))
 				)
 			)
@@ -688,7 +688,11 @@ export const unitSql = (
 						{ kind: "on", source: tableAs(w, relation.name, r), on: eq(rowOf(r), col(x, t)) },
 						{
 							kind: "on",
-							source: derived(operandSelect(operandUnionAll(grouped)), sr, [reached], true),
+							source: derived(
+								namedQuery(operandSelect(operandUnionAll(grouped)), [reached]),
+								sr,
+								true
+							),
 							on: lit.bool(true)
 						},
 						{
@@ -705,7 +709,7 @@ export const unitSql = (
 		const columns = mapNonEmpty(kept.columns, () => supply.column(internal("whole key")))
 		const row = supply.column(internal("whole row"))
 		ctes.push({
-			...cte(name, [...columns, row], {
+			...cte(name, {
 				...select(
 					provedCore(
 						"keyed",
@@ -730,7 +734,6 @@ export const unitSql = (
 					ctes: [
 						{
 							name: broken,
-							columns: [t],
 							materialized: undefined,
 							query: select(setOperation("UNION", [seed, step]))
 						}
@@ -806,7 +809,7 @@ export const unitSql = (
 			`delete ${unit.relation.name}`
 		)
 		const source = supply.relation(internal("unit source"))
-		ctes.push(cte(source, sourceKeys.columns, read.select))
+		ctes.push(cte(source, namedBody(read.select, sourceKeys.columns)))
 		const s = supply.relation(internal("unit source row"))
 		const t = supply.relation(internal(`doomed ${unit.relation.name}`))
 		const at = (f: LawField): Expr => col(s, sourceKeys.of(f))
@@ -915,7 +918,7 @@ export const unitSql = (
 		}))
 		const del = supply.relation(internal("unit delete"))
 		ctes.push(
-			cte(del, [], {
+			cte(del, {
 				kind: "delete",
 				with: undefined,
 				table: w.names.relation(relation.name),

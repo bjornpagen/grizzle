@@ -75,6 +75,7 @@ import {
 	select,
 	target
 } from "#compiler/sql/build.ts"
+import { namedQuery } from "#compiler/sql/naming.ts"
 
 /**
  * A node computed at its key set (keys.ts), as every lowering realizes it: the key set a MATERIALIZED DISTINCT CTE of the
@@ -430,7 +431,7 @@ export class KeyedLowering {
 		)
 		const name = cx.relationAlias(origin)
 		const columns = cx.supply.columns(targets.map(() => origin))
-		scope.ctes.add({ name, columns, materialized: "MATERIALIZED", query })
+		scope.ctes.add({ name, materialized: "MATERIALIZED", query: namedQuery(query, columns) })
 		const cte = { name, columns, set: isSetQuery(query) }
 		carriers.set(driving, { kind: "defined", cte })
 		return cte
@@ -484,9 +485,8 @@ export class KeyedLowering {
 		)
 		return {
 			item: derived(
-				select(provedCore("oneRow", aggregates, [copy.item], undefined)),
+				namedQuery(select(provedCore("oneRow", aggregates, [copy.item], undefined)), columns),
 				alias,
-				columns,
 				true
 			),
 			targets: columns.map((c) => target(col(alias, c)))
@@ -565,7 +565,11 @@ export class KeyedLowering {
 		)
 		const unionAlias = cx.relationAlias(origin)
 		const unionColumns = mapNonEmpty(keys.columns, () => cx.supply.column(origin))
-		const union = derived(operandSelect(operandUnionAll(arms)), unionAlias, unionColumns, false)
+		const union = derived(
+			namedQuery(operandSelect(operandUnionAll(arms)), unionColumns),
+			unionAlias,
+			false
+		)
 		const query = select(
 			distinctCore(
 				mapNonEmpty(unionColumns, (c) => target(col(unionAlias, c))),
@@ -575,7 +579,7 @@ export class KeyedLowering {
 		)
 		const name = cx.relationAlias(origin)
 		const columns = cx.supply.columns(keys.columns.map(() => origin))
-		scope.ctes.add({ name, columns, materialized: "MATERIALIZED", query })
+		scope.ctes.add({ name, materialized: "MATERIALIZED", query: namedQuery(query, columns) })
 		return { name, columns, set: true }
 	}
 
@@ -699,13 +703,15 @@ export class KeyedLowering {
 			const named = cx.freshColumns(names, origin)
 			from.push(
 				derived(
-					fencedRead(
-						mapNonEmpty(names, (c) => target(columnIn(r.map, c))),
-						r.item,
-						conjunction(equalitiesOver(cx, node.heading, r.map, at))
+					namedQuery(
+						fencedRead(
+							mapNonEmpty(names, (c) => target(columnIn(r.map, c))),
+							r.item,
+							conjunction(equalitiesOver(cx, node.heading, r.map, at))
+						),
+						named.map((n) => n.column)
 					),
 					alias,
-					named.map((n) => n.column),
 					true
 				)
 			)

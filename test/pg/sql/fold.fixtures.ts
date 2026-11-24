@@ -34,6 +34,7 @@ import {
 	types
 } from "#compiler/sql/build.ts"
 import { lex, type Token } from "#compiler/sql/lexer.ts"
+import { namedBody, namedQuery } from "#compiler/sql/naming.ts"
 import { sql } from "#test/pg/sql/print.fixtures.ts"
 import type { PgConnection } from "#test/support/pg.ts"
 
@@ -224,13 +225,13 @@ export const foldCase = (sketch: FoldSketch, twin: boolean): FoldCase => {
 		const below = width
 		top = core(
 			targetsOf(level)((at) => col(alias, `c${(at % below) + 1}`)),
-			[derived(operandSelect(top), alias, columnsOf(below), false)],
+			[derived(namedQuery(operandSelect(top), columnsOf(below)), alias, false)],
 			guard(twin)
 		)
 		width = level.terms.length
 	}
 	const q = `r${sketch.levels.length}`
-	const read = derived(operandSelect(top), q, columnsOf(width), false)
+	const read = derived(namedQuery(operandSelect(top), columnsOf(width)), q, false)
 	const picked = Arr.map(sketch.picks, (p) => `c${(p % width) + 1}`)
 	const once = nonEmpty(Arr.dedupe(picked), "the picks, each once")
 	const reading = (columns: Arr.NonEmptyReadonlyArray<string>): SetCore =>
@@ -263,7 +264,7 @@ export const foldCase = (sketch: FoldSketch, twin: boolean): FoldCase => {
 							undefined
 						)
 					),
-					with: { recursive: false, ctes: [cte(w, named, select(reading(once)))] }
+					with: { recursive: false, ctes: [cte(w, namedBody(select(reading(once)), named))] }
 				}
 			}
 			case "IN": {

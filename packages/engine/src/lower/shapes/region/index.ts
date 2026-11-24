@@ -24,7 +24,15 @@ import { fencedRead } from "#compiler/lower/conservative/step/index.ts"
 import { keyedRegionChain } from "#compiler/lower/optimize/cte-policy/index.ts"
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
 import { type NativeOp, nativeOp, operandCarriers } from "#compiler/scalar/compute/registry.ts"
-import type { Expr, FromItem, JoinStep, OperandBody, Select, Target } from "#compiler/sql/ast.ts"
+import {
+	type Expr,
+	type FromItem,
+	type JoinStep,
+	type OperandBody,
+	type Select,
+	selectColumns,
+	type Target
+} from "#compiler/sql/ast.ts"
 import {
 	and,
 	col,
@@ -36,6 +44,7 @@ import {
 	select,
 	target
 } from "#compiler/sql/build.ts"
+import { namedQuery } from "#compiler/sql/naming.ts"
 import { identityHooks, inertVisitor, transformExpr, visitSelect } from "#compiler/sql/transform.ts"
 
 /**
@@ -560,7 +569,11 @@ const keyedChain = (
 	const fenced: Array<FromItem> = []
 	for (const [i, p] of rest.entries()) {
 		const item = p.item
-		if (item.kind !== "derived" || !isNonEmpty(item.columns)) {
+		if (item.kind !== "derived") {
+			return undefined
+		}
+		const columns = selectColumns(item.query)
+		if (!isNonEmpty(columns)) {
 			return undefined
 		}
 		const inner = cx.relationAlias({ kind: "node", node: p.occurrence.source.id })
@@ -571,12 +584,11 @@ const keyedChain = (
 		fenced.push(
 			derived(
 				fencedRead(
-					mapNonEmpty(item.columns, (c) => target(col(inner, c))),
+					mapNonEmpty(columns, (c) => target(col(inner, c))),
 					{ ...item, alias: inner },
 					conjunction(at(i + 1).map((e) => transformExpr(e, renamed)))
 				),
 				p.alias,
-				item.columns,
 				true
 			)
 		)
@@ -630,9 +642,8 @@ const keyedByOnce = (
 		: [target(lit.bool(true))]
 	const body = distinctSelect(carried, [rest], restWhere)
 	const item = derived(
-		body,
+		namedQuery(body, isNonEmpty(columns) ? columns.map((c) => c.as) : [cx.supply.column(origin)]),
 		alias,
-		isNonEmpty(columns) ? columns.map((c) => c.as) : [cx.supply.column(origin)],
 		true
 	)
 	const outside = new Map(columns.map((c) => [`${c.alias}.${c.column}`, col(alias, c.as)]))

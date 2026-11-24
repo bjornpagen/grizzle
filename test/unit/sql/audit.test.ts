@@ -188,9 +188,9 @@ export const everyStatementAGeneratedWriteProgramPlacesPassesBothAuditsPrintsAsI
 			},
 			{
 				file: "packages/engine/src/write/family/scan.ts",
-				original: "\tderived(layer.query, alias, layer.columns, false)",
-				replacement: "\tderived(layer.query, alias, [], false)",
-				why: "A family scan's layer lists no column (write/family/scan.ts), so its derived table names none; the written statements' search fails."
+				original: "\t\t\t\t\t...ready.map(({ expr, name: n }) => targetAs(expr, n))",
+				replacement: '\t\t\t\t\t...ready.map(({ expr, name: n }) => targetAs(expr, n + "_drawn"))',
+				why: "A family scan's layer names the columns it draws other than as the scan names them (write/family/scan.ts), so the layer above reads no column of its by those names; the written statements' search fails."
 			},
 			{
 				file: "packages/engine/src/write/insert/protocol.ts",

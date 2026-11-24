@@ -32,25 +32,26 @@ import {
 	type ArrayColumn,
 	type ArraysSource,
 	type CarriedColumn,
-	type ClockInstant,
-	type CatalogTypeName,
 	catalogSpelling,
+	type CatalogTypeName,
+	type ClockInstant,
 	closedSearchPath,
 	type ColumnDef,
 	type ColumnDefinition,
-	type CreateCarrier,
-	type DeclareStatistics,
-	type DeclaredDistinct,
-	type StoredGeneration,
 	type CommentTarget,
 	type ContextSource,
-	type CreateDeclaredFunction,
+	type CreateCarrier,
 	type CreateConstant,
+	type CreateDeclaredFunction,
 	type CreateFunction,
 	type Cte,
 	type CteBody,
+	cteColumns,
+	type DeclaredDistinct,
+	type DeclareStatistics,
 	type Delete,
 	type DomainConstraint,
+	type DrivenColumn,
 	type Expr,
 	type ForeignKeyColumn,
 	type FrameBound,
@@ -69,9 +70,12 @@ import {
 	type LiteralValue,
 	type Merge,
 	type MergeWhen,
+	type MetKey,
 	type NamedGrantObjects,
 	type ObjectName,
 	type OnConflict,
+	type OperandBody,
+	type OperandSelect,
 	type OrderItem,
 	type PackConstant,
 	type PackLayout,
@@ -80,27 +84,25 @@ import {
 	type PlDeclaration,
 	type PlFunction,
 	type PlStatement,
-	type SessionTableStorage,
-	type PublishedTable,
-	type DrivenColumn,
-	type MetKey,
 	type ProbeBy,
 	type ProbeColumn,
+	type PublishedTable,
 	type QualifiedFunctionRef,
+	selectColumns,
 	type RoleSetting,
-	type OperandBody,
-	type OperandSelect,
 	type SelectCore,
+	type SessionTableStorage,
 	type SqlStatement,
+	type StoredGeneration,
 	type StubConstant,
 	type TableConstraint,
+	tableConstraints,
 	type TableName,
 	type Target,
 	type TransitionEvent,
+	transitionTables,
 	type TriggerEvent,
 	type TypeRef,
-	tableConstraints,
-	transitionTables,
 	type Update,
 	type Using,
 	type WindowSpec,
@@ -119,6 +121,7 @@ import {
 	gt,
 	isIn,
 	lit,
+	mapTargets,
 	not,
 	objectName,
 	or,
@@ -1116,7 +1119,7 @@ const printFromItem = (item: FromItem): string => {
 			return `${quoteIdent(item.table)} AS ${quoteIdent(item.alias)}`
 		case "derived": {
 			const lateral = item.lateral ? "LATERAL " : ""
-			return `${lateral}(${printSelectInline(item.query, item.columns.length > 0 ? "placed" : "named")}) AS ${quoteIdent(item.alias)}${aliasList(item.columns)}`
+			return `${lateral}(${printSelectInline(item.query, "placed")}) AS ${quoteIdent(item.alias)}${aliasList(selectColumns(item.query))}`
 		}
 		case "function": {
 			const lateral = item.lateral ? "LATERAL " : ""
@@ -1280,16 +1283,16 @@ const passedThrough = (core: SelectCore, named: boolean): SelectCore | undefined
 		body.kind !== "core" ||
 		body.distinct !== false ||
 		body.groupBy.length > 0 ||
-		body.having !== undefined ||
-		body.targets.length !== source.columns.length
+		body.having !== undefined
 	) {
 		return undefined
 	}
+	const columns = selectColumns(inner)
 	const picked = core.targets.flatMap((t) => {
 		if (t.expr.kind !== "column" || t.expr.table !== source.alias) {
 			return []
 		}
-		const at = source.columns.indexOf(t.expr.column)
+		const at = columns.indexOf(t.expr.column)
 		const read = body.targets[at]
 		const kept = read?.expr.kind === "column" && read.expr.column === t.expr.column
 		return read === undefined
@@ -1338,14 +1341,19 @@ const foldedCore = (core: SelectCore, named: boolean): SelectCore => {
 
 /**
  * How a core's reader reads its rows: through its query's ORDER BY, which names the core's own FROM, so the core prints
- * as written; by its columns' names; or by their places alone.
+ * as written, by its columns' names or by their places (`ordered`, `placedOrdered`); by its columns' names; or by their
+ * places alone. A reader by place reads no output name: a derived table's or a CTE's names its columns in its own list,
+ * which the printer derives from the targets' names (sql/ast.ts selectColumns), so its targets print bare.
  */
-type CoreReader = "ordered" | "named" | "placed"
+type CoreReader = "ordered" | "placedOrdered" | "named" | "placed"
+
+/** Whether a core's reader reads its rows by place, its targets' names printed nowhere but a list (`CoreReader`). */
+const byPlace = (reader: CoreReader): boolean => reader === "placed" || reader === "placedOrdered"
 
 /**
  * A core's clauses, its leading keyword `keyword`, as its reader reads it (`CoreReader`): a core whose query orders it
  * prints as written, since its ORDER BY reads the core's own FROM by name, which a fold would take away; every other
- * folds (`foldedCore`).
+ * folds (`foldedCore`). A reader by place prints each target bare.
  */
 const coreClauses = (
 	out: Lines,
@@ -1353,7 +1361,13 @@ const coreClauses = (
 	keyword: "SELECT" | "PERFORM",
 	reader: CoreReader
 ): void => {
-	const core = reader === "ordered" ? given : foldedCore(given, reader === "named")
+	const read =
+		reader === "ordered" || reader === "placedOrdered"
+			? given
+			: foldedCore(given, reader === "named")
+	const core = byPlace(reader)
+		? mapTargets(read, (t) => ({ expr: t.expr, alias: undefined }))
+		: read
 	const head =
 		core.distinct === false
 			? keyword
@@ -1441,7 +1455,7 @@ const bodyInline = (body: OperandBody, reader: CoreReader): string => {
 		case "core":
 			return inlineText((row) => coreClauses(row, body, "SELECT", reader))
 		case "select":
-			return nestedSelect(body, reader === "placed" ? "placed" : "named")
+			return nestedSelect(body, byPlace(reader) ? "placed" : "named")
 		case "setOp":
 			return body.arms.map((arm) => bodyInline(arm, "named")).join(` ${body.op} `)
 	}
@@ -1453,7 +1467,7 @@ const bodyBlock = (out: Lines, body: OperandBody, reader: CoreReader): void => {
 		case "core":
 			return coreClauses(out, body, "SELECT", reader)
 		case "select":
-			return out.line(nestedSelect(body, reader === "placed" ? "placed" : "named"))
+			return out.line(nestedSelect(body, byPlace(reader) ? "placed" : "named"))
 		case "setOp":
 			for (const [i, arm] of body.arms.entries()) {
 				if (i > 0) {
@@ -1466,22 +1480,23 @@ const bodyBlock = (out: Lines, body: OperandBody, reader: CoreReader): void => {
 
 /** The reader of a query's body core: its ORDER BY where it orders, else `rest`. */
 const bodyReader = (select: Pick<OperandSelect, "orderBy">, rest: "named" | "placed"): CoreReader =>
-	select.orderBy.length > 0 ? "ordered" : rest
+	select.orderBy.length === 0 ? rest : rest === "placed" ? "placedOrdered" : "ordered"
 
 const withInline = (w: With): string => {
 	const ctes = w.ctes
-		.map(
-			(cte) =>
-				`${cteHead(cte)} (${cteBodyInline(cte.query, cte.columns.length > 0 ? "placed" : "named")})`
-		)
+		.map((cte) => `${cteHead(cte)} (${cteBodyInline(cte.query, cteReader(cte))})`)
 		.join(", ")
 	return `WITH ${w.recursive ? "RECURSIVE " : ""}${ctes}`
 }
 
 const cteHead = (cte: Cte): string => {
 	const materialized = cte.materialized === undefined ? "" : ` ${cte.materialized}`
-	return `${quoteIdent(cte.name)}${aliasList(cte.columns)} AS${materialized}`
+	return `${quoteIdent(cte.name)}${aliasList(cteColumns(cte))} AS${materialized}`
 }
+
+/** How a CTE's body is read: by place where its head lists its columns, by name where it has none to list. */
+const cteReader = (cte: Cte): "named" | "placed" =>
+	isNonEmpty(cteColumns(cte)) ? "placed" : "named"
 
 /** A data-modifying body keeps its own WITH, which PostgreSQL accepts inside the CTE's parentheses. */
 const cteBodyInline = (query: CteBody, reader: "named" | "placed"): string =>
@@ -1507,7 +1522,7 @@ const cteBodyBlock = (out: Lines, query: CteBody, reader: "named" | "placed"): v
  * parenthesis and `close` on its last. */
 const cteBlock = (out: Lines, cte: Cte, open: string, close: string): void => {
 	out.line(`${open}${cteHead(cte)} (`)
-	cteBodyBlock(out.nested(), cte.query, cte.columns.length > 0 ? "placed" : "named")
+	cteBodyBlock(out.nested(), cte.query, cteReader(cte))
 	out.line(`)${close}`)
 }
 

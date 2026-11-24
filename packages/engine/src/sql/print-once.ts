@@ -154,7 +154,6 @@ const inPlaceHooks = (chosen: ReadonlyMap<string, Cte>): AstHooks => {
 				kind: "derived",
 				query: transformQuery(cte.query, hooks),
 				alias: source.alias ?? cte.name,
-				columns: cte.columns,
 				lateral: false
 			}
 		}

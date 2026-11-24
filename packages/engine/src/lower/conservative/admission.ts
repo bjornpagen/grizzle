@@ -21,7 +21,7 @@ import {
 	targetAs,
 	types
 } from "#compiler/sql/build.ts"
-import type { NameSupply } from "#compiler/sql/naming.ts"
+import { namedQuery, type NameSupply } from "#compiler/sql/naming.ts"
 
 /**
  * A call's admission: every caller parameter whose type PostgreSQL checks beyond its base (a contract's domain, a
@@ -122,9 +122,11 @@ const admissionEntry = (cx: LowerContext): Cte | undefined => {
 	const targets = admittedTargets(cx, supply, unread, "admission of the query's parameters")
 	return {
 		name: supply.relation(internal("admission")),
-		columns: targets.map(() => supply.column(internal("admitted parameter"))),
 		materialized: undefined,
-		query: operandSelect(core(targets, [], undefined))
+		query: namedQuery(
+			operandSelect(core(targets, [], undefined)),
+			targets.map(() => supply.column(internal("admitted parameter")))
+		)
 	}
 }
 

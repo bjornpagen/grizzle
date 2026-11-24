@@ -55,7 +55,7 @@ import {
 	target,
 	types
 } from "#compiler/sql/build.ts"
-import type { NameSupply } from "#compiler/sql/naming.ts"
+import { namedBody, namedQuery, type NameSupply } from "#compiler/sql/naming.ts"
 import { identityHooks, transformExpr } from "#compiler/sql/transform.ts"
 import { internal, one, tableAs } from "#compiler/write/family/written.ts"
 import type { WriteContext } from "#compiler/write/insert/statement.ts"
@@ -290,8 +290,10 @@ export const keysetOf = (
 	ctes.push({
 		...cte(
 			name,
-			[...columns],
-			unionOf(w, supply, arms, (arm) => arm.key)
+			namedBody(
+				unionOf(w, supply, arms, (arm) => arm.key),
+				[...columns]
+			)
 		),
 		materialized
 	})
@@ -317,8 +319,10 @@ export const rowKeysetOf = (
 	ctes.push({
 		...cte(
 			name,
-			[...columns, row],
-			unionOf(w, supply, arms, (arm) => appendNonEmpty(arm.key, arm.row))
+			namedBody(
+				unionOf(w, supply, arms, (arm) => appendNonEmpty(arm.key, arm.row)),
+				[...columns, row]
+			)
 		),
 		materialized
 	})
@@ -369,7 +373,13 @@ const tagged = <K extends Keyset>(
 		...provedCore(
 			"grouped",
 			chosen.targets,
-			[derived(operandSelect(operandUnionAll(mapNonEmpty(keysets, arm))), u, [...key, tag], false)],
+			[
+				derived(
+					namedQuery(operandSelect(operandUnionAll(mapNonEmpty(keysets, arm))), [...key, tag]),
+					u,
+					false
+				)
+			],
 			undefined
 		),
 		groupBy: [...keyExprs],
@@ -415,12 +425,14 @@ export const keysetWhere = (
 	ctes.push({
 		...cte(
 			name,
-			[...columns],
-			tagged(
-				supply,
-				keysets,
-				(k) => k.columns,
-				(holds, key) => ({ targets: key.map((e) => target(e)), having: having(holds) })
+			namedBody(
+				tagged(
+					supply,
+					keysets,
+					(k) => k.columns,
+					(holds, key) => ({ targets: key.map((e) => target(e)), having: having(holds) })
+				),
+				[...columns]
 			)
 		),
 		materialized
@@ -450,11 +462,13 @@ export const rowsWhere = (
 	ctes.push({
 		...cte(
 			name,
-			[...columns, row],
-			tagged(supply, keysets, rowColumns, (holds, key) => ({
-				targets: key.map((e) => target(e)),
-				having: having(holds)
-			}))
+			namedBody(
+				tagged(supply, keysets, rowColumns, (holds, key) => ({
+					targets: key.map((e) => target(e)),
+					having: having(holds)
+				})),
+				[...columns, row]
+			)
 		),
 		materialized
 	})
@@ -484,11 +498,13 @@ export const flaggedRows = (
 	ctes.push({
 		...cte(
 			name,
-			[...columns, row, flag],
-			tagged(supply, [of, holds], rowColumns, (held, key) => ({
-				targets: [...key.map((e) => target(e)), target(held(1))],
-				having: undefined
-			}))
+			namedBody(
+				tagged(supply, [of, holds], rowColumns, (held, key) => ({
+					targets: [...key.map((e) => target(e)), target(held(1))],
+					having: undefined
+				})),
+				[...columns, row, flag]
+			)
 		),
 		materialized: "MATERIALIZED"
 	})

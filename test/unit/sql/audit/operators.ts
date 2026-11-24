@@ -4,33 +4,35 @@ import {
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import { Array as Arr, Option, String as Str } from "effect"
-import type {
-	AlterTableAction,
-	Call,
-	ColumnDef,
-	CreateTable,
-	Cte,
-	CteBody,
-	Delete,
-	Expr,
-	FromItem,
-	FunctionCall,
-	Insert,
-	Merge,
-	ObjectName,
-	OperandSelect,
-	OrderItem,
-	PlStatement,
-	Select,
-	SelectCore,
-	SetOperand,
-	SetOperation,
-	SqlStatement,
-	TableConstraint,
-	Target,
-	TypeRef,
-	Update,
-	WindowSpec
+import {
+	type AlterTableAction,
+	bodyPositionNames,
+	type Call,
+	type ColumnDef,
+	type CreateTable,
+	type Cte,
+	type CteBody,
+	type Delete,
+	type Expr,
+	type FromItem,
+	type FunctionCall,
+	type Insert,
+	type Merge,
+	type ObjectName,
+	type OperandSelect,
+	type OrderItem,
+	type PlStatement,
+	selectColumns,
+	type Select,
+	type SelectCore,
+	type SetOperand,
+	type SetOperation,
+	type SqlStatement,
+	type TableConstraint,
+	type Target,
+	type TypeRef,
+	type Update,
+	type WindowSpec
 } from "#compiler/sql/ast.ts"
 import { isSetQuery, functionColumnNames } from "#compiler/sql/ast.ts"
 import {
@@ -52,16 +54,11 @@ import {
 	withArms
 } from "#compiler/sql/build.ts"
 import { lex, type Token } from "#compiler/sql/lexer.ts"
-import { bodyPositionNames } from "#compiler/sql/naming.ts"
 import { printType, spellingOf } from "#compiler/sql/print.ts"
 import { identityHooks, transformExpr, transformStatement } from "#compiler/sql/transform.ts"
 import type { Holes, WildOperator } from "#test/support/kernel/sqlgen.ts"
 import { noHoles } from "#test/support/kernel/sqlgen.ts"
-import {
-	type auditStatementViolations,
-	isUnitRead,
-	meetsStoredRow
-} from "#test/support/oracle/verify/sql.ts"
+import { type auditStatementViolations, meetsStoredRow } from "#test/support/oracle/verify/sql.ts"
 import { transformOperand } from "#test/support/sql.ts"
 
 /**
@@ -138,12 +135,6 @@ export interface TextBreak {
 	readonly rule: AuditRule
 	readonly variants: (text: string) => ReadonlyArray<string>
 }
-
-/** Whether a CTE's column list names its query's outputs as PostgreSQL already does, so dropping it renames none. */
-const restatesOutputs = (
-	columns: ReadonlyArray<string>,
-	outputs: ReadonlyArray<string | undefined>
-): boolean => columns.length === outputs.length && Arr.every(columns, (c, k) => outputs[k] === c)
 
 /** Names no statement grizzle builds defines. */
 const freshRelation = "r9001"
@@ -342,37 +333,6 @@ const dataModifying =
 			return isWrite(body) ? Arr.map(f(cte, body), (c) => withCte(s, i, c)) : []
 		})
 	}
-
-/** The RETURNING aliases of a write that names every returned column, or undefined. */
-const returningNames = (w: Write): ReadonlyArray<string> | undefined => {
-	const names: Array<string> = []
-	for (const t of w.returning) {
-		if (t.alias === undefined) {
-			return undefined
-		}
-		names.push(t.alias)
-	}
-	return names.length === 0 ? undefined : names
-}
-
-/** A data-modifying CTE named by a column list instead of its RETURNING aliases. */
-const listedColumns = (cte: Cte, body: Write): Cte | undefined => {
-	if (cte.columns.length > 0) {
-		return undefined
-	}
-	const names = returningNames(body)
-	if (names === undefined) {
-		return undefined
-	}
-	return {
-		...cte,
-		columns: names,
-		query: withReturning(
-			body,
-			Arr.map(body.returning, (t) => target(t.expr))
-		)
-	}
-}
 
 /** The DDL a statement holds at its root: a CREATE TABLE's columns and constraints, an ALTER TABLE's actions. */
 const createTables =
@@ -741,28 +701,48 @@ const requiredBreakTable = breakTable([
 		rule: "naming",
 		holes: {
 			...noHoles,
-			fromSource: (item) => {
-				if (item.kind !== "derived" || item.query.body.kind !== "core") {
+			select: (q) => {
+				const body = q.body
+				if (body.kind !== "core") {
 					return []
 				}
-				const body = item.query.body
-				if (!Arr.isReadonlyArrayNonEmpty(body.targets)) {
-					return []
-				}
-				const [first, ...rest] = body.targets
-				if (first.alias === undefined) {
-					return []
-				}
-				return Arr.map(
-					Arr.filter(
-						["Total", "c07", "col1", "r1", "c", "C1"],
-						(alias) => !Arr.some(rest, (t) => t.alias === alias)
-					),
-					(alias) => {
-						const targets: NonEmptyReadonlyArray<Target> = [{ ...first, alias }, ...rest]
-						return { ...item, query: { ...item.query, body: { ...body, targets } } }
+				return Arr.flatMap(body.from, (item) => {
+					if (item.kind !== "derived" || item.query.body.kind !== "core") {
+						return []
 					}
-				)
+					const inner = item.query.body
+					if (!Arr.isReadonlyArrayNonEmpty(inner.targets)) {
+						return []
+					}
+					const [first, ...rest] = inner.targets
+					const old = first.alias
+					if (old === undefined) {
+						return []
+					}
+					return Arr.map(
+						Arr.filter(
+							["Total", "c07", "col1", "r1", "c", "C1"],
+							(alias) => !Arr.some(rest, (t) => t.alias === alias)
+						),
+						(alias) => {
+							const targets: NonEmptyReadonlyArray<Target> = [{ ...first, alias }, ...rest]
+							const renamed = { ...item, query: { ...item.query, body: { ...inner, targets } } }
+							return transformOperand(
+								{
+									...q,
+									body: { ...body, from: Arr.map(body.from, (f) => (f === item ? renamed : f)) }
+								},
+								{
+									...identityHooks,
+									expr: (e) =>
+										e.kind === "column" && e.table === item.alias && e.column === old
+											? { ...e, column: alias }
+											: e
+								}
+							)
+						}
+					)
+				})
 			}
 		}
 	},
@@ -806,91 +786,17 @@ const requiredBreakTable = breakTable([
 		)
 	},
 	{
-		name: "a query CTE without the column list that restates its outputs' names",
-		rule: "columnList",
-		holes: {
-			...noHoles,
-			select: (q) =>
-				Arr.flatMap(q.with?.ctes ?? [], (cte, i) => {
-					if (
-						cte.query.kind !== "select" ||
-						cte.columns.length === 0 ||
-						isUnitRead(cte.query) ||
-						q.with === undefined ||
-						!restatesOutputs(cte.columns, bodyPositionNames(cte.query.body))
-					) {
-						return []
-					}
-					return [
-						{
-							...q,
-							with: { ...q.with, ctes: replaceNonEmpty(q.with.ctes, i, { ...cte, columns: [] }) }
-						}
-					]
-				})
-		}
-	},
-	{
-		name: "a query CTE listing one column more than its query has",
-		rule: "columnList",
-		holes: {
-			...noHoles,
-			select: (q) =>
-				Arr.flatMap(q.with?.ctes ?? [], (cte, i) =>
-					cte.query.kind !== "select" || cte.columns.length === 0 || q.with === undefined
-						? []
-						: [
-								{
-									...q,
-									with: {
-										...q.with,
-										ctes: replaceNonEmpty(q.with.ctes, i, {
-											...cte,
-											columns: [...cte.columns, freshColumn]
-										})
-									}
-								}
-							]
-				)
-		}
-	},
-	{
-		name: "a derived table listing one column more than its query has",
-		rule: "columnList",
-		holes: {
-			...noHoles,
-			fromSource: (item) =>
-				item.kind === "derived" ? [{ ...item, columns: [...item.columns, freshColumn] }] : []
-		}
-	},
-	{
-		name: "a data-modifying CTE with an unnamed RETURNING column and no column list",
+		name: "a data-modifying CTE with an unnamed RETURNING column",
 		rule: "columnList",
 		holes: {
 			...noHoles,
 			statement: dataModifying((cte, body) => {
-				if (cte.columns.length > 0) {
-					return []
-				}
 				const returning = body.returning
 				return Arr.flatMap(returning, (t, i) =>
 					t.alias === undefined
 						? []
 						: [{ ...cte, query: withReturning(body, returning.with(i, target(t.expr))) }]
 				)
-			})
-		}
-	},
-	{
-		name: "a data-modifying CTE listing a column more than it returns",
-		rule: "columnList",
-		holes: {
-			...noHoles,
-			statement: dataModifying((cte, body) => {
-				const listed = listedColumns(cte, body)
-				return listed === undefined
-					? []
-					: [{ ...listed, columns: [...listed.columns, freshColumn] }]
 			})
 		}
 	},
@@ -1766,7 +1672,7 @@ const withDelete = (q: OperandSelect, table: ObjectName): OperandSelect => {
 		using: [],
 		where: undefined
 	}
-	const cte: Cte = { name: freshRelation, query: del, columns: [], materialized: undefined }
+	const cte: Cte = { name: freshRelation, query: del, materialized: undefined }
 	return {
 		...q,
 		with: {
@@ -1789,6 +1695,7 @@ const columnOfItem = (item: FromItem): Expr | undefined => {
 		case "table":
 			return at(item.alias, storedColumn)
 		case "derived":
+			return at(item.alias, selectColumns(item.query)[0])
 		case "values":
 			return at(item.alias, item.columns[0])
 		case "function":
@@ -1967,17 +1874,6 @@ export const requiredFaithfulRewrites: Arr.NonEmptyReadonlyArray<FaithfulRewrite
 				? [{ ...c, orderBy: [asc(first)] }]
 				: []
 		})
-	},
-	{
-		name: "a data-modifying CTE named by a column list instead of its RETURNING aliases",
-		print: "any",
-		holes: {
-			...noHoles,
-			statement: dataModifying((cte, body) => {
-				const listed = listedColumns(cte, body)
-				return listed === undefined ? [] : [listed]
-			})
-		}
 	},
 	{
 		name: "a query parenthesized as the body of a query with an empty ORDER BY",

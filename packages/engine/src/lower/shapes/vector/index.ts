@@ -48,6 +48,7 @@ import {
 	cast,
 	col,
 	conjunction,
+	derived,
 	distinctCore,
 	exists,
 	lit,
@@ -56,6 +57,7 @@ import {
 	select,
 	simpleSelect,
 	target,
+	targetAs,
 	types,
 	unitTargets
 } from "#compiler/sql/build.ts"
@@ -167,11 +169,11 @@ const streamBound = (): Expr =>
 
 /**
  * The searched occurrence's stored relation read as the approximate read's ordered stream, its fence: the scan's
- * columns as the region reads them, then the distance of its vector from the query vector by `<=>`, ordered by that
- * distance and bounded by `streamBound`. A subquery with a LIMIT is neither pulled up nor given a filter from outside
- * (PostgreSQL 19 allpaths.c subquery_is_pushdown_safe), so the region's filters, its other matches and the rule's
- * negations read the stream above it, and no statistic of theirs prices the search: the shape is the program's. Its
- * rows are a set, as the scan's are.
+ * columns as the region reads them, ordered by the distance of its vector from the query vector by `<=>` and bounded by
+ * `streamBound`; and that distance, which `carried` delivers from the fence up as a column of its own. A subquery with
+ * a LIMIT is neither pulled up nor given a filter from outside (PostgreSQL 19 allpaths.c subquery_is_pushdown_safe), so
+ * the region's filters, its other matches and the rule's negations read the stream above it, and no statistic of theirs
+ * prices the search: the shape is the program's. Its rows are a set, as the scan's are.
  */
 const fenceOf = (
 	cx: LowerContext,
@@ -179,7 +181,7 @@ const fenceOf = (
 	trace: ApproximateTrace,
 	vector: () => Expr,
 	at: string
-): OperandSelect => {
+): { readonly fence: OperandSelect; readonly distance: Expr } => {
 	const { scan, body, alias } = fencedScan(
 		cx,
 		trace.base,
@@ -195,10 +197,8 @@ const fenceOf = (
 		schema: cx.names.vectorSchema
 	}
 	return {
-		...scan,
-		body: withTarget(body, target(distance)),
-		orderBy: [asc(distance)],
-		limit: streamBound()
+		fence: { ...scan, body, orderBy: [asc(distance)], limit: streamBound() },
+		distance
 	}
 }
 
@@ -212,18 +212,22 @@ const withTarget = <B extends OperandSelect["body"] & { readonly kind: "core" }>
 		: { ...body, targets: extendNonEmpty(body.targets, [added]) }
 
 /**
- * `query` with the last column of its derived source `fence`, wherever beneath it stands in a FROM, carried to its own
- * targets, last: each derived table from the fence up widened by a column named from `origin`, each core on the way by
- * a target reading it, so the read above the region orders by the stream's own distance and PostgreSQL reads the
- * stream's order as its own (a sort key it must otherwise compute anew over the stream sorts the whole stream). None
- * where the fence stands nowhere in the FROM lists beneath.
+ * `query` with the fence's distance (fenceOf), from the fence wherever beneath it stands in a FROM, delivered as its own
+ * last output, under the name answered beside it: the fence's query given the distance as an output of its own, a
+ * column named from `origin`, and each core from it up a target reading the one below under a fresh name, so the read
+ * above the region orders by the stream's own distance and PostgreSQL reads the stream's order as its own (a sort key it
+ * must otherwise compute anew over the stream sorts the whole stream). Each derived table on the way names it among its
+ * columns by its query's widened outputs (sql/ast.ts selectColumns). The fence is the derived table whose query orders
+ * by the stream, its ORDER BY the one fenceOf made, which the region's naming of its outputs keeps. None where the fence
+ * stands nowhere in the FROM lists beneath.
  */
 const carried = (
 	cx: LowerContext,
 	query: OperandSelect,
 	fence: OperandSelect,
+	distance: Expr,
 	origin: NameOrigin
-): OperandSelect | undefined => {
+): { readonly query: OperandSelect; readonly column: string } | undefined => {
 	const body = query.body
 	if (body.kind !== "core") {
 		return undefined
@@ -234,14 +238,16 @@ const carried = (
 		if (source.kind !== "derived") {
 			return undefined
 		}
-		const inner = source.query === fence ? fence : carried(cx, source.query, fence, origin)
+		const inner =
+			source.query.orderBy === fence.orderBy
+				? delivering(cx, source.query, distance, origin)
+				: carried(cx, source.query, fence, distance, origin)
 		if (inner === undefined) {
 			return undefined
 		}
-		const column = cx.supply.column(origin)
 		return {
-			source: { ...source, query: inner, columns: [...source.columns, column] },
-			value: col(source.alias, column)
+			source: derived(inner.query, source.alias, source.lateral),
+			value: col(source.alias, inner.column)
 		}
 	}
 	const throughItem = (
@@ -270,10 +276,25 @@ const carried = (
 		const found = throughItem(item)
 		if (found !== undefined) {
 			const from = body.from.map((f, i) => (i === at ? found.item : f))
-			return { ...query, body: withTarget({ ...body, from }, target(found.value)) }
+			return delivering(cx, { ...query, body: { ...body, from } }, found.value, origin)
 		}
 	}
 	return undefined
+}
+
+/** `query`, of one core, delivering `value` as its last output, under a fresh column named from `origin`. */
+const delivering = (
+	cx: LowerContext,
+	query: OperandSelect,
+	value: Expr,
+	origin: NameOrigin
+): { readonly query: OperandSelect; readonly column: string } | undefined => {
+	const body = query.body
+	if (body.kind !== "core") {
+		return undefined
+	}
+	const column = cx.supply.column(origin)
+	return { query: { ...query, body: withTarget(body, targetAs(value, column)) }, column }
 }
 
 /**
@@ -346,11 +367,13 @@ export const approximateLowerer =
 			}
 		}
 		const queried = queryVectorSql(cx, env, trace.projection.input.id, trace.query, env)
-		const fence = fenceOf(cx, env, trace, queried.vector, at)
+		const { fence, distance } = fenceOf(cx, env, trace, queried.vector, at)
 		const region = cx.withLowering(trace.base, () => fence).source(projection.input, env)
 		const origin: NameOrigin = { kind: "node", node: trace.base.id }
 		const widened =
-			region.item.kind === "derived" ? carried(cx, region.item.query, fence, origin) : undefined
+			region.item.kind === "derived"
+				? carried(cx, region.item.query, fence, distance, origin)
+				: undefined
 		if (widened === undefined || region.item.kind !== "derived") {
 			return refuse(
 				"UnsupportedOperation",
@@ -358,10 +381,10 @@ export const approximateLowerer =
 				`approximateNearest: the searched relation ${trace.relation} read through its ordered stream alone`
 			)
 		}
-		const distanceColumn = cx.supply.column(origin)
+		const distanceColumn = widened.column
 		const input: InputSource = {
 			...region,
-			item: { ...region.item, query: widened, columns: [...region.item.columns, distanceColumn] },
+			item: derived(widened.query, region.item.alias, region.item.lateral),
 			columns: [...region.columns, distanceColumn]
 		}
 		const scope = extendEnv(env, [[projection.input.id, input.map]])

@@ -64,6 +64,7 @@ import {
 	type CarrierDeclaration,
 	carrierName,
 	freshNames,
+	namedQuery,
 	type NameMap,
 	NameSupply
 } from "#compiler/sql/naming.ts"
@@ -405,26 +406,28 @@ const restaged = (
 				.name
 		}
 		return derived(
-			select(
-				provedCore(
-					"input",
-					columns.map((c) =>
-						target(
-							col(
-								scan,
-								defined(
-									head.carrier.heading.find((h) => h.name === fieldOf(c.array.number)),
-									`a field of member slot ${head.first.slot}, a column of its carrier`
-								).column
+			namedQuery(
+				select(
+					provedCore(
+						"input",
+						columns.map((c) =>
+							target(
+								col(
+									scan,
+									defined(
+										head.carrier.heading.find((h) => h.name === fieldOf(c.array.number)),
+										`a field of member slot ${head.first.slot}, a column of its carrier`
+									).column
+								)
 							)
-						)
-					),
-					[carrierScan(head.carrier, scan)],
-					undefined
-				)
+						),
+						[carrierScan(head.carrier, scan)],
+						undefined
+					)
+				),
+				columns.map((c) => c.definition.name)
 			),
 			source.alias,
-			columns.map((c) => c.definition.name),
 			false
 		)
 	}

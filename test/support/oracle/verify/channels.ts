@@ -27,10 +27,9 @@ import {
 	type FusedLayout,
 	fusedElement
 } from "#compiler/runtime/lower/fused.ts"
-import type { SelectBody, Target, TypeRef } from "#compiler/sql/ast.ts"
+import { bodyPositionNames, type SelectBody, type Target, type TypeRef } from "#compiler/sql/ast.ts"
 import { builtinType } from "#compiler/sql/build.ts"
 import { type Lexed, lex } from "#compiler/sql/lexer.ts"
-import { bodyPositionNames } from "#compiler/sql/naming.ts"
 import { printStatement, printType } from "#compiler/sql/print.ts"
 import { problem, type VerificationProblem } from "#test/support/oracle/verify/problems.ts"
 import { rowsViolations } from "#test/support/oracle/verify/rows.ts"

@@ -49,7 +49,7 @@ import {
 	target,
 	targetAs
 } from "#compiler/sql/build.ts"
-import { freshNames, NameSupply, namesPast } from "#compiler/sql/naming.ts"
+import { freshNames, namedQuery, NameSupply, namesPast } from "#compiler/sql/naming.ts"
 
 /** One output column of a statement: its public name and how it is delivered (lower/delivery.ts). */
 interface OutputColumn {
@@ -171,9 +171,11 @@ export const executableQueryFrom = (
 			outputs.map((o) => targetAs(col(alias, o.derived), o.column.name)),
 			[
 				derived(
-					query,
+					namedQuery(
+						query,
+						outputs.map((o) => o.derived)
+					),
 					alias,
-					outputs.map((o) => o.derived),
 					false
 				)
 			],

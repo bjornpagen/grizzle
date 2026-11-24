@@ -5,7 +5,7 @@ import type { DeltaSide } from "#compiler/ir/rel.ts"
 import { columnIn } from "#compiler/lower/conservative/context.ts"
 import type { Cte } from "#compiler/sql/ast.ts"
 import { col, conjunction, cteRef, provedSelect, target } from "#compiler/sql/build.ts"
-import type { NameSupply } from "#compiler/sql/naming.ts"
+import { namedBody, type NameSupply } from "#compiler/sql/naming.ts"
 import {
 	type CarrierColumn,
 	carrierColumns,
@@ -146,13 +146,15 @@ export const deltaCte = (
 	const cte = statement.returning.cte
 	return {
 		name: named.cte,
-		columns: named.heading.map((c) => c.column),
 		materialized: undefined,
-		query: provedSelect(
-			"keyed",
-			named.heading.map((c) => target(col(cte, columnIn(byName, c.name)))),
-			[cteRef(cte)],
-			conjunction(returned.conditions)
+		query: namedBody(
+			provedSelect(
+				"keyed",
+				named.heading.map((c) => target(col(cte, columnIn(byName, c.name)))),
+				[cteRef(cte)],
+				conjunction(returned.conditions)
+			),
+			named.heading.map((c) => c.column)
 		)
 	}
 }
@@ -182,7 +184,6 @@ export const deltaIn = (
  */
 export const carriedFill = (name: string, named: DeltaCteName, carrier: WriteCarrier): Cte => ({
 	name,
-	columns: [],
 	materialized: undefined,
 	query: {
 		kind: "insert",
@@ -220,23 +221,25 @@ export const familyAddedCte = (returning: FamilyReturning, named: DeltaCteName):
 	const fields = returning.result.kind === "insert" ? returning.result.fields : []
 	return {
 		name: named.cte,
-		columns: named.heading.map((c) => c.column),
 		materialized: undefined,
-		query: provedSelect(
-			"keyed",
-			named.heading.map((c) =>
-				target(
-					col(
-						returning.cte,
-						defined(
-							returning.columns[fields.indexOf(c.name)],
-							`the returned column of ${returning.relation}.${c.name}`
-						).alias
+		query: namedBody(
+			provedSelect(
+				"keyed",
+				named.heading.map((c) =>
+					target(
+						col(
+							returning.cte,
+							defined(
+								returning.columns[fields.indexOf(c.name)],
+								`the returned column of ${returning.relation}.${c.name}`
+							).alias
+						)
 					)
-				)
+				),
+				[cteRef(returning.cte)],
+				undefined
 			),
-			[cteRef(returning.cte)],
-			undefined
+			named.heading.map((c) => c.column)
 		)
 	}
 }

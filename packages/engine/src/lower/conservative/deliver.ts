@@ -87,7 +87,12 @@ import {
 	windowOf
 } from "#compiler/sql/build.ts"
 import { emit } from "#compiler/sql/emit.ts"
-import { type NameOrigin, type NameSupply, renameToPublicHeading } from "#compiler/sql/naming.ts"
+import {
+	namedQuery,
+	type NameOrigin,
+	type NameSupply,
+	renameToPublicHeading
+} from "#compiler/sql/naming.ts"
 
 /**
  * A statement's query, its outermost output renamed to `names`, the public heading's, and printed under `supply`'s
@@ -419,19 +424,23 @@ export const checkedAttachment = (
 	}
 	const kept: Cte = {
 		name: rv,
-		columns: [...columns.map((c) => c.kept), count],
 		materialized: "MATERIALIZED",
-		query: simpleSelect(
-			[...columns.map((c) => target(col(inner, c.inner))), target(children)],
-			[
-				derived(
-					query,
-					inner,
-					columns.map((c) => c.inner),
-					false
-				)
-			],
-			undefined
+		query: namedQuery(
+			simpleSelect(
+				[...columns.map((c) => target(col(inner, c.inner))), target(children)],
+				[
+					derived(
+						namedQuery(
+							query,
+							columns.map((c) => c.inner)
+						),
+						inner,
+						false
+					)
+				],
+				undefined
+			),
+			[...columns.map((c) => c.kept), count]
 		)
 	}
 	const many: DeliveredBreach = {

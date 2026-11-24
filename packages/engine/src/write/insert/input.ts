@@ -55,7 +55,7 @@ import {
 	types,
 	unitTargets
 } from "#compiler/sql/build.ts"
-import type { NameSupply } from "#compiler/sql/naming.ts"
+import { namedBody, namedQuery, type NameSupply } from "#compiler/sql/naming.ts"
 import { type WriteCarrier, carrierField, carrierScan } from "#compiler/write/carriers/carriers.ts"
 import type { FieldColumns } from "#compiler/write/defined.ts"
 import {
@@ -114,20 +114,26 @@ export const sameKeyCte = (
 	keys: FieldColumns<string>,
 	inCol: (f: LawField) => Expr
 ): Cte =>
-	cte(r4, keys.columns, {
-		...select({
-			...provedCore(
-				"grouped",
-				pk.map((f) => target(inCol(f))),
-				[cteRef(r1)],
-				undefined
-			),
-			groupBy: pk.map(inCol),
-			having: gt(countStar(), lit.int(1, types.integer))
-		}),
-		orderBy: pk.map((f) => asc(inCol(f))),
-		limit: lit.int(1, types.integer)
-	})
+	cte(
+		r4,
+		namedBody(
+			{
+				...select({
+					...provedCore(
+						"grouped",
+						pk.map((f) => target(inCol(f))),
+						[cteRef(r1)],
+						undefined
+					),
+					groupBy: pk.map(inCol),
+					having: gt(countStar(), lit.int(1, types.integer))
+				}),
+				orderBy: pk.map((f) => asc(inCol(f))),
+				limit: lit.int(1, types.integer)
+			},
+			keys.columns
+		)
+	)
 
 /** The gate the same-key check `r4` puts on a statement's writes: no key two of its input's facts share. */
 export const noSharedKey = (r4: string): Expr =>
@@ -404,9 +410,11 @@ const inputColumns = (
 			const alias = aliasOf(origin)
 			return {
 				from: derived(
-					lowered,
+					namedQuery(
+						lowered,
+						named.map((n) => n.column)
+					),
 					alias,
-					named.map((n) => n.column),
 					false
 				),
 				read: (field) => {
@@ -487,17 +495,19 @@ export const keyGeneratedRead = (
 	const fields = carried.pairs.map((p) => p.field)
 	const value = requestedValue(w, relation, fields, (f) => col(scanned, carried.of(f)))
 	return [
-		cte(scanned, carried.columns, read),
+		cte(scanned, namedBody(read, carried.columns)),
 		cte(
 			into.name,
-			into.columns.columns,
-			select(
-				provedCore(
-					"keyed",
-					into.columns.pairs.map((p) => target(value(p.field))),
-					[cteRef(scanned)],
-					undefined
-				)
+			namedBody(
+				select(
+					provedCore(
+						"keyed",
+						into.columns.pairs.map((p) => target(value(p.field))),
+						[cteRef(scanned)],
+						undefined
+					)
+				),
+				into.columns.columns
 			)
 		)
 	]

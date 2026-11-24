@@ -34,7 +34,13 @@ import {
 } from "#compiler/sql/build.ts"
 import { emitText } from "#compiler/sql/emit.ts"
 import { lexemesOf } from "#compiler/sql/lexer.ts"
-import { type NameMap, NameSupply, type NameSupplyStart, namesPast } from "#compiler/sql/naming.ts"
+import {
+	namedBody,
+	type NameMap,
+	namesPast,
+	NameSupply,
+	type NameSupplyStart
+} from "#compiler/sql/naming.ts"
 import { inPlaceSites, printedOnce } from "#compiler/sql/print-once.ts"
 import { printArmBlock, printCteBlock } from "#compiler/sql/print.ts"
 import { inertVisitor, visitSelect } from "#compiler/sql/transform.ts"
@@ -185,9 +191,8 @@ export const singleStatement = (
 		const shift = shiftedPart(part.query, part.params, params.length)
 		shareCtes.push({
 			name: part.name,
-			columns: part.columns,
 			materialized: "MATERIALIZED",
-			query: shift.query
+			query: namedBody(shift.query, part.columns)
 		})
 		appendAll(params, shift.params)
 		appendAll(nameMap, part.nameMap)
@@ -207,9 +212,8 @@ export const singleStatement = (
 		appendAll(nameMap, out.nameMap)
 		const own: Cte = {
 			name: out.relation,
-			columns: out.columns,
 			materialized: undefined,
-			query: { ...body, with: undefined }
+			query: namedBody({ ...body, with: undefined }, out.columns)
 		}
 		return {
 			name: out.relation,
@@ -232,9 +236,8 @@ export const singleStatement = (
 		appendAll(nameMap, out.nameMap)
 		const own: Cte = {
 			name: out.relation,
-			columns: out.columns,
 			materialized: undefined,
-			query: part.query
+			query: namedBody(part.query, out.columns)
 		}
 		const ctes: NonEmptyReadonlyArray<Cte> = [own]
 		return { name: out.relation, columns: out.columns, ctes }
@@ -498,9 +501,8 @@ export const ridingFamilyStatement = (
 		appendAll(nameMap, out.nameMap)
 		const own: Cte = {
 			name: out.relation,
-			columns: out.columns,
 			materialized: undefined,
-			query: shifted.query
+			query: namedBody(shifted.query, out.columns)
 		}
 		const arm: SetArm = provedCore(
 			"keyed",

@@ -14,6 +14,7 @@ import {
 	numericMinScale
 } from "#compiler/scalar/values/fault.ts"
 import {
+	bodyPositionNames,
 	builtinFunctions,
 	builtinTypeNames,
 	type Call,
@@ -38,25 +39,25 @@ import {
 	type Merge,
 	type MergeWhen,
 	type ObjectName,
-	type OrderItem,
-	type PlStatement,
 	type OperandBody,
 	type OperandSelect,
+	type OrderItem,
+	type PlStatement,
+	selectColumns,
 	type SelectCore,
 	type SqlFunction,
 	type SqlStatement,
 	type StubConstant,
 	type TableConstraint,
+	tableConstraints,
 	type TableName,
 	type Target,
 	type TypeRef,
-	tableConstraints,
 	type Update,
 	functionColumnNames
 } from "#compiler/sql/ast.ts"
 import { types } from "#compiler/sql/build.ts"
 import { type Lexed, lex, type Token } from "#compiler/sql/lexer.ts"
-import { bodyPositionNames } from "#compiler/sql/naming.ts"
 import { placeholderToken, printType, storedSettingValue } from "#compiler/sql/print.ts"
 
 /** r<n>: the generated alias of a relation occurrence or a stage. */
@@ -349,28 +350,6 @@ const bodyWidth = (body: OperandBody): number => {
 }
 
 const selectWidth = (select: OperandSelect): number => bodyWidth(select.body)
-
-/**
- * Whether a query reads the unit relation: one core of no target or of the unit marker alone (`true`), whose rows hold
- * no column a reader names, so a CTE over it lists none.
- */
-export const isUnitRead = (select: OperandSelect): boolean => {
-	const body = select.body
-	if (body.kind !== "core") {
-		return false
-	}
-	if (!Arr.isReadonlyArrayNonEmpty(body.targets)) {
-		return true
-	}
-	const [only, ...rest] = body.targets
-	return (
-		rest.length === 0 &&
-		only.alias === undefined &&
-		only.expr.kind === "literal" &&
-		only.expr.value.kind === "bool" &&
-		only.expr.value.value
-	)
-}
 
 /**
  * The aliases a set operation's later arm writes, position by position (its own first core's); PostgreSQL ignores
@@ -1114,8 +1093,9 @@ class StatementAuditor {
 	}
 
 	/**
-	 * A query CTE lists its columns, matching its width, or none over a unit read (`isUnitRead`): a relation of no
-	 * column, whose columns nothing reads by name.
+	 * A query CTE's columns are its query's output names (sql/ast.ts selectColumns), c<n> names, distinct, none over a
+	 * unit read: a relation of no column, whose columns nothing reads by name. A data-modifying CTE's are its RETURNING
+	 * targets' names.
 	 *
 	 * PostgreSQL refuses a data-modifying CTE in any WITH but the statement's own: in a derived table, a subquery,
 	 * a set operation's arm, a CTE body, an INSERT's source query or the WITH of another data-modifying CTE
@@ -1129,19 +1109,8 @@ class StatementAuditor {
 		topLevel: boolean
 	): void {
 		const body = cte.query
-		const listed = cte.columns
-		if (listed.length > 0) {
-			this.at("columns", () => this.columnList(listed, "CTE", true))
-		}
 		if (body.kind === "select") {
-			if (listed.length === 0 && !isUnitRead(body)) {
-				this.report("columnList", `CTE "${cte.name}" has no column list`)
-			} else if (listed.length > 0 && listed.length !== selectWidth(body)) {
-				this.report(
-					"columnList",
-					`CTE "${cte.name}" lists ${listed.length} columns for ${selectWidth(body)}`
-				)
-			}
+			this.at("columns", () => this.columnList(selectColumns(body), "CTE", true))
 			this.at("query", () => {
 				this.select(body, { scope, ctes, plVars, outermost: false, topLevel: false })
 			})
@@ -1153,17 +1122,11 @@ class StatementAuditor {
 				`data-modifying CTE "${cte.name}" in a WITH that is not the statement's own`
 			)
 		}
-		/** A data-modifying CTE is named by its RETURNING aliases unless it lists columns; one with no RETURNING, a write
-		 * no part of its statement reads (a carried delta's fill, write/readback/deltas.ts carriedFill), lists none. */
+		/** A data-modifying CTE's columns are its RETURNING targets' names, each its alias; one with no RETURNING, a write
+		 * no part of its statement reads (a carried delta's fill, write/readback/deltas.ts carriedFill), has none. */
 		const returning = body.returning
-		if (listed.length === 0 && Arr.some(returning, (target) => target.alias === undefined)) {
+		if (Arr.some(returning, (target) => target.alias === undefined)) {
 			this.report("columnList", `data-modifying CTE "${cte.name}" has an unnamed RETURNING column`)
-		}
-		if (listed.length > 0 && listed.length !== returning.length) {
-			this.report(
-				"columnList",
-				`CTE "${cte.name}" lists ${listed.length} columns for ${returning.length}`
-			)
 		}
 		this.at("query", () => {
 			this.dml(body, ctes, false, plVars)
@@ -1501,14 +1464,8 @@ class StatementAuditor {
 				return register(item.alias, { columns: undefined })
 			case "derived": {
 				const columns = this.at("columns", () =>
-					this.columnList(item.columns, "derived table", true)
+					this.columnList(selectColumns(item.query), "derived table", true)
 				)
-				if (item.columns.length !== selectWidth(item.query)) {
-					this.report(
-						"columnList",
-						`derived table "${item.alias}" lists ${item.columns.length} columns for ${selectWidth(item.query)}`
-					)
-				}
 				this.at("query", () => {
 					this.select(item.query, {
 						scope: item.lateral ? scope : outer,
@@ -3197,9 +3154,6 @@ const outputNames = (names: ReadonlyArray<string | undefined>): ReadonlySet<stri
  * aliases; undefined where an output has no name, which no reference is then checked against.
  */
 const cteColumns = (cte: Cte): ReadonlySet<string> | undefined => {
-	if (cte.columns.length > 0) {
-		return new Set(cte.columns)
-	}
 	if (cte.query.kind === "select") {
 		return outputNames(bodyPositionNames(cte.query.body))
 	}

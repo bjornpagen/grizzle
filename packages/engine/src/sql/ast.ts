@@ -1,3 +1,4 @@
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { nominal } from "#compiler/core/brand.ts"
 import type { FloatSpecialName } from "#compiler/core/canonical.ts"
@@ -889,11 +890,13 @@ export type FromSource =
 	| { readonly kind: "enclosing"; readonly name: string; readonly alias: string }
 	| {
 			readonly kind: "derived"
-			/** A query whose rows may repeat only under a core that is an operand or deduplicates (OperandCore). */
+			/**
+			 * A query whose rows may repeat only under a core that is an operand or deduplicates (OperandCore). Its
+			 * output names are the table's columns (selectColumns), each target its own, a set operation's
+			 * its left arm's: the one place they are stated, which the printer lists after the alias.
+			 */
 			readonly query: OperandSelect
 			readonly alias: string
-			/** The column alias list; an empty one is none, as PostgreSQL spells a relation of no column. */
-			readonly columns: ReadonlyArray<string>
 			readonly lateral: boolean
 	  }
 	| {
@@ -1122,6 +1125,71 @@ export type SelectBody = SetCore | SetSetOperation | Select
 export type OperandBody = SelectCore | SetOperation | OperandSelect
 
 /**
+ * The column names a query body's output carries, position by position, as PostgreSQL derives them: a target's alias,
+ * or for an unaliased column reference the column's own name; undefined for any other unaliased target. A set
+ * operation's names are its left arm's, as PostgreSQL takes them. The kernel's audit holds a set operation's ORDER BY
+ * and its arms' names to these, so the rename below reads the same names.
+ */
+export const bodyPositionNames = (body: OperandBody): ReadonlyArray<string | undefined> => {
+	switch (body.kind) {
+		case "core":
+			return body.targets.map(
+				(target) => target.alias ?? (target.expr.kind === "column" ? target.expr.column : undefined)
+			)
+		case "setOp":
+			return bodyPositionNames(body.arms[0])
+		case "select":
+			return bodyPositionNames(body.body)
+	}
+}
+
+/**
+ * The columns of a derived table or a query CTE over `select`: its output names (bodyPositionNames), which are the one
+ * place they are stated. A query a table or a CTE holds names every output, by its target's alias or a column's own
+ * name (namedQuery), so an unnamed output is a defect.
+ */
+export const selectColumns = (select: OperandSelect): ReadonlyArray<string> =>
+	isUnitRead(select) ? [] : bodyPositionNames(select.body).map((name) => name ?? unnamed())
+
+/**
+ * Whether a query reads the unit relation: one core of no target or of the unit marker alone (`true`, build.ts
+ * unitTargets), whose rows hold no column a reader names, so a table or a CTE over it has no column.
+ */
+const isUnitRead = (select: OperandSelect): boolean => {
+	const body = select.body
+	if (body.kind !== "core") {
+		return false
+	}
+	const targets: ReadonlyArray<Target> = body.targets
+	const [only, ...rest] = targets
+	return (
+		only === undefined ||
+		(rest.length === 0 &&
+			only.alias === undefined &&
+			only.expr.kind === "literal" &&
+			only.expr.value.kind === "bool" &&
+			only.expr.value.value)
+	)
+}
+
+/**
+ * The columns of a CTE: its query's (selectColumns), or a data-modifying statement's RETURNING targets', each by its
+ * alias or its column's own name.
+ */
+export const cteColumns = (cte: Cte): ReadonlyArray<string> => {
+	const body = cte.query
+	return body.kind === "select"
+		? selectColumns(body)
+		: body.returning.map(
+				(t) => t.alias ?? (t.expr.kind === "column" ? t.expr.column : undefined) ?? unnamed()
+			)
+}
+
+const unnamed = (): never => {
+	throw defect("a derived table's or a CTE's query naming every output it delivers")
+}
+
+/**
  * Whether a body's rows are a set: a set core, a set operation but a UNION ALL that stands as an operand, or a query of
  * a set body. A traversal that rebuilt a set query reads it back as one through this check.
  */
@@ -1142,13 +1210,13 @@ export const isSetQuery = (query: OperandSelect): query is Select => isSetBody(q
 /** A query CTE's rows may repeat only where every reader of it is an operand or deduplicates, as a derived table's. */
 export type CteBody = OperandSelect | Insert | Update | Delete | Merge
 
+/**
+ * A WITH entry: its columns are its body's output names (cteColumns), a query's targets' or its left
+ * arm's, a data-modifying statement's RETURNING targets': the one place they are stated, which the printer lists after
+ * a query CTE's name.
+ */
 export interface Cte {
 	readonly name: string
-	/**
-	 * A query CTE lists its columns, none for a relation of no column. A data-modifying CTE is named by its RETURNING
-	 * aliases instead, unless it lists columns. An empty list is none, as PostgreSQL spells it by leaving it out.
-	 */
-	readonly columns: ReadonlyArray<string>
 	/** Undefined leaves the choice to PostgreSQL. */
 	readonly materialized: "MATERIALIZED" | "NOT MATERIALIZED" | undefined
 	readonly query: CteBody

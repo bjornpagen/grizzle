@@ -86,7 +86,13 @@ import {
 	ownRole,
 	rostersOf
 } from "#compiler/schema/own.ts"
-import type { Cte, OperandSelect, Select, SqlStatement } from "#compiler/sql/ast.ts"
+import {
+	type Cte,
+	cteColumns,
+	type OperandSelect,
+	type Select,
+	type SqlStatement
+} from "#compiler/sql/ast.ts"
 import { col, cteRef, provedCore, select, target } from "#compiler/sql/build.ts"
 import { printCommands } from "#compiler/sql/print.ts"
 import { inertVisitor, visitSelect } from "#compiler/sql/transform.ts"
@@ -878,7 +884,7 @@ export const partSelects = (program: ProgramStatement): ReadonlyArray<Select> =>
 			...select(
 				provedCore(
 					"keyed",
-					Arr.map(cte.columns, (c) => target(col(cte.name, c))),
+					Arr.map(cteColumns(cte), (c) => target(col(cte.name, c))),
 					[cteRef(cte.name)],
 					undefined
 				)
@@ -957,7 +963,7 @@ export const partStatement = (program: ProgramStatement, tag: number): Select =>
 		...select(
 			provedCore(
 				"keyed",
-				Arr.map(cte.columns, (c) => target(col(cte.name, c))),
+				Arr.map(cteColumns(cte), (c) => target(col(cte.name, c))),
 				[cteRef(cte.name)],
 				undefined
 			)

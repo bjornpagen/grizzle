@@ -21,7 +21,13 @@ import {
 	withScope
 } from "#compiler/lower/conservative/refined.ts"
 import { judgesLaw } from "#compiler/lower/conservative/types.ts"
-import type { Expr, Select, Target, TypeRef } from "#compiler/sql/ast.ts"
+import {
+	type Expr,
+	selectColumns,
+	type Select,
+	type Target,
+	type TypeRef
+} from "#compiler/sql/ast.ts"
 import {
 	cast,
 	col,
@@ -87,7 +93,7 @@ const refineFused = (cx: LowerContext, tracer: Tracer, t: Target, outer: Scope):
 				if (e.table !== rows.alias) {
 					return e
 				}
-				const column = child[rows.columns.indexOf(e.column)]
+				const column = child[selectColumns(rows.query).indexOf(e.column)]
 				if (column === undefined || !isRefined(column.type)) {
 					return e
 				}

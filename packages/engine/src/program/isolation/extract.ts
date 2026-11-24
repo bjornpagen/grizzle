@@ -28,30 +28,31 @@ import type { Isolation } from "#compiler/core/isolation.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { temporarySchema } from "#compiler/core/temporary.ts"
 import { overRowsOf } from "#compiler/lower/conservative/expr/lateral.ts"
-import type {
-	Assignment,
-	CteBody,
-	Delete,
-	Expr,
-	FromItem,
-	FromSource,
-	FunctionCall,
-	Insert,
-	JoinStep,
-	Merge,
-	MergeWhen,
-	ObjectName,
-	OperandBody,
-	OperandSelect,
-	OrderItem,
-	ProbeColumn,
-	QualifiedFunctionRef,
-	SetOperation,
-	SqlStatement,
-	TableName,
-	Update,
-	WindowSpec,
-	With
+import {
+	type Assignment,
+	type CteBody,
+	type Delete,
+	type Expr,
+	type FromItem,
+	type FromSource,
+	type FunctionCall,
+	type Insert,
+	type JoinStep,
+	type Merge,
+	type MergeWhen,
+	type ObjectName,
+	type OperandBody,
+	type OperandSelect,
+	type OrderItem,
+	type ProbeColumn,
+	type QualifiedFunctionRef,
+	selectColumns,
+	type SetOperation,
+	type SqlStatement,
+	type TableName,
+	type Update,
+	type WindowSpec,
+	type With
 } from "#compiler/sql/ast.ts"
 import { col, derived, eq, simpleSelect, targetAs } from "#compiler/sql/build.ts"
 import { readerCarrier } from "#compiler/sql/naming.ts"
@@ -588,10 +589,7 @@ const projectionOf = (source: FromSource): Projection | undefined => {
 	if (under === undefined) {
 		return undefined
 	}
-	const names = source.columns.length > 0 ? source.columns : body.targets.map((t) => t.alias)
-	if (names.length !== body.targets.length) {
-		return undefined
-	}
+	const names = selectColumns(source.query)
 	const columns = new Map<string, string>()
 	for (const [i, t] of body.targets.entries()) {
 		const name = names[i]
@@ -638,7 +636,7 @@ const pushedInto = (
 	if (!rowPreserving(source.query) || body.kind !== "core") {
 		return []
 	}
-	const names = source.columns.length > 0 ? source.columns : body.targets.map((t) => t.alias)
+	const names = selectColumns(source.query)
 	const lineage = (e: Expr): Expr | undefined => {
 		if (e.kind !== "column" || e.table !== source.alias) {
 			return undefined
@@ -995,7 +993,7 @@ const definedOf = (
 	| { readonly query: OperandSelect; readonly columns: ReadonlyArray<string>; readonly ctes: Ctes }
 	| undefined => {
 	if (source.kind === "derived") {
-		return { query: source.query, columns: source.columns, ctes }
+		return { query: source.query, columns: selectColumns(source.query), ctes }
 	}
 	if (source.kind !== "cte" && source.kind !== "enclosing") {
 		return undefined
@@ -1198,7 +1196,7 @@ export class Walk<Top extends Arrival> {
 					? {
 							kind: "query",
 							query: cte.query,
-							columns: cte.columns,
+							columns: selectColumns(cte.query),
 							scope: c.scope,
 							ctes,
 							reader: c.reader
@@ -1719,16 +1717,10 @@ export class Walk<Top extends Arrival> {
 		const columns = renamed === undefined ? definition.columns : [...renamed.keys()]
 		const query = simpleSelect(
 			columns.map((c) => targetAs(col(viewRow, renamed?.get(c) ?? c), c)),
-			[derived(definition.query, viewRow, definition.columns, false)],
+			[derived(definition.query, viewRow, false)],
 			undefined
 		)
-		const source: DerivedSource = {
-			kind: "derived",
-			query,
-			alias: found.alias,
-			columns,
-			lateral: false
-		}
+		const source: DerivedSource = { kind: "derived", query, alias: found.alias, lateral: false }
 		return this.#query(
 			query,
 			ownedAt({ ...found.context, probe: false }, new Map()),

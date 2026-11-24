@@ -1339,7 +1339,7 @@ const stackedOf = (
 	return operandSelect(
 		core(
 			Arr.map(COLUMNS, (c) => targetAs(col(middle, ROTATED[c]), c)),
-			[derived(projectionOf(rel, `${alias}t`, "plain"), middle, COLUMNS, false)],
+			[derived(projectionOf(rel, `${alias}t`, "plain"), middle, false)],
 			first === undefined ? undefined : and([first, ...rest])
 		)
 	)
@@ -1405,9 +1405,9 @@ const fromSource = (
 					return { kind: "table", table: TABLES[p.rel], alias: p.alias }
 				case "plain":
 				case "limited":
-					return derived(projectionOf(p.rel, `${p.alias}t`, p.form), p.alias, COLUMNS, false)
+					return derived(projectionOf(p.rel, `${p.alias}t`, p.form), p.alias, false)
 				case "stacked":
-					return derived(stackedOf(p.rel, p.alias, p.inner), p.alias, COLUMNS, false)
+					return derived(stackedOf(p.rel, p.alias, p.inner), p.alias, false)
 			}
 		case "carrier":
 			return { kind: "table", table: unitCarrierName(p.carrier), alias: p.alias }
@@ -1416,7 +1416,7 @@ const fromSource = (
 		case "held":
 			return cteRefAs(p.name, p.alias)
 		case "derived":
-			return derived(buildOperand(p.query, `${p.alias}q`, scope, env), p.alias, [OWN_COLUMN], false)
+			return derived(buildOperand(p.query, `${p.alias}q`, scope, env), p.alias, false)
 		case "plain":
 			switch (p.own) {
 				case "arrays":
@@ -1833,7 +1833,7 @@ const buildDml = (
 				with: outer,
 				table: TABLES[d.rel],
 				alias: "t",
-				using: derived(buildOperand(d.using, `${path}m`, [], env), `${path}m`, [OWN_COLUMN], false),
+				using: derived(buildOperand(d.using, `${path}m`, [], env), `${path}m`, false),
 				on: eq(col("t", "c_id"), col(`${path}m`, OWN_COLUMN)),
 				whens: Arr.map(d.whens, mergeWhen),
 				returning: []
@@ -1930,7 +1930,6 @@ export const buildStatement = (s: StatementSpec): SqlStatement => {
 						return [
 							{
 								name,
-								columns: [],
 								materialized: undefined,
 								query: buildOperand(c.query, `${name}q`, [], [])
 							}
@@ -1939,7 +1938,6 @@ export const buildStatement = (s: StatementSpec): SqlStatement => {
 						return [
 							{
 								name,
-								columns: [],
 								materialized: undefined,
 								query: buildDml(c.dml, name, undefined, [], env)
 							}
@@ -1950,7 +1948,6 @@ export const buildStatement = (s: StatementSpec): SqlStatement => {
 							? [
 									{
 										name,
-										columns: [OWN_COLUMN],
 										materialized: "MATERIALIZED",
 										query: operandSelect(
 											core(

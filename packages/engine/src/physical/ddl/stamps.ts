@@ -297,7 +297,7 @@ const stampFunction = (
 						),
 						with: {
 							recursive: false,
-							ctes: [{ name: stamped, columns: [], materialized: undefined, query: advance }]
+							ctes: [{ name: stamped, materialized: undefined, query: advance }]
 						}
 					}
 				}

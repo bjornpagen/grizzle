@@ -10,8 +10,8 @@ import {
 	type SelectCore,
 	type Target
 } from "#compiler/sql/ast.ts"
-import { col } from "#compiler/sql/build.ts"
-import type { NameOrigin, NameSupply } from "#compiler/sql/naming.ts"
+import { col, derived } from "#compiler/sql/build.ts"
+import { namedQuery, type NameOrigin, type NameSupply } from "#compiler/sql/naming.ts"
 import { identityHooks, transformExpr, transformSelect } from "#compiler/sql/transform.ts"
 
 /** What a call over many rows is: an aggregate's, count(*) among them, or a window call. */
@@ -89,7 +89,7 @@ class CoreBinder {
 		}
 		const alias = this.#supply.relation(bindingOrigin)
 		const column = this.#supply.column(bindingOrigin)
-		this.laterals.push({ kind: "derived", query, alias, columns: [column], lateral: true })
+		this.laterals.push(derived(namedQuery(query, [column]), alias, true))
 		const read = col(alias, column)
 		this.#bound.set(original, read)
 		return read

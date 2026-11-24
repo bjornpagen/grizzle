@@ -539,23 +539,20 @@ export const cteRef = (name: string): FromSource => ({ kind: "cte", name, alias:
 /** A CTE under a fresh alias. */
 export const cteRefAs = (name: string, alias: string): FromSource => ({ kind: "cte", name, alias })
 
-/** A derived table, (SELECT ...) AS "alias"(columns), LATERAL or not. */
-export const derived = (
-	query: OperandSelect,
-	alias: string,
-	columns: ReadonlyArray<string>,
-	lateral: boolean
-): FromSource => ({
+/**
+ * A derived table, (SELECT ...) AS "alias"(columns), LATERAL or not: its columns are `query`'s output names
+ * (sql/ast.ts selectColumns; sql/naming.ts namedQuery), stated there alone.
+ */
+export const derived = (query: OperandSelect, alias: string, lateral: boolean): FromSource => ({
 	kind: "derived",
 	query,
 	alias,
-	columns,
 	lateral
 })
 
 /** The unit relation's one row under `alias`: `(SELECT) AS alias`, one row of no column, which VALUES cannot spell. */
 export const unitRow = (alias: string): FromSource =>
-	derived(select(provedCore("oneRow", [], [], undefined)), alias, [], false)
+	derived(select(provedCore("oneRow", [], [], undefined)), alias, false)
 
 /** `first JOIN source ON on`: a join chain of one step. */
 export const join = (first: FromSource, source: FromSource, on: Expr): FromItem => ({
@@ -673,12 +670,11 @@ export const distinctOnCore = (
 export const unitTargets: NonEmptyReadonlyArray<Target> = [target(lit.bool(true))]
 
 /**
- * A CTE of its name, its column list (empty for a data-modifying CTE named by its RETURNING aliases) and its body,
- * materialized as PostgreSQL chooses.
+ * A CTE of its name and its body, materialized as PostgreSQL chooses: its columns are its body's output names
+ * (sql/ast.ts cteColumns; sql/naming.ts namedBody), stated there alone.
  */
-export const cte = (name: string, columns: ReadonlyArray<string>, query: CteBody): Cte => ({
+export const cte = (name: string, query: CteBody): Cte => ({
 	name,
-	columns,
 	materialized: undefined,
 	query
 })

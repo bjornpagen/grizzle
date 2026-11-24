@@ -24,6 +24,7 @@ import {
 	call,
 	cast,
 	col,
+	derived,
 	eq,
 	exactNumericOfDouble,
 	ge,
@@ -41,6 +42,7 @@ import {
 	target,
 	types
 } from "#compiler/sql/build.ts"
+import { namedQuery } from "#compiler/sql/naming.ts"
 
 /**
  * The SQL rendering of the two Totalities whose computation is not the native overload's (scalar/compute/registry.ts):
@@ -381,15 +383,7 @@ const bindOperands = <F extends Expr | undefined>(
 			provedCore(
 				"oneRow",
 				[target(body)],
-				[
-					{
-						kind: "derived",
-						query: operandRow(sqlArgs),
-						alias: operandsAlias,
-						columns: names,
-						lateral: false
-					}
-				],
+				[derived(namedQuery(operandRow(sqlArgs), names), operandsAlias, false)],
 				undefined
 			)
 		)

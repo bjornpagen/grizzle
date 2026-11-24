@@ -54,7 +54,7 @@ import {
 	unionAll,
 	windowOf
 } from "#compiler/sql/build.ts"
-import type { NameSupply } from "#compiler/sql/naming.ts"
+import { namedBody, namedQuery, type NameSupply } from "#compiler/sql/naming.ts"
 import { type FieldColumns, fieldColumns } from "#compiler/write/defined.ts"
 import { requestedValue, rowType, type WriteContext } from "#compiler/write/insert/statement.ts"
 import { atObject, atRow, storedAt, withinRow } from "#compiler/write/probe.ts"
@@ -479,13 +479,15 @@ const pairedFacts = (
 	const factTargets = mapNonEmpty(fields, (f) => target(col(input, inputs.of(f))))
 	const guards = conjunction(withinRow(w.cx, check, read.at))
 	const distinctFacts = derived(
-		select(
-			spec.facts === "set"
-				? provedCore("keyed", factTargets, [cteRef(input)], guards)
-				: distinctCore(factTargets, [cteRef(input)], guards)
+		namedQuery(
+			select(
+				spec.facts === "set"
+					? provedCore("keyed", factTargets, [cteRef(input)], guards)
+					: distinctCore(factTargets, [cteRef(input)], guards)
+			),
+			distinctColumns.columns
 		),
 		distinct,
-		distinctColumns.columns,
 		false
 	)
 	const unique = factsAt(distinct, distinctColumns)
@@ -496,19 +498,21 @@ const pairedFacts = (
 		return {
 			from: [
 				derived(
-					select(
-						provedCore(
-							"keyed",
-							[
-								...unique.carried,
-								target({ ...countStar(), over: windowOf(check.equal.map(unique.at), []) })
-							],
-							[distinctFacts],
-							undefined
-						)
+					namedQuery(
+						select(
+							provedCore(
+								"keyed",
+								[
+									...unique.carried,
+									target({ ...countStar(), over: windowOf(check.equal.map(unique.at), []) })
+								],
+								[distinctFacts],
+								undefined
+							)
+						),
+						[...countedColumns.columns, facts]
 					),
 					counted,
-					[...countedColumns.columns, facts],
 					false
 				)
 			],
@@ -533,50 +537,54 @@ const pairedFacts = (
 	return {
 		from: [
 			derived(
-				select(
-					provedCore(
-						"keyed",
-						[
-							...reaching.carried,
-							target({
-								...call("lag", [col(reached, reach), one, lower(reaching.at(check.span))]),
-								over: byStart(reaching.at)
-							}),
-							target({
-								...call("lead", [
-									lower(reaching.at(check.span)),
-									one,
-									upper(reaching.at(check.span))
-								]),
-								over: byStart(reaching.at)
-							})
-						],
-						[
-							derived(
-								select(
-									provedCore(
-										"keyed",
-										[
-											...unique.carried,
-											target({
-												...call("max", [upper(unique.at(check.span))]),
-												over: byStart(unique.at)
-											})
-										],
-										[distinctFacts],
-										undefined
-									)
-								),
-								reached,
-								[...reachedColumns.columns, reach],
-								false
-							)
-						],
-						undefined
-					)
+				namedQuery(
+					select(
+						provedCore(
+							"keyed",
+							[
+								...reaching.carried,
+								target({
+									...call("lag", [col(reached, reach), one, lower(reaching.at(check.span))]),
+									over: byStart(reaching.at)
+								}),
+								target({
+									...call("lead", [
+										lower(reaching.at(check.span)),
+										one,
+										upper(reaching.at(check.span))
+									]),
+									over: byStart(reaching.at)
+								})
+							],
+							[
+								derived(
+									namedQuery(
+										select(
+											provedCore(
+												"keyed",
+												[
+													...unique.carried,
+													target({
+														...call("max", [upper(unique.at(check.span))]),
+														over: byStart(unique.at)
+													})
+												],
+												[distinctFacts],
+												undefined
+											)
+										),
+										[...reachedColumns.columns, reach]
+									),
+									reached,
+									false
+								)
+							],
+							undefined
+						)
+					),
+					[...neighbouredColumns.columns, before, after]
 				),
 				neighboured,
-				[...neighbouredColumns.columns, before, after],
 				false
 			)
 		],
@@ -773,8 +781,11 @@ export const buildProbe = (
 		ctes.push(
 			cte(
 				all,
-				[...probed.columns, probedOrdinal, ...(probedRank === undefined ? [] : [probedRank])],
-				select(unionAll("disjoint", [arm(first), ...rest.map(arm)]))
+				namedBody(select(unionAll("disjoint", [arm(first), ...rest.map(arm)])), [
+					...probed.columns,
+					probedOrdinal,
+					...(probedRank === undefined ? [] : [probedRank])
+				])
 			)
 		)
 		query = {
@@ -791,7 +802,7 @@ export const buildProbe = (
 			limit: lit.int(1, types.integer)
 		}
 	}
-	ctes.push(cte(refusal, [...refused.columns, ordinalCol], query))
+	ctes.push(cte(refusal, namedBody(query, [...refused.columns, ordinalCol])))
 	const refusalCol = (f: LawField): Expr => col(refusal, refused.of(f))
 	return {
 		ctes,

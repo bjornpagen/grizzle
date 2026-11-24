@@ -10,17 +10,18 @@ import {
 	type Expr,
 	type FromItem,
 	type FromSource,
+	nameKey,
 	type OperandBody,
 	type OperandSelect,
+	selectColumns,
 	type Select,
 	type SelectCore,
 	type SetOperand,
+	storedColumnKey,
+	type StoredColumnKey,
 	type Target,
 	type TypeRef,
-	type With,
-	nameKey,
-	storedColumnKey,
-	type StoredColumnKey
+	type With
 } from "#compiler/sql/ast.ts"
 import { cast, mapTargets, sameTypeRef, setBodyOf, withArms } from "#compiler/sql/build.ts"
 
@@ -303,7 +304,7 @@ export class Tracer {
 			case "metRows":
 				return ["unproved"]
 			case "derived": {
-				const position = item.columns.indexOf(column)
+				const position = selectColumns(item.query).indexOf(column)
 				return position < 0 ? ["unproved"] : this.select(item.query, position, scope, claim)
 			}
 			case "values": {
@@ -370,12 +371,12 @@ export class Tracer {
 		return ["unproved"]
 	}
 
-	/** A CTE without a column list names its columns by its body, which the lowering never emits: unproved. */
+	/** A data-modifying CTE's columns are its RETURNING targets', which the lowering never reads a claim from: unproved. */
 	cteBody(cte: Cte, column: string, scope: Scope, claim: Claim): ReadonlyArray<Verdict> {
-		if (cte.query.kind !== "select" || cte.columns.length === 0) {
+		if (cte.query.kind !== "select") {
 			return ["unproved"]
 		}
-		const position = cte.columns.indexOf(column)
+		const position = selectColumns(cte.query).indexOf(column)
 		return position < 0 ? ["unproved"] : this.select(cte.query, position, scope, claim)
 	}
 }

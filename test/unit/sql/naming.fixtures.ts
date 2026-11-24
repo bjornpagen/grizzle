@@ -3,9 +3,15 @@
 import { assert } from "@bjornpagen/testing/assert"
 import { type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
-import type { Expr, Select, SelectCore, SetOperand, SqlStatement } from "#compiler/sql/ast.ts"
+import {
+	bodyPositionNames,
+	type Expr,
+	type Select,
+	type SelectCore,
+	type SetOperand,
+	type SqlStatement
+} from "#compiler/sql/ast.ts"
 import { mapTargets, setBodyOf, target, withArms } from "#compiler/sql/build.ts"
-import { bodyPositionNames } from "#compiler/sql/naming.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { columnSetOperationGen, statementGen } from "#test/support/kernel/sqlgen.ts"
 import { auditStatementViolations, auditTextViolations } from "#test/support/oracle/verify/sql.ts"

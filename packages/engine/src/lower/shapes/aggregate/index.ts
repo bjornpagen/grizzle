@@ -44,6 +44,7 @@ import {
 	target,
 	types
 } from "#compiler/sql/build.ts"
+import { namedQuery } from "#compiler/sql/naming.ts"
 
 /**
  * The shape an aggregate lowers as: R24's conditional count, sum(cond(p, 1, 0)) as count(*) FILTER (WHERE p), or its
@@ -198,7 +199,11 @@ export const keyedGroup = (
 		const named = cx.freshColumns(node.bound.columns, origin)
 		const presentColumn = cx.supply.column(origin)
 		const alias = cx.relationAlias(origin)
-		from = derived(contributions, alias, [...named.map((n) => n.column), presentColumn], false)
+		from = derived(
+			namedQuery(contributions, [...named.map((n) => n.column), presentColumn]),
+			alias,
+			false
+		)
 		bound = namedMap(alias, named)
 		present = col(alias, presentColumn)
 	}

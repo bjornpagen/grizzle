@@ -177,7 +177,6 @@ const tableOf = (
 			)
 		),
 		relation.alias,
-		columns.map(([name]) => relation.column(name)),
 		lateral
 	),
 	read: relation.read
@@ -921,7 +920,6 @@ const decodedPathDefinition = (): LibraryBody => {
 			groupBy: [d("one")]
 		}),
 		wholeNames.alias,
-		wholeNames.columns,
 		false
 	)
 	const segment = relationOf(names, "written segments", ["g"])
@@ -1390,7 +1388,6 @@ const xsdPatternDefinition = (): LibraryBody => {
 	const characters: Cte = {
 		...cte(
 			charactersNames.alias,
-			charactersNames.columns,
 			operandSelect({
 				...core(
 					[
@@ -1547,11 +1544,7 @@ const xsdPatternDefinition = (): LibraryBody => {
 		],
 		and([le(r("i"), charactersNames.read("n")), ne(r("s"), state("refused"))])
 	)
-	const read = cte(
-		readNames.alias,
-		readNames.columns,
-		operandSelect(operandUnionAll([start, following]))
-	)
+	const read = cte(readNames.alias, operandSelect(operandUnionAll([start, following])))
 	const last: OperandSelect = {
 		...operandSelect(
 			core(

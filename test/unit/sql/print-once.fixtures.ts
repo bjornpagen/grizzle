@@ -24,7 +24,8 @@ import {
 	qualifiedCall,
 	select,
 	table,
-	target
+	target,
+	targetAs
 } from "#compiler/sql/build.ts"
 
 /** A CTE's kind: what decides, beside its references, whether PostgreSQL would inline it. */
@@ -103,14 +104,13 @@ const built = (
 			own?.kind === "volatile"
 				? qualifiedCall(random, [])
 				: col(at, i > 0 && previous?.readByNext === true ? columnOf(i - 1) : "a")
-		return operandSelect(core([target(value)], [from], undefined))
+		return operandSelect(core([targetAs(value, columnOf(i))], [from], undefined))
 	}
 	const ctes: Array<Cte> = []
 	Arr.forEach(shape.ctes, (c, i) => {
 		if (keep(i)) {
 			ctes.push({
 				name: nameOf(i),
-				columns: [columnOf(i)],
 				materialized:
 					c.kind === "materialized"
 						? "MATERIALIZED"
@@ -153,9 +153,7 @@ export const printedByHand = (shape: StatementShape): Select =>
 	built(
 		shape,
 		(i, alias, query) =>
-			inPlace(shape, i)
-				? derived(query(i), alias, [columnOf(i)], false)
-				: cteRefAs(nameOf(i), alias),
+			inPlace(shape, i) ? derived(query(i), alias, false) : cteRefAs(nameOf(i), alias),
 		(i) => !inPlace(shape, i)
 	)
 

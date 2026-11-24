@@ -34,7 +34,16 @@ import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
 import { columnType } from "#compiler/runtime/lower/columns.ts"
 import { nativeOp } from "#compiler/scalar/compute/registry.ts"
 import type { Expr, FromSource, Target } from "#compiler/sql/ast.ts"
-import { col, conjunction, derived, select, target, unitTargets } from "#compiler/sql/build.ts"
+import {
+	col,
+	conjunction,
+	derived,
+	select,
+	target,
+	targetAs,
+	unitTargets
+} from "#compiler/sql/build.ts"
+import { namedQuery } from "#compiler/sql/naming.ts"
 
 type Region = NodeOf<"MatchRegion">
 
@@ -142,18 +151,18 @@ const withLawColumns = (
 		key: k,
 		column: cx.supply.column({ kind: "node", node: o.source.id })
 	}))
-	const lawTargets = mapNonEmpty(added, (a) => target(col(table.alias, a.key.column)))
+	const lawTargets = mapNonEmpty(added, (a) => targetAs(col(table.alias, a.key.column), a.column))
 	const body =
 		scan.distinct === false
 			? { ...scan, targets: [...scan.targets, ...lawTargets] }
 			: { ...scan, targets: extendNonEmpty(scan.targets, lawTargets) }
-	const widened = {
-		...item,
-		query: { ...item.query, body },
-		columns: [...item.columns, ...added.map((a) => a.column)]
-	}
+	const widened = derived({ ...item.query, body }, item.alias, item.lateral)
 	return {
-		source: { ...source, item: widened, columns: widened.columns },
+		source: {
+			...source,
+			item: widened,
+			columns: [...source.columns, ...added.map((a) => a.column)]
+		},
 		probed: new Map(added.map((a) => [a.key.field, col(source.alias, a.column)] as const))
 	}
 }
@@ -538,7 +547,7 @@ const placeEvaluation = (
 	if (first === undefined) {
 		throw defect("a call's row, of at least one field")
 	}
-	items.push(derived(query, alias, [first, ...rest], true))
+	items.push(derived(namedQuery(query, [first, ...rest]), alias, true))
 	return mapNonEmpty([first, ...rest], (c) => col(alias, c))
 }
 

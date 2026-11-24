@@ -58,8 +58,15 @@ import { closedId, contract, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import type { BinaryOperator, Expr, FromSource, Select, SqlStatement } from "#compiler/sql/ast.ts"
-import { functionColumnNames } from "#compiler/sql/ast.ts"
+import {
+	type BinaryOperator,
+	type Expr,
+	type FromSource,
+	functionColumnNames,
+	selectColumns,
+	type Select,
+	type SqlStatement
+} from "#compiler/sql/ast.ts"
 import { printType } from "#compiler/sql/print.ts"
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
 import type { SqlError } from "#test/support/pg.ts"
@@ -245,6 +252,7 @@ const definedBy = (
 		case "cte":
 			return { aliases: item.alias === undefined ? [] : [item.alias], columns: [] }
 		case "derived":
+			return { aliases: [item.alias], columns: selectColumns(item.query) }
 		case "values":
 			return { aliases: [item.alias], columns: item.columns }
 		case "function":
@@ -354,7 +362,8 @@ const storedColumnOf = (statement: SqlStatement): ((e: Expr) => Resolved) => {
 				: { kind: "stored", table: item.table.name, column: c.column }
 		}
 		const body = item.query.body
-		const target = body.kind === "core" ? body.targets[item.columns.indexOf(c.column)] : undefined
+		const target =
+			body.kind === "core" ? body.targets[selectColumns(item.query).indexOf(c.column)] : undefined
 		return target === undefined ? { kind: "none" } : resolve(target.expr)
 	}
 	return resolve

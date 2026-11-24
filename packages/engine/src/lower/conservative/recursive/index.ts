@@ -14,6 +14,7 @@ import {
 } from "#compiler/lower/conservative/context.ts"
 import type { Select, SelectCore } from "#compiler/sql/ast.ts"
 import { cast, core, cteRefAs, provedSelect, select, target } from "#compiler/sql/build.ts"
+import { namedQuery } from "#compiler/sql/naming.ts"
 
 /**
  * What a node does to the feedback flowing through some of its inputs, when it is not monotone and distributive over
@@ -196,7 +197,14 @@ const lowerRecursive: NodeLowerer<"Recursive"> = (node, cx, env) => {
 		with: {
 			recursive: true,
 			ctes: [
-				{ name: cte, columns: named.map((n) => n.column), query: body, materialized: undefined }
+				{
+					name: cte,
+					query: namedQuery(
+						body,
+						named.map((n) => n.column)
+					),
+					materialized: undefined
+				}
 			]
 		}
 	}

@@ -577,6 +577,12 @@
  * Every served file's session carries the read of a session's reap window (served/forms.ts ServedSession reapWindow),
  * the one statement a login's pool sends on a session of its own: at the session's first lease, and as the probe of one
  * silent past the window before a lease runs anything on it (the shell's wire/pool.ts makePool).
+ * A derived table's and a CTE's columns are its query's output names, each target's own and a set operation's its left
+ * arm's, which the printer lists after its alias or name (sql/ast.ts selectColumns, cteColumns; sql/print.ts), where
+ * format 8 held a column list beside the query: a derived table or a query CTE whose query named its outputs inline
+ * prints them as a list, its targets bare, a data-modifying CTE lists its RETURNING names, and a set operation whose
+ * maker names its outputs names its later arms' as its first's, so a drafted backfill's and a served statement's text of
+ * such a table moves.
  */
 export const artifactFormat = 8
 
@@ -604,7 +610,7 @@ export type FormattedFile = (typeof formattedFiles)[number]
  * @formatConstant each file's shape: the digest of its type, by test/support/record-shape.ts
  */
 export const recordShapes: { readonly [F in FormattedFile]: string } = {
-	snapshot: "e609802332c892bd42d9b49a1430f9f97b034cf09f8e29c98170a3017533cc33",
+	snapshot: "7dd16c83c1bb19b86422b590955133d346370bb1c0f5f89a3ef785cf0571e740",
 	served: "973638e8bf53e5b0c7f1c97692fdc7decf1471645ee1a1c7dcc3a1236f2540f6"
 }
 

@@ -9,8 +9,10 @@ import type { FieldId, NodeId, OccurrenceId, ParamId, VarId } from "#compiler/co
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { temporarySchema } from "#compiler/core/temporary.ts"
 import {
+	bodyPositionNames,
 	type ColumnDef,
 	type FromSource,
+	type CteBody,
 	isSetQuery,
 	type OperandBody,
 	type OperandSelect,
@@ -233,25 +235,6 @@ const renameCore = (
 			)
 
 /**
- * The column names a query body's output carries, position by position, as PostgreSQL derives them: a target's alias,
- * or for an unaliased column reference the column's own name; undefined for any other unaliased target. A set
- * operation's names are its left arm's, as PostgreSQL takes them. The kernel's audit holds a set operation's ORDER BY
- * and its arms' names to these, so the rename below reads the same names.
- */
-export const bodyPositionNames = (body: OperandBody): ReadonlyArray<string | undefined> => {
-	switch (body.kind) {
-		case "core":
-			return body.targets.map(
-				(target) => target.alias ?? (target.expr.kind === "column" ? target.expr.column : undefined)
-			)
-		case "setOp":
-			return bodyPositionNames(body.arms[0])
-		case "select":
-			return bodyPositionNames(body.body)
-	}
-}
-
-/**
  * Over a set operation or a parenthesized query, ORDER BY names the output columns unqualified (the kernel audit's
  * "output" mode), so renaming the outputs renames those references with them, position by position. Over a core, ORDER BY
  * reads the FROM relations, qualified, and is untouched.
@@ -325,6 +308,35 @@ const renameOperand = (
 	heading: ReadonlyArray<string>
 ): Result.Result<SetOperand, CompileError> =>
 	operand.kind === "core" ? renameCore(operand, heading) : renameSelect(operand, heading)
+
+/**
+ * `select` with its outputs named `names`, position by position, and the ORDER BY over a set operation's outputs
+ * renamed with them (renameSelect): how a derived table's or a CTE's columns are given, its query their one place. A
+ * count of names other than the query's outputs is a defect, of its maker's, before any statement holds it.
+ */
+export const namedQuery = (select: OperandSelect, names: ReadonlyArray<string>): OperandSelect => {
+	const renamed = renameSelect(select, names)
+	if (!renamed.ok) {
+		throw defect(`a name for each of a query's outputs: ${renamed.error.message}`)
+	}
+	return renamed.value
+}
+
+/**
+ * A CTE's body with its outputs named `names`: a query's (namedQuery), or a data-modifying statement's RETURNING targets',
+ * position by position, a count of names other than its outputs a defect, as `namedQuery`'s.
+ */
+export const namedBody = (body: CteBody, names: ReadonlyArray<string>): CteBody => {
+	if (body.kind === "select") {
+		return namedQuery(body, names)
+	}
+	if (body.returning.length !== names.length) {
+		throw defect(
+			`a name for each of a data-modifying statement's ${body.returning.length} RETURNING targets, not ${names.length}`
+		)
+	}
+	return { ...body, returning: body.returning.map((t, i) => ({ expr: t.expr, alias: names[i] })) }
+}
 
 /**
  * Renames the outermost SELECT's output columns to the public heading, by position, and the ORDER BY

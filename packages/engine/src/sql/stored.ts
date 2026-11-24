@@ -6,7 +6,8 @@ import {
 	type NameKey,
 	type ObjectName,
 	type OperandBody,
-	type OperandSelect
+	type OperandSelect,
+	selectColumns
 } from "#compiler/sql/ast.ts"
 
 /** A stored column as a statement reads it: by the table or view it is a column of, and its name there. */
@@ -55,7 +56,7 @@ export const originIn = (from: ReadonlyArray<FromItem>, ref: Expr): StoredColumn
 				? undefined
 				: { table: source.table, column: ref.column }
 		case "derived": {
-			const at = source.columns.indexOf(ref.column)
+			const at = selectColumns(source.query).indexOf(ref.column)
 			return at < 0 ? undefined : deliveredAt(source.query, at)
 		}
 		case "probe":

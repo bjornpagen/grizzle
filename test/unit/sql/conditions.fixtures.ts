@@ -20,6 +20,7 @@ import {
 	target,
 	types
 } from "#compiler/sql/build.ts"
+import { namedQuery } from "#compiler/sql/naming.ts"
 
 /** A source of a shape's FROM: a table, or a derived table over a core of its own. */
 export type SourceShape =
@@ -166,7 +167,7 @@ export const queryOf = (c: CoreShape, spell: (n: number, items: number) => Expr)
 	const sourceOf = (s: SourceShape, alias: string): FromSource =>
 		s.kind === "table"
 			? table("s", "t", alias)
-			: derived(operandSelect(core([one], ...partsOf(s.core))), alias, [], false)
+			: derived(namedQuery(operandSelect(core([one], ...partsOf(s.core))), ["c1"]), alias, false)
 	const partsOf = (shape: CoreShape): readonly [ReadonlyArray<FromItem>, Expr | undefined] => {
 		const items = shape.from.length
 		const from = Arr.map(shape.from, (item, i): FromItem => {

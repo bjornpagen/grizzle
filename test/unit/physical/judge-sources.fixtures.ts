@@ -21,8 +21,14 @@ import {
 	schema,
 	unit
 } from "#compiler/public/schema.ts"
-import type { FromItem, FromSource, OperandSelect } from "#compiler/sql/ast.ts"
-import { functionColumnNames } from "#compiler/sql/ast.ts"
+import {
+	cteColumns,
+	type FromItem,
+	type FromSource,
+	functionColumnNames,
+	type OperandSelect,
+	selectColumns
+} from "#compiler/sql/ast.ts"
 import { inertVisitor, visitSelect } from "#compiler/sql/transform.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { judgedStatementsOf } from "#test/support/judge.ts"
@@ -235,7 +241,7 @@ const headsOf = (
 					continue
 				}
 				const [from] = body.body.from
-				const head = from?.kind === "joins" ? undefined : calledHead(from, cte.columns, readers)
+				const head = from?.kind === "joins" ? undefined : calledHead(from, cteColumns(cte), readers)
 				if (head !== undefined) {
 					heads.set(cte.name, head)
 				}
@@ -318,8 +324,9 @@ const scansOf = (
 				: from.kind === "function"
 					? calledHead(from, functionColumnNames(from.columns), readers)?.columnOf
 					: undefined
+		const outputs = selectColumns(item.query)
 		const columns = Arr.flatMap(item.query.body.targets, (t, i) => {
-			const output = item.columns[i]
+			const output = outputs[i]
 			const read =
 				t.expr.kind !== "column"
 					? undefined
@@ -335,7 +342,7 @@ const scansOf = (
 		})
 		assert.equal(
 			columns.length,
-			item.columns.length,
+			outputs.length,
 			`the scan ${item.alias} reads columns of its table alone`
 		)
 		scans.push({ scanned, alias: item.alias, columns })

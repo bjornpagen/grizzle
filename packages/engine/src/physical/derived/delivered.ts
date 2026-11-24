@@ -5,12 +5,13 @@ import {
 	type Cte,
 	type Expr,
 	type FromSource,
-	type Select,
-	type OperandBody,
-	type TypeRef,
 	nameKey,
+	type OperandBody,
+	selectColumns,
+	type Select,
 	storedColumnKey,
-	type StoredColumnKey
+	type StoredColumnKey,
+	type TypeRef
 } from "#compiler/sql/ast.ts"
 import { sameTypeRef } from "#compiler/sql/build.ts"
 import { inertVisitor, visitSelect } from "#compiler/sql/transform.ts"
@@ -182,7 +183,7 @@ class Delivered {
 			case "metRows":
 				return undefined
 			case "derived": {
-				const p = item.columns.indexOf(column)
+				const p = selectColumns(item.query).indexOf(column)
 				return p < 0 ? undefined : this.body(item.query.body, p, active)
 			}
 			case "values": {
@@ -206,13 +207,13 @@ class Delivered {
 		return e === undefined ? undefined : this.#expr(e, active)
 	}
 
-	/** A CTE without a column list names its columns by its body, which the lowering never emits: unknown. */
+	/** A data-modifying CTE's columns are its RETURNING targets', which no derived definition reads: unknown. */
 	#cte(name: string, column: string, active: ReadonlySet<string>): TypeRef | undefined {
 		const cte = this.#ctes.get(name)
-		if (cte?.query.kind !== "select" || cte.columns.length === 0) {
+		if (cte?.query.kind !== "select") {
 			return undefined
 		}
-		const p = cte.columns.indexOf(column)
+		const p = selectColumns(cte.query).indexOf(column)
 		const key = `${name}\u0000${column}`
 		return p < 0 || active.has(key)
 			? undefined

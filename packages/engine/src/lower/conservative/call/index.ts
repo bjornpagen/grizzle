@@ -54,6 +54,7 @@ import {
 	target,
 	types
 } from "#compiler/sql/build.ts"
+import { namedQuery } from "#compiler/sql/naming.ts"
 
 /** The node a call's names are minted for, and the label refusals name it by. */
 const originOf = (node: NodeOf<"Call">) => ({ kind: "node", node: node.id }) as const
@@ -380,7 +381,7 @@ export const parentEvaluations = (
 		)
 		const alias = cx.relationAlias(origin)
 		return {
-			from: [derived(query, alias, columns, true)],
+			from: [derived(namedQuery(query, columns), alias, true)],
 			attributes: mapNonEmpty([first, ...rest], (c) => col(alias, c))
 		}
 	}
@@ -426,7 +427,7 @@ const definedParentEvaluation = (
 				...demand.map((c) => target(columnIn(keyMap, c.name))),
 				...evaluated.map((c) => target(col(at, c)))
 			],
-			[keys.item, derived(evaluationQuery(read, cx, env), at, evaluated, true)],
+			[keys.item, derived(namedQuery(evaluationQuery(read, cx, env), evaluated), at, true)],
 			undefined,
 			"a call's one row at each of its parents' keys"
 		)
@@ -437,7 +438,11 @@ const definedParentEvaluation = (
 	if (first === undefined) {
 		throw defect("a call's row, of at least one field")
 	}
-	ctes.add({ name, columns: [...keyColumns, first, ...rest], materialized: "MATERIALIZED", query })
+	ctes.add({
+		name,
+		materialized: "MATERIALIZED",
+		query: namedQuery(query, [...keyColumns, first, ...rest])
+	})
 	return {
 		name,
 		keys: demand.map((c, i) => ({
@@ -468,7 +473,7 @@ const definedEvaluation = (
 		throw defect("a call's row, of at least one field")
 	}
 	const columns: NonEmptyReadonlyArray<string> = [first, ...rest]
-	ctes.add({ name, columns, materialized: "MATERIALIZED", query })
+	ctes.add({ name, materialized: "MATERIALIZED", query: namedQuery(query, columns) })
 	return { name, columns }
 }
 

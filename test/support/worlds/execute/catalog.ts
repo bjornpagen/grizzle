@@ -32,6 +32,7 @@ import { type Owned, type OwnedRole, own, rostersOf } from "#compiler/schema/own
 import { schemaDescOf } from "#compiler/schema/schema.ts"
 import type { CreatePolicy, CreateView, ObjectName, RoleSetting } from "#compiler/sql/ast.ts"
 import { and, col, derived, lit, provedSelect, target } from "#compiler/sql/build.ts"
+import { namedQuery } from "#compiler/sql/naming.ts"
 import { storedSettingValue } from "#compiler/sql/print.ts"
 import type { AmbientOwner } from "#test/support/ambient.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -595,7 +596,7 @@ const redefinedView = (view: CreateView, database: string): Effect.Effect<string
 	const query = provedSelect(
 		"keyed",
 		Arr.map(view.columns, (c) => target(col(alias, c))),
-		[derived(view.query, alias, view.columns, false)],
+		[derived(namedQuery(view.query, view.columns), alias, false)],
 		lit.bool(true)
 	)
 	const [created] = filledStatements([{ ...view, query }], database)

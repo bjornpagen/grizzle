@@ -45,6 +45,7 @@ import {
 	target,
 	types
 } from "#compiler/sql/build.ts"
+import { namedQuery } from "#compiler/sql/naming.ts"
 
 type Aggregate = NodeOf<"Group">["aggs"][number]
 
@@ -351,9 +352,11 @@ const groupRead = (
 	const alias = cx.relationAlias(origin)
 	return {
 		from: derived(
-			operandSelect(keyedRead(targets, [input.item], undefined)),
+			namedQuery(operandSelect(keyedRead(targets, [input.item], undefined)), [
+				...boundColumns.map((b) => b.column),
+				presentColumn
+			]),
 			alias,
-			[...boundColumns.map((b) => b.column), presentColumn],
 			false
 		),
 		bound: namedMap(alias, boundColumns),

@@ -8,6 +8,7 @@ import {
 	isSetQuery,
 	type OperandSelect,
 	type OrderItem,
+	selectColumns,
 	type SelectCore,
 	type SqlStatement
 } from "#compiler/sql/ast.ts"
@@ -191,15 +192,12 @@ const deliveredAt = (c: SelectCore, e: Expr): Expr | undefined => {
 	if (Option.isNone(source) || source.value.kind !== "derived") {
 		return undefined
 	}
-	const { columns, query } = source.value
+	const { query } = source.value
 	if (query.body.kind !== "core") {
 		return undefined
 	}
 	const targets = query.body.targets
-	const at =
-		columns.length > 0
-			? Arr.findFirstIndex(columns, (name) => name === column)
-			: Arr.findFirstIndex(targets, (t) => t.alias === column)
+	const at = Arr.findFirstIndex(selectColumns(query), (name) => name === column)
 	return Option.isSome(at) ? targets[at.value]?.expr : undefined
 }
 

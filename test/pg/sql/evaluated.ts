@@ -671,11 +671,7 @@ export const setCaseGen: Gen<SetCase> = (source) => {
 	const query: OperandSelect =
 		body.kind === "select" ? (wrapped ? operandSelect(body) : body) : operandSelect(body)
 	const statement: Select = select(
-		distinctCore(
-			[targetAs(col("r0", "c1"), "c1")],
-			[derived(query, "r0", ["c1"], false)],
-			undefined
-		)
+		distinctCore([targetAs(col("r0", "c1"), "c1")], [derived(query, "r0", false)], undefined)
 	)
 	return { statement, rows: Arr.sort([...distinct(setRows(tree))], Order.Number) }
 }

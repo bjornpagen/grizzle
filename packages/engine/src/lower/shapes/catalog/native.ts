@@ -47,6 +47,7 @@ import {
 	select,
 	target
 } from "#compiler/sql/build.ts"
+import { namedQuery } from "#compiler/sql/naming.ts"
 
 const frameBound = (b: FrameBound): SqlFrameBound => {
 	if (b === "unboundedPreceding") {
@@ -229,7 +230,11 @@ const lowerOrderedSetAggregateNative: NodeLowerer<"OrderedSetAggregate"> = (node
 		const named = cx.freshColumns(names, origin)
 		const presentColumn = cx.supply.column(origin)
 		const alias = cx.relationAlias(origin)
-		from = derived(carried, alias, [...named.map((n) => n.column), presentColumn], false)
+		from = derived(
+			namedQuery(carried, [...named.map((n) => n.column), presentColumn]),
+			alias,
+			false
+		)
 		map = namedMap(alias, named)
 		present = col(alias, presentColumn)
 	} else {

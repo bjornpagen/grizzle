@@ -122,7 +122,7 @@ export const theRowsAuditOracleVerifyRowsTsRefusesABoundThatCountsRepeatedRowsLI
 						const statement = select(
 							distinctCore(
 								[targetAs(read("r2"), "c1")],
-								[derived(bounded(query, bound), "r2", ["c1"], false)],
+								[derived(bounded(query, bound), "r2", false)],
 								undefined
 							)
 						)

@@ -36,7 +36,13 @@ import {
 	targetAs,
 	withArms
 } from "#compiler/sql/build.ts"
-import { freshNames, type NameMap, NameSupply, namesPast } from "#compiler/sql/naming.ts"
+import {
+	freshNames,
+	namedQuery,
+	type NameMap,
+	namesPast,
+	NameSupply
+} from "#compiler/sql/naming.ts"
 
 interface DefinitionOptions {
 	readonly names: PhysicalNames
@@ -137,7 +143,7 @@ const withColumnTypes = (
 	const generated = columns.map((c) => c.column)
 	return Result.ok({
 		query: select(
-			provedCore("keyed", targets, [derived(inner, alias, generated, false)], undefined)
+			provedCore("keyed", targets, [derived(namedQuery(inner, generated), alias, false)], undefined)
 		),
 		nameMap: [...nameMap, ...supply.map()]
 	})
@@ -193,7 +199,7 @@ export const derivedReading = (
 	const alias = supply.relation(origin)
 	const generated = lowered.heading.map(() => supply.column(origin))
 	return Result.ok({
-		from: derived({ ...query, body: unaliased(query.body) }, alias, generated, false),
+		from: derived(namedQuery({ ...query, body: unaliased(query.body) }, generated), alias, false),
 		read: (position) => col(alias, defined(generated[position], "an output per heading column"))
 	})
 }

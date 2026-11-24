@@ -62,13 +62,25 @@ export const sourceOf = (
 		case "table":
 			return { from: table("w", "t", "r2"), cte: undefined }
 		case "set derived":
-			return { from: derived(select(distinctRead("r3")), "r2", ["c1"], false), cte: undefined }
+			return {
+				from: derived(select(distinctRead("r3")), "r2", false),
+				cte: undefined
+			}
 		case "operand derived":
-			return { from: derived(operandSelect(plainRead("r3")), "r2", ["c1"], false), cte: undefined }
+			return {
+				from: derived(operandSelect(plainRead("r3")), "r2", false),
+				cte: undefined
+			}
 		case "set cte":
-			return { from: cteRefAs("r4", "r2"), cte: cte("r4", ["c1"], select(distinctRead("r3"))) }
+			return {
+				from: cteRefAs("r4", "r2"),
+				cte: cte("r4", select(distinctRead("r3")))
+			}
 		case "operand cte":
-			return { from: cteRefAs("r4", "r2"), cte: cte("r4", ["c1"], operandSelect(plainRead("r3"))) }
+			return {
+				from: cteRefAs("r4", "r2"),
+				cte: cte("r4", operandSelect(plainRead("r3")))
+			}
 	}
 }
 

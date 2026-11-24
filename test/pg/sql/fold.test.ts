@@ -77,8 +77,8 @@ export const aFoldedStatementAnswersItsUnfoldedTwinsNamesAndRowsAndItsTextAddsNo
 			{
 				file: "packages/engine/src/sql/print.ts",
 				original:
-					'\tconst core = reader === "ordered" ? given : foldedCore(given, reader === "named")',
-				replacement: '\tconst core = foldedCore(given, reader === "named")',
+					'\t\treader === "ordered" || reader === "placedOrdered"\n\t\t\t? given\n\t\t\t: foldedCore(given, reader === "named")',
+				replacement: '\t\tfalse\n\t\t\t? given\n\t\t\t: foldedCore(given, reader === "named")',
 				why: "A core its query orders folds too, so the ORDER BY names a range the fold took away and PostgreSQL refuses the statement."
 			},
 			{

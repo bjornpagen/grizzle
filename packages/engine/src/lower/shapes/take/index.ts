@@ -48,6 +48,7 @@ import {
 	target,
 	windowOf
 } from "#compiler/sql/build.ts"
+import { namedQuery } from "#compiler/sql/naming.ts"
 
 /** A take over every group at once: DISTINCT ON for k = 1, the row_number window otherwise (wholeRelationShape). */
 export type WholeRelationShape = "distinctOn" | "rowNumber"
@@ -728,7 +729,11 @@ const rowNumberPerGroup = (cx: LowerContext, facts: ShapeFacts, spec: PerGroupSp
 	const named = cx.freshColumns(outputNames(node.heading), origin)
 	const rankColumn = cx.supply.column(origin)
 	const alias = cx.relationAlias(origin)
-	const item: FromItem = derived(inner, alias, [...named.map((n) => n.column), rankColumn], false)
+	const item: FromItem = derived(
+		namedQuery(inner, [...named.map((n) => n.column), rankColumn]),
+		alias,
+		false
+	)
 	const map = namedMap(alias, named)
 	const position = col(alias, rankColumn)
 	const bound = cx.boundExpr(node.bound)

@@ -255,7 +255,6 @@ export const buildEntryCheck = (
 		}))
 		const verdicts: Cte = {
 			name: rv,
-			columns: [...keyColumns.columns, inside, ...held.map((h) => h.column)],
 			materialized: "MATERIALIZED",
 			query: simpleSelect(
 				[

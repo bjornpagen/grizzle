@@ -11,16 +11,17 @@ import {
 	type FunctionCall,
 	type Insert,
 	type ObjectName,
-	type PackConstant,
 	type OperandSelect,
+	type PackConstant,
+	selectColumns,
 	type Select,
 	type SelectCore,
 	type SetOperand,
 	type SqlStatement,
 	type TableConstraint,
+	tableConstraints,
 	type TypeRef,
-	type Update,
-	tableConstraints
+	type Update
 } from "#compiler/sql/ast.ts"
 import { namedType, types } from "#compiler/sql/build.ts"
 import { printObjectName, printType } from "#compiler/sql/print.ts"
@@ -2539,7 +2540,9 @@ class Model {
 			}
 			case "derived": {
 				const r = this.#select(source.query, ctes)
-				return Arr.map(r.rows, (row) => bound(source.alias, renamed(r, source.columns, row)))
+				return Arr.map(r.rows, (row) =>
+					bound(source.alias, renamed(r, selectColumns(source.query), row))
+				)
 			}
 			case "cte": {
 				const r = ctes.get(source.name)
@@ -2606,12 +2609,7 @@ class Model {
 							Arr.map(this.#table(source.table).columns, (c) => c.name)
 						)
 			case "derived":
-				return nulls(
-					source.alias,
-					Arr.isReadonlyArrayNonEmpty(source.columns)
-						? source.columns
-						: this.#select(source.query, ctes).names
-				)
+				return nulls(source.alias, selectColumns(source.query))
 			case "cte": {
 				const r = ctes.get(source.name)
 				return r === undefined
@@ -2677,11 +2675,12 @@ class Model {
 			if (c.query.kind !== "select") {
 				return unevaluable("a data-modifying CTE")
 			}
+			const columns = selectColumns(c.query)
 			const r =
 				w.recursive && readsCte(c.query, c.name)
-					? this.#recursive(c.name, c.columns, c.query, out)
+					? this.#recursive(c.name, columns, c.query, out)
 					: this.#select(c.query, out)
-			out.set(c.name, c.columns.length === 0 ? r : renamedRelation(r, c.columns))
+			out.set(c.name, columns.length === 0 ? r : renamedRelation(r, columns))
 		}
 		return out
 	}

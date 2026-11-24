@@ -14,6 +14,7 @@ import { stateColumns, stateTerm } from "#compiler/lower/shapes/recursion/terms.
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
 import type { Select, SetCore } from "#compiler/sql/ast.ts"
 import { cteRefAs, provedCore, select } from "#compiler/sql/build.ts"
+import { namedQuery } from "#compiler/sql/naming.ts"
 
 /** The recursive CTE of a recursion's state, its columns paired with the state columns. */
 interface StateCte {
@@ -82,8 +83,10 @@ const recursiveForm = (rec: NodeOf<"Recursive">, cx: LowerContext, env: Env): Se
 			ctes: [
 				{
 					name: cte.name,
-					columns: cte.columns.map((c) => c.column),
-					query: select({ kind: "setOp", op: "UNION", arms: [base, step] }),
+					query: namedQuery(
+						select({ kind: "setOp", op: "UNION", arms: [base, step] }),
+						cte.columns.map((c) => c.column)
+					),
 					materialized: undefined
 				}
 			]

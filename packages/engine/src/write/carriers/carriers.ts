@@ -50,11 +50,12 @@ import {
 import { emitText } from "#compiler/sql/emit.ts"
 import {
 	type CarrierDeclaration,
-	type CarrierScope,
 	carrierName,
 	carrierReaderName,
 	carrierReaderScan,
-	emptyNameMap
+	type CarrierScope,
+	emptyNameMap,
+	namedQuery
 } from "#compiler/sql/naming.ts"
 import { carrierEmptying, printTableName, sessionReaderRows } from "#compiler/sql/print.ts"
 import { sessionTypes } from "#compiler/sql/type-schemas.ts"
@@ -456,7 +457,7 @@ const factDifference = (w: WriteContext, left: FactsRead, right: FactsRead): Sel
 		provedCore(
 			"keyed",
 			columns.map((c) => target(col(alias, c))),
-			[derived(difference, alias, [...columns, ...signs], false)],
+			[derived(namedQuery(difference, [...columns, ...signs]), alias, false)],
 			undefined
 		)
 	)

@@ -22,7 +22,7 @@ import type {
 	SetCore,
 	Target
 } from "#compiler/sql/ast.ts"
-import type { NameSupply } from "#compiler/sql/naming.ts"
+import { namedBody, type NameSupply } from "#compiler/sql/naming.ts"
 
 import {
 	and,
@@ -477,7 +477,7 @@ export const buildInsert = (
 			if (firstStamp === undefined) {
 				return isNonEmpty(generations)
 					? [...generated(r1, inputs)]
-					: [cte(r1, inputs.columns, read.select)]
+					: [cte(r1, namedBody(read.select, inputs.columns))]
 			}
 			const stamps: NonEmptyReadonlyArray<Stamped> = [firstStamp, ...moreStamps]
 			const out = { name: r1, fields, columns: inputs }
@@ -562,7 +562,6 @@ export const buildInsert = (
 			ctes.push(
 				cte(
 					proposed.name,
-					proposed.columns.columns,
 					provedSelect(
 						"keyed",
 						all.map((f) => targetAs(requested(f), proposed.columns.of(f))),
@@ -633,7 +632,7 @@ export const buildInsert = (
 				...(metMark === undefined ? [] : [targetAs(metMarked, metMark)])
 			]
 		}
-		ctes.push(cte(r2, [], insert))
+		ctes.push(cte(r2, insert))
 		const columns: ReadonlyArray<ResultColumn> = outFields.map((f) => ({
 			name: f.name,
 			type: rowType(f)
@@ -807,7 +806,6 @@ export const buildInsert = (
 			ctes.push({
 				...cte(
 					rm,
-					all.map((f) => from.columns.of(f)),
 					select(
 						provedCore(
 							"keyed",
@@ -892,22 +890,24 @@ export const buildInsert = (
 			ctes.push({
 				...cte(
 					rk,
-					[...outFields.map(retCol), cv],
-					select(
-						provedCore(
-							"keyed",
-							[
-								...outFields.map((f) => target(metValue(f))),
-								target({
-									kind: "case",
-									operand: undefined,
-									whens: [defined(first, "a met row's first class"), ...rest],
-									else: integer(verdictClass.defect)
-								})
-							],
-							[met.source],
-							undefined
-						)
+					namedBody(
+						select(
+							provedCore(
+								"keyed",
+								[
+									...outFields.map((f) => target(metValue(f))),
+									target({
+										kind: "case",
+										operand: undefined,
+										whens: [defined(first, "a met row's first class"), ...rest],
+										else: integer(verdictClass.defect)
+									})
+								],
+								[met.source],
+								undefined
+							)
+						),
+						[...outFields.map(retCol), cv]
 					)
 				),
 				materialized: "MATERIALIZED"
@@ -1019,15 +1019,8 @@ export const buildInsert = (
 						)
 					)
 		const rv = supply.relation(internal("verdicts"))
-		const verdictColumns = [
-			...outFields.map(retCol),
-			cV,
-			...(c9 === undefined ? [] : [c9]),
-			...(cU === undefined ? [] : [cU])
-		]
 		ctes.push({
 			name: rv,
-			columns: verdictColumns,
 			materialized: "MATERIALIZED",
 			query: select(body)
 		})

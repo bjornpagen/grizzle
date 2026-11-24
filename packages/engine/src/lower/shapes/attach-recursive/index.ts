@@ -28,6 +28,7 @@ import { orderIsTotal } from "#compiler/lower/shapes/take/order.ts"
 import { columnType } from "#compiler/runtime/lower/columns.ts"
 import type { Expr, Select, SelectCore, With } from "#compiler/sql/ast.ts"
 import { and, cast, col, core, cteRefAs, provedCore, select, target } from "#compiler/sql/build.ts"
+import { namedQuery } from "#compiler/sql/naming.ts"
 
 /**
  * A parent key column of a seeded attachment, with the origin column of the state it is delivered from: the first the
@@ -236,7 +237,14 @@ export const seededAttachment = (
 	const recursion: With = {
 		recursive: true,
 		ctes: [
-			{ name: cte, columns: columns.map((c) => c.column), query: body, materialized: undefined }
+			{
+				name: cte,
+				query: namedQuery(
+					body,
+					columns.map((c) => c.column)
+				),
+				materialized: undefined
+			}
 		]
 	}
 	return {

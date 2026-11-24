@@ -460,7 +460,7 @@ const sourcedGuard = (
 		col(rw, detail)
 	])
 	return {
-		cte: cte(rw, [rank, state, constraint, detail], query),
+		cte: cte(rw, query),
 		guard: notExists(simpleSelect([target(lit.int(1, types.integer))], [cteRef(rw)], refuse))
 	}
 }

@@ -7,7 +7,7 @@ import { Type } from "#compiler/public/compute.ts"
 import { Bits, bits } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, key, on, relation, schema, select } from "#compiler/public/schema.ts"
-import type { SqlStatement } from "#compiler/sql/ast.ts"
+import { selectColumns, type SqlStatement } from "#compiler/sql/ast.ts"
 import { inertVisitor, visitSelect } from "#compiler/sql/transform.ts"
 import { Note, Plans, Task } from "#test/pg/plans/fixture.ts"
 import { Id } from "#test/support/ids.ts"
@@ -132,7 +132,7 @@ export const probes = (ast: SqlStatement, column: string): boolean => {
 				return
 			}
 			for (const [i, t] of item.query.body.targets.entries()) {
-				const named = item.columns[i]
+				const named = selectColumns(item.query)[i]
 				if (t.expr.kind === "column" && t.expr.column === column && named !== undefined) {
 					law.add(`${item.alias}.${named}`)
 				}

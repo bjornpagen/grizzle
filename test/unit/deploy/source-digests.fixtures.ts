@@ -21,7 +21,8 @@ import {
 	operandSelect,
 	qualifiedCall,
 	table,
-	target
+	target,
+	targetAs
 } from "#compiler/sql/build.ts"
 import { lexemesOf } from "#compiler/sql/lexer.ts"
 import { printStatement } from "#compiler/sql/print.ts"
@@ -128,7 +129,6 @@ export const forwardBranchRuleUpkeep: PlFunction = plFunction("__upkeep_forward_
 				ctes: [
 					{
 						name: "r1954",
-						columns: ["c12"],
 						materialized: "MATERIALIZED",
 						query: operandSelect(
 							core(
@@ -148,11 +148,10 @@ export const forwardBranchRuleUpkeep: PlFunction = plFunction("__upkeep_forward_
 					},
 					{
 						name: "r1955",
-						columns: ["c674"],
 						materialized: "NOT MATERIALIZED",
 						query: operandSelect(
 							core(
-								[target(col("r529", "end"))],
+								[targetAs(col("r529", "end"), "c674")],
 								[table("source_digests", "node", "r529")],
 								undefined
 							)

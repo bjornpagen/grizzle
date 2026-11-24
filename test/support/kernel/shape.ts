@@ -1,15 +1,17 @@
 import { Array as Arr, Option, Order } from "effect"
-import type {
-	BinaryOperator,
-	Cte,
-	CteBody,
-	Expr,
-	FromSource,
-	JoinChain,
-	OperandSelect,
-	SelectCore,
-	SetOperation,
-	SqlStatement
+import {
+	type BinaryOperator,
+	type Cte,
+	type CteBody,
+	cteColumns,
+	type Expr,
+	type FromSource,
+	type JoinChain,
+	type OperandSelect,
+	selectColumns,
+	type SelectCore,
+	type SetOperation,
+	type SqlStatement
 } from "#compiler/sql/ast.ts"
 import { functionColumnNames } from "#compiler/sql/ast.ts"
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
@@ -191,7 +193,7 @@ const fromFeature = (item: FromSource): ReadonlyArray<ShapeFeature> => {
 			return [
 				"from derived",
 				...(item.lateral ? (["lateral"] as const) : []),
-				...(item.columns.length === 0 ? (["derived of no column"] as const) : [])
+				...(selectColumns(item.query).length === 0 ? (["derived of no column"] as const) : [])
 			]
 		case "function":
 			return [
@@ -305,7 +307,7 @@ const cteFeatures = (cte: Cte): ReadonlyArray<ShapeFeature> => [
 		? []
 		: ([`cte ${materializedFeature[cte.materialized]}`] as const)),
 	...(cte.query.kind === "select"
-		? cte.columns.length === 0
+		? cteColumns(cte).length === 0
 			? (["cte of no column"] as const)
 			: []
 		: ([`cte ${cte.query.kind}`] as const)),

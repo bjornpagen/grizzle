@@ -79,7 +79,7 @@ import {
 	targetAs,
 	types
 } from "#compiler/sql/build.ts"
-import type { NameSupply } from "#compiler/sql/naming.ts"
+import { namedBody, namedQuery, type NameSupply } from "#compiler/sql/naming.ts"
 import type { FieldColumns } from "#compiler/write/defined.ts"
 import { statedKey } from "#compiler/write/family/keyset.ts"
 import { written } from "#compiler/write/family/written.ts"
@@ -172,41 +172,42 @@ export const headStampsCte = (
 	const headColumn = (f: LawField): Expr => col(stamped, w.names.column(head.relation, f.name))
 	return {
 		name: names.name,
-		columns: [...names.child, names.at],
 		materialized: "MATERIALIZED",
-		query: select(
-			provedCore(
-				"keyed",
-				[
-					...mapNonEmpty(head.child, (f) => target(headColumn(f))),
-					target(written(w, headColumn(head.field), head.field.type))
-				],
-				[
-					derived(
-						operandSelect(
-							core(
-								aggregated.map((a) => targetAs(a.value, a.column)),
-								[derived(children, distinct, names.child, false)],
-								undefined
-							)
+		query: namedBody(
+			select(
+				provedCore(
+					"keyed",
+					[
+						...mapNonEmpty(head.child, (f) => target(headColumn(f))),
+						target(written(w, headColumn(head.field), head.field.type))
+					],
+					[
+						derived(
+							operandSelect(
+								core(
+									aggregated.map((a) => targetAs(a.value, a.column)),
+									[derived(namedQuery(children, names.child), distinct, false)],
+									undefined
+								)
+							),
+							arrays,
+							false
 						),
-						arrays,
-						aggregated.map((a) => a.column),
-						false
-					),
-					{
-						kind: "function",
-						call: qualifiedCall(
-							{ kind: "qualified", schema: fn.schema, name: fn.name, volatility: "VOLATILE" },
-							[...aggregated.map((a) => col(arrays, a.column)), ...clock]
-						),
-						alias: stamped,
-						columns: { kind: "named", names: [], ordinality: false },
-						lateral: true
-					}
-				],
-				undefined
-			)
+						{
+							kind: "function",
+							call: qualifiedCall(
+								{ kind: "qualified", schema: fn.schema, name: fn.name, volatility: "VOLATILE" },
+								[...aggregated.map((a) => col(arrays, a.column)), ...clock]
+							),
+							alias: stamped,
+							columns: { kind: "named", names: [], ordinality: false },
+							lateral: true
+						}
+					],
+					undefined
+				)
+			),
+			[...names.child, names.at]
 		)
 	}
 }
@@ -249,17 +250,19 @@ export const callColumn = (values: CallValues, from: string): string =>
  */
 export const callValuesCte = (w: WriteContext, values: CallValues): Cte => ({
 	name: values.name,
-	columns: values.computed.fields.map(({ field }) => callColumn(values, field.name)),
 	materialized: "MATERIALIZED",
-	query: select(
-		provedCore(
-			"oneRow",
-			mapNonEmpty(values.computed.fields, ({ field, expr }) =>
-				target(written(w, lowerExpr(w.cx, expr, emptyEnv), field.type))
-			),
-			[],
-			undefined
-		)
+	query: namedBody(
+		select(
+			provedCore(
+				"oneRow",
+				mapNonEmpty(values.computed.fields, ({ field, expr }) =>
+					target(written(w, lowerExpr(w.cx, expr, emptyEnv), field.type))
+				),
+				[],
+				undefined
+			)
+		),
+		values.computed.fields.map(({ field }) => callColumn(values, field.name))
 	)
 })
 
@@ -384,13 +387,15 @@ export const stampedInput = (
 	return [
 		{
 			name: input,
-			columns: carried.map((f) => out.columns.of(f)),
 			materialized: undefined,
-			query: read
+			query: namedBody(
+				read,
+				carried.map((f) => out.columns.of(f))
+			)
 		},
 		...calls.map((c) => callValuesCte(w, c)),
 		...stampCtes,
-		{ name: out.name, columns: out.columns.columns, materialized: undefined, query: whole }
+		{ name: out.name, materialized: undefined, query: namedBody(whole, out.columns.columns) }
 	]
 }
 
@@ -427,15 +432,17 @@ export const placeReleases = (
 		alias: held,
 		using: [
 			derived(
-				operandSelect(
-					distinctCore(
-						mapNonEmpty(group, (f) => target(col(from, removed.column(f)))),
-						[cteRefAs(removed.cte, from)],
-						undefined
-					)
+				namedQuery(
+					operandSelect(
+						distinctCore(
+							mapNonEmpty(group, (f) => target(col(from, removed.column(f)))),
+							[cteRefAs(removed.cte, from)],
+							undefined
+						)
+					),
+					columns
 				),
 				groups,
-				columns,
 				false
 			)
 		],
@@ -449,5 +456,5 @@ export const placeReleases = (
 		),
 		returning: []
 	}
-	return [cte(supply.relation(internal("place release")), [], release)]
+	return [cte(supply.relation(internal("place release")), release)]
 }

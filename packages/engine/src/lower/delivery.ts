@@ -22,7 +22,7 @@ import {
 	types,
 	windowOf
 } from "#compiler/sql/build.ts"
-import type { NameSupply } from "#compiler/sql/naming.ts"
+import { namedQuery, type NameSupply } from "#compiler/sql/naming.ts"
 
 /** A text column: the steps that make its result text (codec/scalar.ts ResultStep). */
 export interface TextDelivered {
@@ -250,7 +250,7 @@ export const deliveredRows = (
 			[
 				{
 					kind: "joins",
-					first: derived(numbered, d, [...values, ord], false),
+					first: derived(namedQuery(numbered, [...values, ord]), d, false),
 					steps: [{ kind: "cross", source: series }]
 				}
 			],

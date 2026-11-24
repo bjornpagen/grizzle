@@ -66,6 +66,7 @@ import {
 	target,
 	types
 } from "#compiler/sql/build.ts"
+import { namedQuery } from "#compiler/sql/naming.ts"
 
 /**
  * What a fused array carries per child (decode.ts FusedLayout): each child column, from the element, or from the
@@ -400,20 +401,22 @@ const coGroupedRows = (
 	const groupedArrays = child.heading.map(() => cx.supply.column(origin))
 	const correlated = pairs.map((p) => columnIn(rows.map, p.child))
 	const grouped = derived(
-		select({
-			...core(
-				[
-					...correlated.map((e) => target(e)),
-					...child.heading.map((c) => target(call("array_agg", [columnIn(rows.map, c.name)])))
-				],
-				[rows.item],
-				undefined
-			),
-			rows: "grouped",
-			groupBy: correlated
-		}),
+		namedQuery(
+			select({
+				...core(
+					[
+						...correlated.map((e) => target(e)),
+						...child.heading.map((c) => target(call("array_agg", [columnIn(rows.map, c.name)])))
+					],
+					[rows.item],
+					undefined
+				),
+				rows: "grouped",
+				groupBy: correlated
+			}),
+			[...groupedKeys, ...groupedArrays]
+		),
 		groupedAlias,
-		[...groupedKeys, ...groupedArrays],
 		false
 	)
 	const parentArm = core(
@@ -442,9 +445,13 @@ const coGroupedRows = (
 	const taggedChild = cx.supply.column(origin)
 	const taggedArrays = child.heading.map(() => cx.supply.column(origin))
 	const tagged = derived(
-		operandSelect(operandUnionAll([parentArm, childArm])),
+		namedQuery(operandSelect(operandUnionAll([parentArm, childArm])), [
+			...taggedKeys,
+			taggedParent,
+			taggedChild,
+			...taggedArrays
+		]),
 		taggedAlias,
-		[...taggedKeys, taggedParent, taggedChild, ...taggedArrays],
 		false
 	)
 	const keyExprs = taggedKeys.map((k) => col(taggedAlias, k))
@@ -452,24 +459,26 @@ const coGroupedRows = (
 	const coGroupKeys = pairs.map(() => cx.supply.column(origin))
 	const coGroupArrays = child.heading.map(() => cx.supply.column(origin))
 	const coGroup = derived(
-		select({
-			...core(
-				[
-					...keyExprs.map((e) => target(e)),
-					...taggedArrays.map((a) => target(call("max", [col(taggedAlias, a)])))
-				],
-				[tagged],
-				undefined
-			),
-			rows: "grouped",
-			groupBy: keyExprs,
-			having: conjunction([
-				call("bool_or", [col(taggedAlias, taggedParent)]),
-				call("bool_or", [col(taggedAlias, taggedChild)])
-			])
-		}),
+		namedQuery(
+			select({
+				...core(
+					[
+						...keyExprs.map((e) => target(e)),
+						...taggedArrays.map((a) => target(call("max", [col(taggedAlias, a)])))
+					],
+					[tagged],
+					undefined
+				),
+				rows: "grouped",
+				groupBy: keyExprs,
+				having: conjunction([
+					call("bool_or", [col(taggedAlias, taggedParent)]),
+					call("bool_or", [col(taggedAlias, taggedChild)])
+				])
+			}),
+			[...coGroupKeys, ...coGroupArrays]
+		),
 		coGroupAlias,
-		[...coGroupKeys, ...coGroupArrays],
 		false
 	)
 	const childOrigin = { kind: "node", node: child.id } as const
@@ -497,16 +506,18 @@ const coGroupedRows = (
 	const rowsAlias = cx.relationAlias(childOrigin)
 	const rowColumns = columns.map(() => cx.supply.column(childOrigin))
 	const unnested = derived(
-		select(
-			keyedSet(
-				columns.map((c) => target(col(unnestAlias, c.definition.name))),
-				[arrays({ kind: "carried", columns: [head, ...tail] }, unnestAlias)],
-				undefined,
-				"a co-grouped key's child rows its arrays carry"
-			)
+		namedQuery(
+			select(
+				keyedSet(
+					columns.map((c) => target(col(unnestAlias, c.definition.name))),
+					[arrays({ kind: "carried", columns: [head, ...tail] }, unnestAlias)],
+					undefined,
+					"a co-grouped key's child rows its arrays carry"
+				)
+			),
+			rowColumns
 		),
 		rowsAlias,
-		rowColumns,
 		true
 	)
 	return {

@@ -142,7 +142,7 @@ import {
 	windowOf
 } from "#compiler/sql/build.ts"
 import { assignments } from "#compiler/sql/generation.ts"
-import { NameSupply } from "#compiler/sql/naming.ts"
+import { namedBody, namedQuery, NameSupply } from "#compiler/sql/naming.ts"
 import {
 	type Deferring,
 	type DrawIn,
@@ -617,7 +617,6 @@ const withDrawn = (
 	ctes.push(
 		cte(
 			next.name,
-			[...next.columns.values()],
 			select(
 				provedCore(
 					"keyed",
@@ -792,9 +791,7 @@ const appendedOf = (
 					return as === "puts" ? firstNonNull([held(a, c), fresh(a, c)]) : fresh(a, c)
 				})
 			})
-			ctes.push(
-				cte(appended.name, [...appended.columns.values()], select(unionAll("disjoint", arms)))
-			)
+			ctes.push(cte(appended.name, select(unionAll("disjoint", arms))))
 			return appended
 		}
 		case "nestedRows": {
@@ -815,7 +812,6 @@ const appendedOf = (
 			ctes.push(
 				cte(
 					appended.name,
-					[...appended.columns.values()],
 					select(unstored(sent, [first, ...rest], appended, (a, k) => col(a, columnAt(sent, k))))
 				)
 			)
@@ -1011,7 +1007,13 @@ const stampedSources = (
 		const children = select(
 			distinctCore(
 				mapNonEmpty(names.child, (c) => target(col(u, c))),
-				[derived(operandSelect(operandUnionAll([first, ...rest])), u, names.child, false)],
+				[
+					derived(
+						namedQuery(operandSelect(operandUnionAll([first, ...rest])), names.child),
+						u,
+						false
+					)
+				],
 				undefined
 			)
 		)
@@ -1057,7 +1059,6 @@ const stampedSources = (
 		ctes.push(
 			cte(
 				view.name,
-				[...view.columns.values()],
 				select(
 					provedCore(
 						"input",
@@ -1155,7 +1156,6 @@ const filledRowsCte = (
 	ctes.push(
 		cte(
 			rows.name,
-			[...rows.columns.values()],
 			select(
 				provedCore(
 					"input",
@@ -1190,20 +1190,22 @@ const unionOf = (
 	ctes.push(
 		cte(
 			union.name,
-			[...union.columns.values()],
-			select(
-				unionAll(
-					"disjoint",
-					mapNonEmpty(shapes, (shape) => {
-						const a = supply.relation(internal("appended source"))
-						return provedCore(
-							"input",
-							keys.map((k) => targetAs(col(a, columnAt(shape, k)), columnAt(union, k))),
-							[cteRefAs(shape.name, a)],
-							undefined
-						)
-					})
-				)
+			namedBody(
+				select(
+					unionAll(
+						"disjoint",
+						mapNonEmpty(shapes, (shape) => {
+							const a = supply.relation(internal("appended source"))
+							return provedCore(
+								"input",
+								keys.map((k) => targetAs(col(a, columnAt(shape, k)), columnAt(union, k))),
+								[cteRefAs(shape.name, a)],
+								undefined
+							)
+						})
+					)
+				),
+				[...union.columns.values()]
 			)
 		)
 	)
@@ -1331,7 +1333,6 @@ const appendScan = (
 				ctes.push(
 					cte(
 						copies.name,
-						[...copies.group, ...copies.columns.values()],
 						select(
 							provedCore(
 								"keyed",
@@ -1504,7 +1505,6 @@ const appendScan = (
 	ctes.push(
 		cte(
 			fallen.name,
-			[...fallen.group, fallen.kept, ...fallenDrawn, ...fallen.columns.values()],
 			select(
 				distinctCore(
 					[
@@ -1570,13 +1570,6 @@ const appendScan = (
 		ctes.push(
 			cte(
 				sides.name,
-				[
-					...sides.group,
-					sides.tag,
-					sides.kept,
-					...drawnLane.map((d) => d.side),
-					...sides.columns.values()
-				],
 				select(
 					unionAll("disjoint", [
 						...mapNonEmpty(sources, (copies, i) => {
@@ -1627,13 +1620,6 @@ const appendScan = (
 		ctes.push(
 			cte(
 				ranked,
-				[
-					...rankedGroup,
-					rankedTag,
-					rankedKept,
-					...drawnLane.map((d) => d.ranked),
-					...rankedColumns.values()
-				],
 				select(
 					provedCore(
 						"keyed",
@@ -1667,7 +1653,6 @@ const appendScan = (
 		ctes.push(
 			cte(
 				groups.name,
-				[...groups.group, groups.kept, ...drawnLane.map((d) => d.groups), ...groups.owner.values()],
 				select(
 					provedCore(
 						"keyed",
@@ -1882,7 +1867,6 @@ const wholeRows = (
 	ctes.push(
 		cte(
 			whole.name,
-			[...whole.group, whole.kept, ...whole.owner.values(), ...whole.inputs.values()],
 			select(
 				provedCore(
 					"keyed",
@@ -2030,9 +2014,14 @@ const wholeRows = (
 			],
 			[
 				derived(
-					operandSelect(operandUnionAll([storedArm, appendedArm])),
+					namedQuery(operandSelect(operandUnionAll([storedArm, appendedArm])), [
+						...u.group,
+						u.slot,
+						...u.columns.values(),
+						...u.owner.values(),
+						...u.inputs.values()
+					]),
 					u.alias,
-					[...u.group, u.slot, ...u.columns.values(), ...u.owner.values(), ...u.inputs.values()],
 					false
 				)
 			],
@@ -2079,7 +2068,7 @@ const redrawnUpdate = (
 	const update = supply.relation(internal("family redraw"))
 	const returning = updateReturning(w, supply, relation, fields, update)
 	ctes.push(
-		cte(update, [], {
+		cte(update, {
 			kind: "update",
 			with: undefined,
 			table: w.names.relation(name),
@@ -2218,7 +2207,6 @@ const hostDrawnOf = (
 	ctes.push(
 		cte(
 			sides.name,
-			[...sides.group, sides.tag],
 			select(unionAll("disjoint", [side(members, hostTag), side(appended, appendedTag)]))
 		)
 	)
@@ -2233,7 +2221,6 @@ const hostDrawnOf = (
 	ctes.push(
 		cte(
 			keys.name,
-			[...keys.group, keys.tag, keys.first],
 			select(
 				provedCore(
 					"keyed",
@@ -2320,7 +2307,7 @@ const withHostDrawn = (
 		[cteRefAs(members.name, h)],
 		isFresh(lit.bool(true), keptAt(hostGroup))
 	)
-	ctes.push(cte(union.name, columns, select(unionAll("disjoint", [fromScan, fromHost]))))
+	ctes.push(cte(union.name, select(unionAll("disjoint", [fromScan, fromHost]))))
 	return union
 }
 
@@ -2444,7 +2431,6 @@ const candidatesOf = (
 	ctes.push(
 		cte(
 			candidates,
-			out,
 			select(
 				provedCore(
 					"keyed",
@@ -2511,7 +2497,6 @@ const candidatesUnion = (
 	ctes.push(
 		cte(
 			name,
-			columns,
 			select(
 				unionAll(
 					"disjoint",
@@ -2577,7 +2562,7 @@ const insertOf = (
 	switch (arbiter) {
 		case "none":
 			ctes.push(
-				cte(insert, [], {
+				cte(insert, {
 					kind: "insert",
 					with: undefined,
 					table: w.names.relation(name),
@@ -2596,9 +2581,9 @@ const insertOf = (
 				name: supply.relation(internal("proposed member")),
 				columns: mapNonEmpty(columns, () => supply.column(internal("proposed member column")))
 			}
-			ctes.push(cte(proposed.name, proposed.columns, passed(candidates)))
+			ctes.push(cte(proposed.name, namedBody(passed(candidates), proposed.columns)))
 			ctes.push(
-				cte(insert, [], {
+				cte(insert, {
 					kind: "insert",
 					with: undefined,
 					table: w.names.relation(name),
@@ -2726,7 +2711,6 @@ const metRefusal = (
 	ctes.push({
 		...cte(
 			classed,
-			[...classedKeys, repeated],
 			select(
 				provedCore(
 					"keyed",
@@ -2751,7 +2735,6 @@ const metRefusal = (
 	ctes.push(
 		cte(
 			refused,
-			refusedKeys,
 			select(
 				provedCore(
 					"keyed",
@@ -2922,13 +2905,7 @@ const recountOf = (
 		if (firstArm === undefined) {
 			throw defect(`a recount of ${name}'s family ${family.id.count} with nothing to recount`)
 		}
-		ctes.push(
-			cte(
-				last.name,
-				[...last.group, last.count, ...last.columns.values()],
-				select(unionAll("disjoint", [firstArm, ...restArms]))
-			)
-		)
+		ctes.push(cte(last.name, select(unionAll("disjoint", [firstArm, ...restArms]))))
 		return { family, last }
 	})
 	const o = supply.relation(internal("recounted owner"))
@@ -2996,7 +2973,6 @@ const recountOf = (
 			supply.column(internal("recount side key"))
 		)
 		const sideTag = supply.column(internal("recount side tag"))
-		const sideColumns = sourced.flatMap((x) => x.columns.map((c) => c.side))
 		const arms = mapNonEmpty([only, ...others], (_, j): SetArm => {
 			const x = defined(sourced[j], "a recounted family")
 			const l = supply.relation(internal("recount source row"))
@@ -3015,9 +2991,7 @@ const recountOf = (
 				undefined
 			)
 		})
-		ctes.push(
-			cte(sides, [...sideKeys, sideTag, ...sideColumns], select(unionAll("disjoint", arms)))
-		)
+		ctes.push(cte(sides, select(unionAll("disjoint", arms))))
 		const recounts = supply.relation(internal("recounts"))
 		const keys = mapNonEmpty(owner.primaryFields, () => supply.column(internal("recounted key")))
 		const s = supply.relation(internal("recount side"))
@@ -3045,10 +3019,6 @@ const recountOf = (
 		ctes.push(
 			cte(
 				recounts,
-				[
-					...keys,
-					...joined.flatMap((x) => [x.present, ...[...x.columns.values()].map((c) => c.as)])
-				],
 				select(
 					distinctCore(
 						[

@@ -115,6 +115,7 @@ import {
 	whenFound
 } from "#compiler/sql/build.ts"
 import { assignments, ungenerated } from "#compiler/sql/generation.ts"
+import { namedQuery } from "#compiler/sql/naming.ts"
 import { printTableName, sessionTablesStanding, stoodApart } from "#compiler/sql/print.ts"
 import { type StoredColumns, storedColumns } from "#compiler/sql/stored.ts"
 import { identityHooks, Transform } from "#compiler/sql/transform.ts"
@@ -1647,7 +1648,7 @@ export const addRules = (
 		/** The rows of `definition`, its definition at the written units, under `alias`, every relation it names shifted
 		 * past `past`. */
 		const fresh = (definition: OperandSelect, alias: string, past: number): FromSource =>
-			derived(shifted(definition, past), alias, columnsAt(heading.length), false)
+			derived(namedQuery(shifted(definition, past), columnsAt(heading.length)), alias, false)
 		/** That the row `stored` of S and the row `found` of its definition agree at every field. */
 		const sameRow = (stored: string, found: string): Expr =>
 			and(
@@ -1674,9 +1675,8 @@ export const addRules = (
 					alias: "r1",
 					using: [
 						derived(
-							shifted(units.statement, 1),
+							namedQuery(shifted(units.statement, 1), columnsAt(units.heading.length)),
 							regionAlias,
-							columnsAt(units.heading.length),
 							false
 						)
 					],
