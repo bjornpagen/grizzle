@@ -2,19 +2,21 @@ import {
 	checkoutHere,
 	type CheckoutFamily,
 	type ClusterFailed,
-	familyAsSettled,
+	familyHeld,
 	familyOf,
+	familyReached,
 	homesHere,
 	type MemberTls,
 	memberAtPort,
-	memberRead,
+	memberBroughtUp,
 	type PgMember,
-	type Platform
+	type Platform,
+	unitSettler
 } from "@bjornpagen/testing/pg"
 import { testWorkers } from "@bjornpagen/testing/workers"
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import { regex } from "arkregex"
-import { Config, Context, Data, Effect, Layer, Option } from "effect"
+import { Config, Context, Data, Effect, Layer, Option, type Scope } from "effect"
 import { pgCluster } from "#test/support/env.ts"
 
 /**
@@ -59,25 +61,30 @@ const runFamily: Effect.Effect<CheckoutFamily, ClusterFailed, Platform> = Effect
 
 /**
  * This checkout's family of grizzle's local cluster as a process no run started reaches it (a bench, a script): at the
- * width its state was last settled for (@bjornpagen/testing/pg familyAsSettled), since such a process runs no workers
- * and has no width of its own to settle the family at.
+ * width its state records, else at this process's own (@bjornpagen/testing/pg familyReached), since such a process
+ * runs no workers, and the members a run of the recorded width holds are never settled at another under it.
  */
-const settledFamily: Effect.Effect<CheckoutFamily, ClusterFailed, Platform> = Effect.flatMap(
+const reachedFamily: Effect.Effect<CheckoutFamily, ClusterFailed, Platform> = Effect.flatMap(
 	Effect.all([checkoutHere, homesHere]),
-	([checkout, homes]) => familyAsSettled(pgCluster, checkout, homes)
+	([checkout, homes]) => familyReached(pgCluster, checkout, homes)
 )
 
 /**
- * The first member of this checkout's family, which `toolchain-pg settle` brings up, as a process no run lent a place
- * to reaches it (TlsMember: its port, socket, owner's password and CA), at the width the family was last settled for
- * (settledFamily), read writing nothing (memberRead), a member not as its spec states refused, naming `toolchain-pg
- * settle`, which gives it them.
+ * The first member of this checkout's family as a process no run lent a place to reaches it (TlsMember: its port,
+ * socket, owner's password and CA): the family held by this process for the enclosing scope (@bjornpagen/testing/pg
+ * familyHeld) and the member brought up as a run's worker brings up its own (memberBroughtUp, by its settle unit), so
+ * it runs while this process needs it and stops once the last process holding the family has ended, however it ended.
  */
-const firstMember: Effect.Effect<TlsMember, ClusterFailed | SocketOnlyMember, Platform> =
-	Effect.flatMap(
-		Effect.flatMap(settledFamily, (family) => memberRead(family, 0)),
-		overTls
-	)
+const firstMember: Effect.Effect<
+	TlsMember,
+	ClusterFailed | SocketOnlyMember,
+	Platform | Scope.Scope
+> = Effect.flatMap(
+	Effect.flatMap(Effect.flatMap(reachedFamily, familyHeld), (held) =>
+		memberBroughtUp(held, 0, unitSettler)
+	),
+	overTls
+)
 
 /**
  * The member of this checkout's family at `port`, its family's claim, as a process of a run reaches it (runFamily: a
@@ -134,19 +141,23 @@ export const lentPlace: Effect.Effect<Option.Option<Lent>> = Effect.map(
  * The member of grizzle's local cluster this process reaches, read once: a child its parent lent a place to reaches the
  * parent's member (lentPlace, memberAt); any other process, a bench's or a CLI child's, the first.
  */
-const selectedMember: Effect.Effect<TlsMember, ClusterFailed | SocketOnlyMember, Platform> =
-	Effect.flatMap(lentPlace, (lent) =>
-		Option.match(lent, {
-			onNone: () => firstMember,
-			onSome: (place) => memberAt(place.port)
-		})
-	)
+const selectedMember: Effect.Effect<
+	TlsMember,
+	ClusterFailed | SocketOnlyMember,
+	Platform | Scope.Scope
+> = Effect.flatMap(lentPlace, (lent) =>
+	Option.match(lent, {
+		onNone: () => firstMember,
+		onSome: (place) => memberAt(place.port)
+	})
+)
 
 /**
- * The member of grizzle's local cluster this process reaches, read once when the layer is built. Nothing reads the
- * cluster when a module loads: code that reaches a member's facts needs this service, or the substrate built from it
- * (substrate/substrate.ts), so a test that provides neither cannot reach them, and a cluster that is not settled is the
- * typed failure of the layer's build. The database tier provides it: Substrate's layers build it, a
+ * The member of grizzle's local cluster this process reaches, read once when the layer is built, and where no parent
+ * lent it one, the first, held up for the layer's life (firstMember). Nothing reads the cluster when a module loads:
+ * code that reaches a member's facts needs this service, or the substrate built from it (substrate/substrate.ts), so a
+ * test that provides neither cannot reach them, and a member that cannot be brought up is the typed failure of the
+ * layer's build. The database tier provides it: Substrate's layers build it, a
  * bench's sweep, and a CLI child's configuration (cli/config.child.ts).
  */
 export class InitializedCluster extends Context.Service<InitializedCluster, TlsMember>()(

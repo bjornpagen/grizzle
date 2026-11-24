@@ -101,9 +101,11 @@ release check proves the product right, the census that each test still catches 
 - **`pg.config.ts`** states the one local cluster, which the testing library settles and reads
   (`@bjornpagen/testing/pg`): its members are the workbench's PostgreSQL units `postgres@grizzle-test-<i>`
   (~/Documents/beefy-workspace/workbench/parts/postgres), the machine's PostgreSQL 19.0, which systemd makes on a
-  member's first start. `pnpm pg settle` (`toolchain-pg settle`, which runs itself as the unit `grizzle-test-settle`)
-  starts each member and gives it the spec; a run only reads the members and refuses one that is not as the spec
-  states, naming the command, and nothing a run does ever changes a server:
+  member's first start. A member runs only while a process holds its family: a run's worker brings up the member it
+  reaches and holds it to its end, a bench or a script holds the first member for its life (`test/support/cluster.ts`),
+  and the last holder's end, however it ends, stops each member (the testing library's leases and holds). A member's
+  settle gives it the spec; `pnpm pg settle` (`toolchain-pg settle`) settles the family and checks its first member,
+  leaving nothing running:
     - a family of members, member i listening on localhost at 5442 + i besides its socket
       (`$XDG_RUNTIME_DIR/postgresql-grizzle-test-<i>`), each serving at most 16 of a run's workers (`workersPerMember`,
       measured: SSI's LWLocks and the checkpointer are a member's own), verify-full TLS only for TCP with the workbench's
@@ -130,7 +132,8 @@ release check proves the product right, the census that each test still catches 
       map (`test/support/pg.ts` `testDatabaseSettings`).
 - **`pnpm pg <command>`** runs the testing library's `toolchain-pg` on it: `settle`; `check`, which reads every member
   as a run does and writes nothing; `psql`, verify-full as `grizzle_dev`; `admin`, as the bootstrap superuser over the
-  socket; and `env`.
+  socket; and `run -- <command>`, the command with the first member's facts in its environment (`TOOLCHAIN_PG_*`), each
+  holding the first member up while it runs.
 - **`packages/pg`** (`@bjornpagen/grizzle-pg`) is the TypeScript `pnpm pg:build` runs (the postmasters that run from
   the installed build) and the pin as a typed value, a workspace member so a consumer's
   install, never one inside its submodule, gives it its dependencies; its `grizzle-pg` bin runs `build` and `source`.
