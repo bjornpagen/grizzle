@@ -424,6 +424,9 @@
  * type is created and no role creates one since its carriers hold session types, where format 8 granted each role
  * USAGE on every domain its columns and its carriers' fields were typed by; its EXECUTE on the constants those domains'
  * CHECKs call stays: every world's grants move.
+ * A stand-up and a capture read the sentinel's standing from its pg_class row alone, as a delta's (physical/ddl/rules.ts
+ * sentinelStood): it is made with its trigger in one branch of one stand-up, so it stands only with it, where format 8
+ * read pg_trigger beside it in every call; so every stand-up's and capture's body moves.
  */
 export const artifactFormat = 8
 

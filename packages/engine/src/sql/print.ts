@@ -1752,17 +1752,14 @@ const ownedSessionTable = (alias: string): NonEmptyReadonlyArray<Expr> => [
 
 /**
  * Which of the session's tables `names` stand: each as its name where it is a temporary table CURRENT_USER owns
- * (`ownedSessionTable`) of which each of `more(r1)` holds, and as `!` and its name where it stands otherwise, a table
- * some other role made under it, all of them read by one statement over pg_catalog.pg_class, so a site that stands up
- * several session tables plans one read of the catalog (physical/ddl/rules.ts standing):
+ * (`ownedSessionTable`), and as `!` and its name where it stands otherwise, a table some other role made under it, all
+ * of them read by one statement over pg_catalog.pg_class, so a site that stands up several session tables plans one
+ * read of the catalog and no other (physical/ddl/rules.ts standing):
  *
- *   ARRAY(SELECT CASE WHEN <owned r1> AND <more> THEN r1.relname::text ELSE '!' || r1.relname::text END
+ *   ARRAY(SELECT CASE WHEN <owned r1> THEN r1.relname::text ELSE '!' || r1.relname::text END
  *     FROM pg_catalog.pg_class AS r1 WHERE r1.oid IN (pg_catalog.to_regclass('"pg_temp"."<name>"'), ...))
  */
-export const sessionTablesStanding = (
-	names: NonEmptyReadonlyArray<string>,
-	more: (alias: string) => ReadonlyArray<Expr>
-): Expr => {
+export const sessionTablesStanding = (names: NonEmptyReadonlyArray<string>): Expr => {
 	const name = cast(col("r1", "relname"), types.text)
 	return {
 		kind: "array",
@@ -1774,7 +1771,7 @@ export const sessionTablesStanding = (
 						expr: {
 							kind: "case",
 							operand: undefined,
-							whens: [{ when: and([...ownedSessionTable("r1"), ...more("r1")]), result: name }],
+							whens: [{ when: and(ownedSessionTable("r1")), result: name }],
 							else: {
 								kind: "binary",
 								op: "||",

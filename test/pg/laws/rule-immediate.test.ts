@@ -62,6 +62,13 @@ export const everyWriteIsJudgedInItsTransactionAtItsStatementAfterSetConstraints
 					'\t\t\t})),\n\t\t\t...(part.pass === "rules" ? part.deltas.map(emptiedWhereWritten) : [])\n',
 				replacement: "\t\t\t}))\n",
 				why: "No part deletes the rows it read, so a lawful document's rows stand in the deltas past its COMMIT."
+			},
+			{
+				file: "packages/engine/src/physical/ddl/rules.ts",
+				original:
+					'\t\t{ kind: "createSessionTrigger", name: sentinel, table: sentinel, function: judge }\n',
+				replacement: "",
+				why: "The stand-up makes the sentinel without its trigger, which every site reads as standing from its pg_class row alone: no judge fires, so a breaking insert and a breaking delete commit, deferred and immediate alike."
 			}
 		]
 	})

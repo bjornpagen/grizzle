@@ -92,19 +92,15 @@ import type {
 import { transitionTables } from "#compiler/sql/ast.ts"
 import {
 	and,
-	call,
-	cast,
 	col,
 	core,
 	derived,
 	eq,
 	exists,
 	lit,
-	ne,
 	not,
 	notExists,
 	objectName,
-	or,
 	provedCore,
 	provedSelect,
 	qualifiedCall,
@@ -612,28 +608,28 @@ const tableNode = (b: InstallBuilder, relation: TheoryTable): Node<"setup" | "st
 	return stored
 }
 
-/** The catalog table `name` of pg_catalog under `alias`. */
-const catalogTable = (name: string, alias: string): FromSource => ({
-	kind: "table",
-	table: objectName("pg_catalog", name),
-	alias
-})
-
-/**
- * A session table of the judge a site stands up or requires (`standing`): its name, the statements that make it, and
- * what more its pg_class row under `alias` holds where it is the judge's own, beside its owner.
- */
+/** A session table of the judge a site stands up or requires (`standing`): its name and the statements that make it. */
 interface Stood {
 	readonly name: string
 	readonly create: NonEmptyReadonlyArray<PlStatement>
-	readonly owned: (alias: string) => ReadonlyArray<Expr>
 }
 
 /** The name of a site's variable that holds which of its session tables stand (`standing`). */
 const stoodName = "__stood"
 
 /**
- * The sentinel as a site stands it up (`standing`): made with its trigger, which runs `judge`.
+ * The sentinel as a site stands it up (`standing`): made with its trigger, which runs `judge`, by the one branch of a
+ * stand-up that makes it, so the two commit together or not at all: the sentinel standing as the definer's own temporary
+ * table proves its trigger stands, and a site reads it from its pg_class row alone, as it reads a delta. Nothing drops
+ * the trigger while the sentinel stands: only its table's owner may, the judge's definer, which runs no statement but
+ * grizzle's functions' and none of them drops one; no migration drops the judge (deploy/diff/diff.ts Dropped), which a
+ * migration replaces in place, keeping the function the trigger runs; and the one drop of it, an uninstall's DROP SCHEMA
+ * ... CASCADE, ends every session holding a temporary object of the installation's roles in the same transaction before
+ * it commits (adapter/migrate/uninstall.ts, sql/ast.ts EndHolders). A site that also read the sentinel's trigger in
+ * pg_trigger read it in every call, under a generic plan a sequential scan of the database's every trigger (edullm
+ * PERF-COMMIT: 3,221 rows, about 1.6 ms a capture, 36 plans and 4.7 ms of a cold answer call). A stand-up that made the
+ * sentinel and no trigger would arm nothing: every write it stood up would commit unjudged, which the laws' searches
+ * refuse (test/pg/laws/rule-immediate.test.ts kills).
  */
 const sentinelStood = (sentinel: string, judge: ObjectName): Stood => ({
 	name: sentinel,
@@ -647,29 +643,13 @@ const sentinelStood = (sentinel: string, judge: ObjectName): Stood => ({
 			storage: "toasted"
 		},
 		{ kind: "createSessionTrigger", name: sentinel, table: sentinel, function: judge }
-	],
-	owned: (alias) => [
-		exists(
-			simpleSelect(
-				[],
-				[catalogTable("pg_trigger", "r3")],
-				and([
-					eq(col("r3", "tgrelid"), col(alias, "oid")),
-					eq(
-						col("r3", "tgfoid"),
-						call("to_regprocedure", [lit.text(`${printTableName(judge)}()`, types.text)])
-					)
-				])
-			)
-		)
 	]
 })
 
 /** A delta as a site stands it up (`standing`). */
 const deltaStood = (delta: SessionDelta): Stood => ({
 	name: delta.name,
-	create: [deltaTable(delta)],
-	owned: () => []
+	create: [deltaTable(delta)]
 })
 
 /**
@@ -711,10 +691,10 @@ const unstood = (absent: Extract<Absent, { readonly kind: "required" }>): PlStat
 /**
  * Each of a site's session tables `tables` read by one statement over the catalog for them all (sql/print.ts
  * sessionTablesStanding), so a site plans one read of pg_catalog.pg_class however many tables it reads, once in a
- * session. A table that stands but is not the definer's own temporary table, or a sentinel whose trigger runs no judge
- * of this installation (a sentinel left without its trigger, by a DROP ... CASCADE of the judge, would arm nothing), is
- * refused (deltas.ts foreignOf): a login that made one first could empty it before COMMIT. A table the session holds
- * none of is made where the site is a stand-up, and refuses the statement where it is a capture (`Absent`).
+ * session. A table that stands but is not the definer's own temporary table is refused (deltas.ts foreignOf): a login
+ * that made one first could empty it before COMMIT; the definer's own sentinel stands with its trigger
+ * (`sentinelStood`). A table the session holds none of is made where the site is a stand-up, and refuses the statement
+ * where it is a capture (`Absent`).
  *
  *   __stood := <which of the tables stand, each the definer's own or marked apart (sessionTablesStanding)>
  *   IF __stood && '{!<table>,...}' THEN <refused> END IF
@@ -735,19 +715,6 @@ const standing = (
 	const names = mapNonEmpty(tables, (t) => t.name)
 	const set: Expr = { kind: "plVar", name: stoodName }
 	const apart = mapNonEmpty(names, (n) => `${stoodApart}${n}`)
-	/** Each table's own condition, where it is the row's table. */
-	const owned = (alias: string): ReadonlyArray<Expr> =>
-		tables.flatMap((t) => {
-			const [o, ...os] = t.owned(alias)
-			return o === undefined
-				? []
-				: [
-						or([
-							ne(cast(col(alias, "relname"), types.text), lit.text(t.name, types.text)),
-							and([o, ...os])
-						])
-					]
-		})
 	const firstApart: Expr = {
 		kind: "case",
 		operand: undefined,
@@ -772,7 +739,7 @@ const standing = (
 					}
 				]
 	return [
-		{ kind: "assign", target: stoodName, value: sessionTablesStanding(names, owned) },
+		{ kind: "assign", target: stoodName, value: sessionTablesStanding(names) },
 		{
 			kind: "if",
 			branches: [
