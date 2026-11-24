@@ -1539,6 +1539,25 @@ class StatementAuditor {
 					this.defineRelation(item.alias, "alias")
 					return register(item.alias, { columns: this.columnList([], "input arrays", true) })
 				}
+				if (source.kind === "carried") {
+					const ctx = context("query", outer, ctes, plVars)
+					const columns = this.at("source", () => {
+						for (const [i, { definition, array }] of source.columns.entries()) {
+							this.at(i, () => {
+								this.type(definition.type)
+								this.collatable(definition.type, definition.collation, "column definition")
+								this.expr(array, ctx)
+							})
+						}
+						return this.columnList(
+							Arr.map(source.columns, (column) => column.definition.name),
+							"carried arrays",
+							true
+						)
+					})
+					this.defineRelation(item.alias, "alias")
+					return register(item.alias, { columns })
+				}
 				const columns = this.at("source", () => {
 					for (const [i, { definition, array }] of source.columns.entries()) {
 						this.at(i, () => {
@@ -3011,7 +3030,10 @@ const nullOnEmptyAggregates: ReadonlySet<string> = new Set([
 
 /**
  * Calls f on every function call of an expression that is not windowed, which in a query core is an aggregate when
- * it names one. Nested queries are not entered: each is a core of its own.
+ * it names one, and whose NULL can reach the expression's value: none before a COALESCE's last argument where that is a
+ * literal, which no NULL is, so an aggregate's NULL over empty input falls through to it (lower/shapes/share/keyed.ts
+ * carries a copy of no row at a driver row as the empty arrays, `coalesce(array_agg(x), '{}')`). Nested queries are not
+ * entered: each is a core of its own.
  */
 const forEachAggregateCall = (e: Expr, f: (call: FunctionCall) => void): void => {
 	const all = (list: ReadonlyArray<Expr>): void => {
@@ -3063,8 +3085,10 @@ const forEachAggregateCall = (e: Expr, f: (call: FunctionCall) => void): void =>
 		case "or":
 		case "greatest":
 		case "least":
-		case "coalesce":
 			all(e.args)
+			return
+		case "coalesce":
+			all(Arr.lastNonEmpty(e.args).kind === "literal" ? [] : e.args)
 			return
 		case "between":
 			all([e.expr, e.low, e.high])

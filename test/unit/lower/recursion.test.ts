@@ -13,6 +13,7 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { catchRefusal } from "#compiler/core/canonical.ts"
 import {
+	carriesNothing,
 	emptyEnv,
 	evaluatedAsItStands,
 	LowerContext
@@ -68,8 +69,10 @@ export const theFormARecursionLowersToPackagesEngineSrcLowerShapesRecursionIndex
 						params: q.params,
 						subject: { kind: "query" }
 					},
-					optimizedDispatch(facts, new ShapeState<RelationInput>("small", emptyCtePlan, noKeys)),
-					evaluatedAsItStands
+					optimizedDispatch(facts, new ShapeState<RelationInput>("small", emptyCtePlan, noKeys))
+						.dispatch,
+					evaluatedAsItStands,
+					carriesNothing
 				)
 				refused(
 					catchRefusal(() => recursionLowerer(facts)(rec, cx, emptyEnv)),

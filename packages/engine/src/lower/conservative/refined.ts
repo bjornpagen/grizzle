@@ -219,7 +219,7 @@ export class Tracer {
 				const [only] = e.args
 				if (
 					e.fn.kind === "builtin" &&
-					(e.fn.name === "min" || e.fn.name === "max") &&
+					(e.fn.name === "min" || e.fn.name === "max" || e.fn.name === "array_agg") &&
 					e.args.length === 1 &&
 					only !== undefined &&
 					!e.star
@@ -319,11 +319,19 @@ export class Tracer {
 			case "cte":
 				return this.cte(item.name, column, scope, claim)
 			case "arrays": {
-				const array =
-					item.source.kind === "columns"
-						? item.source.columns.find((c) => c.definition.name === column)
-						: undefined
-				return [array === undefined ? "unproved" : this.#supplied(array.array.number, claim)]
+				const source = item.source
+				switch (source.kind) {
+					case "columns": {
+						const array = source.columns.find((c) => c.definition.name === column)
+						return [array === undefined ? "unproved" : this.#supplied(array.array.number, claim)]
+					}
+					case "carried": {
+						const array = source.columns.find((c) => c.definition.name === column)
+						return array === undefined ? ["unproved"] : this.expr(array.array, scope, claim)
+					}
+					case "count":
+						return ["unproved"]
+				}
 			}
 			case "enclosing":
 			case "transition":

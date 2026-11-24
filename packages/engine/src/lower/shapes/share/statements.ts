@@ -717,7 +717,6 @@ const statementKeys = (
 		nodes,
 		roots: new Map([[root, rootKeys]]),
 		once: keys.map(([, copies]) => copies),
-		copied: [],
 		fixed,
 		inputs: (node) => index.inputs(node),
 		height: (node) => index.height(node)

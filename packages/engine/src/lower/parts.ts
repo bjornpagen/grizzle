@@ -162,15 +162,24 @@ export const taggedArms = (
 const moved = <P extends ValuePlaceholder>(slot: P, offset: number): P =>
 	offset === 0 ? slot : { ...slot, number: slot.number + offset }
 
-/** A relation input's arrays with each placeholder numbered `offset` later. */
-const movedArrays = (source: ArraysSource, offset: number): ArraysSource =>
-	source.kind === "count"
-		? { kind: "count", count: moved(source.count, offset) }
-		: {
+/**
+ * A relation input's arrays with each placeholder numbered `offset` later; a row's carried arrays hold none, each an
+ * expression the transform's own expression hook renumbers.
+ */
+const movedArrays = (source: ArraysSource, offset: number): ArraysSource => {
+	switch (source.kind) {
+		case "count":
+			return { kind: "count", count: moved(source.count, offset) }
+		case "columns":
+			return {
 				kind: "columns",
 				columns: mapNonEmpty(source.columns, (c) => ({ ...c, array: moved(c.array, offset) })),
 				ordinal: source.ordinal
 			}
+		case "carried":
+			return source
+	}
+}
 
 /**
  * A part's query and slots with each placeholder $n renumbered $n + offset: a part's placeholders number from $1, and

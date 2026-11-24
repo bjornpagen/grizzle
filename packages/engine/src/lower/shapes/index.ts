@@ -23,6 +23,7 @@ import {
 import { withAdmission } from "#compiler/lower/conservative/admission.ts"
 import { parentEvaluations, statementEvaluations } from "#compiler/lower/conservative/call/index.ts"
 import {
+	type Carrying,
 	columnIn,
 	cteAtFirstUse,
 	type CteTable,
@@ -94,9 +95,10 @@ import { refineDelivered } from "#compiler/lower/shapes/refined/index.ts"
 import { regionLowerer } from "#compiler/lower/shapes/region/index.ts"
 import { inputSetLowerer } from "#compiler/lower/shapes/relparam/index.ts"
 import { searchFenced } from "#compiler/lower/shapes/search/index.ts"
-import type { CopySite } from "#compiler/lower/shapes/share/copies.ts"
+import type { DrivingSet } from "#compiler/lower/shapes/share/copies.ts"
 import { shareKey } from "#compiler/lower/shapes/share/index.ts"
 import {
+	type Carrier,
 	KeyedLowering,
 	type KeyScope,
 	readAtKeys,
@@ -470,6 +472,8 @@ export interface ShapeLog<I extends ChoiceInput> {
 	 * `statement`, the statement's own scope.
 	 */
 	keyScope(statement: LowerContext): KeyScope
+	/** Each driving set's evaluation of its copies in the statement being lowered (share/keyed.ts Carrier). */
+	readonly carriers: Map<DrivingSet, Carrier>
 }
 
 /**
@@ -516,6 +520,8 @@ export class ShapeState<I extends ChoiceInput> implements ShapeLog<I> {
 	#log: CteLog = freshCtes()
 	/** Each key set's CTE in the statement being lowered (share/keyed.ts KeyScope). */
 	#keySets = new Map<Keys, DefinedCte>()
+	/** Each driving set's evaluation of its copies in the statement being lowered (share/keyed.ts KeyScope). */
+	#carriers = new Map<DrivingSet, Carrier>()
 	#choices: Array<ShapeChoice<I>> = []
 	/** The holders whose query holds a CTE (cte-policy `sharedCorrelated`): regions and calls' evaluations. */
 	readonly #holding: ReadonlySet<NodeId>
@@ -541,6 +547,7 @@ export class ShapeState<I extends ChoiceInput> implements ShapeLog<I> {
 		this.#mode = mode
 		this.#log = freshCtes()
 		this.#keySets = new Map()
+		this.#carriers = new Map()
 		this.#choices = []
 	}
 
@@ -557,8 +564,13 @@ export class ShapeState<I extends ChoiceInput> implements ShapeLog<I> {
 		const log = { ...this.#log, choices: this.#choices }
 		this.#log = freshCtes()
 		this.#keySets = new Map()
+		this.#carriers = new Map()
 		this.#choices = []
 		return log
+	}
+
+	get carriers(): Map<DrivingSet, Carrier> {
+		return this.#carriers
 	}
 
 	keyScope(statement: LowerContext): KeyScope {
@@ -865,7 +877,7 @@ const dispatchIn = <I extends ChoiceInput>(
 	facts: ShapeFacts,
 	state: ShapeLog<I | RelationInput>,
 	attachment: AttachmentContext<I> | undefined
-): NodeDispatch => {
+): Dispatching => {
 	const table = optimizedLowerers(facts, state, attachment)
 	/** The table is a mapped type over the kinds, so its entry at a node's kind takes that kind's node. */
 	const plugIn = <K extends RelKind>(
@@ -922,46 +934,50 @@ const dispatchIn = <I extends ChoiceInput>(
 		}
 	}
 	const dispatch: NodeDispatch = (node, cx, env) => {
-		const site = state.keys.copies.get(node)
-		return site !== undefined && readsCopy(node, site, cx, env)
-			? keyed.copied(
-					node,
-					site,
-					cx,
-					env,
-					state.keyScope(cx.atStatementRoot(dispatch)),
-					state.log,
-					(within, at) => placed(site.copied.representative, within, at)
-				)
-			: placed(node, cx, env)
+		const site = state.keys.copies.sites.get(node)
+		const carried =
+			site === undefined || restrictedUnder(node, env)
+				? undefined
+				: keyed.copied(node, site, cx, env)
+		return carried ?? placed(node, cx, env)
 	}
-	return dispatch
+	/** A driver of copies the statement computes beside it, read as their one evaluation (share/keyed.ts carried). */
+	const carrying: Carrying = (node, cx) => {
+		const driving = state.keys.copies.drivers.get(node)
+		return driving === undefined
+			? undefined
+			: keyed.carried(driving, cx, state.keyScope(cx.atStatementRoot(dispatch)), state.carriers)
+	}
+	return { dispatch, carrying }
 }
 
 /**
- * Whether a site of a sub-query the statement reads at several reads its one evaluation where it stands (share/keyed.ts
- * KeyedLowering copied): off every recursion's feedback, each outer row it reads in scope, and no restriction placed on
- * a node under it, which its copy alone would keep.
+ * Whether a restriction stands on a node under `node` (share/keyed.ts pushedInto), which a copy's one evaluation, its
+ * rows at its driver's every row, would not keep: such a site reads its copy where it stands.
  */
-const readsCopy = (node: RelNode, site: CopySite, cx: LowerContext, env: Env): boolean => {
-	if (cx.readsFeedback(node) || !site.outer.every((o) => env.columns.has(o.node))) {
+const restrictedUnder = (node: RelNode, env: Env): boolean => {
+	if (env.restricted.size === 0) {
 		return false
 	}
-	if (env.restricted.size === 0) {
-		return true
-	}
 	const under = new Set(postorder([node], inputsOf))
-	return ![...env.restricted.keys()].some((n) => under.has(n))
+	return [...env.restricted.keys()].some((n) => under.has(n))
+}
+
+/**
+ * How a delivery's statements lower their nodes (dispatchIn): the one dispatch, and how a driver of copies the statement
+ * computes beside it carries their arrays where a reader places it (conservative/context.ts Carrying).
+ */
+export interface Dispatching {
+	readonly dispatch: NodeDispatch
+	readonly carrying: Carrying
 }
 
 /**
  * The dispatch of a delivery's parts, outside any attachment: its rows, and a parent's rows computed again inside an
  * attachment's part, are lowered as in their own part.
  */
-export const optimizedDispatch = (
-	facts: ShapeFacts,
-	state: ShapeLog<RelationInput>
-): NodeDispatch => dispatchIn<never>(facts, state, undefined)
+export const optimizedDispatch = (facts: ShapeFacts, state: ShapeLog<RelationInput>): Dispatching =>
+	dispatchIn<never>(facts, state, undefined)
 
 /**
  * What one fused attachment column carries, as the runtime's decoder reads it: the parent columns it correlates on and
@@ -1380,7 +1396,7 @@ export class OptimizedDelivery<
 	 * lowered as in their own part.
 	 */
 	inAttachment(context: AttachmentContext<I>): LowerContext {
-		return this.cx.withDispatch(dispatchIn(this.facts, this.state, context))
+		return this.cx.withDispatch(dispatchIn(this.facts, this.state, context).dispatch)
 	}
 
 	/**

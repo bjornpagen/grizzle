@@ -694,8 +694,20 @@ export interface ArrayColumn {
 }
 
 /**
- * What a relation input's arrays hold: one array per column, all of one length, read in lockstep, one row per index;
- * or, for an input of no column, which PostgreSQL holds as rows of no column, the count of its facts.
+ * One column of rows a row carries as arrays (ArraysSource `carried`): its definition, whose type is the element type,
+ * and the array of its values, a column of the row that carries it, one element per row.
+ */
+export interface CarriedColumn {
+	readonly definition: ColumnDefinition
+	readonly array: Expr
+}
+
+/**
+ * Rows as arrays, one array per column, all of one length, read in lockstep, one row per index: a relation input's,
+ * each array a value placeholder its caller binds (`columns`), or, for an input of no column, which PostgreSQL holds as
+ * rows of no column, the count of its facts; or the rows a row of the statement carries (`carried`), each array a
+ * column of that row, an expression over a row in scope where the arrays are read (lower/shapes/share/keyed.ts
+ * KeyedLowering carried: a sub-query's rows at each row of what drives it, its one evaluation there).
  */
 export type ArraysSource =
 	| {
@@ -706,6 +718,7 @@ export type ArraysSource =
 			readonly ordinal: string | undefined
 	  }
 	| { readonly kind: "count"; readonly count: ValuePlaceholder }
+	| { readonly kind: "carried"; readonly columns: NonEmptyReadonlyArray<CarriedColumn> }
 
 /**
  * One column of a probed table bound to a value of the row that drives the probe, a column of a source before it, and
@@ -882,8 +895,8 @@ export type FromSource =
 	  }
 	| {
 			/**
-			 * A relation input, a relation parameter's or a write's member slot, as the rows of its arrays (sql/print.ts):
-			 * its columns' arrays read in lockstep, or its count of rows of no column.
+			 * Rows as arrays (sql/print.ts): a relation input, a relation parameter's or a write's member slot, its columns'
+			 * arrays read in lockstep, or its count of rows of no column; or the rows a row in scope carries as arrays.
 			 */
 			readonly kind: "arrays"
 			readonly source: ArraysSource

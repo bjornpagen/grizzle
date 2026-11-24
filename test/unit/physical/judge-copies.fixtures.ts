@@ -171,9 +171,9 @@ const limitReadsOf = (statement: OperandSelect): number => {
 /**
  * Judges case `c`: each judge statement of the check over the budgets written, or under `names` the assignments written,
  * whose sittings each rule reads the limits of at its own column, reads Limit's table once for each arm of the limits, the limits
- * computed once at every rule's budget keys and each rule reading that one evaluation at its own budget's sitting,
- * whatever the name of the column it reads it at; read at each rule's row where it stands, each rule spelled the limits
- * again, `rules` times `arms` reads.
+ * computed once for each touched budget's sitting and each rule reading that sitting's carried rows, whatever the name of
+ * the column it reads it at; read at each rule's row where it stands, each rule spelled the limits again, `rules` times
+ * `arms` reads.
  */
 export const judgedOnce = (c: Budgets, note: (r: Reached) => void): void => {
 	const owned = owning(schemaOf(c))

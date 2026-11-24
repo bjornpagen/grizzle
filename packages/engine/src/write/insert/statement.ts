@@ -14,6 +14,7 @@ import {
 	type ColumnMap,
 	type Env,
 	envOf,
+	carriesNothing,
 	evaluatedAsItStands,
 	LowerContext,
 	WriteParams
@@ -262,7 +263,8 @@ export const writeContext = (dag: ValidDag, options: WriteContextOptions): Write
 			subject: { kind: "write", templates: options.templates, bound: options.bound }
 		},
 		options.dispatch,
-		evaluatedAsItStands
+		evaluatedAsItStands,
+		carriesNothing
 	)
 	return {
 		cx,

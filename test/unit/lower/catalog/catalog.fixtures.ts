@@ -9,7 +9,11 @@ import type { CertificateRule } from "#compiler/ir/certificate.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import type { Rooted, RootedDag, VarDecl } from "#compiler/ir/rel.ts"
-import { evaluatedAsItStands, LowerContext } from "#compiler/lower/conservative/context.ts"
+import {
+	carriesNothing,
+	evaluatedAsItStands,
+	LowerContext
+} from "#compiler/lower/conservative/context.ts"
 import { ConservativeDelivery } from "#compiler/lower/conservative/deliver.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import { type CatalogOptions, type ParentPolicy } from "#compiler/lower/shapes/catalog/context.ts"
@@ -63,7 +67,8 @@ export const sql = (q: LogicalQuery, r: CatalogResult<Rooted>): ReadonlyArray<st
 								subject: { kind: "query" }
 							},
 							catalogDispatch,
-							evaluatedAsItStands
+							evaluatedAsItStands,
+							carriesNothing
 						)
 					).program(r.dag.roots[0])
 				)

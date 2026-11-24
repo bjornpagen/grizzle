@@ -228,9 +228,14 @@ export const renumberedStatement = (
 				return source
 			}
 			const read = source.source
-			return read.kind === "count"
-				? { ...source, source: { ...read, count: positionalValue(renumbered(read.count.number)) } }
-				: {
+			switch (read.kind) {
+				case "count":
+					return {
+						...source,
+						source: { ...read, count: positionalValue(renumbered(read.count.number)) }
+					}
+				case "columns":
+					return {
 						...source,
 						source: {
 							...read,
@@ -240,6 +245,9 @@ export const renumberedStatement = (
 							}))
 						}
 					}
+				case "carried":
+					return source
+			}
 		}
 	})
 

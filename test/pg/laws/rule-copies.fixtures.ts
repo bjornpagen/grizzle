@@ -1,0 +1,436 @@
+/** What the property of rule-copies.test.ts reads: its schemas and templates, its space, and each case's run. */
+
+import { assert } from "@bjornpagen/testing/assert"
+import { element, type Gen, int } from "@bjornpagen/testing/gen"
+import type { Case } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Formatter } from "effect"
+import {
+	type PlanNode,
+	parsePlan,
+	planNodes,
+	rowsGenerated,
+	rowsRead,
+	scannedRows
+} from "#bench/harness/explain.ts"
+import { identity } from "#compiler/core/identity.ts"
+import { compileInstallation } from "#compiler/physical/install/compile.ts"
+import { workload } from "#compiler/program/workload/value.ts"
+import { pg } from "#compiler/public/fields.ts"
+import { query, type Rule, v } from "#compiler/public/query.ts"
+import { check, derived, relation, schema } from "#compiler/public/schema.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
+import { succeeded } from "#test/support/assert.ts"
+import {
+	compileTemplate,
+	declaredOf,
+	paramTexts,
+	testCompile,
+	workloadOver
+} from "#test/support/compile.ts"
+import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
+import {
+	judgedPlans,
+	judgedStatementsOf,
+	lookupSettings,
+	standUpJudge
+} from "#test/support/judge.ts"
+import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { noDeclarations } from "#test/support/migrate/kit.ts"
+import type { PgConnection } from "#test/support/pg.ts"
+import { countedAsVacuumed } from "#test/support/substrate/fill.ts"
+
+/**
+ * metis's first budget in small (test/unit/physical/judge-copies.fixtures.ts): the sitting limits, a union of `arms`
+ * rules over Assignment and Limit, each sitting's limit of each kind; and FirstBudget, `rules` rules, each a budget
+ * written beside its sitting's limits and a fact of its own, its sitting not held, which a check holds to the limit. Each
+ * rule reads the limits at its own budget's sitting, a copy of one sub-query each rule's judge reads at its row.
+ */
+const i = pg.integer
+const Assignment = relation("Assignment", { number: i, child: i, test: i }, ["number"])
+const Limit = relation("Limit", { test: i, kind: i, seconds: i }, ["test", "kind"])
+const Budget = relation("Budget", { child: i, stage: i, remaining: i }, ["child", "stage"])
+const Used = relation("Used", { child: i, stage: i, used: i }, ["child", "stage"])
+const Left = relation("Left", { child: i, stage: i, left: i }, ["child", "stage"])
+const Paused = relation("Paused", { child: i, stage: i, paused: i }, ["child", "stage"])
+const Suspended = relation("Suspended", { test: i }, ["test"])
+const Base = schema("rule_copies", [Assignment, Limit, Budget, Used, Left, Paused, Suspended], [])
+
+/** The sittings held: each assignment whose test is suspended. */
+const held = query(Base).rule((r) => {
+	const { number, child, test } = v(Assignment, "assignment")
+	return r
+		.match(Assignment, { number, child, test })
+		.match(Suspended, { test })
+		.find({ child, stage: number })
+})
+
+/** How many rules read the limits, and how many arms the limits have. */
+interface Shape {
+	readonly rules: 2 | 3
+	readonly arms: 2 | 3
+}
+
+/** The limits: each sitting's limit of each kind, one rule a kind, `arms` of them. */
+const limitsOf = (arms: Shape["arms"]) => {
+	const arm = (kind: number) => (r: Rule<typeof Base>) => {
+		const { number, child, test } = v(Assignment, "assignment")
+		const { seconds } = v(Limit, "limit")
+		return r
+			.match(Assignment, { number, child, test })
+			.match(Limit, { test, kind, seconds })
+			.find({ child, stage: number, seconds })
+	}
+	const two = query(Base).rule(arm(1)).rule(arm(2))
+	return arms === 2 ? two : two.rule(arm(3))
+}
+
+/** The shape's schema: the budgets beside their limits, one rule for each fact a budget stands beside. */
+const schemaOf = (shape: Shape) => {
+	const limits = limitsOf(shape.arms)
+	const besideUsed = (r: Rule<typeof Base>) => {
+		const { child, stage, remaining } = v(Budget, "budget")
+		const { seconds } = v(limits, "limit")
+		const { used } = v(Used, "used")
+		return r
+			.match(Budget, { child, stage, remaining })
+			.match(limits, { child, stage, seconds })
+			.match(Used, { child, stage, used })
+			.where(r.not(held, { child, stage }))
+			.find({ child, stage, remaining, limit: seconds })
+	}
+	const besideLeft = (r: Rule<typeof Base>) => {
+		const { child, stage, remaining } = v(Budget, "budget")
+		const { seconds } = v(limits, "limit")
+		const { left } = v(Left, "left")
+		return r
+			.match(Budget, { child, stage, remaining })
+			.match(limits, { child, stage, seconds })
+			.match(Left, { child, stage, left })
+			.where(r.not(held, { child, stage }))
+			.find({ child, stage, remaining, limit: seconds })
+	}
+	const besidePaused = (r: Rule<typeof Base>) => {
+		const { child, stage, remaining } = v(Budget, "budget")
+		const { seconds } = v(limits, "limit")
+		const { paused } = v(Paused, "paused")
+		return r
+			.match(Budget, { child, stage, remaining })
+			.match(limits, { child, stage, seconds })
+			.match(Paused, { child, stage, paused })
+			.where(r.not(held, { child, stage }))
+			.find({ child, stage, remaining, limit: seconds })
+	}
+	const two = query(Base).rule(besideUsed).rule(besideLeft)
+	const FirstBudget = derived("FirstBudget", shape.rules === 2 ? two : two.rule(besidePaused))
+	return schema.extend(
+		[Base],
+		"rule_copies_1",
+		[FirstBudget],
+		[check("First_budget", FirstBudget, (b) => b.eq(b.remaining, b.limit))]
+	)
+}
+
+/** The schema of each shape installed through its first migration, by `rules arms`. */
+const templateOf = (shape: Shape) => {
+	const declared = schemaOf(shape)
+	return migratedTemplate({
+		declaredIn: import.meta,
+		name: `rule copies ${String(shape.rules)} ${String(shape.arms)}`,
+		content: { schema: declared.name, logins: [], rules: shape.rules, arms: shape.arms },
+		versions: [{ schema: declared, logins: [], declarations: noDeclarations }],
+		options: {
+			label: `rule_copies_${String(shape.rules)}_${String(shape.arms)}`,
+			extensions: [],
+			compile: compileInstallation,
+			ambient: ordinarySession,
+			review: noPlaceholders
+		}
+	})
+}
+
+/** Each shape by its rules and arms. */
+const shapes = {
+	"2 2": { rules: 2, arms: 2 },
+	"2 3": { rules: 2, arms: 3 },
+	"3 2": { rules: 3, arms: 2 },
+	"3 3": { rules: 3, arms: 3 }
+} as const satisfies Readonly<Record<string, Shape>>
+
+export const copiesTemplates = {
+	"2 2": templateOf(shapes["2 2"]),
+	"2 3": templateOf(shapes["2 3"]),
+	"3 2": templateOf(shapes["3 2"]),
+	"3 3": templateOf(shapes["3 3"])
+} as const
+
+/**
+ * A case: the shape, by its rules and arms, the sittings stored, each with its assignment, its test's limits and its
+ * facts, and how many budgets a write touches, `touched`: the judge is measured at one budget written, then at
+ * `touched`.
+ */
+export interface Copies {
+	readonly shape: keyof typeof shapes
+	readonly sittings: number
+	readonly touched: number
+}
+
+export const copiesGen: Gen<Copies> = (s) => ({
+	shape: s.draw(element(["2 2", "2 3", "3 2", "3 3"] as const)),
+	sittings: s.draw(int(200, 600)),
+	touched: s.draw(int(20, 60))
+})
+
+export type CopiesFeature =
+	| "two rules"
+	| "three rules"
+	| "limits of two arms"
+	| "limits of three arms"
+
+/** Every test a sitting's assignment reads: a few, so each test's limits stand beside many sittings. */
+const tests = 7
+
+/** Every limit's seconds, which each budget written states as its remaining, so the law holds. */
+const seconds = 60
+
+/**
+ * The work of a judged statement's scans, every loop: the rows each scan of a stored relation reads, each read of a
+ * delta through its reader yields (rule-aggregate.fixtures.ts scannedWork), and each scan of a CTE reads, its output and
+ * what its filter removed, where a CTE read at a correlated row's value is scanned whole for each such row.
+ */
+const work = (plan: PlanNode): number =>
+	rowsRead(plan) +
+	rowsGenerated(plan) +
+	Arr.reduce(
+		Arr.filter([...planNodes(plan)], (n) => n.nodeType === "CTE Scan"),
+		0,
+		(sum, n) => sum + scannedRows(n)
+	)
+
+/**
+ * One case in its one transaction, which the case's end rolls back: `sittings` sittings stored with the captures off,
+ * sitting n child n's assignment of test n mod 7, each test's limit of each kind, and each fact a rule stands beside,
+ * counted as a VACUUM counts them (fill.ts countedAsVacuumed); then, through the captures, the budget of sitting 1, its
+ * remaining the limits' seconds, and the judge's statements explained over it before the judge runs (test/support/
+ * judge.ts judgedPlans), every join a nested loop and every read of a stored relation through an index (lookupSettings,
+ * scans off), so a plan stands the same at any count of budgets; then the budget of sitting 2, and the budgets of
+ * sittings 3 to `touched`, each explained again. Each copy of the limits a rule reads at its budget's sitting is
+ * computed once for each touched sitting and read there by every rule, so the judge's work at k budgets is at most k
+ * times its work at one, c * k at every k: it grows with the budgets, never with their square, and stands at none of the
+ * stored sittings beside them. A copy read at each touched sitting's value from one evaluation at every sitting's, a CTE
+ * no index reads, scanned the evaluation whole for each sitting (42, 600, 1,600, 4,800 and 16,000 rows at 1, 10, 20, 40
+ * and 80 budgets, two rules over two arms, at 242459f67; 38 a budget here).
+ */
+export const runCopies = (
+	installed: Installed,
+	connection: PgConnection,
+	c: Copies,
+	k: Case<CopiesFeature>
+) =>
+	Effect.gen(function* () {
+		yield* standUpJudge(connection, installed.installation)
+		const names = namesOf(installed)
+		const shape = shapes[c.shape]
+		const facts = Arr.take([names.table(Used), names.table(Left), names.table(Paused)], shape.rules)
+		const stored = [names.table(Assignment), names.table(Limit), ...facts]
+		const loaded = [
+			...Arr.map(stored, (t) => `ALTER TABLE ${t} DISABLE TRIGGER USER`),
+			`INSERT INTO ${names.table(Assignment)} SELECT n, n, n % ${String(tests)} FROM generate_series(1, ${String(c.sittings)}) AS g(n)`,
+			`INSERT INTO ${names.table(Limit)} SELECT t, k, ${String(seconds)} FROM generate_series(0, ${String(tests - 1)}) AS t(t), generate_series(1, ${String(shape.arms)}) AS k(k)`,
+			...Arr.map(
+				facts,
+				(f) =>
+					`INSERT INTO ${f} SELECT n, n, 1 FROM generate_series(1, ${String(c.sittings)}) AS g(n)`
+			),
+			...Arr.map(stored, (t) => `ALTER TABLE ${t} ENABLE TRIGGER USER`),
+			...Arr.map(stored, countedAsVacuumed),
+			"SET CONSTRAINTS ALL DEFERRED",
+			...lookupSettings,
+			"SET LOCAL enable_seqscan = off",
+			"SET LOCAL enable_bitmapscan = off"
+		]
+		for (const sql of loaded) {
+			yield* connection.query(sql, [])
+		}
+		/** The judge's work over the budgets of sittings `from` to `to`, written through the captures. */
+		const written = (from: number, to: number) =>
+			Effect.gen(function* () {
+				yield* connection.query(
+					`INSERT INTO ${names.table(Budget)} SELECT n, n, ${String(seconds)} FROM generate_series(${String(from)}, ${String(to)}) AS g(n)`,
+					[]
+				)
+				const judged = yield* judgedPlans(
+					(sql) => connection.queryValues(sql, []),
+					installed.installation,
+					judgedStatementsOf(installed.installation)
+				)
+				return Arr.reduce(judged, 0, (sum, { plan }) => sum + work(plan))
+			})
+		const one = yield* written(1, 1)
+		const two = yield* written(2, 2)
+		const many = yield* written(3, c.touched)
+		assert.ok(
+			two <= 2 * one && many <= c.touched * one,
+			`${Formatter.format(c)}: the judge's scans read ${String(one)}, ${String(two)} and ${String(many)} rows over 1, 2 and ${String(c.touched)} budgets written, at most ${String(one)} for each budget`
+		)
+		yield* connection.query("SET CONSTRAINTS ALL IMMEDIATE", [])
+		k.note(shape.rules === 2 ? "two rules" : "three rules")
+		k.note(shape.arms === 2 ? "limits of two arms" : "limits of three arms")
+	})
+
+/**
+ * A read of one child's budgets beside its sittings' limits, the limits an import bound to each budget's stage
+ * (`limitsAt.bind({ stage })`), a copy correlated to each rule's row, read by two rules, each beside a fact of its own.
+ * Each rule's region binds the stage from Budget, a stored relation it reads at the child, which the statement does not
+ * hold whole: its copies stay where they stand, each read at its budget's stage, never computed beside every stored
+ * budget.
+ */
+const limitsAt = query(Base)
+	.rule((r) => {
+		const { child, test } = v(Assignment, "assignment")
+		const { seconds } = v(Limit, "limit")
+		return r
+			.match(Assignment, { number: r.param("stage", i), child, test })
+			.match(Limit, { test, kind: 1, seconds })
+			.find({ seconds })
+	})
+	.rule((r) => {
+		const { child, test } = v(Assignment, "assignment")
+		const { seconds } = v(Limit, "limit")
+		return r
+			.match(Assignment, { number: r.param("stage", i), child, test })
+			.match(Limit, { test, kind: 2, seconds })
+			.find({ seconds })
+	})
+
+const childsBudgets = query(Base)
+	.rule((r) => {
+		const { stage, remaining } = v(Budget, "budget")
+		const { seconds } = v(limitsAt, "limit")
+		const { used } = v(Used, "used")
+		const child = r.param("child", i)
+		return r
+			.match(Budget, { child, stage, remaining })
+			.match(limitsAt.bind({ stage }), { seconds })
+			.match(Used, { child, stage, used })
+			.find({ stage, remaining, limit: seconds })
+	})
+	.rule((r) => {
+		const { stage, remaining } = v(Budget, "budget")
+		const { seconds } = v(limitsAt, "limit")
+		const { left } = v(Left, "left")
+		const child = r.param("child", i)
+		return r
+			.match(Budget, { child, stage, remaining })
+			.match(limitsAt.bind({ stage }), { seconds })
+			.match(Left, { child, stage, left })
+			.find({ stage, remaining, limit: seconds })
+	})
+
+/** The base schema installed through its first migration, with a reader whose workload's indexes the read earns. */
+export const readTemplate = migratedTemplate({
+	declaredIn: import.meta,
+	name: "rule copies read",
+	content: { schema: Base.name, logins: [] },
+	versions: [{ schema: Base, logins: [], declarations: noDeclarations }],
+	options: {
+		label: "rule_copies_read",
+		extensions: [
+			workloadOver([{ login: "reader", workloads: [workload(Base, { childsBudgets })] }])
+		],
+		compile: compileInstallation,
+		ambient: ordinarySession,
+		review: noPlaceholders
+	}
+})
+
+/**
+ * A read case: the children stored, each with `each` budgets, its sittings' assignments, limits and facts, and the
+ * children stored beside them before the read is explained again.
+ */
+export interface Read {
+	readonly children: number
+	readonly each: number
+	readonly more: number
+}
+
+export const readGen: Gen<Read> = (s) => ({
+	children: s.draw(int(20, 60)),
+	each: s.draw(int(2, 6)),
+	more: s.draw(int(100, 300))
+})
+
+export type ReadFeature = "read beside a few children" | "read beside many children"
+
+/**
+ * One read case in its one transaction, which the case's end rolls back: children 1 to `children` stored with `each`
+ * budgets each, child c's budget j at stage c * 10 + j, each stage's assignment of test stage mod 7, each test's
+ * limits and each budget's facts, counted as a VACUUM counts them; the read of child 1's budgets explained, every read
+ * of a stored relation through an index (scans off); then `more` children stored beside them alike, and the read
+ * explained again. Its scans read the same rows both times: each rule reads its copy of the limits at its own budget's
+ * stage, never beside every stored budget, whose rows the statement does not hold.
+ */
+export const runRead = (
+	installed: Installed,
+	connection: PgConnection,
+	c: Read,
+	k: Case<ReadFeature>
+) =>
+	Effect.gen(function* () {
+		const names = namesOf(installed)
+		const stored = (from: number, to: number) => {
+			const stage = `c * 10 + j`
+			const budgets = `FROM generate_series(${String(from)}, ${String(to)}) AS g(c), generate_series(1, ${String(c.each)}) AS h(j)`
+			return [
+				`INSERT INTO ${names.table(Assignment)} SELECT ${stage}, c, (${stage}) % ${String(tests)} ${budgets}`,
+				`INSERT INTO ${names.table(Budget)} SELECT c, ${stage}, ${String(seconds)} ${budgets}`,
+				`INSERT INTO ${names.table(Used)} SELECT c, ${stage}, 1 ${budgets}`,
+				`INSERT INTO ${names.table(Left)} SELECT c, ${stage}, 1 ${budgets}`
+			]
+		}
+		const tables = Arr.map([Assignment, Limit, Budget, Used, Left], (t) => names.table(t))
+		for (const sql of [
+			`INSERT INTO ${names.table(Limit)} SELECT t, k, ${String(seconds)} FROM generate_series(0, ${String(tests - 1)}) AS t(t), generate_series(1, 2) AS k(k)`,
+			...stored(1, c.children),
+			...Arr.map(tables, countedAsVacuumed),
+			"SET LOCAL enable_seqscan = off",
+			"SET LOCAL enable_bitmapscan = off"
+		]) {
+			yield* connection.query(sql, [])
+		}
+		const options = {
+			...testCompile,
+			installation: identity.schema(parsedSchemaName(installed.declared))
+		}
+		const template = succeeded(
+			compileTemplate(childsBudgets, undefined, options),
+			"the read compiles"
+		)
+		const [statement, ...others] = template.optimized
+		assert.ok(statement !== undefined && others.length === 0, "the read is one statement")
+		const params = paramTexts(
+			statement,
+			{ child: 1 },
+			declaredOf(template, childsBudgets, undefined, options)
+		)
+		const explained = Effect.map(
+			connection.queryValues(
+				`EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, SETTINGS, FORMAT JSON) ${statement.sql}`,
+				params
+			),
+			(rows) => work(succeeded(parsePlan(rows[0]?.[0]), "one EXPLAIN plan").plan)
+		)
+		const few = yield* explained
+		for (const sql of [
+			...stored(c.children + 1, c.children + c.more),
+			...Arr.map(tables, countedAsVacuumed)
+		]) {
+			yield* connection.query(sql, [])
+		}
+		const many = yield* explained
+		assert.equal(
+			many,
+			few,
+			`${Formatter.format(c)}: the read of child 1's ${String(c.each)} budgets reads the same rows beside ${String(c.children)} children and beside ${String(c.children + c.more)}`
+		)
+		k.note(c.children < 40 ? "read beside a few children" : "read beside many children")
+	})

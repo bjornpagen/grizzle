@@ -31,6 +31,7 @@ import {
 	type AlterTableAction,
 	type ArrayColumn,
 	type ArraysSource,
+	type CarriedColumn,
 	type ClockInstant,
 	type CatalogTypeName,
 	catalogSpelling,
@@ -992,11 +993,24 @@ const arrayOf = (type: TypeRef): string => (type.array ? printType(type) : `${pr
  * or vector(n), is cast back to it, which a recursive CTE seeded from the input needs (parse_cte.c compares typmods,
  * 42804 otherwise).
  */
-const printArrayColumn = ({ definition, array, check }: ArrayColumn): string => {
-	const elements =
+const printArrayColumn = ({ definition, array, check }: ArrayColumn): string =>
+	printUnnested(
 		check.kind === "domain"
 			? `$${array.number}::${arrayOf(check.domain)}::${arrayOf(definition.type)}`
-			: `$${array.number}::${arrayOf(definition.type)}`
+			: `$${array.number}::${arrayOf(definition.type)}`,
+		definition
+	)
+
+/**
+ * The column a carried array holds (sql/ast.ts CarriedColumn), as a relation input's (printArrayColumn): the array a
+ * row in scope carries, an array of the column's base type, which array_agg made of the values a sub-query delivered
+ * at that row (lower/shapes/share/keyed.ts KeyedLowering carried).
+ */
+const printCarriedColumn = ({ definition, array }: CarriedColumn): string =>
+	printUnnested(printExpr(array), definition)
+
+/** One column of rows as arrays: the elements of `elements`, collated and typed as `definition` states. */
+const printUnnested = (elements: string, definition: ColumnDefinition): string => {
 	const collated =
 		definition.collation === undefined
 			? elements
@@ -1007,7 +1021,8 @@ const printArrayColumn = ({ definition, array, check }: ArrayColumn): string => 
 }
 
 /**
- * A relation input's arrays (sql/ast.ts ArraysSource) in the select-list form, every function qualified:
+ * Rows as arrays (sql/ast.ts ArraysSource), a relation input's or a row's carried ones, in the select-list form, every
+ * function qualified:
  *
  *   (SELECT pg_catalog.unnest($1::uuid[]) AS "c1",
  *     pg_catalog.unnest($2::text[] COLLATE pg_catalog.pg_c_utf8) AS "c2",
@@ -1038,6 +1053,8 @@ const printArrays = (source: ArraysSource, alias: string): string => {
 						]
 			return `(SELECT ${[...columns, ...ordinal].join(", ")}) AS ${quoteIdent(alias)}`
 		}
+		case "carried":
+			return `(SELECT ${source.columns.map(printCarriedColumn).join(", ")}) AS ${quoteIdent(alias)}`
 	}
 }
 

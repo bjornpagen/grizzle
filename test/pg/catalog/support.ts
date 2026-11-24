@@ -8,7 +8,11 @@ import { floatLiteral } from "#compiler/ir/carriers.ts"
 import type { Certificate, CertificateRule } from "#compiler/ir/certificate.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
-import { evaluatedAsItStands, LowerContext } from "#compiler/lower/conservative/context.ts"
+import {
+	carriesNothing,
+	evaluatedAsItStands,
+	LowerContext
+} from "#compiler/lower/conservative/context.ts"
 import { ConservativeDelivery } from "#compiler/lower/conservative/deliver.ts"
 import type { CatalogOptions } from "#compiler/lower/shapes/catalog/context.ts"
 import { type CatalogResult, rewriteCatalog } from "#compiler/lower/shapes/catalog/rewrite.ts"
@@ -250,7 +254,8 @@ export const catalogLowering = (
 										subject: { kind: "query" }
 									},
 									catalogDispatch,
-									evaluatedAsItStands
+									evaluatedAsItStands,
+									carriesNothing
 								)
 							).program(rewritten.dag.roots[0])
 						),

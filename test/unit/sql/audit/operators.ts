@@ -1556,7 +1556,7 @@ const requiredBreakTable = breakTable([
 					return []
 				}
 				const source = item.source
-				if (source.kind === "count") {
+				if (source.kind !== "columns") {
 					return []
 				}
 				return Arr.flatMap(source.columns, (c, i) => {

@@ -177,18 +177,11 @@ export const aProbeOfTheGroupsAWriteTouchedReadsThoseGroupsAloneHoweverManyGroup
 					"test/pg/laws/rule-aggregate.test.ts#aProbeOfTheGroupsAWriteTouchedReadsThoseGroupsAloneHoweverManyGroupsStandBesideThem:-:0.0.1.1.1.1.1.0.1.0.0.0.1.0.0"
 				),
 				reason:
-					"a count grouped by item over Attempt's rows whose item is not adaptive, read by both arms of a plain union beside 200 groups and then 800, its body computed once over the touched items (share/keyed.ts computedOnce): with the body beside the key set unfenced, PostgreSQL joined them by a Materialize of every Attempt row under a join filter, 405 rows read, then 1,605 (DECIDE4's compute-once at 8f997ec92)",
+					"a count grouped by item over Attempt's rows whose item is not adaptive, read by both arms of a plain union beside 200 groups and then 800, its body computed once for each touched item beside it (share/keyed.ts carried, a LATERAL aggregate PostgreSQL never pulls up): with the body beside the key set unfenced, PostgreSQL joined them by a Materialize of every Attempt row under a join filter, 405 rows read, then 1,605 (DECIDE4's compute-once at 8f997ec92)",
 				since: "2026-11-24"
 			}
 		],
 		kills: [
-			{
-				file: "packages/engine/src/lower/shapes/share/keyed.ts",
-				original: "\t\t\tfencedRead(headingTargetsOf(node, rows.map), rows.item, undefined),",
-				replacement:
-					"\t\t\toperandSelect(core(headingTargetsOf(node, rows.map), [rows.item], undefined)),",
-				why: "A sub-query computed once is read beside its key set unfenced: PostgreSQL pulls it up and joins it to the keys by its estimates, a Materialize of every stored row under a join filter, so a write of one group reads every group stored beside it."
-			},
 			{
 				file: "packages/engine/src/analysis/theory/navigate.ts",
 				original:

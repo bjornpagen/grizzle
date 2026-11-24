@@ -1,10 +1,6 @@
-import { immediateDominators, postorder } from "@bjornpagen/grizzle-text/base/graph"
+import { postorder } from "@bjornpagen/grizzle-text/base/graph"
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
-import {
-	isNonEmpty,
-	mapNonEmpty,
-	type NonEmptyReadonlyArray
-} from "@bjornpagen/grizzle-text/base/nonempty"
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { analyzeDemand, noPins } from "#compiler/analysis/demand/demand.ts"
 import { outerOf } from "#compiler/analysis/physical/rules.ts"
 import { maxStringLength, unwrap } from "#compiler/core/canonical.ts"
@@ -12,13 +8,17 @@ import { DagDigests, DagTemplates, type OuterRead } from "#compiler/ir/dag-diges
 import { nodesByLabel } from "#compiler/ir/dag.ts"
 import { inputsOf, type RelNode, type ValidDag } from "#compiler/ir/rel.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
-import { costClass, type CtePlan } from "#compiler/lower/optimize/cte-policy/index.ts"
+import {
+	costClass,
+	type CtePlan,
+	restrictedByValues
+} from "#compiler/lower/optimize/cte-policy/index.ts"
 import { feedbackReadsOf, nodeGraph } from "#compiler/lower/optimize/demand/editor.ts"
-import { type CopiedSites, type Keys, keySetReads } from "#compiler/lower/shapes/share/keys.ts"
 import { columnType } from "#compiler/runtime/lower/columns.ts"
 
 /**
- * A sub-query a statement reads at several sites, computed once (keyed.ts KeyedLowering copied).
+ * A sub-query a statement reads at several sites, computed once for each row that drives it (keyed.ts KeyedLowering
+ * carried).
  *
  * A rule statement's import read at the values a region binds is one node for each region that binds them (check/
  * checker.ts importedKey: an outer value by the node it is read through), so a sub-query each rule of a union reads at its
@@ -28,67 +28,138 @@ import { columnType } from "#compiler/runtime/lower/columns.ts"
  * forms are one with each node outside them named by its place (ir/dag-digest.ts DagDigests positional), each reading
  * the same columns of the rows in the same places: the sub-query at a site's outer values.
  *
- * Such a sub-query is computed once at the innermost scope that encloses all its sites, at the union of the sites' keys,
- * and each site reads that one evaluation at its own key: the statement's, where the nodes every path to a site passes
- * through meet at one that reads no outer row, its key set every site's outer values where they stand (keys.ts
- * KeyAnalysis copyKeys). Where they meet only inside an evaluation per outer row, a unit's, the scope is that
- * evaluation, and the statement leaves each copy where it stands: computed once over every unit's keys, each unit's run
- * would read the rows of every unit's.
+ * Each site reads those values off one row of a node the statement reads where it stands and holds whole, its driver:
+ * a node it computes once or one its own values restrict (a delta, the call's input), through steps, filters and
+ * projections. Copies are one class exactly when their forms are one and their drivers' are too, alpha-equivalent alike,
+ * each place read off the same column of its driver: then every driver of the class delivers the same rows, and the
+ * class is computed once for each of them, beside it, `E = SELECT d.*, a.* FROM <driver> AS d, LATERAL (SELECT
+ * array_agg(c.<column>), ... FROM (<the copy at d's values>) AS c) AS a`, each driver of the class read as E and each
+ * site reading its own driver row's arrays, `unnest(d.<array>)`, no lookup and no scan: O(k log n) for E's k driver rows
+ * and O(1) for each site beside the copy's own rows, where reading E at each site's values, a CTE no index reads, read
+ * all of it once for each driver row, O(k * |E|). A LATERAL aggregate is never pulled up, so PostgreSQL computes the
+ * copy at each driver row's values, each read a B-tree probe, whatever it estimates; no join of E to the sites stands
+ * for an estimate to choose the method of. Copies whose drivers differ in form stay where they stand, each read at its
+ * own row's values, k probes for each site.
  */
 
 /**
- * A sub-query a statement reads at several sites: the copy whose lowering computes it and the columns it reads of outer
- * rows, each at its place (ir/dag-digest.ts positional), the type of each place, and the key set, every site's outer
- * values by place.
+ * A class of copies (the module header): its index among its driving set's classes, the set its carried columns are
+ * named by (context.ts carriedName), the copy whose lowering computes it, and each column it reads of outer rows at its
+ * place (ir/dag-digest.ts positional) with the column of its driver that place reads.
  */
 export interface CopyClass {
+	readonly index: number
 	readonly representative: RelNode
-	readonly outer: NonEmptyReadonlyArray<OuterRead>
-	readonly types: NonEmptyReadonlyArray<ScalarType>
-	readonly keys: Keys
+	readonly outer: NonEmptyReadonlyArray<{ readonly read: OuterRead; readonly driver: string }>
 }
 
-/** A site of a sub-query a statement reads at several (CopyClass): its class, and the columns its places read. */
+/**
+ * The rows that drive classes of copies, one form for every driver of theirs: the driver whose rows the classes are
+ * computed beside, and those classes, in the statement's order.
+ */
+export interface DrivingSet {
+	readonly driver: RelNode
+	readonly classes: NonEmptyReadonlyArray<CopyClass>
+}
+
+/** A site of a class of copies: its driving set and class, and its own driver, whose row's arrays it reads. */
 export interface CopySite {
+	readonly driving: DrivingSet
 	readonly copied: CopyClass
-	readonly outer: NonEmptyReadonlyArray<OuterRead>
+	readonly driver: RelNode
 }
 
-/** A class of copies, its sites in the statement's order, its places' types, and the key set its sites ask (keys.ts). */
-export interface CopyCandidate {
-	readonly sites: NonEmptyReadonlyArray<{
-		readonly node: RelNode
-		readonly outer: NonEmptyReadonlyArray<OuterRead>
-	}>
-	readonly types: NonEmptyReadonlyArray<ScalarType>
-	readonly request: CopiedSites
+/** The copies a statement computes once beside their drivers: each site, and each driver's driving set. */
+export interface CopyPlan {
+	readonly sites: ReadonlyMap<RelNode, CopySite>
+	readonly drivers: ReadonlyMap<RelNode, DrivingSet>
 }
+
+/** No copy computed beside a driver. */
+export const noCopies: CopyPlan = { sites: new Map(), drivers: new Map() }
 
 /**
  * Whether a key is compared by equality as itself: no float, whose -0 and +0 equality makes one value, and no vector,
- * whose equality is the extension's.
+ * whose equality is the extension's. A site's region may bind its outer column from another source than its driver,
+ * equal to the driver's by the region's equality, so the copy at the driver's value is the copy at the site's alone
+ * where equal values are one.
  */
 const exactKey = (t: ScalarType): boolean => {
 	const carrier = baseOf(t).carrier
 	return carrier !== "float4" && carrier !== "float8" && carrier !== "vector"
 }
 
+/** A site of a candidate class of copies: the copy, its driver, and each place's outer column and driver column. */
+interface CopyCandidate {
+	readonly node: RelNode
+	readonly driver: RelNode
+	readonly outer: NonEmptyReadonlyArray<{ readonly read: OuterRead; readonly driver: string }>
+}
+
+/** Where a site reads one outer column: its driver, the driver's column, and the driver row it reads it off. */
+interface Driven {
+	readonly node: RelNode
+	readonly column: string
+	readonly row: object
+}
+
 /**
- * The classes of copies a statement over `dag` reads at more than one site (the module header): the nodes, in `order`,
- * every path to which meets at a node that reads no outer row, each read once, where it stands (no CTE policy decision),
- * correlated, of one column at least, more than a scan of one source, off every recursion's feedback, read laterally by
- * no expression and holding no node a holder outside it holds; grouped by their positional forms and their realizations
- * (`realization`), each a set or rows that may repeat alike, every outer column an exact key. A node of no column is
- * an existence test's right side, which its test reads where it stands, per left row through the index its join
- * columns request (lower/conservative/semi-join/exists.ts readPerLeftRow): its one evaluation would hold its sites'
- * keys alone, each site scanning all of them for its own.
+ * The driver an outer row's column `column` of node `id` is read off where the row stands in scope, its rows entering
+ * the scope by its column map (conservative/context.ts LowerContext sourceAs): an enclosing region's variable, by the
+ * occurrence that binds it, of a source the region reads where it stands and matches once, or by the outer column its
+ * correlation reads in turn; or the node itself, where it reads no outer row.
  */
-export const copyCandidates = (
+const drivenBy = (
+	labels: ReadonlyMap<string, RelNode>,
+	id: string,
+	column: string
+): Driven | undefined => {
+	const node = labels.get(id)
+	if (node === undefined) {
+		return undefined
+	}
+	if (node.kind !== "MatchRegion") {
+		return outerOf(node).length === 0 ? { node, column, row: node } : undefined
+	}
+	const v = node.vars.find((x) => x.name === column)
+	if (v === undefined) {
+		return undefined
+	}
+	for (const q of node.occurrences) {
+		const b = q.bindings.find((x) => x.var === v)
+		if (
+			b !== undefined &&
+			outerOf(q.source).length === 0 &&
+			node.occurrences.every((o) => o === q || o.source !== q.source)
+		) {
+			return { node: q.source, column: b.column, row: q }
+		}
+	}
+	const c = node.correlated.find((x) => x.var === v)
+	return c?.expr.kind === "column"
+		? drivenBy(labels, c.expr.column.node, c.expr.column.name)
+		: undefined
+}
+
+/**
+ * The copies a statement over `dag` computes beside their drivers (the module header): each node, in `order`, read once
+ * where it stands (no CTE policy decision), correlated, of one column at least, more than a scan of one source, off
+ * every recursion's feedback, read laterally by no expression and holding no node a holder outside it holds, whose
+ * every outer column is an exact key read off one row of one driver, a node `once` holds or the statement's values
+ * restrict, through steps, filters and projections; grouped by their positional forms, their realizations
+ * (`realization`), their drivers' forms and realizations and the driver's column each place reads, each class of two
+ * sites at least; classes highest first, none with a site under a site of a class taken before it, which that class's
+ * one evaluation reads once. A node of no column is an existence test's right side, which its test reads where it
+ * stands, per left row through the index its join columns request (lower/conservative/semi-join/exists.ts
+ * readPerLeftRow), and carries nothing.
+ */
+export const copyPlan = (
 	dag: ValidDag,
 	order: ReadonlyArray<RelNode>,
 	cte: CtePlan,
+	once: ReadonlySet<RelNode>,
 	realization: (node: RelNode) => string
-): ReadonlyArray<CopyCandidate> => {
+): CopyPlan => {
 	const demand = analyzeDemand(dag, noPins)
 	const feedback = feedbackReadsOf(nodeGraph, demand.order)
 	const labels = nodesByLabel(dag)
@@ -105,9 +176,22 @@ export const copyCandidates = (
 			return scope?.kind === "held" && !inside.has(scope.holder)
 		})
 	}
+	/**
+	 * Whether the statement holds a driver's rows whole wherever it reads them: a node it computes once, or one its own
+	 * values restrict (cte-policy restrictedByValues: a delta, the call's input), through steps, filters and projections;
+	 * never a stored relation's scan, which read beside each of its rows for the copy would read every unit's rows
+	 * (test/pg/laws/rule-aggregate: a probe of the touched groups read 1,605 rows beside 800 untouched groups where it
+	 * read 405).
+	 */
+	const heldWhole = (node: RelNode): boolean =>
+		once.has(node) ||
+		restrictedByValues(node) ||
+		((node.kind === "Step" || node.kind === "Filter" || node.kind === "ProjectSet") &&
+			heldWhole(node.input))
+	/** Each class's sites, by its key: the copy's form and realization, its driver's, and each place's driver column. */
 	const groups = new Map<
 		string,
-		Array<{ readonly node: RelNode; readonly outer: NonEmptyReadonlyArray<OuterRead> }>
+		{ readonly driving: string; readonly sites: Array<CopyCandidate> }
 	>()
 	for (const node of order) {
 		if (
@@ -125,105 +209,89 @@ export const copyCandidates = (
 		}
 		const form = unwrap(digests.positional([node], "copies"))
 		const [read, ...reads] = form.outer
-		if (read !== undefined) {
-			groups
-				.getOrInsertComputed(`${form.digest} ${realization(node)}`, () => [])
-				.push({ node, outer: [read, ...reads] })
+		if (read === undefined) {
+			continue
 		}
-	}
-	const readers = new Map<RelNode, Array<RelNode>>()
-	for (const node of order) {
-		for (const input of inputsOf(node)) {
-			readers.getOrInsertComputed(input, () => []).push(node)
-		}
-	}
-	const roots = new Set<RelNode>(dag.roots)
-	const dominator = immediateDominators(
-		order,
-		(node) => readers.get(node) ?? [],
-		(node) => roots.has(node)
-	)
-	/** The nodes every path to `node` passes through, nearest first. */
-	const chain = (node: RelNode): ReadonlyArray<RelNode> => {
-		const out: Array<RelNode> = []
-		for (let at = dominator(node); at !== undefined; at = dominator(at)) {
-			out.push(at)
-		}
-		return out
-	}
-	/** Whether the sites' paths meet at no node that reads an outer row: the statement's scope, or one as wide. */
-	const statementScope = (sites: ReadonlyArray<RelNode>): boolean => {
-		const [first, ...rest] = sites.map(chain)
-		const others = rest.map((c) => new Set(c))
-		const meet = (first ?? []).find((n) => others.every((o) => o.has(n)))
-		return meet === undefined || outerOf(meet).length === 0
-	}
-	return [...groups.values()].flatMap((group): ReadonlyArray<CopyCandidate> => {
-		const [first, ...others] = group
-		if (first === undefined || !isNonEmpty(others)) {
-			return []
-		}
-		const types = mapNonEmpty(first.outer, (o) =>
-			columnType(
+		const outer = mapNonEmpty([read, ...reads], (o) => ({
+			read: o,
+			driven: drivenBy(labels, o.node, o.column),
+			type: columnType(
 				defined(labels.get(o.node), "an outer row's node, of the statement's DAG").heading,
 				o.column
 			)
-		)
-		if (!types.every(exactKey) || !statementScope(group.map((s) => s.node))) {
-			return []
-		}
-		return [
-			{
-				sites: [first, ...others],
-				types,
-				request: {
-					columns: mapNonEmpty(first.outer, (_, i) => `place ${String(i)}`),
-					sites: group.map((s) => s.outer)
-				}
-			}
-		]
-	})
-}
-
-/**
- * Each site of the classes a statement computes once (CopySite), each candidate with its key set (`keys`, keys.ts
- * KeyAnalysis copyKeys), highest first: a class whose key set reads none of its sites, and none of whose sites lies
- * under a site of a class taken before it, which that class's one evaluation reads once.
- */
-export const copySites = (
-	order: ReadonlyArray<RelNode>,
-	candidates: ReadonlyArray<CopyCandidate>,
-	keys: ReadonlyArray<Keys | undefined>
-): ReadonlyMap<RelNode, CopySite> => {
-	const place = new Map(order.map((node, i) => [node, i] as const))
-	const placeOf = (c: CopyCandidate): number =>
-		c.sites.reduce((most, s) => Math.max(most, place.get(s.node) ?? 0), 0)
-	const out = new Map<RelNode, CopySite>()
-	const below = new Set<RelNode>()
-	for (const [i, c] of [...candidates.entries()].toSorted(
-		([, a], [, b]) => placeOf(b) - placeOf(a)
-	)) {
-		const at = keys[i]
-		const sites = new Set(c.sites.map((s) => s.node))
+		}))
+		const first = outer[0].driven
 		if (
-			at === undefined ||
-			c.sites.some((s) => below.has(s.node)) ||
-			postorder(keySetReads(at), inputsOf).some((n) => sites.has(n))
+			first === undefined ||
+			!heldWhole(first.node) ||
+			!outer.every((o) => o.driven?.row === first.row && exactKey(o.type))
 		) {
 			continue
 		}
-		const copied: CopyClass = {
-			representative: c.sites[0].node,
-			outer: c.sites[0].outer,
-			types: c.types,
-			keys: at
+		const driver = first.node
+		const places = mapNonEmpty(outer, (o) => ({
+			read: o.read,
+			driver: defined(o.driven, "a place read off the site's one driver row").column
+		}))
+		const driving = [
+			unwrap(digests.positional([driver], "copy drivers")).digest,
+			realization(driver),
+			driver.heading.map((c) => c.name).join(",")
+		].join(" ")
+		groups
+			.getOrInsertComputed(
+				[form.digest, realization(node), driving, places.map((p) => p.driver).join(",")].join(" "),
+				() => ({ driving, sites: [] })
+			)
+			.sites.push({ node, driver, outer: places })
+	}
+	const place = new Map(order.map((node, i) => [node, i] as const))
+	const placeOf = (sites: ReadonlyArray<{ readonly node: RelNode }>): number =>
+		sites.reduce((most, s) => Math.max(most, place.get(s.node) ?? 0), 0)
+	const taken: Array<{ readonly driving: string; readonly sites: ReadonlyArray<CopyCandidate> }> =
+		[]
+	const below = new Set<RelNode>()
+	for (const group of [...groups.values()].toSorted(
+		(a, b) => placeOf(b.sites) - placeOf(a.sites)
+	)) {
+		if (group.sites.length < 2 || group.sites.some((s) => below.has(s.node))) {
+			continue
 		}
-		for (const s of c.sites) {
-			out.set(s.node, { copied, outer: s.outer })
+		taken.push(group)
+		for (const s of group.sites) {
 			for (const n of postorder(inputsOf(s.node), inputsOf)) {
 				below.add(n)
 			}
 		}
 	}
-	return out
+	const sites = new Map<RelNode, CopySite>()
+	const drivers = new Map<RelNode, DrivingSet>()
+	const byDriving = new Map<string, Array<(typeof taken)[number]>>()
+	for (const group of taken.toSorted((a, b) => placeOf(a.sites) - placeOf(b.sites))) {
+		byDriving.getOrInsertComputed(group.driving, () => []).push(group)
+	}
+	for (const classes of byDriving.values()) {
+		const [head, ...rest] = classes
+		if (head === undefined) {
+			continue
+		}
+		const made = mapNonEmpty([head, ...rest], (group, index) => {
+			const representative = defined(group.sites[0], "a class's first site")
+			return {
+				group,
+				copied: { index, representative: representative.node, outer: representative.outer }
+			}
+		})
+		const driving: DrivingSet = {
+			driver: defined(head.sites[0], "a class's first site").driver,
+			classes: mapNonEmpty(made, (m) => m.copied)
+		}
+		for (const { group, copied } of made) {
+			for (const s of group.sites) {
+				sites.set(s.node, { driving, copied, driver: s.driver })
+				drivers.set(s.driver, driving)
+			}
+		}
+	}
+	return { sites, drivers }
 }

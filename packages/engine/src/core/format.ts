@@ -468,6 +468,10 @@
  * direction, only the keys it orders by after them directed (engine.ts orderedPlacements), where format 8 created an
  * index of its own for such a seek and directed its fixed columns as its order, so two seeks that differed only in a
  * fixed column's direction took two indexes on one column list.
+ * A sub-query a rule statement reads at several sites is computed once for each row of the node that drives it, beside
+ * that row, its rows carried on it as arrays a site reads in lockstep (sql/ast.ts ArraysSource `carried`, lower/shapes/
+ * share/keyed.ts KeyedLowering carried), where format 8 read one evaluation at every site's keys, a CTE each site read at
+ * its own row's values; so every judge with such a copy moves.
  */
 export const artifactFormat = 8
 
@@ -495,8 +499,8 @@ export type FormattedFile = (typeof formattedFiles)[number]
  * @formatConstant each file's shape: the digest of its type, by test/support/record-shape.ts
  */
 export const recordShapes: { readonly [F in FormattedFile]: string } = {
-	snapshot: "d5ac3e66297bd1a403fa479868321c1e300610ce15d613c6cc8972026558c3d2",
-	served: "e82e1f7da7c2e57bd69f205a87febe9b90c07dc645884e199976c8eecea84462"
+	snapshot: "df2bc59743ff0238a4ed3d0310d0d3aa5ab3b9cf131e9a13432153169d35856c",
+	served: "6122df297bc3ede42f8e3758c0d57588b8018770d458f693a6844d3bb0754ad5"
 }
 
 /**

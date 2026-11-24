@@ -8,6 +8,7 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
 import { conservativeMeta, type Heading, type NodeOf, type RelNode } from "#compiler/ir/rel.ts"
 import {
+	carriesNothing,
 	emptyEnv,
 	evaluatedAsItStands,
 	LowerContext
@@ -311,8 +312,9 @@ export const optimized = (b: Built): Result.Result<unknown, CompileError> => {
 			params: [],
 			subject: { kind: "query" }
 		},
-		optimizedDispatch(facts, new ShapeState<RelationInput>("small", emptyCtePlan, noKeys)),
-		evaluatedAsItStands
+		optimizedDispatch(facts, new ShapeState<RelationInput>("small", emptyCtePlan, noKeys)).dispatch,
+		evaluatedAsItStands,
+		carriesNothing
 	)
 	return catchRefusal(() => recursionLowerer(facts)(b.rec, cx, emptyEnv))
 }

@@ -433,6 +433,33 @@ interface Feedback {
 export type NodeDispatch = (node: RelNode, cx: LowerContext, env: Env) => OperandSelect
 
 /**
+ * A node's rows with columns carried beside its heading (lower/shapes/share/keyed.ts KeyedLowering carried): its query,
+ * delivering its heading's columns and then the carried ones, and the name each carried one is read by in the node's
+ * column map, none a heading's name (`carriedName`).
+ */
+export interface CarriedRead {
+	readonly query: OperandSelect
+	readonly carried: NonEmptyReadonlyArray<string>
+}
+
+/**
+ * How a lowering reads a node whose rows carry columns beside its heading where a reader places it as a source
+ * (LowerContext sourceAs), the one place a node's rows enter a scope through a column map, so every reader that scopes
+ * a node's columns scopes its carried ones too; none (`carriesNothing`) in a lowering whose nodes carry none.
+ */
+export type Carrying = (node: RelNode, cx: LowerContext, env: Env) => CarriedRead | undefined
+
+/** The carrying of a lowering whose nodes carry no column beside their headings. */
+export const carriesNothing: Carrying = () => undefined
+
+/**
+ * The name a column carried beside a node's heading is read by in its column map (CarriedRead): `column` of the carried
+ * set `set`, under a NUL no heading's name holds, so it never reads a heading column, nor a heading column it.
+ */
+export const carriedName = (set: number, column: number): string =>
+	`\u0000${String(set)}.${String(column)}`
+
+/**
  * How a lowering builds a call's evaluation's query (call/index.ts evaluationQuery, or the query of the read that
  * evaluates the call itself) in the scope `env` it is built in: with the CTEs its arguments' shared nodes stand in
  * leading its WITH, each body lowered in that scope (cte-policy holderOf, lower/shapes ShapeState withHeldCtes), or as
@@ -608,6 +635,8 @@ interface Scope {
 	readonly evaluations: EvaluationHost | undefined
 	/** How a call's evaluation's query is built (EvaluationHolding). */
 	readonly holding: EvaluationHolding
+	/** How a node placed as a source carries columns beside its heading (Carrying). */
+	readonly carrying: Carrying
 }
 
 /** Each write DAG's fact spine (factSpine), made once: a DAG is immutable. */
@@ -730,7 +759,8 @@ export class LowerContext {
 		dag: ValidDag,
 		options: ConservativeOptions,
 		dispatch: NodeDispatch,
-		holding: EvaluationHolding
+		holding: EvaluationHolding,
+		carrying: Carrying
 	) {
 		this.dag = dag
 		this.options = options
@@ -752,7 +782,8 @@ export class LowerContext {
 			dispatch,
 			sharing: undefined,
 			evaluations: undefined,
-			holding
+			holding,
+			carrying
 		}
 	}
 
@@ -761,7 +792,13 @@ export class LowerContext {
 	 * names and placeholders.
 	 */
 	#within(scope: Scope): LowerContext {
-		const cx = new LowerContext(this.dag, this.options, scope.dispatch, scope.holding)
+		const cx = new LowerContext(
+			this.dag,
+			this.options,
+			scope.dispatch,
+			scope.holding,
+			scope.carrying
+		)
 		cx.#shared = this.#shared
 		cx.#scope = scope
 		return cx
@@ -818,7 +855,8 @@ export class LowerContext {
 			dispatch,
 			sharing: undefined,
 			evaluations: undefined,
-			holding: this.#scope.holding
+			holding: this.#scope.holding,
+			carrying: this.#scope.carrying
 		})
 	}
 
@@ -1171,7 +1209,17 @@ export class LowerContext {
 		origin: NameOrigin,
 		lateral: boolean
 	): InputSource {
-		const named = this.freshColumns(outputNames(heading), origin)
+		return this.#wrapNamed(query, outputNames(heading), origin, lateral)
+	}
+
+	/** A query read as a derived table whose columns are `names`, each under a fresh column, LATERAL when `lateral`. */
+	#wrapNamed(
+		query: OperandSelect,
+		names: ReadonlyArray<string>,
+		origin: NameOrigin,
+		lateral: boolean
+	): InputSource {
+		const named = this.freshColumns(names, origin)
 		const columns = named.map((n) => n.column)
 		const alias = this.supply.relation(origin)
 		return {
@@ -1187,14 +1235,22 @@ export class LowerContext {
 		return this.sourceAs(node, env, false)
 	}
 
-	/** source, a LATERAL derived table when `lateral`. */
+	/**
+	 * source, a LATERAL derived table when `lateral`; a node whose rows carry columns beside its heading (Carrying) read
+	 * with them, each in its map under its carried name, where the scope reads the node whole: a restriction stands on
+	 * the node as it is lowered (`lower`), which its carried rows would not keep.
+	 */
 	sourceAs(node: RelNode, env: Env, lateral: boolean): InputSource {
-		return this.wrapAs(
-			this.lower(node, env),
-			node.heading,
-			{ kind: "node", node: node.id },
-			lateral
-		)
+		const origin = { kind: "node", node: node.id } as const
+		const carried = env.restricted.has(node) ? undefined : this.#scope.carrying(node, this, env)
+		return carried === undefined
+			? this.wrapAs(this.lower(node, env), node.heading, origin, lateral)
+			: this.#wrapNamed(
+					carried.query,
+					[...outputNames(node.heading), ...carried.carried],
+					origin,
+					lateral
+				)
 	}
 
 	/**

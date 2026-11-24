@@ -14,6 +14,7 @@ import type { ValidDag } from "#compiler/ir/rel.ts"
 import { queryEvidence } from "#compiler/logical/annotate.ts"
 import {
 	columnIn,
+	carriesNothing,
 	evaluatedAsItStands,
 	LowerContext
 } from "#compiler/lower/conservative/context.ts"
@@ -215,7 +216,8 @@ export const renderProbes = (
 		options.dag,
 		{ names: options.names, params: [], subject: { kind: "query" } },
 		dispatchNode,
-		evaluatedAsItStands
+		evaluatedAsItStands,
+		carriesNothing
 	)
 	/** A probed object's guards over one side's values (write/probe.ts withinRow): a declared key's none, since it holds
 	 * every fact apart. */

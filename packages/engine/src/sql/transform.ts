@@ -496,14 +496,25 @@ export class Transform {
 			}
 			case "arrays": {
 				const source = item.source
-				if (source.kind === "count") {
-					return item
+				switch (source.kind) {
+					case "count":
+						return item
+					case "columns": {
+						const columns = mapNonEmptyKept(source.columns, (c) => {
+							const definition = this.columnDefinition(c.definition)
+							return definition === c.definition ? c : { ...c, definition }
+						})
+						return columns === source.columns ? item : { ...item, source: { ...source, columns } }
+					}
+					case "carried": {
+						const columns = mapNonEmptyKept(source.columns, (c) => {
+							const definition = this.columnDefinition(c.definition)
+							const array = this.expr(c.array)
+							return definition === c.definition && array === c.array ? c : { definition, array }
+						})
+						return columns === source.columns ? item : { ...item, source: { ...source, columns } }
+					}
 				}
-				const columns = mapNonEmptyKept(source.columns, (c) => {
-					const definition = this.columnDefinition(c.definition)
-					return definition === c.definition ? c : { ...c, definition }
-				})
-				return columns === source.columns ? item : { ...item, source: { ...source, columns } }
 			}
 			case "values": {
 				const rows = mapNonEmptyKept(item.rows, this.exprs)
@@ -1659,7 +1670,9 @@ export const statementParams = (statement: SqlStatement): number => {
 				const numbers =
 					arrays.kind === "count"
 						? [arrays.count.number]
-						: arrays.columns.map((c) => c.array.number)
+						: arrays.kind === "columns"
+							? arrays.columns.map((c) => c.array.number)
+							: []
 				highest = maxOf(numbers, highest)
 			}
 			return source
@@ -1917,9 +1930,22 @@ class Visit {
 			case "cte":
 			case "enclosing":
 			case "transition":
-			case "arrays":
 			case "context":
 				return
+			case "arrays": {
+				const source = item.source
+				if (source.kind === "carried") {
+					inKeyOrder(keys, [
+						[
+							"source",
+							each(source.columns, (c) => {
+								this.expr(c.array)
+							})
+						]
+					])
+				}
+				return
+			}
 			case "probe": {
 				inKeyOrder(keys, [
 					[

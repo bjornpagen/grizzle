@@ -89,7 +89,7 @@ const placeholderTypes = (s: SqlStatement): ReadonlyMap<number, ReadonlySet<stri
 				const source = item.source
 				if (source.kind === "count") {
 					use(source.count.number, printType(builtinType("bigint")))
-				} else {
+				} else if (source.kind === "columns") {
 					for (const c of source.columns) {
 						use(c.array.number, arrayOf(c.definition.type))
 					}

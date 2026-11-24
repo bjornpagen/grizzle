@@ -1,7 +1,7 @@
 /**
  * A sub-query a rule statement reads at several sites, each rule of a union reading it at the values its own row binds,
- * is computed once at every site's keys, each site reading that one evaluation at its own key (lower/shapes/share/
- * copies.ts, share/keyed.ts KeyedLowering copied): the import is one node for each region that binds its values (check/
+ * is computed once for each row that drives it, each site reading that row's carried arrays (lower/shapes/share/
+ * copies.ts, share/keyed.ts KeyedLowering carried): the import is one node for each region that binds its values (check/
  * checker.ts importedKey), a copy correlated to each rule's row, which the lowering spelled at each. metis's first budget
  * judge read the sitting time limits, a union of 217 KB, in each of five rules, 73% of its 1.36 MB statement, planned
  * five times; computed once, its first COMMIT took 105 ms where it took 312 (METISMEASURE, grizzle 9c5218ed4).
@@ -26,7 +26,7 @@ import { Effect } from "effect"
 import { budgetsGen, judgedOnce, type Reached } from "#test/unit/physical/judge-copies.fixtures.ts"
 
 /** A sub-query each rule of a union reads at its own row's values is computed once, never spelled at each rule. */
-export const aSubQueryEachRuleReadsAtItsOwnRowsValuesIsComputedOnceAtEveryRulesKeysNeverSpelledAtEach =
+export const aSubQueryEachRuleReadsAtItsOwnRowsValuesIsComputedOnceForEachRowThatDrivesItNeverSpelledAtEach =
 	property.exhaust(finite(budgetsGen), {
 		needs: {},
 		situations: [
@@ -46,8 +46,8 @@ export const aSubQueryEachRuleReadsAtItsOwnRowsValuesIsComputedOnceAtEveryRulesK
 		kills: [
 			{
 				file: "packages/engine/src/lower/shapes/index.ts",
-				original: "\t\treturn site !== undefined && readsCopy(node, site, cx, env)\n",
-				replacement: "\t\treturn site !== undefined && false\n",
+				original: "\t\t\tsite === undefined || restrictedUnder(node, env)\n",
+				replacement: "\t\t\ttrue\n",
 				why: "Every copy is read where it stands: each rule spells the limits again, and a judge reads Limit once for each arm at each rule."
 			},
 			{

@@ -93,11 +93,13 @@ export const lowered = (
 ): { readonly visits: number; readonly regions: number } => {
 	const { facts } = shapedFacts(query.dag, {}, "placement")
 	const state = new ShapeState<RelationInput>("small", emptyCtePlan, noKeys)
+	const dispatching = optimizedDispatch(facts, state)
 	const cx = new LowerContext(
 		query.dag,
 		{ ...testOptions("Ledger"), params: query.params },
-		optimizedDispatch(facts, state),
-		state.evaluationHolding
+		dispatching.dispatch,
+		state.evaluationHolding,
+		dispatching.carrying
 	)
 	new OptimizedDelivery<never>(cx, facts, state).optimizedProgram(query.dag.roots[0])
 	return {

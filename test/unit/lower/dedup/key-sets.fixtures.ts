@@ -14,7 +14,11 @@ import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import type { RelNode, RootedDag } from "#compiler/ir/rel.ts"
 import { checkerEvidence } from "#compiler/logical/annotate.ts"
-import { evaluatedAsItStands, LowerContext } from "#compiler/lower/conservative/context.ts"
+import {
+	carriesNothing,
+	evaluatedAsItStands,
+	LowerContext
+} from "#compiler/lower/conservative/context.ts"
 import { dispatchNode } from "#compiler/lower/conservative/dispatch.ts"
 import { keySetOf, type KeySetProof, parentFixed } from "#compiler/lower/conservative/keys.ts"
 import type { ConservativeParamSlot } from "#compiler/lower/conservative/types.ts"
@@ -130,7 +134,8 @@ export const judge = (j: Judged, note: (feature: KeySetFeature) => void): number
 		dag,
 		{ names: j.names, params: j.optimized.query.params, subject: { kind: "query" } },
 		dispatchNode,
-		evaluatedAsItStands
+		evaluatedAsItStands,
+		carriesNothing
 	)
 	const proofOf = (site: KeySetSite): KeySetProof => {
 		const parent = site.parent

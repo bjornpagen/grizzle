@@ -13,14 +13,16 @@ import {
 } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import {
+	type CarriedRead,
+	carriedName,
 	type ColumnEqualities,
 	columnIn,
 	type ColumnMap,
 	emptyEnv,
 	type Env,
 	envOf,
-	type CteTable,
 	equalitiesOver,
+	type InputSource,
 	type LowerContext,
 	namedMap,
 	outputNames,
@@ -31,9 +33,11 @@ import { fencedRead } from "#compiler/lower/conservative/step/index.ts"
 import type { CtePlan } from "#compiler/lower/optimize/cte-policy/index.ts"
 import {
 	type CopyClass,
+	type CopyPlan,
+	copyPlan,
 	type CopySite,
-	copyCandidates,
-	copySites
+	type DrivingSet,
+	noCopies
 } from "#compiler/lower/shapes/share/copies.ts"
 import {
 	atomsOf,
@@ -55,14 +59,22 @@ import {
 	type OperandSelect
 } from "#compiler/sql/ast.ts"
 import {
+	arrayOf,
+	arrays,
+	call,
 	col,
+	columnDefinition,
 	conjunction,
 	core,
+	cteRead,
 	cteRefAs,
 	type DefinedCte,
 	derived,
 	distinctCore,
+	firstNonNull,
+	keyedRead,
 	keyedSet,
+	lit,
 	operandSelect,
 	provedCore,
 	operandUnionAll,
@@ -81,13 +93,14 @@ import {
  * The key sets a query's statement computes its nodes at (keyPlan): each node the CTE policy shares in the statement's
  * WITH, by its label, the CTE's body the node at its key set; each such node every read of which reads it at values of
  * the statement's own alone (KeyAnalysis readsAtValues), inline at each read instead; each union or fold lowered in
- * place; and each site of a sub-query the statement reads at several, computed once at every site's keys (copies.ts).
+ * place; and each sub-query the statement reads at several sites, computed once beside the rows that drive it
+ * (copies.ts CopyPlan).
  */
 export interface StatementKeys {
 	readonly once: ReadonlyMap<NodeId, Keys>
 	readonly atValues: ReadonlySet<NodeId>
 	readonly inPlace: ReadonlyMap<RelNode, Keys>
-	readonly copies: ReadonlyMap<RelNode, CopySite>
+	readonly copies: CopyPlan
 }
 
 /** No node computed at keys: a lowering whose own sharing keys its nodes (a write's), or that wants every row. */
@@ -95,14 +108,15 @@ export const noKeys: StatementKeys = {
 	once: new Map(),
 	atValues: new Set(),
 	inPlace: new Map(),
-	copies: new Map()
+	copies: noCopies
 }
 
 /**
  * The key sets of a query's DAG (keyPlan over its nodes, its roots whole): each node the CTE policy shares in the
  * statement's WITH (cte-policy CteDecision, statement scope) at its key set, each union or fold the statement lowers in
- * place at its own, and each class of copies it reads at several sites (copies.ts copyCandidates) at its sites' keys,
- * the physical analysis's fixings `fixed` equating a correlated read's columns, its `realization` telling copies apart.
+ * place at its own, and each class of copies it reads at several sites beside the rows that drive it (copies.ts
+ * copyPlan), the physical analysis's fixings `fixed` equating a correlated read's columns, its `realization` telling
+ * copies apart.
  */
 export const queryKeys = (
 	dag: ValidDag,
@@ -119,12 +133,10 @@ export const queryKeys = (
 			(decision.strategy === "materialized" || decision.strategy === "notMaterialized")
 		)
 	})
-	const candidates = copyCandidates(dag, order, cte, realization)
 	const plan = keyPlan({
 		nodes: order,
 		roots: new Map(dag.roots.map((r) => [r, whole] as const)),
 		once: once.map((node) => [node]),
-		copied: candidates.map((c) => c.request),
 		fixed,
 		inputs: inputsOf,
 		height: (node) => place.get(node) ?? 0
@@ -139,7 +151,7 @@ export const queryKeys = (
 		),
 		atValues: new Set(once.flatMap((node, i) => (plan.atValues[i] === true ? [node.id] : []))),
 		inPlace: plan.inPlace,
-		copies: copySites(order, candidates, plan.copied)
+		copies: copyPlan(dag, order, cte, new Set(once), realization)
 	}
 }
 
@@ -165,6 +177,15 @@ export interface KeyScope {
 	 */
 	readonly inPlace: (node: RelNode) => boolean
 }
+
+/**
+ * A driving set's one evaluation of its copies (KeyedLowering carried) in the statement: being lowered, whose own read of
+ * its driver reads it as it stands, as does every read of a driver of the set its copies' lowering makes; or the
+ * statement's CTE of it.
+ */
+export type Carrier =
+	| { readonly kind: "lowering" }
+	| { readonly kind: "defined"; readonly cte: DefinedCte }
 
 /** Each DAG's references to each node, one per edge (ir/rel.ts edgesOf), counted once: a DAG is immutable. */
 const referenceCounts = new WeakMap<ValidDag, ReadonlyMap<RelNode, number>>()
@@ -478,113 +499,158 @@ export class KeyedLowering {
 	}
 
 	/**
-	 * A site of a sub-query the statement reads at several (copies.ts CopyClass), as it reads it: its class's one
-	 * evaluation (#computedOnce), read at the site's outer values in `env`, each key column equal to the column its hole
-	 * reads of the site's outer row, every column of the copy's heading read through the evaluation's.
+	 * A driver of a driving set (copies.ts DrivingSet), as the scope reads it where a reader places it: the set's one
+	 * evaluation (#carrier), its driver's rows with each class's copy carried beside them, every column of it, each
+	 * class's arrays under their carried names (context.ts carriedName), in classes' order; none while that evaluation is
+	 * lowered, whose read of its driver, and every read of a driver of the set its copies' lowering makes, reads it as it
+	 * stands; `carriers` the statement's evaluations, each once its lowering began.
 	 */
-	copied(
-		node: RelNode,
-		site: CopySite,
+	carried(
+		driving: DrivingSet,
 		cx: LowerContext,
-		env: Env,
 		scope: KeyScope,
-		table: CteTable<RelNode>,
-		lower: (cx: LowerContext, env: Env) => OperandSelect
-	): OperandSelect {
-		const copied = site.copied
-		const cte =
-			table.defined.get(copied.representative) ?? this.#computedOnce(copied, scope, table, lower)
-		const alias = cx.relationAlias({ kind: "node", node: node.id })
-		const at = site.outer.map((o, i) =>
-			cx.equal(
-				defined(copied.types[i], "a place's type, one for each place"),
-				col(alias, defined(cte.columns[i], "a key column of the evaluation, one for each place")),
-				columnIn(
-					defined(env.columns.get(o.node), "a site's outer row, in scope where the site is read"),
-					o.column
-				)
-			)
-		)
-		const heading = new Map(
-			node.heading.map(
-				(c, j) =>
-					[
-						c.name,
-						col(
-							alias,
-							defined(
-								cte.columns[copied.outer.length + j],
-								"a column of the evaluation, one for each of the copy's"
-							)
-						)
-					] as const
-			)
-		)
-		const targets = headingTargetsOf(node, heading)
-		const from = [cteRefAs(cte.name, alias)]
-		return cte.set
-			? select(provedCore("keyed", targets, from, conjunction(at)))
-			: operandSelect(core(targets, from, conjunction(at)))
+		carriers: Map<DrivingSet, Carrier>
+	): CarriedRead | undefined {
+		const known = carriers.get(driving)
+		if (known?.kind === "lowering") {
+			return undefined
+		}
+		const cte = known?.cte ?? this.#carrier(driving, scope, carriers)
+		const [first, ...rest] = driving.classes
+		return {
+			query: cteRead(cx.relationAlias({ kind: "node", node: driving.driver.id }), cte),
+			carried: [
+				...this.#carriedNames(first),
+				...rest.flatMap((c) => this.#carriedNames(c))
+			] as const
+		}
+	}
+
+	/** The carried names of a class's arrays, one for each column of its copy's heading, in heading order. */
+	#carriedNames(copied: CopyClass): NonEmptyReadonlyArray<string> {
+		const [head, ...tail] = copied.representative.heading
+		if (head === undefined) {
+			throw defect("a carried copy's heading, of at least one column")
+		}
+		return [carriedName(copied.index, 0), ...tail.map((_, j) => carriedName(copied.index, j + 1))]
 	}
 
 	/**
-	 * The one evaluation of a sub-query the statement reads at several sites (copies.ts CopyClass), the statement's
-	 * MATERIALIZED CTE entered in `table` past every CTE it reads: `SELECT k.*, c.* FROM <the key set> AS k, LATERAL
-	 * (<the representative>) AS c`, the representative lowered by `lower` in the statement's scope (KeyScope
-	 * `statement`) with each column it reads of an outer row k's column of its hole, its rows at each key of its sites; a
-	 * set where the representative's rows are one. The
-	 * representative is read apart (step/index.ts fencedRead), so PostgreSQL reads it once for each key, at the key,
-	 * whatever it estimates of either side: pulled up beside the key set, it is a join the estimates order, and a
-	 * Materialize of every stored row under a join filter read each group stored beside the one a write touched.
+	 * A site of a class of copies (copies.ts CopySite), as it reads its class's one evaluation: its own driver row's
+	 * arrays, each in the driver's column map under its carried name (#carrier), read in lockstep, `SELECT c.* FROM
+	 * (SELECT unnest(<driver row>.<array>), ...) AS c`, the copy's rows at that row, a set (#carrier made them one), no
+	 * lookup and no scan; none where no driver row in scope carries them, its driver read where a restriction stands on
+	 * it or by no reader that places it (LowerContext sourceAs).
 	 */
-	#computedOnce(
-		copied: CopyClass,
-		scope: KeyScope,
-		table: CteTable<RelNode>,
-		lower: (cx: LowerContext, env: Env) => OperandSelect
-	): DefinedCte {
-		const cx = scope.statement
-		const node = copied.representative
-		const origin = { kind: "node", node: node.id } as const
-		const keyRows = this.#keyRows(node, copied.keys, scope)
-		const keyColumns = copied.outer.map((o, i) => ({
-			read: o,
-			value: col(
-				keyRows.alias,
-				defined(keyRows.named[i], "a key set column, one for each place").column
-			)
-		}))
-		const outer = new Map<NodeId, Map<string, Expr>>()
-		for (const k of keyColumns) {
-			outer.getOrInsertComputed(k.read.node, () => new Map()).set(k.read.column, k.value)
+	copied(node: RelNode, site: CopySite, cx: LowerContext, env: Env): OperandSelect | undefined {
+		const row = env.columns.get(site.driver.id)
+		const [head, ...tail] = node.heading
+		if (row === undefined || head === undefined || !row.has(carriedName(site.copied.index, 0))) {
+			return undefined
 		}
-		const query = lower(cx, envOf(outer))
-		const rows = cx.wrap(query, node.heading, origin)
-		const atKey = cx.wrapAs(
-			fencedRead(headingTargetsOf(node, rows.map), rows.item, undefined),
-			node.heading,
-			origin,
-			true
+		const origin = { kind: "node", node: node.id } as const
+		const column = (c: (typeof node.heading)[number], j: number) => ({
+			definition: columnDefinition(cx.supply.column(origin), cx.baseTypeRef(c.type)),
+			array: defined(row.get(carriedName(site.copied.index, j)), "a carried class's every column")
+		})
+		const columns = [column(head, 0), ...tail.map((c, j) => column(c, j + 1))] as const
+		const alias = cx.relationAlias(origin)
+		return select(
+			keyedSet(
+				columns.map((c) => target(col(alias, c.definition.name))),
+				[arrays({ kind: "carried", columns }, alias)],
+				undefined,
+				"a copy's rows its driver's row carries"
+			)
 		)
+	}
+
+	/**
+	 * The one evaluation of a driving set's copies (copies.ts DrivingSet), the statement's MATERIALIZED CTE entered in its
+	 * WITH past every CTE it reads: `SELECT d.*, a1.*, ... FROM <the driver> AS d, LATERAL (SELECT
+	 * coalesce(array_agg(c.<column>), '{}'), ... FROM (<the class's copy, its outer columns d's>) AS c) AS a1, ...`, each
+	 * lowered in the statement's scope (KeyScope `statement`), the driver as it stands (Carrier `lowering`), its rows the
+	 * driver's, each with each class's copy at its values as arrays, one for each column of the copy, aligned. A LATERAL
+	 * aggregate is never pulled up, so PostgreSQL computes each copy at each driver row's values, each of its reads a
+	 * B-tree probe there, whatever it estimates of either side.
+	 */
+	#carrier(driving: DrivingSet, scope: KeyScope, carriers: Map<DrivingSet, Carrier>): DefinedCte {
+		carriers.set(driving, { kind: "lowering" })
+		const cx = scope.statement
+		const driver = driving.driver
+		const origin = { kind: "node", node: driver.id } as const
+		const rows = cx.source(driver, emptyEnv)
+		const carried = driving.classes.map((c) => this.#arrays(c, rows, cx))
 		const targets = [
-			...keyColumns.map((k) => target(k.value)),
-			...headingTargetsOf(node, atKey.map)
+			...outputNames(driver.heading).map((name) => target(columnIn(rows.map, name))),
+			...carried.flatMap((a) => a.targets)
 		]
+		const query = operandSelect(
+			keyedRead(targets, [rows.item, ...carried.map((a) => a.item)], undefined)
+		)
 		const name = cx.relationAlias(origin)
 		const columns = cx.supply.columns(targets.map(() => origin))
-		const from = [keyRows.item, atKey.item]
-		const set = isSetQuery(query)
-		table.ctes.add({
-			name,
-			columns,
-			materialized: "MATERIALIZED",
-			query: set
-				? select(keyedSet(targets, from, undefined, "a sub-query's rows at each key of its sites"))
-				: operandSelect(core(targets, from, undefined))
-		})
-		const cte = { name, columns, set }
-		table.defined.set(node, cte)
+		scope.ctes.add({ name, columns, materialized: "MATERIALIZED", query })
+		const cte = { name, columns, set: isSetQuery(query) }
+		carriers.set(driving, { kind: "defined", cte })
 		return cte
+	}
+
+	/**
+	 * One class's copy at each row of its driver's `rows`, as arrays (#carrier): `LATERAL (SELECT
+	 * coalesce(array_agg(c.<column>), '{}'), ... FROM (<the copy>) AS c) AS a`, the copy lowered by `cx` with each column
+	 * it reads of an outer row the driver row's column its place reads, its rows made a set where they may repeat, which a
+	 * site reads as it would read the copy; a copy of no row at a driver row is the empty arrays, whose unnest is no row,
+	 * where the aggregate alone is NULL.
+	 */
+	#arrays(
+		copied: CopyClass,
+		rows: InputSource,
+		cx: LowerContext
+	): { readonly item: FromSource; readonly targets: ReadonlyArray<ReturnType<typeof target>> } {
+		const node = copied.representative
+		const origin = { kind: "node", node: node.id } as const
+		const outer = new Map<NodeId, Map<string, Expr>>()
+		for (const o of copied.outer) {
+			outer
+				.getOrInsertComputed(o.read.node, () => new Map())
+				.set(o.read.column, columnIn(rows.map, o.driver))
+		}
+		const query = cx.lower(node, envOf(outer))
+		const distinct = isSetQuery(query)
+			? query
+			: ((): OperandSelect => {
+					const repeated = cx.wrap(query, node.heading, origin)
+					return select(
+						distinctCore(headingTargetsOf(node, repeated.map), [repeated.item], undefined)
+					)
+				})()
+		const copy = cx.wrap(distinct, node.heading, origin)
+		const alias = cx.relationAlias(origin)
+		const columns = node.heading.map(() => cx.supply.column(origin))
+		const aggregates = node.heading.map((c) =>
+			target(
+				firstNonNull([
+					call("array_agg", [columnIn(copy.map, c.name)]),
+					lit.text(
+						"{}",
+						defined(
+							arrayOf(cx.baseTypeRef(c.type)),
+							"a base type's array: a set's is its roster's domain's"
+						)
+					)
+				])
+			)
+		)
+		return {
+			item: derived(
+				select(provedCore("oneRow", aggregates, [copy.item], undefined)),
+				alias,
+				columns,
+				true
+			),
+			targets: columns.map((c) => target(col(alias, c)))
+		}
 	}
 
 	/**

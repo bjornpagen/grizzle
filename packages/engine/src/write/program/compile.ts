@@ -2076,7 +2076,7 @@ const compileAt = (
 	const bound = new Map<ParamId, BoundCarrier>()
 	const sharing = new StatementSharing(
 		new ShareIndex(restated.ir.dag, templates),
-		optimizedDispatch(placed.facts, state),
+		optimizedDispatch(placed.facts, state).dispatch,
 		(node, cx, env, restriction) =>
 			node.kind === "Union"
 				? keyedUnion(placed.facts, node, cx, env, restriction)

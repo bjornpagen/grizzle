@@ -78,11 +78,13 @@ export const conservative = (built: LogicalQuery): number =>
 export const optimized = (built: LogicalQuery): number => {
 	const { facts } = shapedFacts(built.dag, {}, "placement")
 	const state = new ShapeState<RelationInput>("small", emptyCtePlan, noKeys)
+	const dispatching = optimizedDispatch(facts, state)
 	const cx = new LowerContext(
 		built.dag,
 		testOptions("Ledger"),
-		optimizedDispatch(facts, state),
-		state.evaluationHolding
+		dispatching.dispatch,
+		state.evaluationHolding,
+		dispatching.carrying
 	)
 	return Arr.reduce(
 		flight(
