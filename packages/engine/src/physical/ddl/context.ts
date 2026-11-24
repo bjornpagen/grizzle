@@ -130,6 +130,12 @@ export interface BuiltTarget {
 	readonly kind: "built"
 	readonly field: (column: IndexColumn) => TargetField | undefined
 	readonly column: (column: IndexColumn) => string
+	/**
+	 * The column's place in the relation's heading, which orders the columns an index holds in any order among
+	 * themselves (physical/indexes/engine.ts withinBlock): a field's position among its relation's fields, a law column
+	 * after every field, by its identifier.
+	 */
+	readonly place: (column: IndexColumn) => number
 	readonly object: Node<"structure">
 }
 
@@ -811,10 +817,12 @@ export class InstallBuilder {
 	target(relation: string): RelationTarget {
 		const view = this.#views.get(relation)
 		if (view !== undefined) {
+			const heading = [...view.fields.keys()]
 			return {
 				kind: "built",
 				field: (c) => (c.kind === "field" ? view.fields.get(c.field) : undefined),
 				column: (c) => (c.kind === "field" ? this.names.column(relation, c.field) : c.column),
+				place: (c) => (c.kind === "field" ? heading.indexOf(c.field) : heading.length),
 				object: view.object
 			}
 		}
@@ -822,6 +830,7 @@ export class InstallBuilder {
 		const stored = Object.hasOwn(relations, relation) ? relations[relation] : undefined
 		if (stored?.kind === "relation") {
 			const lawColumns = this.#lawColumns.get(relation)
+			const lawOrder = [...(lawColumns?.keys() ?? [])].toSorted(compareStrings)
 			return {
 				kind: "built",
 				field: (c) =>
@@ -829,6 +838,10 @@ export class InstallBuilder {
 						? stored.fields.find((field) => field.name === c.field)
 						: lawColumns?.get(c.column),
 				column: (c) => (c.kind === "field" ? this.names.column(relation, c.field) : c.column),
+				place: (c) =>
+					c.kind === "field"
+						? stored.fields.findIndex((field) => field.name === c.field)
+						: stored.fields.length + lawOrder.indexOf(c.column),
 				object: this.table(relation)
 			}
 		}

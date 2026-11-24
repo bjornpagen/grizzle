@@ -438,6 +438,10 @@
  * A stand-up and a capture read the sentinel's standing from its pg_class row alone, as a delta's (physical/ddl/rules.ts
  * sentinelStood): it is made with its trigger in one branch of one stand-up, so it stands only with it, where format 8
  * read pg_trigger beside it in every call; so every stand-up's and capture's body moves.
+ * Every index the engine creates holds each run of columns it may hold in any order in its relation's heading order, a
+ * law column after every field (physical/indexes/engine.ts withinBlock, ddl/context.ts BuiltTarget `place`), where format
+ * 8 held them in the order the request that created it stated them, so a created index whose request stated its
+ * columns in another order is created again, its name with them.
  */
 export const artifactFormat = 8
 

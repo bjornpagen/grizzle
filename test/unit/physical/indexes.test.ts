@@ -5,7 +5,9 @@
  *
  * - every request lands on exactly one planned index, of its relation;
  * - a created index is never unique, in the plan or in its CREATE INDEX;
- * - the plan is the same whatever order the requests arrive in;
+ * - the plan is the same whatever order the requests arrive in, and whatever order each states the columns it binds by
+ *   equality in, so every index that holds one block of columns holds it in one order, the relation's heading's
+ *   (physical/indexes/engine.ts withinBlock);
  * - a request the engine cannot create, planted alone with drawn columns (an entry beyond its method's limit, more than
  *   INDEX_MAX_KEYS columns, an expression key), is refused as a key is;
  * - created indexes have distinct names, and a B-tree and a GiST request on one drawn column list install as two;
@@ -42,6 +44,7 @@ import {
 	keyField,
 	plantedRequests,
 	requestOf,
+	restated,
 	sameColumns,
 	shelfColumnsOf,
 	shelfGen,
@@ -203,6 +206,12 @@ export const theIndexRequestEngineLandsEveryRequestOnExactlyOneIndexPlansAlikeIn
 						Arr.map(again.indexes, (x) => [x.object, x.keys, x.requests.length]),
 						Arr.map(installation.indexes, (x) => [x.object, x.keys, x.requests.length])
 					)
+					const reordered = succeeded(install(Arr.map(requests, restated)))
+					assert.deepEqual(
+						reordered.statements,
+						installation.statements,
+						"the plan is the same whatever order each request states the columns it binds by equality in"
+					)
 				}),
 		oracle: {
 			kind: "specification",
@@ -240,9 +249,15 @@ export const theIndexRequestEngineLandsEveryRequestOnExactlyOneIndexPlansAlikeIn
 			{
 				file: "packages/engine/src/physical/indexes/engine.ts",
 				original:
-					'\tgist: (rank, columns) =>\n\t\tcombineAll([\n\t\t\tmapInput(compareBooleans, (k: IndexKey) => columns.holds(k.column) === "few"),\n\t\t\tmapInput(compareNumbers, rank)\n\t\t])',
-				replacement: "\tgist: (rank) => mapInput(compareNumbers, rank)",
-				why: "A GiST index's columns of few values are no longer placed after its columns of many values: its keys keep the request's order (physical/indexes/engine.ts withinBlock)."
+					'\tgist: (place, columns) =>\n\t\tcombineAll([\n\t\t\tmapInput(compareBooleans, (k: IndexKey) => columns.holds(k.column) === "few"),\n\t\t\tmapInput(compareNumbers, place),\n\t\t\tkeyOrder\n\t\t])',
+				replacement: "\tgist: (place) => combineAll([mapInput(compareNumbers, place), keyOrder])",
+				why: "A GiST index's columns of few values are no longer placed after its columns of many values: its keys keep the heading's order (physical/indexes/engine.ts withinBlock)."
+			},
+			{
+				file: "packages/engine/src/physical/indexes/engine.ts",
+				original: "\tbtree: (place) => combineAll([mapInput(compareNumbers, place), keyOrder]),",
+				replacement: "\tbtree: () => () => 0,",
+				why: "A B-tree's block keeps the order its creating request stated it in, as before: a request restated with its equality columns reversed creates an index of another order, two indexes on one block lead differently, and the plan is no longer one whatever order a request states its columns in."
 			},
 			{
 				file: "packages/engine/src/physical/indexes/engine.ts",

@@ -800,14 +800,8 @@ const mergeBlocks = (
 	return isNonEmpty(merged) ? merged : undefined
 }
 
-/** Where each column stands in the order a created index's own request states them, which a block keeps among its
- * columns. */
-type Rank = (k: IndexKey) => number
-
-const rankIn =
-	(stated: Keys): Rank =>
-	(k) =>
-		stated.findIndex((s) => sameKey(s, k))
+/** Where each key's column stands in its relation's heading (BuiltTarget `place`), which orders a block's columns. */
+type Place = (k: IndexKey) => number
 
 /** A draft's leaders narrowed so that one of `lead` comes first, with each of `held` among its columns, which holds a led
  * placement, and a placed one, whose leads are of many values: its leaders among `lead`, every one of which leads every
@@ -901,8 +895,12 @@ const refined = (draft: Draft, ahead: Ahead): Draft | undefined => {
 
 /**
  * The order of the columns within one block of a draft, which any order of them serves alike (`placed`, `sameSet`), by
- * the index's access method: the request's own order (`rank`), but a GiST index's columns of few values after its
- * columns of many values. GiST splits a page by its first column (gistsplit.c gistSplitByKey: picksplit runs on it, and
+ * the index's access method: the relation's heading order (`place`), the key's text breaking a tie between a column and
+ * its suffix key, so every index that holds one block holds it in one order whichever order its requests stated it in,
+ * and its leading runs are the same sets wherever they stop; but a GiST index's columns of few values after its columns
+ * of many values. In the order the creating request stated, two indexes on one block led with different columns, and a
+ * binding that stopped short of either read two sets apart (physical/statistics/declared.ts apartSets): pantry's
+ * Instance(package, site, siteDocument, document) beside (package, siteDocument, site, assemblyKind). GiST splits a page by its first column (gistsplit.c gistSplitByKey: picksplit runs on it, and
  * a later column only redistributes the entries it ties), and btree_gist's picksplit halves a page in that column's
  * order, so the halves of a split on a column of few values share its middle value and each keeps every value of the
  * columns after it, and a probe follows more of them down. Measured on PostgreSQL 19rc2 over the 20,000 rows of
@@ -914,24 +912,25 @@ const refined = (draft: Draft, ahead: Ahead): Draft | undefined => {
  * block's order served is served still, and none needs to bind a column of few values to keep its scan in one descent.
  */
 const withinBlock: Readonly<
-	Record<IndexMethod, (rank: Rank, columns: Columns) => Comparator<IndexKey>>
+	Record<IndexMethod, (place: Place, columns: Columns) => Comparator<IndexKey>>
 > = {
-	btree: (rank) => mapInput(compareNumbers, rank),
-	hash: (rank) => mapInput(compareNumbers, rank),
-	hnsw: (rank) => mapInput(compareNumbers, rank),
-	gin: (rank) => mapInput(compareNumbers, rank),
-	gist: (rank, columns) =>
+	btree: (place) => combineAll([mapInput(compareNumbers, place), keyOrder]),
+	hash: (place) => combineAll([mapInput(compareNumbers, place), keyOrder]),
+	hnsw: (place) => combineAll([mapInput(compareNumbers, place), keyOrder]),
+	gin: (place) => combineAll([mapInput(compareNumbers, place), keyOrder]),
+	gist: (place, columns) =>
 		combineAll([
 			mapInput(compareBooleans, (k: IndexKey) => columns.holds(k.column) === "few"),
-			mapInput(compareNumbers, rank)
+			mapInput(compareNumbers, place),
+			keyOrder
 		])
 }
 
 /** A draft's keys (see `planIndexes`): its first leader in its access method's order (`withinBlock`), then the rest of
  * its blocks in order, each block's columns in that order, the keys an ordered request directs in its directions and
  * every other in the first key's, canonical under reversal. */
-const keysOf = (draft: Draft, rank: Rank, columns: Columns): NonEmptyReadonlyArray<IndexKey> => {
-	const order = withinBlock[draft.method](rank, columns)
+const keysOf = (draft: Draft, place: Place, columns: Columns): NonEmptyReadonlyArray<IndexKey> => {
+	const order = withinBlock[draft.method](place, columns)
 	const [leading, ...following] = draft.blocks
 	const [leader] = sortNonEmpty(draft.leaders, order)
 	const keys = extendNonEmpty(
@@ -1427,7 +1426,7 @@ const createIndex = (
 	const targetField = (column: IndexColumn): TargetField =>
 		o.field(column) ??
 		fail("MalformedDescription", label, `a field ${keyTermText(column)} of ${request.relation}`)
-	const drafts = keysOf(draft, rankIn(planned.keys), planned.columns)
+	const drafts = keysOf(draft, (k) => planned.target.place(readColumn(k.column)), planned.columns)
 	const proposed = method === "btree" ? confined(drafts, reads) : drafts
 	/** The index refused for `fault`, its keys the proposed ones. */
 	const unrepresentable = (fault: KeyFault): NonEmptyReadonlyArray<IndexKey> => {

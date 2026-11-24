@@ -16,7 +16,7 @@ import {
 } from "@bjornpagen/testing/gen"
 import { matching } from "@bjornpagen/testing/pattern"
 import { regex } from "arkregex"
-import { Array as Arr, Equivalence, Option } from "effect"
+import { Array as Arr, Equivalence, Option, Order } from "effect"
 import type { CompileReasonTag } from "#compiler/core/errors.ts"
 import { defaultOpclass, type NativeColumn } from "#compiler/ir/law.ts"
 import type { AccessUse, IndexRequest } from "#compiler/ir/products.ts"
@@ -28,9 +28,11 @@ import { lawNamesOf, wild } from "#test/support/kernel/naming.ts"
 import { owning } from "#test/support/policy.ts"
 import { requesting } from "#test/unit/physical/fixtures.ts"
 
-/** Event: a plain table under its primary key, with a vector column an HNSW request keys. Booking: a span key, so a GiST
- * index whose leading room column btree_gist serves by equality. Deposit: the reverse lookup of its reference to Line on
- * line, which its primary key (account, line) cannot serve. */
+/** Event: a plain table under its primary key, with a vector column an HNSW request keys, its boolean live before its
+ * uuids and bigints in its heading, so only the GiST order puts a column of few values last
+ * (physical/indexes/engine.ts withinBlock). Booking: a span key, so a GiST index whose leading room column btree_gist
+ * serves by equality. Deposit: the reverse lookup of its reference to Line on line, which its primary key (account,
+ * line) cannot serve. */
 const Indexed: SchemaDesc = {
 	name: "Indexed",
 	relations: [
@@ -38,11 +40,11 @@ const Indexed: SchemaDesc = {
 			"Event",
 			{
 				id: f.uuid,
+				live: f.boolean,
 				tenant: f.uuid,
 				account: f.uuid,
 				created: f.bigint,
 				unrelated: f.bigint,
-				live: f.boolean,
 				body: f.wildcard,
 				embedding: { kind: "vector", dimensions: 3 }
 			},
@@ -339,8 +341,10 @@ export const expectedRefusal: Readonly<Record<Broken, CompileReasonTag>> = {
 	"an expression key": "UnsupportedOperation"
 }
 
-/** Whether two lists of key columns are one, column for column. */
-export const sameColumns = Arr.makeEquivalence(Equivalence.String)
+/** Whether two lists of key columns hold one set of columns, whatever their order: an index holds a block of columns in
+ * its relation's heading order, whichever order a request states them in (physical/indexes/engine.ts withinBlock). */
+export const sameColumns = (a: ReadonlyArray<string>, b: ReadonlyArray<string>): boolean =>
+	Arr.makeEquivalence(Equivalence.String)(Arr.sort(a, Order.String), Arr.sort(b, Order.String))
 
 /** A planned index key's field, or its law column's identifier. */
 export const keyField = (k: PlannedIndex["keys"][number]): string => keyTermText(k.column)
@@ -476,4 +480,16 @@ export const installShelf = (shelf: Shelf) => {
 		...installOptions(owned),
 		extensions: [requesting([shelfLookup])]
 	})
+}
+
+/**
+ * `r` stated with the columns it binds by equality in the reverse order, every other key where it stands: an access
+ * request's leading `fixed` keys, a law's request's every block. The same request, which any index serving the one
+ * serves alike (physical/indexes/engine.ts withinBlock).
+ */
+export const restated = (r: IndexRequest): IndexRequest => {
+	if (r.role === "lawMaintenance") {
+		return { ...r, blocks: Arr.map(r.blocks, (block) => nonEmptyKeys(Arr.reverse(block))) }
+	}
+	return { ...r, keys: [...Arr.reverse(r.keys.slice(0, r.fixed)), ...r.keys.slice(r.fixed)] }
 }
