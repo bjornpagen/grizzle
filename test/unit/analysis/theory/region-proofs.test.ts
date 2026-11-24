@@ -10,15 +10,18 @@
  * holds a fact the transition opened, which the judge must read: the region holds it. And the proofs are counted: the
  * region reads every gained row of exactly the occurrences the box says no proof spares (`wholeReads`), and on a
  * publish, which loses no row, a proved occurrence reads none. And each proof takes its occurrence's least-reading
- * witness whatever order the schema's containments stand in (`wholeRuleInOrder`).
+ * witness whatever order the schema's containments stand in (`wholeRuleInOrder`). And the region's work is linear in
+ * its occurrences: a rule that reads an import of many rules again and again makes each of the region's rules once, its
+ * calls growing no faster than linearly in the import's rules however often it is read (`readsTheoryOf`).
  */
 
-import { assert } from "@bjornpagen/testing/assert"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
-import { element, type Gen, int } from "@bjornpagen/testing/gen"
+import { element, finite, type Gen, int } from "@bjornpagen/testing/gen"
 import { type Case, type Kill, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { canonicalEquals } from "#compiler/core/canonical.ts"
+import { incrementsDoNotGrow } from "#test/support/growth.ts"
 import { everyCallCount } from "#test/support/kernel/calls.ts"
 import {
 	admitted,
@@ -40,6 +43,7 @@ import {
 	orderTheoryOf,
 	permutationGen,
 	readsReplaced,
+	readsTheoryOf,
 	regionOf,
 	regionReadsOf,
 	regionRulesOf,
@@ -489,6 +493,9 @@ export const aWholeRulesProofsAreItsLeastReadingWitnessesWhateverOrderItsSchemas
 /** Every function of the region's module (analysis/theory/unit.ts), whose calls are a region's work. */
 const isRegionModule = (file: string): boolean => Str.endsWith("analysis/theory/unit.ts")(file)
 
+/** What a reads box reaches: its import read once, or again. */
+type RegionReads = "an import read once" | "an import read again"
+
 /** What a node box's region reaches of the counted work: a proof's witnesses read, and none. */
 type RegionWork = "an occurrence proved" | "no occurrence proved"
 
@@ -562,6 +569,78 @@ export const aWholeRulesRegionDoesTheSameWorkHoweverManyContainmentsTheFactsHold
 					original: "[...containmentsInto(facts, n.name), identity]",
 					replacement: "[...facts.containments.filter((c) => c.to === n.name), identity]",
 					why: "Each occurrence's proof scans every containment of the facts for those into its relation, as it did before the index: its work grows with every containment among relations the rule reads none of, and the property fails."
+				}
+			]
+		}
+	)
+
+/**
+ * A whole rule's region makes each of its rules once in work linear in its occurrences: over a rule reading an import of
+ * `kinds` rules `reads` times, its region holds a rule for each kind and the node's own, each once, and the region
+ * module's calls grow no faster than linearly in `kinds` (growth.ts incrementsDoNotGrow, at 2h, 4h and 6h kinds),
+ * however many times each kind's occurrence stands in it.
+ */
+export const aWholeRulesRegionMakesEachRuleOnceInWorkLinearInItsOccurrencesHoweverOftenItsImportIsRead =
+	property.exhaust(
+		finite((s) => ({
+			nodes: s.draw(element(["tree", "plain"] as const)),
+			half: s.draw(int(1, 3)),
+			reads: s.draw(int(1, 3))
+		})),
+		{
+			needs: {},
+			box: "each kind of nodes, at 2h, 4h and 6h kinds for h from 1 to 3, read one to three times",
+			situations: ["an import read once", "an import read again"] satisfies ReadonlyArray<
+				Reached<RegionReads>
+			>,
+			check:
+				(_, c: Case<RegionReads>) =>
+				({ nodes, half, reads }) =>
+					Effect.gen(function* () {
+						const calls = new Map<number, number>()
+						for (const kinds of [2 * half, 4 * half, 6 * half]) {
+							const t = readsTheoryOf(nodes, kinds, reads)
+							const { rule } = wholeRuleOf(t)
+							assert.equal(
+								regionRulesOf(rule.judged).length,
+								kinds + 1,
+								`the region of ${reads} reads of ${kinds} rules holds a rule for each kind and the node's own, each once`
+							)
+							wholeRuleOver(t, t.regionFacts)
+							const [, counts] = yield* everyCallCount(
+								Effect.sync(() => wholeRuleOver(t, t.regionFacts)),
+								isRegionModule
+							)
+							calls.set(
+								kinds,
+								Arr.reduce([...counts.values()], 0, (n, k) => n + k)
+							)
+						}
+						incrementsDoNotGrow(
+							(kinds) => defined(calls.get(kinds), "the calls of a size counted"),
+							half,
+							`the region's calls over ${reads} reads of an import of its kinds' rules`
+						)
+						c.note(reads === 1 ? "an import read once" : "an import read again")
+					}),
+			oracle: {
+				kind: "specification",
+				name: "the region's rules, each once, and its module's calls (kernel/calls.ts everyCallCount), growing no faster than linearly (growth.ts incrementsDoNotGrow)"
+			},
+			kept: [],
+			kills: [
+				{
+					file: "packages/engine/src/analysis/theory/unit.ts",
+					original: "\t\t\trules.push(rule)\n",
+					replacement:
+						"\t\t\tif (!rules.some((held) => canonicalEquals(held, rule))) {\n\t\t\t\trules.push(rule)\n\t\t\t}\n",
+					why: "Each rule made is compared with every rule held, O(o · r): the region's calls grow with the square of its rules, and the growth law fails."
+				},
+				{
+					file: "packages/engine/src/analysis/theory/unit.ts",
+					original: "\t\t\tif (made.has(identity)) {",
+					replacement: "\t\t\tif ([...made].some((held) => sameOrder(held, identity))) {",
+					why: "Each occurrence is compared with every rule made before it, O(o · r): the region's calls grow with the square of its rules, and the growth law fails."
 				}
 			]
 		}

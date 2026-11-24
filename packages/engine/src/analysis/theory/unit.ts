@@ -43,6 +43,7 @@ import {
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
+import { TupleSet } from "@bjornpagen/grizzle-text/base/tuple-map"
 import { refuse } from "#compiler/analysis/theory/build.ts"
 import {
 	type LeafRewrite,
@@ -59,7 +60,7 @@ import {
 	type RuleLaw,
 	type WholeRule
 } from "#compiler/analysis/theory/query.ts"
-import { canonicalEquals } from "#compiler/core/canonical.ts"
+import { canonicalEquals, canonicalTextOf } from "#compiler/core/canonical.ts"
 import type { UnitLocality } from "#compiler/core/causes.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import {
@@ -1657,6 +1658,16 @@ const proofsOf = (
 }
 
 /**
+ * What a region's rule of an occurrence is canonically (`regionOf`): its side, its relation, the fields it binds in
+ * their order, those its rule of gained rows reads a lost row at (`replacing`), in code point order, as a record holds
+ * its keys, and the canonical text of each of its occurrence's conditions in their order, each segment of fields
+ * led by its length. Its rule's every other part is a function of these: its variables and bindings of its fields,
+ * named apart by `varOf`, its conditions those conditions with their fields renamed by it, its head its unit's key. Two
+ * occurrences hold one identity exactly when their rules are canonically one rule.
+ */
+type RuleIdentity = ReadonlyArray<string | number>
+
+/**
  * The region of a unit's keys: the union, over each occurrence of a holder (`RegionRead`) and each side its polarity
  * reads, delta.added for a side of news and delta.removed for one of olds, of the leading key fields of the rows the
  * side holds that meet the occurrence's conditions on its row, a set of unit keys under `u0`…`u(k-1)`, each rule once.
@@ -1680,20 +1691,24 @@ const regionOf = (
 	const holders = holdersOf(unit)
 	const rules: Array<InferredRule> = []
 	const replaced: Array<ReplacedRead> = []
+	/** Each relation and fields `replaced` holds, so each is held once, in the order the occurrences first prove it. */
+	const replacedAt = new TupleSet<ReadonlyArray<string>>()
 	const proofs = proofsOf(regions, facts, relations)
 	/**
-	 * The conditions of each occurrence a rule was made of, by the rule's side, relation and the fields its occurrence's
-	 * proof names: all a rule is a function of beside the unit's key, so an occurrence whose conditions are canonically
-	 * those of one made before at its side, relation and proof makes that rule again, and is passed before its rule is
-	 * made and compared with every rule held. A walk reads an import once at each place it is read, so one occurrence
-	 * stands many times in a region: where every occurrence's rule was made and compared with every rule held, O(o · r)
-	 * canonical comparisons of whole rules for o occurrences and r rules, 116,435 over the 559 regions of edullm's QTI
-	 * schema (qti-pie 1bf7dcc; 4,957 occurrences, 1,935 rules, one region of 1,319 occurrences and one rule), its
-	 * occurrence's conditions are compared with those of the few made at its side, relation and proof alone. With the
-	 * containments read by their target (`containmentsInto`), the regions of that schema's laws went from 459 ms to 191
-	 * ms under a 100 µs CPU profile, the rules' comparisons from 238 ms to 52 ms.
+	 * The identity of each rule made (RuleIdentity), so a rule is made once, at the first occurrence that makes it. A walk
+	 * reads an import once at each place it is read, so one occurrence stands many times in a region, and a region of o
+	 * occurrences making r rules compared each occurrence with what was made before: its rule with every rule held, O(o ·
+	 * r) canonical comparisons of whole rules, then its conditions with every set made at its side, relation and proof,
+	 * O(o · b) for the b sets of each, with every new rule still compared with every rule held. A rule's identity is
+	 * exactly what its rule is canonically, so the region makes O(o) lookups of a set of identities, each identity reading
+	 * its occurrence's conditions by their canonical texts, each condition's written once (`textOf`). Over the 559 regions
+	 * of edullm's QTI schema (qti-pie 1bf7dcc; 5,626 sides of 4,957 occurrences, 1,935 rules, one region of 1,319
+	 * occurrences and 50 rules) the comparisons were 7,453 of conditions and 6,835 of rules, and the regions of a lawsOf
+	 * went from 162 to 185 ms to 143 to 153 ms, four runs of each.
 	 */
-	const made = new Map<string, Array<ReadonlyArray<InferredExpr>>>()
+	const made = new TupleSet<RuleIdentity>()
+	const texts = new Map<InferredExpr, string>()
+	const textOf = (c: InferredExpr): string => texts.getOrInsertComputed(c, canonicalTextOf)
 	for (const [place, r] of regions.entries()) {
 		const key = defined(holders.get(r.relation), "a region read's relation, a holder of its unit")
 		const read = new Set<string>()
@@ -1713,20 +1728,26 @@ const regionOf = (
 		const at = proofs.get(place)
 		const fields = [...new Set([...key, ...[...read, ...(at ?? [])].toSorted(compareStrings)])]
 		const leaves: LeafRewrite = { var: () => undefined, field: (f) => varRef(varOf(f)) }
-		if (
-			at !== undefined &&
-			!replaced.some((x) => x.relation === r.relation && sameOrder(x.fields, at))
-		) {
+		if (at !== undefined && !replacedAt.has([r.relation, ...at])) {
+			replacedAt.add([r.relation, ...at])
 			replaced.push({ relation: r.relation, fields: at })
 		}
+		const conditions = r.where.map(textOf)
 		for (const side of sidesAt(r.polarity)) {
-			const input = [side, r.relation, ...(at ?? [])].join("\u0000")
-			const alike = made.get(input) ?? []
-			if (alike.some((conditions) => canonicalEquals(conditions, r.where))) {
+			const replaces = at !== undefined && side === "added" ? at.toSorted(compareStrings) : []
+			const identity: RuleIdentity = [
+				side,
+				r.relation,
+				fields.length,
+				...fields,
+				replaces.length,
+				...replaces,
+				...conditions
+			]
+			if (made.has(identity)) {
 				continue
 			}
-			alike.push(r.where)
-			made.set(input, alike)
+			made.add(identity)
 			const rule = ruleDesc(
 				fields.map((field) => ({ id: varOf(field), origin: { relation: r.relation, field }, loc })),
 				[
@@ -1743,9 +1764,7 @@ const regionOf = (
 				Object.fromEntries(key.map((_, j) => [unitColumn(j), varRef(regionVar(j))] as const)),
 				loc
 			)
-			if (!rules.some((held) => canonicalEquals(held, rule))) {
-				rules.push(rule)
-			}
+			rules.push(rule)
 		}
 	}
 	if (!isNonEmpty(rules)) {

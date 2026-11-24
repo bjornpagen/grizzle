@@ -413,6 +413,90 @@ const lt = (left: string, right: string): AuthoredExprDesc => ({
 	right: { kind: "var", var: right }
 })
 
+/**
+ * The reads box's D: a node of T at kind 0 beside `reads` reads of an import of `kinds` rules, rule j T's nodes at kind
+ * j, by their document and key: its walk stands `reads` × `kinds` occurrences of T in its region beside the node's own,
+ * each rule's read `reads` times, so its region holds a rule for each kind and side, each made of `reads` occurrences
+ * (unit.ts regionOf).
+ */
+const readsRuleOf = (kinds: number, reads: number): AuthoredRelationDesc => {
+	/** Rule j of the import: T's nodes at kind 1 + j. */
+	const nodesAt = (j: number) =>
+		({
+			vars: Arr.map(["doc", "start"], (id) => ({ id, origin: { relation: "T", field: id } })),
+			matches: [
+				{
+					source: { kind: "relation", name: "T" },
+					bindings: {
+						doc: { kind: "var", var: "doc" },
+						start: { kind: "var", var: "start" },
+						kind: literal(BigInt(1 + j))
+					}
+				}
+			],
+			where: [],
+			head: { doc: { kind: "var", var: "doc" }, start: { kind: "var", var: "start" } },
+			interiors: [],
+			attach: []
+		}) as const
+	const nodes: QueryDesc = decodedQuery({
+		kind: "rules",
+		arms: [nodesAt(0), ...Array.from({ length: kinds - 1 }, (_, j) => nodesAt(j + 1))]
+	})
+	const read = Array.from({ length: reads }, (_, i) => `s${i}`)
+	const query: QueryDesc = decodedQuery({
+		kind: "rules",
+		arms: [
+			{
+				vars: [
+					{ id: "doc", origin: { relation: "T", field: "doc" } },
+					{ id: "start", origin: { relation: "T", field: "start" } },
+					...Arr.map(read, (id) => ({ id, origin: undefined }))
+				],
+				matches: [
+					{
+						source: { kind: "relation", name: "T" },
+						bindings: {
+							doc: { kind: "var", var: "doc" },
+							start: { kind: "var", var: "start" },
+							kind: literal(0n)
+						}
+					},
+					...Arr.map(
+						read,
+						(id) =>
+							({
+								source: { kind: "query", query: nodes, bind: {} },
+								bindings: { doc: { kind: "var", var: "doc" }, start: { kind: "var", var: id } }
+							}) as const
+					)
+				],
+				where: [],
+				head: {
+					doc: { kind: "var", var: "doc" },
+					start: { kind: "var", var: "start" },
+					value: { kind: "var", var: "start" }
+				},
+				interiors: [],
+				attach: []
+			}
+		]
+	})
+	return { kind: "derived", name: "D", level: 1, storage: "live", query }
+}
+
+/**
+ * The reads box's theory: the nodes' schema, T's kinds contained in K, and the rule of `reads` reads of an import of
+ * `kinds` rules (readsRuleOf).
+ */
+export const readsTheoryOf = (nodes: Nodes, kinds: number, reads: number): TestTheory =>
+	theoryOf(
+		judgedOver(
+			nodeSchemaOf(nodes, [contained(on("K", ["doc", "kind"]), on("T", ["doc", "kind"]))]),
+			readsRuleOf(kinds, reads)
+		)
+	)
+
 /** The schema of `base` with D and the check over it that refuses its value at 1. */
 const judgedOver = (base: SchemaDesc, D: AuthoredRelationDesc): SchemaDesc => ({
 	name: "Judged",
