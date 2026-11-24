@@ -4,7 +4,8 @@ import type {
 	Catalog,
 	CatalogGrant,
 	CatalogMembership,
-	CatalogPublishedTable
+	CatalogPublishedTable,
+	CatalogType
 } from "#test/support/catalog/read.ts"
 
 /**
@@ -151,6 +152,11 @@ export interface ErasureExpectation {
 	 * the installation holds besides the rosters'.
 	 */
 	readonly closedConstants: boolean
+	/**
+	 * Each world role's whole closed relations' types, by its PostgreSQL role: each roster it holds whole, its roster's
+	 * domain, which its reads of the roster's handles are typed by and no view or table of it shows (domainUsers).
+	 */
+	readonly closedTypes: ReadonlyMap<string, ReadonlyArray<TypeName>>
 	/**
 	 * The installation's live source (physical/ddl/live.ts): none, or its secret's table, which the decoder login alone
 	 * reads, the decoder login, which holds USAGE on the schema and SELECT on the secret and nothing else, and its
@@ -884,18 +890,6 @@ const constantShapeProblems = (j: Judging, f: Fn): ReadonlyArray<ErasureProblem>
 	]
 }
 
-/** The world roles holding `privilege` on the domain named `domain`. */
-const domainHolders = (j: Judging, domain: string, privilege: string): ReadonlySet<string> =>
-	new Set(
-		Arr.flatMap(j.catalog.domains, (d) =>
-			d.name === domain
-				? Arr.flatMap(d.grants, (g) =>
-						g.privilege === privilege && j.worldRoles.has(g.grantee) ? [g.grantee] : []
-					)
-				: []
-		)
-	)
-
 /** The world roles whose views call the function `name`: each world's role is its schema's name, and each whole view's
  * readers are the roles holding its relation whole. */
 const viewCallers = (j: Judging, name: string): ReadonlySet<string> =>
@@ -926,12 +920,14 @@ const tableWriters = (j: Judging, tables: ReadonlyArray<string>): ReadonlySet<st
 		)
 	)
 
+/** A type by its schema and name. */
+type TypeName = Pick<CatalogType, "schema" | "name">
+
 /**
- * The tables of the schema with a column whose type rests on the domain `domain`, the domain itself or one based on it
- * down its chain: a write of one coerces into the domain, which runs its CHECK as the invoker, a generated column's
- * included.
+ * Whether a type of the catalog rests on the domain `domain`: the domain itself, or a domain of the installation's
+ * levels based on it down its chain.
  */
-const tablesOn = (j: Judging, domain: string): ReadonlyArray<string> => {
+const restingOn = (j: Judging, domain: string): ((type: TypeName) => boolean) => {
 	const bases = new Map<string, string>(
 		Arr.flatMap(j.catalog.domains, (d) =>
 			j.catalog.levels.includes(d.base.schema) ? [[d.name, d.base.name] as const] : []
@@ -943,11 +939,63 @@ const tablesOn = (j: Judging, domain: string): ReadonlyArray<string> => {
 			onNone: () => false,
 			onSome: restsOn
 		})
+	return (type) => j.catalog.levels.includes(type.schema) && restsOn(type.name)
+}
+
+/**
+ * The tables of the schema with a column whose type rests on the domain `domain` (restingOn): a write of one coerces
+ * into the domain, which runs its CHECK as the invoker, a generated column's included.
+ */
+const tablesOn = (j: Judging, domain: string): ReadonlyArray<string> => {
+	const rests = restingOn(j, domain)
 	return Arr.flatMap(j.catalog.tables, (t) =>
-		Arr.some(t.columns, (c) => j.catalog.levels.includes(c.type.schema) && restsOn(c.type.name))
-			? [t.name]
-			: []
+		Arr.some(t.columns, (c) => rests(c.type)) ? [t.name] : []
 	)
+}
+
+/**
+ * The world roles that use the domain `domain`, whose CHECK's constants each runs as the invoker (restingOn): each
+ * holding SELECT on a view, its world's or a whole view, with a column resting on it; INSERT, UPDATE or SELECT on a
+ * whole table with such a column, or INSERT or UPDATE on such a column; or a whole closed relation, a roster, whose
+ * type rests on it (ErasureExpectation `closedTypes`). A SELECT on a column alone, a family owner's key or copied field
+ * its members' writer reads, is no use of its domain.
+ */
+const domainUsers = (j: Judging, domain: string): ReadonlySet<string> => {
+	const rests = restingOn(j, domain)
+	const world = (g: CatalogGrant): ReadonlyArray<string> =>
+		j.worldRoles.has(g.grantee) ? [g.grantee] : []
+	return new Set([
+		...Arr.flatMap([...j.catalog.worlds, ...j.catalog.wholes], (w) =>
+			Arr.flatMap(w.relations, (v) =>
+				Arr.some(v.columns, (c) => rests(c.type))
+					? Arr.flatMap(v.grants, (g) => (g.privilege === "SELECT" ? world(g) : []))
+					: []
+			)
+		),
+		...Arr.flatMap(j.catalog.tables, (t) => {
+			const resting = new Set<string>(
+				Arr.flatMap(t.columns, (c) => (rests(c.type) ? [c.name] : []))
+			)
+			if (resting.size === 0) {
+				return []
+			}
+			return [
+				...Arr.flatMap(t.grants, (g) =>
+					g.privilege === "INSERT" || g.privilege === "UPDATE" || g.privilege === "SELECT"
+						? world(g)
+						: []
+				),
+				...Arr.flatMap(t.columnGrants, (g) =>
+					(g.privilege === "INSERT" || g.privilege === "UPDATE") && resting.has(g.column)
+						? world(g)
+						: []
+				)
+			]
+		}),
+		...Arr.flatMap([...j.expect.closedTypes], ([role, types]) =>
+			Arr.some([...types], rests) ? [role] : []
+		)
+	])
 }
 
 /** The world roles holding EXECUTE on the function `name`. */
@@ -964,11 +1012,11 @@ const executorsOf = (j: Judging, name: string): ReadonlySet<string> =>
 
 /**
  * EXECUTE on a constant goes exactly to the world roles that call it as invokers (§3.12, "Role views"): a live
- * constant's, a hex literal that calls nothing, to the holders of USAGE on its bits domain, whose CHECK calls it, and the
- * roles that insert into or update a table with a column whose type rests on that domain (`tablesOn`), a generated
- * column's of a containment selected by a set among them, which no field of the writer's relations need type; a names
- * constant's to the holders of USAGE on its roster domain, the writers of the tables on it alike, and the roles whose
- * views decode a closed id through it; a declared closed relation's own constant's to every world role, since
+ * constant's, a hex literal that calls nothing, to the roles that use its roster's and its bits domains, whose CHECKs
+ * call it (`domainUsers`), and the roles that insert into or update a table with a column whose type rests on one of
+ * them (`tablesOn`), a generated column's of a containment selected by a set among them, which no field of the writer's
+ * relations need type; a names constant's to the roles whose views decode a closed id through it; a declared closed
+ * relation's own constant's to every world role, since
  * a role holds every closed relation of its base but a roster (analysis/schema.ts CheckedSchema) and its queries' closed
  * reads call the relation's constants as the invoker; and any closed constant's to the roles whose views call it and
  * the roles that insert into or update a table whose CHECK or generated column calls it, a law's CHECK alone reading
@@ -988,10 +1036,7 @@ const constantExecutorProblems = (
 	switch (expected.kind) {
 		case "live":
 			for (const domain of expected.domains) {
-				for (const r of [
-					...domainHolders(j, domain, "USAGE"),
-					...tableWriters(j, tablesOn(j, domain))
-				]) {
+				for (const r of [...domainUsers(j, domain), ...tableWriters(j, tablesOn(j, domain))]) {
 					required.add(r)
 				}
 			}
@@ -1429,8 +1474,8 @@ const defaultAclProblems = (j: Judging): ReadonlyArray<ErasureProblem> => [
  *   the isolation guard, to world roles alone on the refusal function, to exactly the logins on the snapshot guard,
  *   which every Db transaction calls as its login, to the one role whose entry it serves on a world's function, and on
  *   a constant to exactly the world
- *   roles that call it as invokers: through USAGE on a domain whose CHECK reads it, a view that decodes through it, or
- *   another constant derived from it;
+ *   roles that call it as invokers: through a domain whose CHECK reads it that a column or a closed relation it uses is
+ *   typed by (domainUsers), a view that decodes through it, or another constant derived from it;
  * - a roster's domain and a set's domain each have one CHECK, which calls exactly their constant;
  * - the only triggers are the isolation guard and PostgreSQL's internal foreign-key triggers, enabled;
  * - every table the installation expects, the authored relations' and the migrations ledger, carries exactly one
@@ -1446,8 +1491,10 @@ const defaultAclProblems = (j: Judging): ReadonlyArray<ErasureProblem> => [
  *   table or of a column, on an immutable relation (immutable by default is pinned) or TRUNCATE on any relation
  *   (TRUNCATE fires no row trigger and would bypass the laws); a table grants only SELECT, INSERT, DELETE and UPDATE,
  *   a column SELECT, INSERT and UPDATE, and a stored derived relation's table nothing to any world's role, since only
- *   the judge's upkeep writes it and the world's views read it as their owner (worldPrivileges); the schema and a
- *   domain grant USAGE;
+ *   the judge's upkeep writes it and the world's views read it as their owner (worldPrivileges); the schema grants
+ *   USAGE, and a domain nothing to anyone but its owner: PostgreSQL checks a type's USAGE only where a statement creates
+ *   an object of it, and a role creates none of a domain, its carriers holding their values' session types
+ *   (ir/physical.ts sessionTypeRef);
  * - row security is enabled exactly on the tables some world's entry narrows, never forced, and only those tables carry
  *   policies: one per world role that writes the table, a permissive FOR ALL policy named after that role, whose USING
  *   and WITH CHECK are one predicate, `true` for a role whose entry holds every row; a table every world writes whole
@@ -1515,7 +1562,7 @@ export const verifyErasure = (
 			...grantProblems(
 				j,
 				on({ kind: "domain", name: d.name }, d.grants),
-				allowed.usage,
+				allowed.none,
 				allowed.none
 			),
 			...unless(!d.notNull, { kind: "domainNotNull", domain: d.name })

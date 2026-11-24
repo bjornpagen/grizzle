@@ -9,7 +9,6 @@
  *   definitions, equal names; any difference, a new name);
  * - the installation creates each distinct definition's domain once, so the CREATE DOMAINs of contract domains are as
  *   many as the distinct definitions, natural's among them, a bigint VALUE >= 0, which every schema holds;
- * - a role that writes the relation holds USAGE once per domain;
  * - a shared checked domain's constraint reports every contract sharing it, and names each column's contract by the
  *   column, so a violation on either column reports that column's law.
  *
@@ -60,10 +59,6 @@ export const contractDomainsByDefinitionW6Q10ShareOneDomainExactlyWhenTheirDefin
 					distinctDefinitions(p),
 					"each distinct definition's domain is created once, natural's among them, which every schema holds"
 				)
-				const usage = Arr.flatMap(i.statements, (s) =>
-					s.kind === "grant" && s.on.kind === "DOMAIN" ? Arr.map(s.on.names, (n) => n.name) : []
-				)
-				assert.equal(new Set(usage).size, usage.length, "USAGE once per domain")
 				if (same(p.a, p.b) && p.a.predicate === "nonnegative") {
 					const entry = defined(
 						Arr.findFirst(

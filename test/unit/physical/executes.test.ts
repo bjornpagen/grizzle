@@ -5,19 +5,22 @@
  *
  * The property: for every role, the constants it is granted EXECUTE on are exactly those its statements evaluate,
  * restated over the installation's statements (reachableConstants): every statement on a table it writes, its views,
- * its policies' predicates, the domains it holds USAGE on and every closed relation's constants, through each constant's
- * body and each domain's base type and CHECKs, a cast's target among the domains. Nothing more, which is least
+ * its policies' predicates, the domains the fields it holds are typed by, stated from the world's facts through the
+ * naming door, and every closed relation's constants, through each constant's body and each domain's base type and
+ * CHECKs, a cast's target among the domains. Nothing more, which is least
  * privilege, and nothing less, which a write needs: PostgreSQL checks EXECUTE against the invoker on every function a
  * CHECK, a generated column or a domain's CHECK calls.
  *
  * The required situation is a constant that only a written table's casts reach: a containment selected by a set adds to
  * its source a generated column of the set's bits domain, its value a literal cast into that domain, and a role that
- * writes the source and holds no relation with a set over the selector's roster holds no USAGE on the domain, so only
+ * writes the source and holds no relation with a set over the selector's roster holds no field of the domain, so only
  * the cast reaches the live-codes constant its CHECK calls. A check's set value is cast into its own field's domain,
- * which its writer holds, and a closed id selector's column and handle are smallint, so neither reaches one alone.
+ * which its writer holds a field of, and a closed id selector's column and handle are smallint, so neither reaches one
+ * alone.
  *
  * Oracle: a second implementation of the reach (test/support/executes.ts reachableConstants), restated over the
- * installation's statements, sharing no code with the installer's call tracking.
+ * installation's statements and seeded from the world's own facts, sharing no code with the installer's call tracking
+ * or its reading of a role's types (physical/ddl/domains.ts columnDomains).
  *
  * Features: a constant only a written table's casts reach, a role that writes nothing, and two roles.
  */
@@ -73,7 +76,7 @@ export const theEXECUTEGrantsOfARoleAreExactlyTheConstantsItsStatementsEvaluateT
 				}
 				for (const r of world.roles) {
 					const installed = installedRole(i, r.name)
-					const every = reachableConstants(i, installed, "every type")
+					const every = reachableConstants(i, world, r, "every type")
 					assert.deepEqual(
 						sorted(grantedConstants(i, installed.role)),
 						sorted(every),
@@ -82,7 +85,7 @@ export const theEXECUTEGrantsOfARoleAreExactlyTheConstantsItsStatementsEvaluateT
 					if (r.writes.length === 0) {
 						c.note("a role that writes nothing")
 					}
-					const own = reachableConstants(i, installed, "no written table's types")
+					const own = reachableConstants(i, world, r, "no written table's types")
 					if (Arr.some([...every], (name) => !own.has(name))) {
 						c.note("a constant only a written table's casts reach")
 					}
@@ -100,6 +103,12 @@ export const theEXECUTEGrantsOfARoleAreExactlyTheConstantsItsStatementsEvaluateT
 					"\t\tstatements: [...written.flatMap((relation) => b.evaluatedOn(relation)), ...views],",
 				replacement: "\t\tstatements: [...views],",
 				why: "A role's reach skips the tables it writes, reading its views alone."
+			},
+			{
+				file: "packages/engine/src/physical/ddl/roles.ts",
+				original: "\t\tdomains: [...use.domains.values()].map((u) => u.name),",
+				replacement: "\t\tdomains: [],",
+				why: "A role's reach skips the domains its fields are typed by: a reader of a set loses EXECUTE on the live-codes constant its bits domain's CHECK calls."
 			}
 		]
 	})

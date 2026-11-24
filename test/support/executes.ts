@@ -2,6 +2,7 @@ import { TupleSet } from "@bjornpagen/grizzle-text/base/tuple-map"
 import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { array, element, type Gen, subset, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record as Rec } from "effect"
+import { parseDeclaredName } from "#compiler/core/identity.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { Logic } from "#compiler/public/compute.ts"
 import { Bits, bits, closedId, contract, pg } from "#compiler/public/fields.ts"
@@ -17,7 +18,8 @@ import {
 	transformStatement
 } from "#compiler/sql/transform.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
-import { Id } from "#test/support/ids.ts"
+import { succeeded } from "#test/support/assert.ts"
+import { Id, idName } from "#test/support/ids.ts"
 
 /**
  * Worlds for the EXECUTE grants of roles (physical/ddl/roles.ts roleExecutes): rosters, sets over them, a contract,
@@ -27,7 +29,7 @@ import { Id } from "#test/support/ids.ts"
  * - A selected containment `contained(on(S, ref), on(select(T, (t) => t.eq(t.selector, constant)), "id"))` places T's
  *   constant on S as a generated law column of the selector's base type: a closed id's is smallint and its handle an
  *   integer literal, and a set's is the set's bits domain, its value a literal cast into that domain. A role that
- *   writes S and holds no relation with a set over the selector's roster holds no USAGE on that domain, so only S's
+ *   writes S and holds no relation with a set over the selector's roster uses no field of that domain, so only S's
  *   cast reaches the live-codes constant its CHECK calls.
  * - A check over a set field compares it with a set value, `ne(field, Bits.of(roster, handles))`, a literal cast into
  *   the field's own domain; over a closed id it compares with a handle.
@@ -192,8 +194,8 @@ const handlesOf = (
  * containments between them, each bringing its own fields, a ref on its source and its selector on its target; checks
  * over the sets and closed ids; one or two roles, each holding a drawn subset of the relations whole and writing a drawn
  * subset of those, none included, or writing one containment's source alone. A source writer of a containment selected
- * by a set that holds no other set over its roster writes a cast into a domain it holds no USAGE on, which only its
- * table's casts reach.
+ * by a set that holds no other set over its roster writes a cast into a domain no field it holds is typed by, which
+ * only its table's casts reach.
  */
 export const executesWorldGen: Gen<ExecutesWorld> = (source) => {
 	const rosters = nonEmpty(
@@ -278,8 +280,11 @@ export const executesWorldGen: Gen<ExecutesWorld> = (source) => {
 	return { rosters, relations, laws, roles }
 }
 
+/** The name of the contract every count field is typed by, its domain's. */
+const countName = "Count"
+
 /** The contract every count field is typed by: an integer above zero. */
-const Count = contract("Count", pg.integer, (x) => Logic.gt(x, 0))
+const Count = contract(countName, pg.integer, (x) => Logic.gt(x, 0))
 
 /**
  * The world built through the public builders under the declared name `name`: its schema and its login `desk`, whose
@@ -407,22 +412,57 @@ const writtenTables = (i: Installation, role: string): ReadonlySet<string> =>
 
 /**
  * Which casts a reachability follows: every type a statement names, or none a written table's statements name, which
- * reaches only what the role's own statements and its columns' domains do.
+ * reaches only what the role's own statements and its fields' domains do.
  */
 type Follow = "every type" | "no written table's types"
 
 /**
- * The constants `role`'s statements evaluate, restated over the installation's statements: from every statement on a
- * table it writes (its CREATE TABLE, every ALTER TABLE and every CREATE INDEX on it), its views, its policies'
- * predicates, the domains it holds USAGE on and every closed relation's constants, each constant a statement calls and
- * each domain it names (a column's type, a cast's or a literal's), and through each, a constant's body and a domain's
- * base type and CHECKs.
+ * The domains the role `r` uses, stated from the world's facts through the naming door (ir/physical.ts PhysicalNames),
+ * never from its grants: those the fields of each relation it holds whole are typed by, which its whole view shows and
+ * its writes of the ones it writes coerce into. A relation's id and a containment's ref are typed by the contract Id, a
+ * count by the contract Count, a closed id by its roster's domain and a set by its roster's bits domain; a plain integer
+ * names none, nor do Id's and Count's bases, a uuid and an integer. A selected containment's law column is no field:
+ * its domain is reached through the written table's statements alone.
+ */
+const usedDomains = (i: Installation, w: ExecutesWorld, r: RoleSketch): ReadonlyArray<string> => {
+	const declared = (name: string) => succeeded(parseDeclaredName(name))
+	const id = i.names.contractDomain(declared(idName)).name
+	const typedBy = (f: FieldSketch): ReadonlyArray<string> => {
+		switch (f.kind) {
+			case "code":
+				return [i.names.rosterDomain(declared(f.roster)).name]
+			case "set":
+				return [i.names.bitsDomain(declared(f.roster)).name]
+			case "count":
+				return [i.names.contractDomain(declared(countName)).name]
+			case "ref":
+				return [id]
+			case "plain":
+				return []
+		}
+	}
+	return [
+		id,
+		...Arr.flatMap(w.relations, (relation) =>
+			Arr.contains(r.holds, relation.name) ? Arr.flatMap(relation.fields, typedBy) : []
+		)
+	]
+}
+
+/**
+ * The constants the statements of the world `w`'s role `r` evaluate, restated over the installation's statements: from
+ * every statement on a table it writes (its CREATE TABLE, every ALTER TABLE and every CREATE INDEX on it), its views,
+ * its policies' predicates, the domains its fields are typed by (usedDomains) and every closed relation's constants,
+ * each constant a statement calls and each domain it names (a column's type, a cast's or a literal's), and through each,
+ * a constant's body and a domain's base type and CHECKs.
  */
 export const reachableConstants = (
 	i: Installation,
-	installed: { readonly role: string },
+	w: ExecutesWorld,
+	r: RoleSketch,
 	follow: Follow
 ): ReadonlySet<string> => {
+	const installed = installedRole(i, r.name)
 	const schema = i.names.schema
 	const constants = new Map(
 		Arr.flatMap(i.statements, (s) =>
@@ -495,16 +535,8 @@ export const reachableConstants = (
 	const predicates: ReadonlyArray<Expr> = Arr.flatMap(i.statements, (s) =>
 		s.kind === "createPolicy" && s.role === installed.role ? [s.filter] : []
 	)
-	for (const s of i.statements) {
-		if (
-			s.kind === "grant" &&
-			s.on.kind === "DOMAIN" &&
-			Arr.some(s.to, (g) => g.kind === "role" && g.name === installed.role)
-		) {
-			for (const d of s.on.names) {
-				domain(d.name)
-			}
-		}
+	for (const d of usedDomains(i, w, r)) {
+		domain(d)
 	}
 	for (const r of Rec.values(i.owned.relations)) {
 		if (r.kind === "closedRelation") {

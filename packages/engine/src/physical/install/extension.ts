@@ -51,7 +51,8 @@ export interface InstallExtension {
 	/**
 	 * The roles whose served ChangeSets create a carrier, a temporary table (write/carriers/carriers.ts,
 	 * write/program/staged.ts), with the types of its program carriers' columns (RoleCarriers), which the installation
-	 * grants TEMPORARY on the database and USAGE on each domain of those types (physical/ddl/roles.ts addWorlds): the
+	 * grants TEMPORARY on the database and EXECUTE on what the CHECKs of those types' domains call (physical/ddl/roles.ts
+	 * addWorlds): the
 	 * served workload's, derived from the ChangeSets it serves (program/workload/compile.ts servedWorkload); every other
 	 * extension's, none (`noCarriers`).
 	 */

@@ -370,7 +370,6 @@ CREATE SCHEMA "ledger__child";
 CREATE VIEW "ledger__child"."resource" AS SELECT … FROM "qti"."resource";
 GRANT SELECT ON "ledger__child"."resource" TO "ledger__child";   -- nothing on "qti"."resource"
 GRANT USAGE ON SCHEMA "qti", "ledger", "ledger__child" TO "ledger__child";
-GRANT USAGE ON DOMAIN "qti"."node_kind" TO "ledger__child";      -- Served.kind's carrier
 -- Sitting, Served, Answer, Grade: today's grants and policy for a writable query entry, on "ledger".*
 ```
 

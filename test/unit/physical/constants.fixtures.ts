@@ -18,13 +18,7 @@ import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import { installationsOf } from "#compiler/schema/own.ts"
 import { fullRoleDesc, type Owned, ownLogin } from "#compiler/schema/own.ts"
-import type {
-	Expr,
-	FunctionName,
-	LiteralValue,
-	ObjectName,
-	SqlStatement
-} from "#compiler/sql/ast.ts"
+import type { Expr, LiteralValue, SqlStatement } from "#compiler/sql/ast.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { textOfHex } from "#test/support/closed/bit-text.ts"
 import {
@@ -545,11 +539,11 @@ export const rosterObjects = (i: Installation, s: RosterState) => {
 	return { live: bitsRead(domain, constants, schema), names: namesConstants(constants), admitted }
 }
 
-/** What each role holds, read from the grants the installation states. */
+/** What each role holds, read from the grants the installation states, by its declared name and its role. */
 interface RoleGrants {
+	readonly name: string
 	readonly role: string
 	readonly execute: ReadonlySet<string>
-	readonly domains: ReadonlySet<string>
 	readonly writes: ReadonlySet<string>
 	/** Each view it reads, by schema and name: its relations' whole views and its query entries' own. */
 	readonly views: TupleSet<readonly [string, string]>
@@ -563,12 +557,11 @@ export const grantsOf = (i: Installation): ReadonlyArray<RoleGrants> =>
 				(s): s is Extract<SqlStatement, { readonly kind: "grant" }> =>
 					s.kind === "grant" && Arr.some(s.to, (g) => g.kind === "role" && g.name === r.role)
 			)
-			const names = (kind: "FUNCTION" | "DOMAIN"): ReadonlySet<string> =>
-				new Set(
-					Arr.flatMap(mine, (g) =>
-						g.on.kind === kind ? Arr.map(g.on.names, (n: ObjectName | FunctionName) => n.name) : []
-					)
+			const execute = new Set(
+				Arr.flatMap(mine, (g) =>
+					g.on.kind === "FUNCTION" ? Arr.map(g.on.names, (n) => n.name) : []
 				)
+			)
 			const tableWrites = Arr.flatMap(mine, (g) =>
 				g.on.kind === "TABLE" && Arr.contains(g.privileges, "INSERT")
 					? Arr.map(g.on.names, (n) => n.name)
@@ -588,23 +581,48 @@ export const grantsOf = (i: Installation): ReadonlyArray<RoleGrants> =>
 				}
 			}
 			return {
+				name: r.name,
 				role: r.role,
-				execute: names("FUNCTION"),
-				domains: names("DOMAIN"),
+				execute,
 				writes: new Set([...tableWrites, ...columnWrites]),
 				views
 			}
 		})
 	)
 
-/** The rule restated: the constants a role's statements call, through function bodies. */
-export const requiredExecutes = (i: Installation, g: RoleGrants): ReadonlySet<string> => {
+/**
+ * The domains each role of the world uses, by its declared name, stated from the world through the naming door
+ * (ir/physical.ts PhysicalNames), never from its grants: those the fields it holds whole are typed by. app, the full
+ * role, holds every roster, whose handles it reads typed by the roster's domain, Item and Tags; reader holds Item; tagger
+ * holds Tags (installationOf). Item's closed ids are typed by their rosters' domains and its drawn sets by their rosters'
+ * bits domains, Tags' set by the first roster's bits domain; a uuid names none, and Grade, a closed relation no role
+ * holds as an entry, is read through its constants alone (closedConstants).
+ */
+const usedDomains = (i: Installation, w: World): ReadonlyMap<string, ReadonlyArray<string>> => {
+	const ss = states(w)
+	const rosters = Arr.map(ss, (s) => i.names.rosterDomain(s.closed).name)
+	const item = [
+		...rosters,
+		...Arr.flatMap(ss, (s, at) => (w.sets[at] === true ? [i.names.bitsDomain(s.closed).name] : []))
+	]
+	const tags = [i.names.bitsDomain(ss[0].closed).name]
+	return new Map([
+		["app", [...rosters, ...item, ...tags]],
+		["reader", item],
+		["tagger", tags]
+	])
+}
+
+/** The rule restated: the constants a role's statements call, through function bodies, from the CHECKs of the domains
+ * it uses (usedDomains), the CREATE TABLE of each table it writes and each view it reads. */
+export const requiredExecutes = (i: Installation, w: World, g: RoleGrants): ReadonlySet<string> => {
 	const schema = i.names.schema
 	const constants = constantsOf(i)
+	const domains = new Set(defined(usedDomains(i, w).get(g.name), `the domains ${g.name} uses`))
 	const statements = Arr.filter(
 		i.statements,
 		(s) =>
-			(s.kind === "createDomain" && g.domains.has(s.name.name)) ||
+			(s.kind === "createDomain" && domains.has(s.name.name)) ||
 			(s.kind === "createTable" && g.writes.has(s.table.name)) ||
 			(s.kind === "createView" && g.views.has([s.name.schema, s.name.name]))
 	)

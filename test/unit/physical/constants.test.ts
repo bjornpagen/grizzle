@@ -16,9 +16,9 @@
  * - **Names are content (metamorphic):** two installations whose codes are equal name every constant alike whatever
  *   else differs; a roster that loses a handle to a hole reads other names, from a constant named anew.
  * - **The EXECUTE rule, as a checker over the installed AST:** every role is granted EXECUTE on every function a
- *   statement it runs calls, through function bodies: the CHECK of each domain it holds USAGE on, the CREATE TABLE of
- *   each table it writes, each of its views, and each closed relation's constants, which its queries read; and on no
- *   other function of the installation's constants. (test/unit/physical/executes.test.ts states the rule over worlds
+ *   statement it runs calls, through function bodies: the CHECK of each domain a field it holds is typed by, stated
+ *   from the world's facts, the CREATE TABLE of each table it writes, each of its views, and each closed relation's
+ *   constants, which its queries read; and on no other function of the installation's constants. (test/unit/physical/executes.test.ts states the rule over worlds
  *   of contracts and laws, which hold no closed relation; this file's closed relation keeps that clause judged.)
  * - **Decoded columns:** every closed-id column of every role view is followed by exactly one `<field>_name`
  *   column; a set has none.
@@ -128,7 +128,7 @@ export const rosterAndClosedConstantsDomainsThatAdmitExactlyTheLiveCodesNamesTha
 
 				const closedNames = closedConstants(i)
 				for (const g of grantsOf(i)) {
-					const need = requiredExecutes(i, g)
+					const need = requiredExecutes(i, w, g)
 					for (const name of need) {
 						assert.ok(g.execute.has(name), `${g.role} holds EXECUTE on ${name}, which it calls`)
 					}

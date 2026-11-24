@@ -17,8 +17,7 @@
  *   rows carried by a ChangeSet's shared sub-query, r.tokens' token found or carried). The login compiles as generate
  *   compiles it and again under its snapshot.json as a Db compiles it; every text and contract domain its statements
  *   and its installation's view definitions name is one its installation creates, and they name one; every row type a
- *   function's signature installs holds no such domain; and a role that creates a carrier holds USAGE on each domain a
- *   carrier's field is typed by.
+ *   function's signature installs holds no such domain; and no role holds USAGE on a domain.
  * - **Oracle:** the specification: every case compiles; the installation's catalog holds every domain its statements
  *   name.
  * - **Features:** each refinement, place and read.
@@ -105,12 +104,6 @@ export const everyDomainAServedProgramOrItsInstallationTypesAValueByIsInstalled 
 					"[...own.texts, ...fields.flatMap((f) => typeRefinements(f.type)), ...planned.texts]",
 				replacement: "[...own.texts, ...fields.flatMap((f) => typeRefinements(f.type))]",
 				why: "The served programs' refinements are not installed: a token's domain is uninstalled, and its read is refused."
-			},
-			{
-				file: "packages/engine/src/physical/ddl/roles.ts",
-				original: "\t\tcolumnDomains(b, carried.columns, use)\n",
-				replacement: "",
-				why: "A role that creates a carrier of a token or a function's result lacks USAGE on the domain of the carrier's field, which the statements filling the carrier cast into."
 			},
 			{
 				file: "packages/engine/src/physical/install/plan.ts",

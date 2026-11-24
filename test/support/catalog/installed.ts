@@ -14,12 +14,7 @@ import { searchPolicySettings } from "#compiler/physical/ddl/roles.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import type { CreateDomain, Expr, SqlStatement } from "#compiler/sql/ast.ts"
 import { identityHooks, transformExpr, transformStatement } from "#compiler/sql/transform.ts"
-import {
-	type Catalog,
-	type CatalogColumn,
-	type CatalogGrant,
-	readCatalog
-} from "#test/support/catalog/read.ts"
+import { type Catalog, type CatalogColumn, readCatalog } from "#test/support/catalog/read.ts"
 import {
 	type ErasureExpectation,
 	type ErasureProblem,
@@ -487,6 +482,7 @@ export const installedScope = (
 				Rec.values(installation.owned.relations),
 				(r) => r.kind === "closedRelation"
 			),
+			closedTypes: new Map(Arr.map(scoped, (s) => [s.scope.role, s.scope.closedTypes] as const)),
 			liveSource: liveSourceOf(snapshot),
 			functionOwner: Arr.head([...created(snapshot, "functionOwner", roleOf)]),
 			rowTypes: created(snapshot, "rowType", rowTypeOf)
@@ -523,19 +519,11 @@ const liveSourceOf = (snapshot: DeploySnapshot): ErasureExpectation["liveSource"
 		: { kind: "none" }
 }
 
-/** A type of the schema a role's USAGE is judged on: a domain, the one kind of type grizzle installs. */
-export interface SchemaType {
-	readonly kind: "domain"
-	readonly name: string
-}
-
 /**
- * One way an installed catalog departs from least privilege on types and on the vector type's reach, or an index that
- * is not valid, by the rule it breaks and the catalog facts that break it.
+ * One way an installed catalog departs from least privilege on the vector type's reach and its logins' defaults, or an
+ * index that is not valid, by the rule it breaks and the catalog facts that break it.
  */
 export type ReachProblem =
-	| { readonly kind: "usageBeyondScope"; readonly role: string; readonly type: SchemaType }
-	| { readonly kind: "usageMissing"; readonly role: string; readonly type: SchemaType }
 	| {
 			readonly kind: "foreignSchemaGrant"
 			readonly role: string
@@ -648,16 +636,9 @@ const tableColumns = (
 			: []
 	)
 
-/** The column types of every table `role` holds any privilege on. */
-const heldTypes = (catalog: Catalog, role: string): ReadonlyArray<NamedType> =>
-	Arr.map(
-		tableColumns(catalog, role, () => true),
-		(c) => c.type
-	)
-
 /**
  * The types an insert by `role` names: those of every column of a table it holds INSERT on but a generated one, whose
- * value PostgreSQL computes and no insert carries, so a domain only a generated column is typed by needs no USAGE.
+ * value PostgreSQL computes and no insert carries.
  */
 const insertedTypes = (catalog: Catalog, role: string): ReadonlyArray<NamedType> =>
 	Arr.flatMap(
@@ -674,60 +655,6 @@ const viewedTypes = (catalog: Catalog, role: string): ReadonlyArray<NamedType> =
 				: []
 		)
 	)
-
-/**
- * The problems of least privilege on types: every USAGE a role holds on a domain of the schema that its table
- * privileges and its roster reads do not need, and every such domain of its views, of the tables it inserts into and
- * of its roster reads it holds no USAGE on.
- */
-const usageProblems = (
-	catalog: Catalog,
-	roles: ReadonlyArray<RoleScope>
-): ReadonlyArray<ReachProblem> => {
-	const bases = new Map<string, string>(
-		Arr.flatMap(catalog.domains, (d) =>
-			d.base.schema === catalog.schema ? [[d.name, d.base.name] as const] : []
-		)
-	)
-	/** A type of the schema with every base its domains rest on. */
-	const restsOn = (name: string, seen: ReadonlySet<string>): ReadonlyArray<string> =>
-		seen.has(name)
-			? []
-			: [
-					name,
-					...Arr.flatMap(Option.toArray(Option.fromUndefinedOr(bases.get(name))), (base) =>
-						restsOn(base, new Set([...seen, name]))
-					)
-				]
-	/** The types of the schema among `types`, each with the bases its domains rest on. */
-	const closure = (types: ReadonlyArray<NamedType>): ReadonlySet<string> =>
-		new Set(
-			Arr.flatMap(types, (t) => (t.schema === catalog.schema ? restsOn(t.name, new Set()) : []))
-		)
-	return Arr.flatMap(catalog.roles, (role) => {
-		const reads = [
-			...Arr.flatMap(roles, (r) => (r.role === role.name ? r.closedTypes : [])),
-			...viewedTypes(catalog, role.name)
-		]
-		const needed = closure([...reads, ...heldTypes(catalog, role.name)])
-		const bound = closure([...reads, ...insertedTypes(catalog, role.name)])
-		const judged = (
-			type: SchemaType,
-			grants: ReadonlyArray<CatalogGrant>
-		): ReadonlyArray<ReachProblem> => {
-			const holds = Arr.some(grants, (g) => g.grantee === role.name && g.privilege === "USAGE")
-			return [
-				...unless(!holds || needed.has(type.name), {
-					kind: "usageBeyondScope",
-					role: role.name,
-					type
-				}),
-				...unless(holds || !bound.has(type.name), { kind: "usageMissing", role: role.name, type })
-			]
-		}
-		return Arr.flatMap(catalog.domains, (d) => judged({ kind: "domain", name: d.name }, d.grants))
-	})
-}
 
 /**
  * The schema outside the installation whose `vector` a column type is or rests on through the schema's domains, none
@@ -866,18 +793,11 @@ const vectorProblems = (catalog: Catalog, scope: InstalledScope): ReadonlyArray<
  *   security and policies exactly where a world writes through a query entry; no UPDATE on an immutable relation, no
  *   TRUNCATE, no sequence, MAINTAIN only to a login fencing the table, nothing to a world on a stored derived
  *   relation's table, no PUBLIC grant,
- *   nothing granted to a login beyond what admission and a Db transaction take as it, nothing inherited beyond a role's own privileges, no elevated
+ *   nothing granted to a login beyond what admission and a Db transaction take as it, nothing granted on a domain,
+ *   nothing inherited beyond a role's own privileges, no elevated
  *   or undeclared role; no index is invalid; and no table holds two unique indexes of one method over one column set
  *   and predicate, or two indexes of one definition (IndexProblem);
- * - least privilege on types, by a derivation of its own: a world's role may hold USAGE on an enum or a domain of the
- *   schema only when its own privileges or its whole closed relations need the type. The types it needs are the types
- *   of every column of every table it holds a privilege on, of a column of one, and of every view
- *   it holds SELECT on, its world's and the whole views of what it holds whole, and, for each closed relation its world holds whole, the relation's enum and the types of its
- *   payload, each with the bases its domains rest on. The installer's grants are never consulted, so a grant beyond the
- *   scope is found however the installer derived it. The bound holds from below as well: a role holds USAGE on every
- *   such type of the views it reads, of the tables it inserts into and of its whole closed relations, which its programs
- *   name when they bind a value of the type;
- * - the vector type, by the same derivation: a world's role holds USAGE on a schema outside the installation exactly
+ * - the vector type, by a derivation of its own: a world's role holds USAGE on a schema outside the installation exactly
  *   when a column it reads (of the views it reads, or of its whole closed relations' payloads) or a column of a table it
  *   inserts into is, or rests through the schema's domains on, that schema's `vector`, so it can name the type a search
  *   binds; and each login stores exactly the fixed defaults (`search_path = pg_catalog, pg_temp`,
@@ -897,7 +817,6 @@ export const checkInstalled = (
 	scope: InstalledScope
 ): ReadonlyArray<InstalledProblem> => [
 	...verifyErasure(catalog, scope.erasure),
-	...usageProblems(catalog, scope.roles),
 	...vectorProblems(catalog, scope),
 	...Arr.flatMap(catalog.indexes, (i) => unless(i.valid, { kind: "invalidIndex", index: i.name })),
 	...indexProblems(catalog)

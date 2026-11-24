@@ -92,8 +92,8 @@ export const emptyUse = (): TypeUse => ({ domains: new Map(), vector: false })
 
 /** The domains a column of type `t` names: a contract's and the domains its domain rests on (restingDomains), a text
  * refinement's, a closed id's roster domain, a set's bits domain and a digest's domain. A span column names none: it is
- * its range, a builtin, whatever contract its endpoints are of, and a value cast to that contract needs no USAGE, so a
- * role holds USAGE on an endpoint contract only where a column of its own is typed by the contract itself. */
+ * its range, a builtin, whatever contract its endpoints are of, so a role uses an endpoint contract only where a column
+ * of its own is typed by the contract itself. */
 const typeDomains = (b: InstallBuilder, t: ScalarType, use: TypeUse): void => {
 	const { contract } = t
 	if (contract !== undefined) {
@@ -238,7 +238,7 @@ export const patternLawId = (
 
 /** A column outside the stored relations that the installation types by a text refinement: a derived relation's view
  * column, a role view's, or a context field a role reads. It is planned before any domain is installed, so its pattern
- * has a domain however the view comes by it, and USAGE on that domain can be granted. `table` and `column` are its
+ * has a domain however the view comes by it. `table` and `column` are its
  * place in canonical use order (`TextDomainUse`). */
 export interface TextColumnUse {
 	readonly regex: RegexRef

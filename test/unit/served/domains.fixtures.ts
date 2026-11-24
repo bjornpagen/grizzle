@@ -292,9 +292,8 @@ const loginOf = (c: TextDomainCase) => {
  * again under its snapshot as a Db does, each naming a domain only where its installation's set holds it (an
  * UninstalledDomain refusal otherwise), so every domain the case's statements name is one the installation creates;
  * every row type a function's signature installs holds each value field at its base, no domain, `text` for a refined text
- * and the contract's base for a contract, its refinement checked where a read casts the call's value to its domain; and the
- * installation grants USAGE on every domain a carrier's field is typed by, which the statements filling the carrier cast
- * into. It answers whether the case's ChangeSet carries such a domain.
+ * and the contract's base for a contract, its refinement checked where a read casts the call's value to its domain; and
+ * no role holds USAGE on a domain. It answers whether the case's ChangeSet carries a field of such a domain.
  */
 export const checkCase = (c: TextDomainCase) =>
 	Effect.gen(function* () {
@@ -320,24 +319,17 @@ export const checkCase = (c: TextDomainCase) =>
 				}
 			}
 		}
-		const usage = new Set(
-			Arr.flatMap(installation.statements, (st) =>
-				st.kind === "grant" && st.on.kind === "DOMAIN" && Arr.contains(st.privileges, "USAGE")
-					? Arr.map(st.on.names, (n) => n.name)
-					: []
-			)
+		const usage = Arr.flatMap(installation.statements, (st) =>
+			st.kind === "grant" && st.on.kind === "DOMAIN" && Arr.contains(st.privileges, "USAGE")
+				? Arr.map(st.on.names, (n) => n.name)
+				: []
 		)
+		assert.deepEqual(usage, [], `no role holds USAGE on a domain\n${Formatter.format(c)}`)
 		const carried = Arr.flatMap(plan.carriers, (r) =>
 			Arr.flatMap(r.columns, (col) => {
 				const type = fieldColumnType(installation.names, col.type).type
 				return type.kind === "named" ? [type.name] : []
 			})
 		)
-		for (const domain of carried) {
-			assert.ok(
-				usage.has(domain),
-				`the role creating a carrier of ${domain} holds USAGE on it\n${Formatter.format(c)}`
-			)
-		}
 		return { carried: carried.length > 0 }
 	})

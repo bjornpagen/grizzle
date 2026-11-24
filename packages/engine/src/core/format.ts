@@ -420,6 +420,10 @@
  * (physical/ddl/deltas.ts sessionDeltaOf), where format 8 typed a carrier's column by its field's domain and a delta's
  * set by its roster's bits domain; so every carrier's name and stand-up moves, with every statement that names it, and
  * every delta reader's row type.
+ * No role holds USAGE on a domain (physical/ddl/roles.ts addRole), which PostgreSQL checks only where an object of the
+ * type is created and no role creates one since its carriers hold session types, where format 8 granted each role
+ * USAGE on every domain its columns and its carriers' fields were typed by; its EXECUTE on the constants those domains'
+ * CHECKs call stays: every world's grants move.
  */
 export const artifactFormat = 8
 

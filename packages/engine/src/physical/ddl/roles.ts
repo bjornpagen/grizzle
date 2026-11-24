@@ -27,7 +27,6 @@ import type { AdmittedQuery } from "#compiler/check/index.ts"
 import { catchRefusal, sameContent, unwrap } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import {
-	compareIdentities,
 	conversionOf,
 	type Identity,
 	identifierOf,
@@ -61,7 +60,6 @@ import {
 	structuralRegex,
 	type TextColumnUse,
 	type TypeUse,
-	type UsedType,
 	columnDomains,
 	usedNodes
 } from "#compiler/physical/ddl/domains.ts"
@@ -254,12 +252,6 @@ export interface WorldsPlan {
 	/** The logins, in name order. */
 	readonly worlds: ReadonlyArray<InstalledLogin>
 }
-
-/** The names of `m`'s types, ordered by the identities they were minted from. */
-const sortedNames = (m: ReadonlyMap<string, UsedType>): ReadonlyArray<ObjectName> =>
-	[...m.values()]
-		.toSorted((a, b) => compareIdentities(a.identity, b.identity))
-		.map((use) => use.name)
 
 /** A field of a context an installed role reads, typed against the base: what the installation plans a claim's domain
  * for, which Db.open's admission validates the claim against. */
@@ -1419,8 +1411,8 @@ const roleExecutes = (
  * schema. A roster whole entry has no view: its handles are read as codes, typed by its domain, which the role uses. The
  * filter function a policy calls, then the probes, each come after every relation, type and function their statements
  * read. TEMPORARY on the database is among its grants where its served workload creates a carrier (`carried`), with
- * USAGE on each domain a carrier's field is typed by, which the statements filling the carrier cast into, and EXECUTE on
- * each function of `held`. */
+ * EXECUTE on what the CHECKs call of the domains its carriers' fields are typed by, which the statements filling the
+ * carrier cast into, and EXECUTE on each function of `held`. */
 const addRole = (
 	b: InstallBuilder,
 	cx: WorldsContext,
@@ -1649,10 +1641,6 @@ const addRole = (
 	]
 	if (use.vector) {
 		privileges.push(grant(["USAGE"], { kind: "SCHEMA", names: [b.settings.vectorSchema] }))
-	}
-	const domains = sortedNames(use.domains)
-	if (isNonEmpty(domains)) {
-		privileges.push(grant(["USAGE"], { kind: "DOMAIN", names: domains }))
 	}
 	if (isNonEmpty(read)) {
 		privileges.push(grant(["SELECT"], { kind: "TABLE", names: read }))
@@ -1938,9 +1926,8 @@ const addRowSecurity = (b: InstallBuilder, writers: ReadonlyArray<Writer>): void
  *   the object's predicate. A write's precheck calls each for the facts it submits and refuses a collision with a
  *   hidden fact under the object's law, in the same statement;
  * - its privileges: USAGE on its base's levels' schemas, on the schema of whole views of each relation it holds whole,
- *   on its own schema where it holds one, on the vector extension's schema when a relation it reads or writes holds a
- *   vector column, and on the domains its relations' columns and its carriers' fields are typed by, down a contract's
- *   base chain, roster, bits and structural text domains alike; SELECT on the whole view of each relation it
+ *   on its own schema where it holds one, and on the vector extension's schema when a relation it reads or writes holds
+ *   a vector column; on no domain; SELECT on the whole view of each relation it
  *   holds whole and on each of its query entries' views, and on no other view: USAGE on a schema only resolves its
  *   names, and PostgreSQL checks SELECT on each view's own grants, so what a role reads is exactly what it holds. For
  *   each writable entry on T: a whole entry's table SELECT, INSERT and DELETE,
@@ -1950,19 +1937,27 @@ const addRowSecurity = (b: InstallBuilder, writers: ReadonlyArray<Writer>): void
  *   key, nor drawn by T's family, and DELETE;
  *   EXECUTE on its filter functions and key and unique probes. For each family whose member it writes, on the family's owner O, unless it
  *   writes O whole (`ownerHolds`): column SELECT on O's key, count, ends and the fields its owner axis copies into
- *   members, and, when O is mutable, column UPDATE on what its recount sets, O's count and ends, none on an immutable O, whose family is fixed at insert; USAGE on those fields' domains.
+ *   members, and, when O is mutable, column UPDATE on what its recount sets, O's count and ends, none on an immutable O, whose family is fixed at insert.
  *   EXECUTE on the refusal function, to every role, whatever it writes: a write's statements refuse through it, a
  *   context source refuses an unreadable claims setting through it, and a read-back checks each bare child and option
  *   it delivers through it (lower/conservative/deliver.ts checkedAttachment), on any role, one that writes nothing among
  *   them; PostgreSQL checks EXECUTE on every function of a plan as the plan starts, a branch never taken included, and
  *   the function reads and writes nothing, so holding it confers nothing. EXECUTE on every constant its statements evaluate,
- *   through constants' bodies and domains' base types and CHECKs alike (`roleExecutes`): the domains it holds USAGE
- *   on; every statement on a table it writes or updates an owner's count in, its column types, defaults, CHECKs,
+ *   through constants' bodies and domains' base types and CHECKs alike (`roleExecutes`): the domains its relations'
+ *   columns and its carriers' fields are typed by (`use.domains`), down a contract's base chain, roster, bits and
+ *   structural text domains alike; every statement on a table it writes or updates an owner's count in, its column
+ *   types, defaults, CHECKs,
  *   generated columns and index expressions, each cast to a domain in them included; its policies' predicates; its
  *   views' decoded columns; and every closed relation's constants, which its queries' closed reads call, and no other
- *   constant. PostgreSQL checks a domain's USAGE only where a statement creates an object of it, which no role does: its
- *   carriers hold their values' session types, never a domain (ir/physical.ts sessionTypeRef), so a domain a CHECK or a
- *   generated column alone casts into needs EXECUTE on what its CHECKs call and no USAGE. TRUNCATE is granted to no
+ *   constant. That source is wider than what the role's statements evaluate: a domain only a column the role reads is
+ *   typed by is one no statement of it coerces into; the exact source, were EXECUTE ever held to least privilege, is the
+ *   domains the role's compiled statements coerce into (assignment targets, explicit casts, every parameter's type,
+ *   scalar ones included, its contexts and its functions' results), read from the statements, never a list of the
+ *   schema's facts, which would miss scalar parameters and the casts inside a query. No role holds USAGE on a domain:
+ *   PostgreSQL checks it only where a statement creates an object of the type (PostgreSQL 19.0, 2026-11-23: a role
+ *   holding none cast into a domain, bound a parameter of it, wrote a column of it, called a function of it and read
+ *   its arrays, and was refused only a temporary table and a function naming it, 42501), and a role creates no object
+ *   of one: its carriers hold their values' session types (ir/physical.ts sessionTypeRef). TRUNCATE is granted to no
  *   one, and no role holds a privilege on a base table
  *   it does not write or own a member of. TEMPORARY on the current database to a role whose served workload creates a
  *   carrier (`carriers`, stated by the served workload's extension): a ChangeSet's own carrier (write/carriers) or a
