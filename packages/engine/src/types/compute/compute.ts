@@ -1323,6 +1323,34 @@ export interface TextApi {
 		Term<string, PA & P<B>, ComputedOrigin<OA | O<B>>, "text">
 	>
 	/**
+	 * `x` before its first character among `chars`, all of x where it holds none, as @bjornpagen/grizzle-text/text
+	 * cutBefore computes it, which the host evaluates by: `Text.cutBefore(href, "?#")` is an href's path, the text up to
+	 * its query or fragment. Characters are code points, as PostgreSQL's strpos and left count them, and each character of
+	 * chars is one member of the set, so a chars of none cuts nowhere. Text of no pattern, which compilation reads within
+	 * x's bytes. PostgreSQL computes it by a function of grizzle's library the installation installs where its schema
+	 * calls it, which allocates at most x's own bytes, so it is defined on every pair of texts, in a query as in a check
+	 * or a generated field. chars is a text term x meets, a parameter among them, or a string.
+	 */
+	cutBefore<A extends TermBase | FirstValue, X, PA, OA, const B>(
+		x: A & First<A, [B]> & InputTerm<X, PA, OA, "text">,
+		chars: Fit<B, NoInfer<Meets<X, "text"> | string>>
+	): Admitted<
+		Every<[TakesFirst<A, "text">, Takes<B, Meets<X, "text"> | string>]>,
+		Term<string, PA & P<B>, ComputedOrigin<OA | O<B>>, "text">
+	>
+	/**
+	 * `x` from its first character among `chars` on, that character included, the empty text where it holds none, as
+	 * @bjornpagen/grizzle-text/text cutFrom computes it: the rest of Text.cutBefore's cut, so `Text.cutFrom(href, "?#")`
+	 * is an href's query and fragment and the two concatenate to x. Typed, lowered and admitted as Text.cutBefore is.
+	 */
+	cutFrom<A extends TermBase | FirstValue, X, PA, OA, const B>(
+		x: A & First<A, [B]> & InputTerm<X, PA, OA, "text">,
+		chars: Fit<B, NoInfer<Meets<X, "text"> | string>>
+	): Admitted<
+		Every<[TakesFirst<A, "text">, Takes<B, Meets<X, "text"> | string>]>,
+		Term<string, PA & P<B>, ComputedOrigin<OA | O<B>>, "text">
+	>
+	/**
 	 * The double a decimal text names, IEEE 754-2019's conversion from decimal character sequences: the text's exact
 	 * value rounded to the nearest double, ties to even, ±Infinity past the greatest finite double and a zero of the
 	 * mantissa's sign below half the least subnormal; `INF`, `-INF` and `NaN` name themselves. Its text is

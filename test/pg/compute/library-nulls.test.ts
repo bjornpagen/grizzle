@@ -65,6 +65,14 @@ export const grizzlesLibraryOnPostgreSQL19EveryLibraryFunctionsValueOverEverySet
 	property.explore(batchGen, {
 		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: [
+			"cutBefore with no argument NULL",
+			"cutBefore with argument 1 NULL",
+			"cutBefore with argument 2 NULL",
+			"cutBefore with every argument NULL",
+			"cutFrom with no argument NULL",
+			"cutFrom with argument 1 NULL",
+			"cutFrom with argument 2 NULL",
+			"cutFrom with every argument NULL",
 			"isXsdPattern with no argument NULL",
 			"isXsdPattern with every argument NULL",
 			"resolveReference with no argument NULL",

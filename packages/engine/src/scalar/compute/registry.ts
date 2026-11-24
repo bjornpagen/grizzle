@@ -279,6 +279,8 @@ export type NativeFn =
 	| "lowerAscii"
 	| "collapse"
 	| "resolveReference"
+	| "cutBefore"
+	| "cutFrom"
 	| "isXsdPattern"
 	| "replace"
 	| "btrim"
@@ -375,6 +377,8 @@ export const nullRules: { readonly [F in NativeFn]: NullRule } = Object.freeze({
 	lowerAscii: "strict",
 	collapse: "strict",
 	resolveReference: "strict",
+	cutBefore: "strict",
+	cutFrom: "strict",
 	isXsdPattern: "strict",
 	replace: "strict",
 	btrim: "strict",
@@ -475,6 +479,8 @@ export const computeSpecs: { readonly [F in ComputeFn]: ComputeSpec } = deepFree
 	lowerAscii: { arity: 1, check: true, nodes: ["lowerAscii"] },
 	collapse: { arity: 1, check: true, nodes: ["collapse"] },
 	resolveReference: { arity: 2, check: true, nodes: ["resolveReference"] },
+	cutBefore: { arity: 2, check: true, nodes: ["cutBefore"] },
+	cutFrom: { arity: 2, check: true, nodes: ["cutFrom"] },
 	isXsdPattern: { arity: 1, check: true, nodes: ["isXsdPattern"] },
 	parseDouble: { arity: 1, check: true, nodes: ["parseDouble"] },
 	parseDecimal: { arity: 1, check: true, nodes: ["parseDecimal"] },
@@ -1101,6 +1107,29 @@ const textResolveReference: FixedOverload = frozen({
 })
 
 /**
+ * A text's cut at its first character among a set of characters, Text.cutBefore and Text.cutFrom wherever they stand
+ * (compute/typing.ts cut), as @bjornpagen/grizzle-text's text.ts cutBefore and cutFrom compute it on the host: a call
+ * of the installation's library function (physical/ddl/library.ts cutDefinition), `<schema>.<fn>(text, chars)`, an
+ * IMMUTABLE, STRICT, PARALLEL SAFE SQL function of the least strpos of each of the set's characters and left or substr
+ * at it, each counting code points, which allocate at most the text's own bytes, so it is defined on every pair of
+ * texts, in a query, a CHECK and a generated field alike. It reads no catalog object a scalar operation is, so it uses
+ * no entry here.
+ */
+const textCut = (fn: "cutBefore" | "cutFrom"): FixedOverload =>
+	frozen({
+		fn,
+		operands: positional(["text", "text"]),
+		result: "text",
+		sql: { kind: "library", fn },
+		catalog: { kind: "construct", uses: [] },
+		volatility: "immutable",
+		totality: total,
+		reads: "value"
+	})
+const textCutBefore = textCut("cutBefore")
+const textCutFrom = textCut("cutFrom")
+
+/**
  * Whether a text is a string of XML Schema 1.0's regExp production (Part 2, Appendix F), as @bjornpagen/grizzle-text's
  * regex/xsd.ts reader reads it on the host, Xml.isPattern wherever it stands (compute/typing.ts isXsdPattern): a
  * call of the installation's library function (physical/ddl/library.ts xsdPatternDefinition), `<schema>.<fn>(x)`, an
@@ -1443,7 +1472,8 @@ const endpoint = (
  *   cidrs, prefixed by its operands' carriers, as "inet,cidr:network_subeq";
  * - a construct: "between:<type>", "in:<type>", "least:<type>", "greatest:<type>", "and", "or", "not", a set's
  *   "difference:bits", "subset:bits" and "disjoint:bits", a text's "endsWith:text", "contains:text" and its ASCII
- *   case fold's "lowerAscii:text", a reference's resolution "resolveReference:text", a pattern's test
+ *   case fold's "lowerAscii:text", a reference's resolution "resolveReference:text", a text's cut at the first of a
+ *   set of characters "cutBefore:text" and "cutFrom:text", a pattern's test
  *   "isXsdPattern:text", and a float's identity image "floatBits:float8" and "floatBits:float4";
  * - a range-polymorphic operator or function, one catalog object for both range carriers: its code and the carrier
  *   (ir/expr.ts rangeOp), listed by both in spanOverloads;
@@ -1666,6 +1696,8 @@ const catalogOverloads = {
 	"collapse:text": textCollapse,
 	"lowerAscii:text": textLowerAscii,
 	"resolveReference:text": textResolveReference,
+	"cutBefore:text": textCutBefore,
+	"cutFrom:text": textCutFrom,
 	"isXsdPattern:text": textIsXsdPattern,
 	"parseDouble:text": textParseDouble,
 	"parseDecimal:text": textParseDecimal,

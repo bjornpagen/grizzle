@@ -1,7 +1,13 @@
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { xsdPattern } from "@bjornpagen/grizzle-text/regex/xsd"
-import { asciiLowered, collapsed, translated } from "@bjornpagen/grizzle-text/text"
+import {
+	asciiLowered,
+	collapsed,
+	cutBefore,
+	cutFrom,
+	translated
+} from "@bjornpagen/grizzle-text/text"
 import { resolveReference } from "@bjornpagen/grizzle-text/uri"
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { regexTextMaxBytes } from "#compiler/core/errors.ts"
@@ -678,6 +684,10 @@ const applied = (op: NativeOp, argTypes: ReadonlyArray<ScalarType>, type: Scalar
 			return (args) => Result.ok(asciiLowered(hostOf("text", a(args))))
 		case "resolveReference":
 			return (args) => Result.ok(resolveReference(hostOf("text", a(args)), hostOf("text", b(args))))
+		case "cutBefore":
+			return (args) => Result.ok(cutBefore(hostOf("text", a(args)), hostOf("text", b(args))))
+		case "cutFrom":
+			return (args) => Result.ok(cutFrom(hostOf("text", a(args)), hostOf("text", b(args))))
 		case "isXsdPattern":
 			return (args) => Result.ok(xsdPattern(hostOf("text", a(args))).ok)
 		case "sha256":

@@ -352,6 +352,8 @@ export const predicateAtoms = (
 		case "lowerAscii":
 		case "collapse":
 		case "resolveReference":
+		case "cutBefore":
+		case "cutFrom":
 		case "isXsdPattern":
 		case "replace":
 		case "btrim":

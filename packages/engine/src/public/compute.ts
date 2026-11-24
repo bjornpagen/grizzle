@@ -99,7 +99,7 @@ export const Range: RangeApi = Object.freeze<RangeApi>({
 
 /**
  * Text: text's lengths, concatenation, prefixes, suffixes and containment, patterns in grizzle's grammar and their
- * matches, transforms, references and lexical parses.
+ * matches, transforms, references, cuts at the first of a set of characters and lexical parses.
  */
 export const Text: TextApi = Object.freeze<TextApi>({
 	charLength: (s) => C.charLength(s),
@@ -116,6 +116,8 @@ export const Text: TextApi = Object.freeze<TextApi>({
 	replaceWhitespace: (x) => C.replaceWhitespace(x),
 	collapse: (x) => C.collapse(x),
 	resolveReference: (base, reference) => C.resolveReference(base, reference),
+	cutBefore: (x, chars) => C.cutBefore(x, chars),
+	cutFrom: (x, chars) => C.cutFrom(x, chars),
 	parseDouble: (x) => C.parseDouble(x),
 	parseDecimal: (x) => C.parseDecimal(x)
 })

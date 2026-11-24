@@ -1304,6 +1304,8 @@ const checks = Object.freeze({
 	replaceWhitespace,
 	collapse: unary("collapse"),
 	resolveReference: binary("resolveReference", "literal"),
+	cutBefore: binary("cutBefore", "literal"),
+	cutFrom: binary("cutFrom", "literal"),
 	isXsdPattern: unary("isXsdPattern"),
 	parseDouble: unary("parseDouble"),
 	parseDecimal: unary("parseDecimal"),
@@ -1470,6 +1472,8 @@ export const compute = Object.freeze({
 	replaceWhitespace: (x: unknown) => plain(checks.replaceWhitespace(x, []), "text"),
 	collapse: (x: unknown) => plain(checks.collapse(x, []), "text"),
 	resolveReference: (a: unknown, b: unknown) => plain(checks.resolveReference(a, b), "text"),
+	cutBefore: (a: unknown, b: unknown) => plain(checks.cutBefore(a, b), "text"),
+	cutFrom: (a: unknown, b: unknown) => plain(checks.cutFrom(a, b), "text"),
 	isXsdPattern: (x: unknown) => plain(checks.isXsdPattern(x, []), "boolean"),
 	parseDouble: (x: unknown) => plain(checks.parseDouble(x, []), "double precision"),
 	parseDecimal: (x: unknown) => plain(checks.parseDecimal(x, []), "numeric"),
@@ -1628,6 +1632,8 @@ export const computeCore = Object.freeze({
 		plainBy(checks.replaceWhitespace(x, extra)),
 	collapse: (x: unknown, ...extra: ReadonlyArray<unknown>) => plainBy(checks.collapse(x, extra)),
 	resolveReference: (a: unknown, b: unknown) => plainBy(checks.resolveReference(a, b)),
+	cutBefore: (a: unknown, b: unknown) => plainBy(checks.cutBefore(a, b)),
+	cutFrom: (a: unknown, b: unknown) => plainBy(checks.cutFrom(a, b)),
 	isXsdPattern: (x: unknown, ...extra: ReadonlyArray<unknown>) =>
 		plainBy(checks.isXsdPattern(x, extra)),
 	parseDouble: (x: unknown, ...extra: ReadonlyArray<unknown>) =>

@@ -1,7 +1,7 @@
 /**
  * Text as PostgreSQL's C.UTF-8 contract and XML read it, one implementation of each rule for grizzle and every
- * program beside it: a text's code points and their order, PostgreSQL's translate and ASCII case fold, and XML's
- * whiteSpace replace and collapse and a list's tokens. Every function here reads strings alone, imports nothing and
+ * program beside it: a text's code points and their order, PostgreSQL's translate and ASCII case fold, a text cut at
+ * the first of a set of characters, and XML's whiteSpace replace and collapse and a list's tokens. Every function here reads strings alone, imports nothing and
  * runs wherever JavaScript does, a browser included.
  *
  * Equality is exact Unicode scalar sequence equality and ordering is code point order, as pg_catalog.pg_c_utf8
@@ -258,3 +258,34 @@ export const tokens = (text: string): ReadonlyArray<string> => {
 	}
 	return out
 }
+
+/**
+ * The code unit where `text`'s first code point among `chars`' stands, by code point, as PostgreSQL's strpos reads a
+ * text: undefined where it holds none of them, `chars` holding none among them too. Each character of `chars` is one
+ * member of the set, a repeat none more.
+ */
+const firstAmong = (text: string, chars: string): number | undefined => {
+	const set = new Set(codePoints(chars))
+	for (let i = 0; i < text.length;) {
+		const point = codePointAt(text, i)
+		if (set.has(point)) {
+			return i
+		}
+		i += codePointUnits(point)
+	}
+	return undefined
+}
+
+/**
+ * `text` before its first character among `chars`, all of it where it holds none: Text.cutBefore, whose cut at
+ * `cutFrom` gives `text` back, `cutBefore(t, c) + cutFrom(t, c) === t`.
+ */
+export const cutBefore = (text: string, chars: string): string =>
+	text.slice(0, firstAmong(text, chars) ?? text.length)
+
+/**
+ * `text` from its first character among `chars` on, that character included, the empty text where it holds none:
+ * Text.cutFrom, the rest of `cutBefore`'s cut.
+ */
+export const cutFrom = (text: string, chars: string): string =>
+	text.slice(firstAmong(text, chars) ?? text.length)

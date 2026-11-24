@@ -41,7 +41,10 @@ interface Call {
 	readonly arity: 1 | 2
 }
 
-const over = (fn: "isXsdPattern" | "resolveReference" | "sha256", arity: 1 | 2): Call => ({
+const over = (
+	fn: "cutBefore" | "cutFrom" | "isXsdPattern" | "resolveReference" | "sha256",
+	arity: 1 | 2
+): Call => ({
 	desc: {
 		kind: "compute",
 		fn,
@@ -52,9 +55,12 @@ const over = (fn: "isXsdPattern" | "resolveReference" | "sha256", arity: 1 | 2):
 
 /**
  * Each library function's calls, a scalar term each, total over the ones the host evaluates, so a new library function
- * states its own: isXsdPattern's, resolveReference's and a text's digest, Crypto.sha256 over a text, textDigest's.
+ * states its own: the two cuts', isXsdPattern's, resolveReference's and a text's digest, Crypto.sha256 over a text,
+ * textDigest's.
  */
 const callsOf: { readonly [F in HostLibraryFn]: Arr.NonEmptyReadonlyArray<Call> } = {
+	cutBefore: [over("cutBefore", 2)],
+	cutFrom: [over("cutFrom", 2)],
 	isXsdPattern: [over("isXsdPattern", 1)],
 	resolveReference: [over("resolveReference", 2)],
 	textDigest: [over("sha256", 1)]
@@ -100,6 +106,8 @@ const lowered = (fn: HostLibraryFn, { desc, arity }: Call): LoweredCall => {
 
 /** Every library function's calls, lowered once. */
 export const calls: Arr.NonEmptyReadonlyArray<LoweredCall> = [
+	...Arr.map(callsOf.cutBefore, (d) => lowered("cutBefore", d)),
+	...Arr.map(callsOf.cutFrom, (d) => lowered("cutFrom", d)),
 	...Arr.map(callsOf.isXsdPattern, (d) => lowered("isXsdPattern", d)),
 	...Arr.map(callsOf.resolveReference, (d) => lowered("resolveReference", d)),
 	...Arr.map(callsOf.textDigest, (d) => lowered("textDigest", d))
@@ -174,7 +182,7 @@ export const rowsJson = (
 	Arr.map(rows, (row, ord) => ({ ord, a: row.args[0] ?? null, b: row.args[1] ?? null }))
 
 /**
- * A library function's value, as either side holds it: isXsdPattern's boolean, resolveReference's text, textDigest's
+ * A library function's value, as either side holds it: isXsdPattern's boolean, a cut's and resolveReference's text, textDigest's
  * digest, its bytes (a Sha256 on the host, bytea as PostgreSQL returns it), or NULL.
  */
 export type LibraryValue = boolean | string | Uint8Array | null

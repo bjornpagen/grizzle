@@ -2632,6 +2632,33 @@ class Typing<R extends Refs> {
 	}
 
 	/**
+	 * Text.cutBefore(x, chars) and Text.cutFrom(x, chars), x cut at its first character among chars (registry.ts
+	 * textCut): the node computes text, and the term is text of no pattern within x's bytes where they are bounded, since
+	 * either side of the cut is a part of x; any text where x is unbounded, or where the text goes unanalyzed. Its SQL
+	 * allocates at most x's own bytes, so it stands in a query over any text, as in a check or a generated field.
+	 */
+	cut(
+		fn: "cutBefore" | "cutFrom",
+		subjectDesc: ExprDesc<Located, R>,
+		charsDesc: ExprDesc<Located, R>,
+		at: SourceLoc
+	): Typed {
+		const [x, chars] = this.texts(fn, subjectDesc, charsDesc, at)
+		const op = this.overload(fn, [x.actual, chars.actual], at)
+		const node = this.native(op, [x, chars], wildcardText, undefined, at, spelling[fn])
+		const bytes = textBytes(x)
+		const analysis = this.env.analysis
+		return analysis.kind === "unanalyzed" || bytes === undefined
+			? node
+			: this.restate(
+					node,
+					this.textWithin([wildcardPattern], bytes, analysis.patterns.language, at),
+					node.actual,
+					node.facts
+				)
+	}
+
+	/**
 	 * An equation of a text with a concatenation, `t = p1 || … || pn` or its negation, its parts read through every nested
 	 * concatenation (concatParts), so n is at least two: `octet_length(t) = Σ octet_length(pi) AND t = CASE WHEN
 	 * Σ octet_length(pi) > bytesMaxLength THEN '' ELSE p1 || … || pn END`, an equality of t with the parts built in order,
@@ -4521,6 +4548,9 @@ class Typing<R extends Refs> {
 				return this.lowerAscii(arg(0), here)
 			case "resolveReference":
 				return this.resolveReference(arg(0), arg(1), here)
+			case "cutBefore":
+			case "cutFrom":
+				return this.cut(desc.fn, arg(0), arg(1), here)
 			case "isXsdPattern":
 				return this.isXsdPattern(arg(0), here)
 			case "collapse":

@@ -555,6 +555,50 @@ const resolveReferenceDefinition = (): LibraryBody => {
 }
 
 /**
+ * cutBefore(text, chars) and cutFrom(text, chars): `text` before its first character among `chars`, all of it where it
+ * holds none, and `text` from that character on, the empty text where it holds none, as @bjornpagen/grizzle-text's
+ * text.ts cutBefore and cutFrom compute it on the host, so the two concatenate to `text`. The cut is at the least
+ * strpos of `text` over each character of `chars`, `substring(chars, i, 1)` for each place `i` of `chars` from 1, and
+ * past `text`'s last character where none is found (min over no place found, or over `chars` empty, is NULL): `left`
+ * of `text` to the character before it, or `substring` of `text` from it. strpos, left and substring count code points, as
+ * the host does, and each reads `text` once a character of `chars`, which allocates nothing past `text`'s own bytes.
+ */
+const cutDefinition = (fn: "cutBefore" | "cutFrom"): LibraryBody => {
+	const names = new NameSupply(freshNames)
+	const subject = param(1, types.text)
+	const chars = param(2, types.text)
+	const places = relationOf(names, "set places", ["i"])
+	const series: FromSource = {
+		kind: "function",
+		call: call("generate_series", [integer(1), length(chars)]),
+		alias: places.alias,
+		columns: places.columns,
+		lateral: false,
+		ordinality: false
+	}
+	const found = call("strpos", [subject, call("substring", [chars, places.read("i"), integer(1)])])
+	const at = firstNonNull([
+		call("min", [{ kind: "nullif", expr: found, absent: integer(0) }]),
+		binary("+", length(subject), integer(1))
+	])
+	const cut =
+		fn === "cutBefore" ? call("left", [subject, binary("-", at, integer(1))]) : from(subject, at)
+	return {
+		params: [
+			{ name: "text", type: types.text },
+			{ name: "chars", type: types.text }
+		],
+		returns: types.text,
+		body: {
+			kind: "subquery",
+			query: operandSelect(
+				core([targetAs(cut, names.column(internal("cut")))], [series], undefined)
+			)
+		}
+	}
+}
+
+/**
  * The classes of a pattern's characters the recognizer's table reads (xsdPatternDefinition), each a column of it, in
  * the order of `xsdClassKeys` for the first fifteen: the metacharacters and punctuation Appendix F reads by themselves,
  * then the decimal digits, the letters of the single-character escapes no metacharacter spells (n, r, t), those of the
@@ -1239,6 +1283,8 @@ const definedAs = (fn: LibraryFn, body: LibraryBody): LibraryDefinition => ({
 
 /** Each library function's definition, made once. */
 const definitions: { readonly [F in LibraryFn]: LibraryDefinition } = {
+	cutBefore: definedAs("cutBefore", cutDefinition("cutBefore")),
+	cutFrom: definedAs("cutFrom", cutDefinition("cutFrom")),
 	isXsdPattern: definedAs("isXsdPattern", xsdPatternDefinition()),
 	resolveReference: definedAs("resolveReference", resolveReferenceDefinition()),
 	textDigest: definedAs("textDigest", textDigestDefinition()),
@@ -1247,6 +1293,14 @@ const definitions: { readonly [F in LibraryFn]: LibraryDefinition } = {
 
 /** Each library function's identity, by its name and its definition's digest, minted once. */
 const identities: { readonly [F in LibraryFn]: Identity<"libraryFunction"> } = {
+	cutBefore: identity.libraryFunction(
+		"cutBefore",
+		constantDigest("library-function", definitions.cutBefore, everyProperty)
+	),
+	cutFrom: identity.libraryFunction(
+		"cutFrom",
+		constantDigest("library-function", definitions.cutFrom, everyProperty)
+	),
 	isXsdPattern: identity.libraryFunction(
 		"isXsdPattern",
 		constantDigest("library-function", definitions.isXsdPattern, everyProperty)

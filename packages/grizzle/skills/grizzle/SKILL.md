@@ -812,7 +812,9 @@ to fix, or the compiler's refusal of a schema or login with its fix, and no line
   pattern, so store it as `generated(T, Type.cast(Text.translate(…), T))` for any refined text `T` the image
   lies in, which compilation proves; translate in a query only over a pattern that bounds its length, though a query
   folds ASCII case (`Text.lowerAscii`) over any text, so fold an unbounded attribute in the query rather than in a
-  stored copy of it. For XML Schema's whiteSpace facets use `Text.replaceWhitespace(x)` (tab, LF and CR to spaces)
+  stored copy of it. Cut a text at the first of a set of characters with `Text.cutBefore(x, chars)` and
+  `Text.cutFrom(x, chars)` (`Text.cutBefore(href, "?#")` is an href's path, `Text.cutFrom` its query and fragment,
+  the two concatenating to `x`), by code points, in a query over any text. For XML Schema's whiteSpace facets use `Text.replaceWhitespace(x)` (tab, LF and CR to spaces)
   and `Text.collapse(x)` (runs to one space, none at either end), never a regex of your own; cast a collapse into a
   refined text the same way, such as `str.regex("^(?:[^ \\t\\n\\r]+(?: [^ \\t\\n\\r]+)*)?$", "su")` for any
   text. A collapse, a translation and a concatenation keep their operands' byte bound, a translation to wider

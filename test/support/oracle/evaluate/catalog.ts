@@ -162,6 +162,8 @@ const evaluationOf = (op: NativeOp): Evaluation => {
 		case "lowerAscii":
 		case "collapse":
 		case "resolveReference":
+		case "cutBefore":
+		case "cutFrom":
 		case "isXsdPattern":
 		case "parseDouble":
 		case "parseDecimal":
@@ -838,6 +840,21 @@ const catalogApply = (
 			return isString(a) ? Result.succeed(asciiLowered(a)) : mismatch(op)
 		case "resolveReference":
 			return isString(a) && isString(b) ? Result.succeed(resolvedReference(a, b)) : mismatch(op)
+		case "cutBefore":
+		case "cutFrom": {
+			if (!isString(a) || !isString(b)) {
+				return mismatch(op)
+			}
+			const points = Array.from(a)
+			const set = Array.from(b)
+			const at = Option.getOrElse(
+				Arr.findFirstIndex(points, (point) => Arr.contains(set, point)),
+				() => points.length
+			)
+			return Result.succeed(
+				Arr.join(op.fn === "cutBefore" ? points.slice(0, at) : points.slice(at), "")
+			)
+		}
 		case "isXsdPattern":
 			return isString(a) ? Result.succeed(xsdPattern(a).ok) : mismatch(op)
 		case "eq":

@@ -47,12 +47,20 @@ export interface SelectionKey {
 /**
  * grizzle's library: the SQL functions of its own that a scalar operation's SQL calls, each a constant of parameters
  * (sql/ast.ts CreateConstant) named by its definition's digest (physical/ddl/library.ts), which an installation installs
- * where its schema's persistent expressions call it: isXsdPattern, whether a text is an XML Schema 1.0 pattern
- * (scalar/compute/registry.ts textIsXsdPattern); resolveReference, RFC 3986's resolution of a reference against a
+ * where its schema's persistent expressions call it: cutBefore and cutFrom, a text cut at the first of a set of
+ * characters (scalar/compute/registry.ts textCut); isXsdPattern, whether a text is an XML Schema 1.0 pattern
+ * (textIsXsdPattern); resolveReference, RFC 3986's resolution of a reference against a
  * base (textResolveReference); textDigest, a text's SHA-256 (textSha256); and wall, a zone's wall clock at an instant
  * by PostgreSQL's tzdata (zoneWall), which an installation installs where a program of its served workload calls it.
  */
-export const libraryFns = ["isXsdPattern", "resolveReference", "textDigest", "wall"] as const
+export const libraryFns = [
+	"cutBefore",
+	"cutFrom",
+	"isXsdPattern",
+	"resolveReference",
+	"textDigest",
+	"wall"
+] as const
 export type LibraryFn = (typeof libraryFns)[number]
 
 /** How the declared names of one schema map to PostgreSQL objects, each qualified by its schema. */
