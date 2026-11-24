@@ -14,7 +14,7 @@ import {
 	role,
 	schema,
 	wholeEntriesOf,
-	writableNamesOf
+	wholeWritesOf
 } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
@@ -73,7 +73,7 @@ export const campusAt = (name: string) => {
 			.find({ id })
 	})
 	const campus = role(base, "campus", wholeEntriesOf(base), {
-		write: writableNamesOf(base),
+		...wholeWritesOf(base),
 		contexts: [Where, Origin]
 	})
 	return {

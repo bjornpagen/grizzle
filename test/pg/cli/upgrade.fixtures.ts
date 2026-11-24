@@ -379,8 +379,8 @@ export const worldsBox = (name: string, c: WorldsCase) => {
 	})
 	const reader = role(upper, "reader", { Kind, Item, Note, Tag, Busy: upper.relations.Busy })
 	const writer = c.query
-		? role(upper, "writer", { Item, Tag, Labelled: labelled }, { write: ["Tag"] })
-		: role(upper, "writer", { Item, Tag }, { write: ["Tag"] })
+		? role(upper, "writer", { Item, Tag, Labelled: labelled }, { insert: ["Tag"] })
+		: role(upper, "writer", { Item, Tag }, { insert: ["Tag"] })
 	const auditor = role(base, "auditor", { Item, Note })
 	return {
 		base,

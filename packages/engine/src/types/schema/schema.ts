@@ -1038,6 +1038,14 @@ type StatementsBeside<St extends ReadonlyArray<Statement>, L> = [L] extends [nev
 	: readonly [...St, ...ReadonlyArray<L>]
 type StatementOf<S> = StatementsOf<S>[number]
 
+/** The names of the relations S declares mutable: its open relations, every other one closed. */
+export type MutableNameOf<S> =
+	Extract<StatementsOf<S>[number], Mutable<unknown>> extends infer M
+		? M extends Mutable<infer X>
+			? NameOf<X>
+			: never
+		: never
+
 /**
  * The keys of R in S: its own (OwnKeysOf), and every candidate key declared for R with key(), for each relation its name
  * may be where it is a generic relation's union of names (DeclaredKeysOfAll). Each key is a list of field names. A

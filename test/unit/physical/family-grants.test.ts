@@ -220,8 +220,8 @@ export const aMemberWritersHoldOnItsFamilysOwnerExactColumnGrantsTheOwnerRowsIts
 			{
 				file: "packages/engine/src/physical/ddl/roles.ts",
 				original:
-					"\t\t\t? families.flatMap((f) => [f.count.name, ...endColumns(f).map((c) => c.name)])",
-				replacement: "\t\t\t? families.flatMap((f) => [f.count.name])",
+					"\t\t\t\t\tfull.has(f.member.name) ? [f.count.name, ...endColumns(f).map((c) => c.name)] : []",
+				replacement: "\t\t\t\t\tfull.has(f.member.name) ? [f.count.name] : []",
 				why: "A member writer of a mutable owner may update the owner's count but not its ends."
 			}
 		]

@@ -17,7 +17,7 @@ import { type EqualSteps, equalSteps } from "#test/types/batch/measured.ts"
  * writes `roles`
  * full roles, each its base's whole entries
  * (wholeEntriesOf) beside a query entry of its own, writing every relation it may, spelled as `writes` says:
- * writableNamesOf(S), or a literal list of their names, which role reads for a repeat; each read as issue #9 reads
+ * wholeWritesOf(S), or a literal insert list of their names, which role reads for a repeat; each read as issue #9 reads
  * one, `ChangeSet.empty(role)` and `query(role)`; and over the base, for each of the last `readers` relations, a
  * ChangeSet and a query that read it by name: its addition, holding every written field, and a rule matching every
  * field. A name holds its index at its own width: no type reads a relation's, a field's or a role's name a character
@@ -29,7 +29,7 @@ type SchemaShape = {
 	readonly laws: number
 	readonly fields: number
 	readonly roles: number
-	readonly writes: "writableNamesOf" | "listed"
+	readonly writes: "wholeWritesOf" | "listed"
 	readonly readers: number
 	readonly handles: number
 	readonly members: number
@@ -62,7 +62,7 @@ const schemaRoster: Arr.NonEmptyReadonlyArray<SchemaDimension> = [
 			laws: 1,
 			fields: 1,
 			roles: 0,
-			writes: "writableNamesOf",
+			writes: "wholeWritesOf",
 			readers: 1,
 			handles: 2,
 			members: 1
@@ -77,7 +77,7 @@ const schemaRoster: Arr.NonEmptyReadonlyArray<SchemaDimension> = [
 			laws: 1,
 			fields: 1,
 			roles: 1,
-			writes: "writableNamesOf",
+			writes: "wholeWritesOf",
 			readers: 1,
 			handles: 2,
 			members: 1
@@ -107,7 +107,7 @@ const schemaRoster: Arr.NonEmptyReadonlyArray<SchemaDimension> = [
 			laws: 1,
 			fields: 1,
 			roles: 0,
-			writes: "writableNamesOf",
+			writes: "wholeWritesOf",
 			readers: 1,
 			handles,
 			members: 1
@@ -122,7 +122,7 @@ const schemaRoster: Arr.NonEmptyReadonlyArray<SchemaDimension> = [
 			laws: 1,
 			fields: 1,
 			roles: 0,
-			writes: "writableNamesOf",
+			writes: "wholeWritesOf",
 			readers: 1,
 			handles: members,
 			members
@@ -137,7 +137,7 @@ const schemaRoster: Arr.NonEmptyReadonlyArray<SchemaDimension> = [
 			laws,
 			fields: 16,
 			roles: 1,
-			writes: "writableNamesOf",
+			writes: "wholeWritesOf",
 			readers: 1,
 			handles: 2,
 			members: 1
@@ -152,7 +152,7 @@ const schemaRoster: Arr.NonEmptyReadonlyArray<SchemaDimension> = [
 			laws: 1,
 			fields: 1,
 			roles,
-			writes: "writableNamesOf",
+			writes: "wholeWritesOf",
 			readers: 1,
 			handles: 2,
 			members: 1
@@ -167,7 +167,7 @@ const schemaRoster: Arr.NonEmptyReadonlyArray<SchemaDimension> = [
 			laws: 1,
 			fields,
 			roles: 1,
-			writes: "writableNamesOf",
+			writes: "wholeWritesOf",
 			readers: 25,
 			handles: 2,
 			members: 1
@@ -198,16 +198,17 @@ const seenEntry = (g: number, relations: number): string =>
 	return r.match(R${g % relations}, { id }).find({ id })
 })`
 
-/** Every relation a full role may write, as `writes` spells it: writableNamesOf(S), or a literal list of names. */
+/** A full role's options, writing every relation it may, as `writes` spells them: wholeWritesOf(S), or a literal insert
+ * list of their names, every relation closed. */
 const writesSource = (shape: SchemaShape): string => {
 	switch (shape.writes) {
-		case "writableNamesOf":
-			return "writableNamesOf(S)"
+		case "wholeWritesOf":
+			return "wholeWritesOf(S)"
 		case "listed":
-			return `["P", ${Arr.join(
+			return `{ insert: ["P", ${Arr.join(
 				Arr.map(indices(shape.relations), (i) => `"R${i}"`),
 				", "
-			)}]`
+			)}] }`
 	}
 }
 
@@ -269,7 +270,7 @@ ${Arr.join(
 		indices(shape.roles),
 		(
 			g
-		) => `export const Full${g} = role(S, "full${g}", { ...wholeEntriesOf(S), Seen${g}: ${seenEntry(g, shape.relations)} }, { write: ${writes} })
+		) => `export const Full${g} = role(S, "full${g}", { ...wholeEntriesOf(S), Seen${g}: ${seenEntry(g, shape.relations)} }, ${writes})
 export const empty${g} = ChangeSet.empty(Full${g})
 export const over${g} = query(Full${g})
 `

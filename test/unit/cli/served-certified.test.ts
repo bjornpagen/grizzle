@@ -46,7 +46,13 @@ import { offlineOwner } from "#test/pg/cli/support.ts"
 import { Work } from "#test/support/agreement/changeset-schema.ts"
 import { jsonOf } from "#test/support/chunked.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
-import { caseGen, type Feature, file, showCase } from "#test/unit/cli/served-certified.fixtures.ts"
+import {
+	caseGen,
+	type Feature,
+	file,
+	listsOf,
+	showCase
+} from "#test/unit/cli/served-certified.fixtures.ts"
 
 /**
  * A role's isolation level is decided once from the statements its writes send, every name they reach resolved, and
@@ -71,13 +77,7 @@ export const aRolesIsolationLevelIsDecidedOnceFromTheStatementsItsWritesSendEver
 		check: (_, notes: Case<Feature>) => (c) =>
 			Effect.gen(function* () {
 				notes.note(c.mode === "insert" ? "an insert role" : "a write role")
-				const names = Arr.flatMap(c.writes, (w) => w.writes)
-				const writer = role(
-					Work,
-					"writer",
-					wholeEntriesOf(Work),
-					c.mode === "insert" ? { insert: names } : { write: names }
-				)
+				const writer = role(Work, "writer", wholeEntriesOf(Work), listsOf(c.mode, c.writes))
 				const reader = role(Work, "reader", wholeEntriesOf(Work))
 				const programs = Rec.fromEntries(
 					Arr.map(
@@ -94,14 +94,7 @@ export const aRolesIsolationLevelIsDecidedOnceFromTheStatementsItsWritesSendEver
 						? []
 						: [
 								login(Work, "psql", [
-									role(
-										Work,
-										"direct",
-										wholeEntriesOf(Work),
-										direct.kind === "insert"
-											? { insert: Arr.flatMap(direct.writes, (w) => w.writes) }
-											: { write: Arr.flatMap(direct.writes, (w) => w.writes) }
-									)
+									role(Work, "direct", wholeEntriesOf(Work), listsOf(direct.kind, direct.writes))
 								])
 							]
 				if (

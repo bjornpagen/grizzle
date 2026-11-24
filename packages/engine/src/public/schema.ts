@@ -67,6 +67,7 @@ export {
 	insertableNamesOf,
 	scopedEntriesOf,
 	wholeEntriesOf,
+	wholeWritesOf,
 	writableNamesOf
 } from "#compiler/schema/world.ts"
 export type { AnyDerived, Derived, NoParams } from "#compiler/types/derived/derived.ts"
@@ -166,6 +167,7 @@ export type {
 	ScopeOptions,
 	WholeEntries,
 	WholeEntriesOf,
+	WholeWritesOf,
 	World,
 	WritableNameOf,
 	WriteListOf
@@ -198,8 +200,9 @@ export type {
 
 /**
  * Public barrel: relation (and relation.generated), closed (and closed.relation), derived, schema, fragment, the
- * statement constructors, the worlds: context, role (with wholeEntriesOf and writableNamesOf, a full role's entries and write
- * list, and scopedEntriesOf, a role's entries holding each relation of its owner scoped) and login, insertableNamesOf, the relations a ChangeSet over a schema inserts at its top level, and
+ * statement constructors, the worlds: context, role (with wholeEntriesOf, wholeWritesOf and writableNamesOf, a full
+ * role's entries, its insert and write lists and the names they share out, and scopedEntriesOf, a role's entries holding
+ * each relation of its owner scoped) and login, insertableNamesOf, the relations a ChangeSet over a schema inserts at its top level, and
  * schemaNameOf, the installed name of a schema's or a role's PostgreSQL schema, wholeSchemaNameOf, the installed name
  * of the schema of a schema's relations' whole views, and parseDeclaredName, the declared-name
  * rule every builder and ownership judge a name by (with its fault, NameFault, and nameFaultText, the fault as the rule

@@ -1,10 +1,6 @@
 import { sameOrder } from "@bjornpagen/grizzle-text/base/array"
 import { defect } from "@bjornpagen/grizzle-text/base/invariant"
-import {
-	isNonEmpty,
-	mapNonEmpty,
-	type NonEmptyReadonlyArray
-} from "@bjornpagen/grizzle-text/base/nonempty"
+import { isNonEmpty, mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import { sameContent } from "#compiler/core/canonical.ts"
 import type { LoginRule, RoleRule, ScopeRule } from "#compiler/core/causes.ts"
 import { CompileError, ruleRefused } from "#compiler/core/errors.ts"
@@ -31,7 +27,9 @@ import {
 	type RoleEntryDesc,
 	type RoleWriting,
 	type SchemaDesc,
-	type StatementDesc
+	type StatementDesc,
+	type WriteMode,
+	writtenNames
 } from "#compiler/ir/desc.ts"
 import { writableEntry } from "#compiler/schema/entry.ts"
 import {
@@ -94,6 +92,7 @@ import type {
 	ScopeOptions,
 	SourceOf,
 	WholeEntriesOf,
+	WholeWritesOf,
 	World,
 	WritableNameOf
 } from "#compiler/types/schema/world.ts"
@@ -398,15 +397,6 @@ const declaredContexts = (value: unknown, label: string): ReadonlyArray<ContextD
 	return [...declared.values()]
 }
 
-/** An insert list as a role holds it: at least one role relation, an empty one stating no write at all. */
-const insertList = (names: ReadonlyArray<string>, label: string): NonEmptyReadonlyArray<string> => {
-	const [first, ...rest] = names
-	if (first === undefined) {
-		throw malformed(`${label} insert`, "an insert list of at least one role relation")
-	}
-	return [first, ...rest]
-}
-
 /**
  * What a whole entry, or the base's relation it names, is: its Description, which it carries from its build, a derived
  * relation's its definition's, whose name and content identify it.
@@ -551,7 +541,7 @@ export const admitRole = (
 	if (!isPlainRecord(options) && options !== undefined) {
 		throw malformed(
 			label,
-			"options { write?, insert?, contexts? }: lists of role relation names, and of the contexts the role declares"
+			"options { insert?, write?, contexts? }: lists of role relation names, and of the contexts the role declares"
 		)
 	}
 	const opts = options ?? {}
@@ -585,20 +575,16 @@ export const admitRole = (
 			})
 		}
 	}
-	if (opts["write"] !== undefined && opts["insert"] !== undefined) {
-		throw roleRefused(label, { kind: "writeAndInsert" })
+	const writing: RoleWriting = {
+		insert: nameList(opts["insert"], `${label} insert`, "an insert list"),
+		write: nameList(opts["write"], `${label} write`, "a write list")
 	}
-	const listed: "write" | "insert" = opts["insert"] === undefined ? "write" : "insert"
-	const write = nameList(
-		opts[listed],
-		`${label} ${listed}`,
-		listed === "write" ? "a write list" : "an insert list"
-	)
 	const targets = new Map<string, string>()
-	const target = (relation: string, entry: string): void => {
+	/** The base relation `relation` written by `entry` under `mode`, once across both lists. */
+	const target = (relation: string, entry: string, mode: WriteMode): void => {
 		const prior = targets.get(relation)
 		if (prior !== undefined) {
-			throw roleRefused(`${label} ${listed}`, {
+			throw roleRefused(`${label} ${mode}`, {
 				kind: "writeTwice",
 				relation,
 				entries: [prior, entry]
@@ -606,17 +592,17 @@ export const admitRole = (
 		}
 		targets.set(relation, entry)
 	}
-	for (const w of write) {
+	for (const { name: w, mode } of writtenNames(writing)) {
 		const kind = kinds.get(w)
 		if (kind === undefined) {
-			throw roleRefused(`${label} ${listed}`, { kind: "writeOutside", name: w })
+			throw roleRefused(`${label} ${mode}`, { kind: "writeOutside", name: w })
 		}
 		if (kind === "relation") {
-			target(w, w)
+			target(w, w, mode)
 			continue
 		}
 		if (kind !== "world") {
-			throw roleRefused(`${label} ${listed}`, {
+			throw roleRefused(`${label} ${mode}`, {
 				kind: "writeKind",
 				name: w,
 				entryKind: kind === "closedRelation" ? "closed" : kind
@@ -624,7 +610,7 @@ export const admitRole = (
 		}
 		const entry = entries.find((e) => e.name === w)
 		if (entry === undefined || entry.kind === "whole") {
-			throw malformed(`${label} ${listed}`, `the query entry ${w}`)
+			throw malformed(`${label} ${mode}`, `the query entry ${w}`)
 		}
 		const holds = scoped.get(w)
 		const analyzed = writableEntry(
@@ -635,16 +621,15 @@ export const admitRole = (
 				: { kind: "scoped", determines: (fields) => determines(holds, fields) }
 		)
 		if (!analyzed.ok) {
-			throw roleRefused(`${label} ${listed} ${w}`, {
+			throw roleRefused(`${label} ${mode} ${w}`, {
 				kind: "writeUnwritable",
 				entry: w,
 				why: analyzed.error.reason
 			})
 		}
-		target(analyzed.value.target, w)
+		target(analyzed.value.target, w, mode)
 	}
 
-	const writing: RoleWriting = listed === "write" ? { write } : { insert: insertList(write, label) }
 	const desc = orThrow(
 		decodeRoleOver(baseDesc, {
 			name: roleName,
@@ -711,11 +696,14 @@ const noNames: readonly [] = Object.freeze([] as const)
  *   is a query over the base, admitted as a definition: a Query built over the base or one of its levels, reading no
  *   parameter, attaching nothing, approximating nothing, and naming only the base's relations. The
  *   value holds each query entry as its world relation (World), which v mints variables over and a rule matches by its
- *   name. `write` names role relations: a whole ordinary relation, a scoped one, or a query entry the writable-entry
- *   analysis (entry.ts) admits, at most one per base relation. `insert`, in place of `write`, names them as `write` does, and
- *   the role holds INSERT and SELECT on what they write, no DELETE or UPDATE, so a program of the role that deletes
- *   or updates there is refused (RoleAccess insert); a role stating both is refused (writeAndInsert). `contexts` names
- *   the contexts
+ *   name. `insert` and `write` name the role relations it writes, each a whole ordinary relation, a scoped one, or a
+ *   query entry the writable-entry analysis (entry.ts) admits, at most one per base relation across the two lists
+ *   (writeTwice), each written under its list's mode (ir/desc.ts WriteMode): by `insert` the role only adds facts,
+ *   holding INSERT and SELECT on what the entry writes and no DELETE or UPDATE, so a program of the role that deletes
+ *   or updates there is refused (RoleAccess insert); by `write` it changes an open relation, one declared mutable
+ *   inside a unit, holding DELETE and UPDATE there as well. A closed relation under `write` is ownership's to refuse
+ *   (schema/own.ts ownRole, writeClosed), by the one closedness the owned base states (OwnedRelation `mutable`); the
+ *   types refuse a whole or scoped entry of one (types/schema/world.ts WritesOpen). `contexts` names the contexts
  *   the role declares, the facts its Db's claims hold: each query entry matches only those (entryContext), and so does
  *   each program on the role (check/checker.ts, OutsideRole context). The role keeps the base's statements whose every
  *   relation is a whole entry.
@@ -729,20 +717,21 @@ const noNames: readonly [] = Object.freeze([] as const)
  * compilation of the role runs.
  *
  * role(base, name, relations, options?). The value holds the base, the role relations (each query entry as its world
- * relation), the base's statements whose every relation is a whole entry, and frozen copies of the write (or insert)
- * list, the insert list as `write`.
+ * relation), the base's statements whose every relation is a whole entry, and frozen copies of the insert and write
+ * lists, each empty where it is left out.
  */
 export const roleBuilder = <
 	Base extends AnySchema,
 	const Name extends string,
 	const Rs extends Readonly<Record<string, EntryValue>>,
+	const I extends ReadonlyArray<string> = readonly [],
 	const W extends ReadonlyArray<string> = readonly []
 >(
 	base: Base,
 	name: Name,
 	relations: Rs,
-	...rest: RoleOptions<W> | readonly [RoleOptionRecord<W>, unknown, ...ReadonlyArray<unknown>]
-): Role<Base, Name, RoleRelations<Rs>, W[number], never> => {
+	...rest: RoleOptions<I, W> | readonly [RoleOptionRecord<I, W>, unknown, ...ReadonlyArray<unknown>]
+): Role<Base, Name, RoleRelations<Rs>, I[number], W[number], never> => {
 	const [options, ...extra] = rest
 	const admitted = admitRole(base, name, relations, options, extra)
 	const drafts = new Map(
@@ -777,12 +766,8 @@ export const roleBuilder = <
 			base,
 			relations: relationsValue,
 			statements: Object.freeze([...base.statements, ...base.listed].filter(kept)),
-			write:
-				options?.insert !== undefined
-					? frozenTuple(options.insert)
-					: options?.write === undefined
-						? noNames
-						: frozenTuple(options.write)
+			insert: options?.insert === undefined ? noNames : frozenTuple(options.insert),
+			write: options?.write === undefined ? noNames : frozenTuple(options.write)
 		},
 		desc: admitted.desc,
 		content: admitted.level
@@ -924,13 +909,42 @@ const scopedValue = (
 
 /**
  * writableNamesOf(base): the names of the base's ordinary relations, every level's, in its record's order, which are
- * the whole entries a role writes: `{ write: writableNamesOf(base) }` writes every relation of a full role that a role
- * writes whole. A roster, a closed relation and a derived relation are never among them.
+ * the whole entries a role writes, by its insert list or, an open one, by its write list (wholeWritesOf). A roster, a
+ * closed relation and a derived relation are never among them.
  */
 export const writableNamesOf = <Base extends AnySchema>(
 	base: Base
 ): ReadonlyArray<WritableNameOf<Base>> =>
 	Object.freeze(ordinaryNames<Base>(schemaRelations(base, "writableNamesOf")))
+
+/**
+ * wholeWritesOf(base): the options of a role that writes every whole entry it may as the base declares its relation,
+ * writableNamesOf(base) split, each list in its order: `insert` names each closed relation, whose facts are inserted and
+ * never changed or deleted, and `write` each open one, declared mutable inside a unit. `role(base, name,
+ * wholeEntriesOf(base), wholeWritesOf(base))` writes every relation of its base, holding DELETE and UPDATE on the open
+ * ones alone.
+ */
+export const wholeWritesOf = <Base extends AnySchema>(base: Base): WholeWritesOf<Base> => {
+	/** The relations the base's mutable statements name, every level's, its listed fragments' among them, as
+	 * MutableNameOf<Base> reads them off its statements' type: its open relations. */
+	const open = new Set(
+		levelChain(schemaDesc(base, "wholeWritesOf")).flatMap((level) =>
+			level.statements.flatMap((s) => (s.kind === "mutable" ? [s.relation] : []))
+		)
+	)
+	type Written = WholeWritesOf<Base>
+	/** The one site of the fact "a name the base's mutable statements name is one MutableNameOf<Base> holds": the
+	 * statements the value holds are the ones Base's type states, read at run time, a correlation no TypeScript type
+	 * ties. */
+	const isOpen = (name: WritableNameOf<Base>): name is Written["write"][number] => open.has(name)
+	const isClosed = (name: WritableNameOf<Base>): name is Written["insert"][number] =>
+		!open.has(name)
+	const names = ordinaryNames<Base>(base.relations)
+	return Object.freeze({
+		insert: Object.freeze(names.filter(isClosed)),
+		write: Object.freeze(names.filter(isOpen))
+	})
+}
 
 /**
  * The member relations of a schema's ordered families, every level's: each is written nested in order under its owner,

@@ -175,7 +175,8 @@ import type {
 	Role,
 	RoleOptionRecord,
 	RoleRelations,
-	WritableKeys
+	WritableKeys,
+	WritesOpen
 } from "#compiler/types/schema/world.ts"
 
 /**
@@ -894,16 +895,17 @@ export const attested = <
 
 /**
  * Relations defined over the base, a schema: whole relations of the base, each under its own name, and queries over
- * it. `write` names role relations, each once, and `contexts` the contexts the role
- * declares: the facts its Db's claims hold, the only contexts its query entries and its programs match, a program over
- * the base among them. A repeat in the write list is read against the options object beside its `write`, as login
- * reads its workloads' shared names, so the call's diagnostic names the refusal. An entry, or a member of a list, typed
- * `any` is refused (MembersTyped).
+ * it. `insert` names the role relations it only adds to and `write` the open ones it changes, each relation once
+ * between them, and `contexts` the contexts the role declares: the facts its Db's claims hold, the only contexts its
+ * query entries and its programs match, a program over the base among them. A repeat across the two lists is read
+ * against the options object beside them, as login reads its workloads' shared names, so the call's diagnostic names
+ * the refusal. An entry, or a member of a list, typed `any` is refused (MembersTyped).
  */
 export const role = <
 	Base extends AnySchema,
 	const Name extends string,
 	const Rs extends Readonly<Record<string, EntryValue>>,
+	const I extends ReadonlyArray<WritableKeys<Rs>> = readonly [],
 	const W extends ReadonlyArray<WritableKeys<Rs>> = readonly [],
 	const C extends ReadonlyArray<AnyContext> = readonly []
 >(
@@ -913,7 +915,12 @@ export const role = <
 	...options:
 		| readonly []
 		| readonly [
-				options: RoleOptionRecord<W, C> & DistinctWrites<W> & MembersTyped<W> & MembersTyped<C>
+				options: RoleOptionRecord<I, W, C> &
+					DistinctWrites<I, W> &
+					WritesOpen<Base, Rs, W[number]> &
+					MembersTyped<I> &
+					MembersTyped<W> &
+					MembersTyped<C>
 		  ]
-): Role<Base, Name, RoleRelations<Rs>, W[number], DeclaredContexts<C>, C[number]> =>
-	roleBuilder<Base, Name, Rs, W>(base, name, relations, ...options)
+): Role<Base, Name, RoleRelations<Rs>, I[number], W[number], DeclaredContexts<C>, C[number]> =>
+	roleBuilder<Base, Name, Rs, I, W>(base, name, relations, ...options)

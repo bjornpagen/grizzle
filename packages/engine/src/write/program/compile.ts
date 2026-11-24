@@ -2125,7 +2125,7 @@ const compileAt = (
 	}
 	const admission = buildAdmission(lowering.w, callerParams(frontend.params))
 	const optimized = optimizedArtifact(restated, plan, lowering, admission, options)
-	unwrap(insertOnly(schema, optimized.statements, options.names, options.laws))
+	unwrap(insertOnly(schema, options.world, optimized.statements, options.names, options.laws))
 	const program: CompiledWrite = {
 		level: options.level,
 		exclusion: noExclusion,

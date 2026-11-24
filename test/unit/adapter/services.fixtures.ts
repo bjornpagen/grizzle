@@ -64,7 +64,7 @@ const Item = relation("Item", { id: Id, owner: Id }, ["id"])
 
 const Shelf = schema("Shelf", [Item], [])
 
-const shelver = role(Shelf, "shelver", { Item }, { write: ["Item"] })
+const shelver = role(Shelf, "shelver", { Item }, { insert: ["Item"] })
 
 /** A write, whose call leases a session for its transaction and registers no live read. */
 const shelve = ChangeSet.empty(Shelf).insert(Item, [])

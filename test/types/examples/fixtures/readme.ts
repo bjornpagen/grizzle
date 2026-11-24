@@ -73,7 +73,7 @@ import {
 	v,
 	wholeEntriesOf,
 	workload,
-	writableNamesOf
+	wholeWritesOf
 } from "@bjornpagen/grizzle"
 import {
 	Db,
@@ -200,10 +200,8 @@ export const Billing = schema.extend(
 )
 
 /** README: "The relational model, by feel", "A write moves between lawful states". */
-/** A role that reads all of Billing and writes every relation in it but the closed ones. */
-export const Admin = role(Billing, "admin", wholeEntriesOf(Billing), {
-	write: writableNamesOf(Billing)
-})
+/** A role that reads all of Billing, inserts into each closed relation and changes each open one. */
+export const Admin = role(Billing, "admin", wholeEntriesOf(Billing), wholeWritesOf(Billing))
 
 /** An organization's subscription and its first post: one write, judged as a whole. */
 export const launch = ChangeSet.empty(Billing).insert(Subscription, []).insert(Post, [])
@@ -237,7 +235,7 @@ export const KeyAdmin = role(
 	Keys,
 	"key_admin",
 	{ ApiKey: orgKeys },
-	{ write: ["ApiKey"], contexts: [Tenant] }
+	{ insert: ["ApiKey"], contexts: [Tenant] }
 )
 export const Dashboard = login(Keys, "dashboard", [KeyAdmin])
 
@@ -399,7 +397,7 @@ export const Credits = schema(
 	]
 )
 
-export const Metering = role(Credits, "metering", wholeEntriesOf(Credits), { write: ["Debit"] })
+export const Metering = role(Credits, "metering", wholeEntriesOf(Credits), { insert: ["Debit"] })
 
 /** Debit a grant for one call: a transient refusal is the caller's to run again; grizzle never retries. */
 export const debitGrant = ChangeSet.empty(Credits).insert(Debit, [])
@@ -1022,7 +1020,7 @@ const Sittings = schema(
 		contained(on(SittingEvent, "number"), on(Assignment, "number"))
 	]
 )
-const studentWriteNames = ["SittingEvent"] as const
+const studentInsertNames = ["SittingEvent"] as const
 
 /** The persons the signed-in Clerk user is: the owner, read from the token and the sign-in it names. */
 const persons = query(Sittings).rule((r) => {
@@ -1038,7 +1036,7 @@ export const Student = role(
 	Sittings,
 	"student",
 	scopedEntriesOf(Sittings, { owner: persons, roots }),
-	{ contexts: [Session], write: studentWriteNames }
+	{ contexts: [Session], insert: studentInsertNames }
 )
 
 /** README: "Queries". */
@@ -1695,10 +1693,10 @@ export const Learner = role(
 	Ledger,
 	"learner",
 	{ ...wholeEntriesOf(Qti), MySitting: mySittings },
-	{ write: ["MySitting"], contexts: [Session] }
+	{ insert: ["MySitting"], contexts: [Session] }
 )
 export const LedgerApp = login(Ledger, "app", [Learner])
-export const QtiAuthor = role(Qti, "author", wholeEntriesOf(Qti), { write: writableNamesOf(Qti) })
+export const QtiAuthor = role(Qti, "author", wholeEntriesOf(Qti), wholeWritesOf(Qti))
 export const AuthorApp = login(Qti, "author_app", [QtiAuthor])
 
 /** README: "Fragments". */

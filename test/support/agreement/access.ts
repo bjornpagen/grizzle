@@ -10,10 +10,11 @@ import { served } from "#adapter/served/served.ts"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
-import { writtenNames } from "#compiler/ir/desc.ts"
+import { type WriteMode, writeModes, writtenNames } from "#compiler/ir/desc.ts"
 import { lawsOf } from "#compiler/program/laws.ts"
 import { type QueryValue, queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
+import { ownRole } from "#compiler/schema/own.ts"
 import { queryDescOf } from "#compiler/schema/protocol.ts"
 import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
 import { queryUses } from "#compiler/schema/walk.ts"
@@ -22,6 +23,7 @@ import {
 	roleBuilder as role,
 	roleDescOf,
 	wholeEntriesOf,
+	wholeWritesOf,
 	writableNamesOf
 } from "#compiler/schema/world.ts"
 import type { AnyDerived } from "#compiler/types/derived/derived.ts"
@@ -96,16 +98,18 @@ import {
  *   relation is a whole entry of the role under its own name (schema/world.ts namesOf against the admitted whole
  *   names), and a full role's likewise: a law over Task is dropped by a role holding Task through a query entry, under
  *   Task's own name;
- * - a full role over the level, its entries wholeEntriesOf(level) and its write list none, writableNamesOf(level),
- *   those and a name role refuses to write, or a drawn list that may name one twice,
- *   typechecks exactly when role(...) builds it, refused for naming one twice exactly when the engine admits each name
- *   of the list alone and refuses the list, and then its relations' names and its write list are exactly those of the
- *   engine's Description of it, and a program over the base reading the closed relation, and one over the level (over
+ * - a full role over the level, its entries wholeEntriesOf(level) and its insert and write lists none,
+ *   wholeWritesOf(level), those and a name role refuses to write, or drawn lists, each name under a drawn mode, that may
+ *   name one twice and may name a closed relation under write, typechecks exactly when role(...) builds it, refused for
+ *   naming a closed relation under write exactly when the engine refuses one such name alone (writeClosed), and for
+ *   naming one twice exactly when the engine admits each name of the lists alone and refuses the lists, and then its
+ *   relations' names and its written names are exactly those of the engine's Description of it, and a program over the base reading the closed relation, and one over the level (over
  *   Reports, matching its live derived relation, which no role holds), are members of a workload over it exactly when
  *   the engine compiles them there, and so is a program over the base matching a drawn context, which the full role
  *   runs exactly when it declares that context: one program over the base serves every full role declaring what it
  *   matches;
- * - each builder that takes a schema (role, login, schema.extend, wholeEntriesOf, writableNamesOf, lawsOf), given the
+ * - each builder that takes a schema (role, login, schema.extend, wholeEntriesOf, wholeWritesOf, writableNamesOf,
+ *   lawsOf), given the
  *   level or the case's first role value, typechecks exactly when the engine admits its base: a role is no schema.
  *
  * The places a Task entry reads a context are every place a definition can: a match of Org or of Session, Org under
@@ -228,26 +232,34 @@ const levelNames = ["Tier", "TierInfo", "Account", "Task", ...derivedNames] as c
 type LevelName = (typeof levelNames)[number]
 
 /**
- * The names role refuses in a full role's write list, the stray after writableNamesOf: the roster, the closed relation,
- * and each derived relation. A second copy of a name writableNamesOf holds is no stray: that list's length is unknown
- * to the types, so they see no repeat in it; the listed kind draws the repeats a list's type shows.
+ * The names role refuses in a full role's insert list, the stray after wholeWritesOf's: the roster, the closed
+ * relation, and each derived relation. A second copy of a name wholeWritesOf holds is no stray: that list's length is
+ * unknown to the types, so they see no repeat in it; the listed kind draws the repeats a list's type shows.
  */
 const strayNames = ["Tier", "TierInfo", ...derivedNames] as const
 type StrayName = (typeof strayNames)[number]
 
-/** The names writableNamesOf gives over either level: its ordinary relations, which a full role writes whole. */
+/** The names writableNamesOf gives over either level: its ordinary relations, which a full role writes whole, both
+ * closed, so wholeWritesOf names them under insert. */
 const writableNames = ["Account", "Task"] as const
 
+/** A name of a full role's lists under its mode. */
+interface ListedName {
+	readonly name: LevelName
+	readonly mode: WriteMode
+}
+
 /**
- * A full role's write list, as the program spells it: left out, every relation it may write (writableNamesOf), those
- * and a stray, or a drawn list of the names it may write, perhaps one of them twice, and perhaps one more of the
- * level's names.
+ * A full role's insert and write lists, as the program spells them: left out, every relation it may write as the level
+ * declares it (wholeWritesOf), those and a stray under insert, or drawn names it may write, each under a drawn mode,
+ * perhaps one of them twice, and perhaps one more of the level's names under insert: a name its relations' type does
+ * not admit under write widens the write list's type to every name it may write, closed ones among them.
  */
 type FullWrite =
 	| { readonly kind: "omitted" }
 	| { readonly kind: "every" }
 	| { readonly kind: "every and"; readonly stray: StrayName }
-	| { readonly kind: "listed"; readonly names: ReadonlyArray<LevelName> }
+	| { readonly kind: "listed"; readonly names: ReadonlyArray<ListedName> }
 
 /**
  * A full role over the case's level: its base's whole entries (wholeEntriesOf), its write list, the contexts it declares, and the context the program over the base it is given matches.
@@ -264,6 +276,7 @@ const schemaTakers = [
 	"login",
 	"schema.extend",
 	"wholeEntriesOf",
+	"wholeWritesOf",
 	"writableNamesOf",
 	"lawsOf"
 ] as const
@@ -320,6 +333,7 @@ export type AccessNote =
 	| `full over ${AccessSpec["level"]} runs its program ${"admitted" | "refused"}`
 	| `full write ${FullWrite["kind"]}`
 	| "full write repeated"
+	| "full write closed"
 	| `full matches a context ${"admitted" | "refused"}`
 	| `stray ${"admitted" | "refused"}`
 	| "declared beyond its relations"
@@ -343,14 +357,21 @@ const fullWriteGen: Gen<FullWrite> = (source) => {
 			return { kind }
 		case "every and":
 			return { kind, stray: source.draw(element(strayNames)) }
-		case "listed":
+		case "listed": {
+			const listed = (name: LevelName): ListedName => ({
+				name,
+				mode: source.draw(element(writeModes))
+			})
 			return {
 				kind,
 				names: [
-					...source.draw(array(element(writableNames), { min: 0, max: 3 })),
-					...(coin(source, 2) ? [] : [source.draw(element(levelNames))])
+					...Arr.map(source.draw(array(element(writableNames), { min: 0, max: 3 })), listed),
+					...(coin(source, 2)
+						? []
+						: [{ name: source.draw(element(levelNames)), mode: "insert" as const }])
 				]
 			}
+		}
 	}
 }
 
@@ -406,6 +427,7 @@ const specOf =
 				login: source.draw(element(baseKinds)),
 				"schema.extend": source.draw(element(baseKinds)),
 				wholeEntriesOf: source.draw(element(baseKinds)),
+				wholeWritesOf: source.draw(element(baseKinds)),
 				writableNamesOf: source.draw(element(baseKinds)),
 				lawsOf: source.draw(element(baseKinds))
 			}
@@ -533,13 +555,19 @@ interface AccessVerdict {
 }
 
 /**
- * The engine's reading of a case's full role: refused by role(...), for a repeat in its write list or not, or admitted
- * with the names of its entries and its write list as its Description holds them, and whether the program over the
- * base matching the closed relation, the program over its level (levelPrograms) and the program over the base matching
- * the drawn context compile for it.
+ * Why role(...) refuses a full role's lists: a closed relation under write, which it refuses of that name alone
+ * (writeClosed); a name twice, each name admitted alone; or another name it refuses.
+ */
+type FullRefusal = "closed" | "repeat" | "other"
+
+/**
+ * The engine's reading of a case's full role: refused by role(...), and why, or admitted with the names of its entries
+ * and its written names as its Description holds them, and whether the program over the base matching the closed
+ * relation, the program over its level (levelPrograms) and the program over the base matching the drawn context compile
+ * for it.
  */
 type FullVerdict =
-	| { readonly kind: "refused"; readonly repeat: boolean }
+	| { readonly kind: "refused"; readonly why: FullRefusal }
 	| {
 			readonly kind: "admitted"
 			readonly entries: ReadonlyArray<string>
@@ -550,23 +578,43 @@ type FullVerdict =
 			readonly matches: boolean
 	  }
 
-/** A full role's options as a JavaScript caller passes them, its write list made by the helpers the program calls. */
-const fullOptions = (
-	full: FullSpec,
-	level: typeof Work | typeof Reports
-): RoleOptionRecord<ReadonlyArray<string>> => {
+/** A full role's lists as a JavaScript caller passes them, made by the helpers the program calls. */
+type FullLists = RoleOptionRecord<ReadonlyArray<string>, ReadonlyArray<string>>
+
+/** The names of `listed` under `mode`, in their order. */
+const namesUnder = (listed: ReadonlyArray<ListedName>, mode: WriteMode): ReadonlyArray<string> =>
+	Arr.flatMap(listed, (l) => (l.mode === mode ? [l.name] : []))
+
+/** A full role's options as a JavaScript caller passes them, its lists made by the helpers the program calls. */
+const fullOptions = (full: FullSpec, level: typeof Work | typeof Reports): FullLists => {
 	const contexts = contextsOf(full.contexts)
 	switch (full.write.kind) {
 		case "omitted":
 			return { contexts }
 		case "every":
-			return { write: writableNamesOf(level), contexts }
-		case "every and":
-			return { write: [...writableNamesOf(level), full.write.stray], contexts }
+			return { ...wholeWritesOf(level), contexts }
+		case "every and": {
+			const every = wholeWritesOf(level)
+			return { insert: [...every.insert, full.write.stray], write: every.write, contexts }
+		}
 		case "listed":
-			return { write: full.write.names, contexts }
+			return {
+				insert: namesUnder(full.write.names, "insert"),
+				write: namesUnder(full.write.names, "write"),
+				contexts
+			}
 	}
 }
+
+/** Each name of a role's lists under its mode, the insert list's then the write list's. */
+const listedOf = (lists: FullLists): ReadonlyArray<ListedName> =>
+	Arr.flatMap(writeModes, (mode) =>
+		Arr.flatMap(lists[mode] ?? [], (name) =>
+			Arr.flatMap(levelNames, (n): ReadonlyArray<ListedName> =>
+				n === name ? [{ name: n, mode }] : []
+			)
+		)
+	)
 
 /**
  * The case's full role, built by role(...) over wholeEntriesOf(level) as the program builds it, as the engine reads
@@ -575,15 +623,31 @@ const fullOptions = (
 const fullVerdictOf = (spec: AccessSpec): FullVerdict => {
 	const level = spec.level === "Reports" ? Reports : Work
 	const options = fullOptions(spec.full, level)
-	const built = catchCompileError(() => role(level, "full", wholeEntriesOf(level), options))
+	/** role(...) of `lists` over the level's whole entries, then its ownership, which refuses a closed relation under the
+	 * write list by the owned base's closedness (writeClosed), as every compilation of the role owns it. */
+	const admitted = (name: string, lists: FullLists) =>
+		Result.flatMap(
+			catchCompileError(() => role(level, name, wholeEntriesOf(level), lists)),
+			(value) =>
+				Result.map(
+					ownRole(defined(roleDescOf(value), "role(...) describes every role it builds")),
+					() => value
+				)
+		)
+	const built = admitted("full", options)
 	if (!built.ok) {
-		const writes = (names: ReadonlyArray<string>): boolean =>
-			catchCompileError(() => role(level, "writes", wholeEntriesOf(level), { write: names })).ok
-		const list = options.write
-		return {
-			kind: "refused",
-			repeat: list !== undefined && !writes(list) && Arr.every(list, (n) => writes([n]))
-		}
+		const alone = (l: ListedName) => admitted("writes", { [l.mode]: [l.name] })
+		const listed = listedOf(options)
+		const closed = Arr.some(listed, (l) => {
+			const one = alone(l)
+			return (
+				!one.ok &&
+				one.error.reason._tag === "RoleRefused" &&
+				one.error.reason.rule.kind === "writeClosed"
+			)
+		})
+		const repeat = Arr.isReadonlyArrayNonEmpty(listed) && Arr.every(listed, (l) => alone(l).ok)
+		return { kind: "refused", why: closed ? "closed" : repeat ? "repeat" : "other" }
 	}
 	const desc = roleDescOf(built.value)
 	if (desc === undefined) {
@@ -592,7 +656,7 @@ const fullVerdictOf = (spec: AccessSpec): FullVerdict => {
 	return {
 		kind: "admitted",
 		entries: Arr.map(desc.relations, (entry) => entry.name),
-		write: writtenNames(desc),
+		write: Arr.map(writtenNames(desc), (w) => w.name),
 		kept: keptPositions(built.value),
 		base: compileTemplate(accountSeats, built.value, testCompile).ok,
 		level: compileTemplate(levelValues[spec.level], built.value, testCompile).ok,
@@ -612,6 +676,7 @@ interface SchemaTaking {
 		extra: readonly []
 	): unknown
 	wholeEntriesOf(base: unknown): unknown
+	wholeWritesOf(base: unknown): unknown
 	writableNamesOf(base: unknown): unknown
 	lawsOf(base: unknown): unknown
 }
@@ -620,6 +685,7 @@ const schemaTaking: SchemaTaking = {
 	login,
 	extend: schema.extend,
 	wholeEntriesOf,
+	wholeWritesOf,
 	writableNamesOf,
 	lawsOf
 }
@@ -638,6 +704,8 @@ const overVerdictOf = (spec: AccessSpec, first: AnyRole, builder: SchemaTaker): 
 				return schemaTaking.extend([base], "Over", [], [], [])
 			case "wholeEntriesOf":
 				return schemaTaking.wholeEntriesOf(base)
+			case "wholeWritesOf":
+				return schemaTaking.wholeWritesOf(base)
 			case "writableNamesOf":
 				return schemaTaking.writableNamesOf(base)
 			case "lawsOf":
@@ -684,6 +752,7 @@ const verdictOf = (spec: AccessSpec): AccessVerdict => {
 			login: overVerdictOf(spec, values[0], "login"),
 			"schema.extend": overVerdictOf(spec, values[0], "schema.extend"),
 			wholeEntriesOf: overVerdictOf(spec, values[0], "wholeEntriesOf"),
+			wholeWritesOf: overVerdictOf(spec, values[0], "wholeWritesOf"),
 			writableNamesOf: overVerdictOf(spec, values[0], "writableNamesOf"),
 			lawsOf: overVerdictOf(spec, values[0], "lawsOf")
 		}
@@ -732,8 +801,11 @@ const casesOf =
 			notes.add(`full matches a context ${verdict.full.matches ? "admitted" : "refused"}`)
 		}
 		notes.add(`full write ${spec.full.write.kind}`)
-		if (verdict.full.kind === "refused" && verdict.full.repeat) {
+		if (verdict.full.kind === "refused" && verdict.full.why === "repeat") {
 			notes.add("full write repeated")
+		}
+		if (verdict.full.kind === "refused" && verdict.full.why === "closed") {
+			notes.add("full write closed")
 		}
 		for (const builder of schemaTakers) {
 			notes.add(
@@ -757,8 +829,13 @@ export const accessCases: Aimed<AccessCase, AccessNote> = aimed(casesOf(specOf(a
 	["verify optional", casesOf(specOf(contextFreeRole))]
 ])
 
-/** The refusal a full role's write list takes when it names a relation twice. */
-const repeatRefusal: Refused = "a write list names each role relation once"
+/** The refusal a full role's lists take when they name a relation twice. */
+const repeatRefusal: Refused =
+	"a role's insert and write lists name each role relation once, in one of them"
+
+/** The refusal a full role's write list takes when it names a closed relation. */
+const closedRefusal: Refused =
+	"a role's write list names open relations, each declared mutable inside a unit: its insert list names a closed one, whose facts are inserted, never changed or deleted"
 
 const contextRefusal: Refused =
 	"a program on a Db of a role matches only the contexts the role declares, whose facts its claims hold"
@@ -788,6 +865,10 @@ const strayLines = (stray: StraySpec, admitted: boolean, i: number): ReadonlyArr
 const programSource = (roleId: string, context: ContextName, i: number): string =>
 	`export const p${i} = query(${roleId}).rule((r) => { const { id, name } = v(${roleId}.relations.Account, "account"); return r.match(${roleId}.relations.Account, { id, name })${context === "Org" ? ".match(Org, { id })" : ".match(Session, { sub: name })"}.find({ id }) })`
 
+/** A list of names, in the program. */
+const listSource = (names: ReadonlyArray<string>): string =>
+	`[${Arr.join(Arr.map(names, jsonText), ", ")}]`
+
 /** A full role's options, in the program. */
 const fullOptionsSource = (full: FullSpec, level: AccessSpec["level"]): string => {
 	const contexts = contextsSource(full.contexts)
@@ -795,12 +876,19 @@ const fullOptionsSource = (full: FullSpec, level: AccessSpec["level"]): string =
 		case "omitted":
 			return `{ ${contexts} }`
 		case "every":
-			return `{ write: writableNamesOf(${level}), ${contexts} }`
+			return `{ ...wholeWritesOf(${level}), ${contexts} }`
 		case "every and":
-			return `{ write: [...writableNamesOf(${level}), ${jsonText(full.write.stray)}], ${contexts} }`
+			return `{ insert: [...wholeWritesOf(${level}).insert, ${jsonText(full.write.stray)}], write: wholeWritesOf(${level}).write, ${contexts} }`
 		case "listed":
-			return `{ write: [${Arr.join(Arr.map(full.write.names, jsonText), ", ")}], ${contexts} }`
+			return `{ insert: ${listSource(namesUnder(full.write.names, "insert"))}, write: ${listSource(namesUnder(full.write.names, "write"))}, ${contexts} }`
 	}
+}
+
+/** The directive a refused full role stands under, by why the engine refuses it. */
+const fullDirective: { readonly [W in FullRefusal]: string } = {
+	closed: `// @ts-expect-error -- refusal: ${closedRefusal}`,
+	repeat: `// @ts-expect-error -- refusal: ${repeatRefusal}`,
+	other: "// @ts-expect-error -- refused: role refuses the full role's lists"
 }
 
 /** Names as the union type the program states, never for none. */
@@ -816,12 +904,7 @@ const fullBlock = (spec: AccessSpec, verdict: FullVerdict, i: number): ReadonlyA
 	const declaration = `export const F${i} = role(${spec.level}, "f${i}", wholeEntriesOf(${spec.level}), ${fullOptionsSource(spec.full, spec.level)})`
 	switch (verdict.kind) {
 		case "refused":
-			return [
-				verdict.repeat
-					? `// @ts-expect-error -- refusal: ${repeatRefusal}`
-					: "// @ts-expect-error -- refused: role refuses the full role's write list",
-				declaration
-			]
+			return [fullDirective[verdict.why], declaration]
 		case "admitted":
 			return [
 				declaration,
@@ -856,6 +939,8 @@ const overLines = (
 				return `schema.extend([${base}], "Over", [], [])`
 			case "wholeEntriesOf":
 				return `wholeEntriesOf(${base})`
+			case "wholeWritesOf":
+				return `wholeWritesOf(${base})`
 			case "writableNamesOf":
 				return `writableNamesOf(${base})`
 			case "lawsOf":
@@ -980,6 +1065,7 @@ export const accessRequired: Situations<AccessNote> = [
 	"declared beyond its relations",
 	...Arr.map(fullWriteKinds, (kind): AccessNote => `full write ${kind}`),
 	"full write repeated",
+	"full write closed",
 	...Arr.flatMap(schemaTakers, (builder): ReadonlyArray<AccessNote> => [
 		`${builder} over a schema admitted`,
 		`${builder} over a role refused`

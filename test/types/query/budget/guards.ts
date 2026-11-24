@@ -175,7 +175,7 @@ const refusedIn = <L>(r: Rule<L>) => reasonsInForce.bind({ ...keyIn(r), ...poste
 const hiddenIn = <L>(r: Rule<L>) => hiddenByAdmission.bind({ ...keyIn(r), ...postedIn(r) })
 export const answer = ChangeSet.empty(S)
 ${Arr.join(Arr.map(indices(shape.inserts), guardedInsert), "\n")}
-export const Writer = role(S, "writer", wholeEntriesOf(S), { write: writableNamesOf(S) })
+export const Writer = role(S, "writer", wholeEntriesOf(S), wholeWritesOf(S))
 export const w = workload(Writer, { answer, answerAt: clocked(answer, { stage: "micros" }) })
 export const apply = (db: DbOf<typeof Writer, typeof w.programs>) =>
 	[
@@ -205,7 +205,7 @@ export const both = ChangeSet.empty(S)
 			return r.match(countsIn(r), { variable, value }).find({ variable, count: value })
 		})
 	)
-export const Writer = role(S, "writer", wholeEntriesOf(S), { write: writableNamesOf(S) })
+export const Writer = role(S, "writer", wholeEntriesOf(S), wholeWritesOf(S))
 export const w = workload(Writer, { both })
 export const apply = (db: DbOf<typeof Writer, typeof w.programs>) =>
 	db.workload.both.once({ params: { x: [{ variable: "a", value: 1n }] }, facts: {} })

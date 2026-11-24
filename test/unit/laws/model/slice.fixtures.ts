@@ -531,8 +531,8 @@ const loc = SourceLoc("the slice test's login", [])
 
 export const roleName = (k: number): string => `w${k}`
 
-/** The login of the case's roles over its schema: each holds every relation whole and its world entries, and writes its
- * draw. */
+/** The login of the case's roles over its schema: each holds every relation whole and its world entries, and inserts
+ * into its draw, every relation of the schema closed. */
 export const loginOf = (c: SliceCase): OwnedLogin => {
 	const base = decodedSchema(schemaOf(c))
 	const whole = succeeded(fullRoleDesc(base, "w", loc), "a role over the schema")
@@ -548,7 +548,8 @@ export const loginOf = (c: SliceCase): OwnedLogin => {
 				loc
 			}))
 		],
-		write: distinct(Arr.map(r.writes, (i) => ordinaryName(c, i)))
+		insert: distinct(Arr.map(r.writes, (i) => ordinaryName(c, i))),
+		write: []
 	}))
 	return succeeded(
 		Result.flatMap(decodeDesc("login", { name: "app", base, roles, loc }), ownLogin),

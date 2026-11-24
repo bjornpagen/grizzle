@@ -73,10 +73,11 @@ type MutableQueue = ReturnType<typeof queueSchema>
  */
 export const queueBenchWorlds = (s: Parameters<typeof fullWorld>[0]) => {
 	const worker = role(s, "worker", heldRelations(s), {
-		write: ["Work", "Wanted", "Leased", "Done", "Denied"]
+		insert: ["Done", "Denied"],
+		write: ["Work", "Wanted", "Leased"]
 	})
 	const enqueuer = role(s, "enqueuer", heldRelations(s), { write: ["Work", "Wanted"] })
-	const operator = role(s, "operator", heldRelations(s), { write: ["Seat"] })
+	const operator = role(s, "operator", heldRelations(s), { insert: ["Seat"] })
 	return {
 		worker,
 		enqueuer,

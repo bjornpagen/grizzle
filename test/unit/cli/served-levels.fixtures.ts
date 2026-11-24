@@ -4,7 +4,7 @@ import { type Gen, subarray, subset } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record as Rec } from "effect"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { role, wholeEntriesOf, writableNamesOf } from "#compiler/public/schema.ts"
+import { role, wholeEntriesOf, wholeWritesOf } from "#compiler/public/schema.ts"
 import {
 	Budget,
 	Node,
@@ -20,12 +20,11 @@ import {
 import { repoRoot } from "#test/support/files.ts"
 
 /** A writer of Work's every writable relation over Work, built for one case: a role is in one login. */
-export const workWriter = () =>
-	role(Work, "writer", wholeEntriesOf(Work), { write: writableNamesOf(Work) })
+export const workWriter = () => role(Work, "writer", wholeEntriesOf(Work), wholeWritesOf(Work))
 
 /** A writer of Work's every writable relation over Reports, built for one case. */
 export const reportsWriter = () =>
-	role(Reports, "reportsWriter", wholeEntriesOf(Reports), { write: writableNamesOf(Work) })
+	role(Reports, "reportsWriter", wholeEntriesOf(Reports), wholeWritesOf(Work))
 
 type Writer = ReturnType<typeof workWriter> | ReturnType<typeof reportsWriter>
 

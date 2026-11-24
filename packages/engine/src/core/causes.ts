@@ -302,11 +302,13 @@ export type EntryKind = "relation" | "closed" | "derived" | "query"
  *   its declared contexts alone.
  * - `entryScope`: a scoped entry whose query states no scope of its relation (schema/scope.ts entryScope), which only a
  *   Description written by hand holds: scopedEntriesOf builds each scoped entry's query.
- * - `writeOutside`: a write list naming `name`, no relation of the role.
- * - `writeKind`: a write list naming a closed or derived whole entry.
- * - `writeUnwritable`: a write list naming a query entry the writable-entry analysis refuses, for `why`.
- * - `writeTwice`: two write entries, `entries`, that both write the base relation `relation`.
- * - `writeAndInsert`: a role stating both a write list and an insert list, where it writes by one of them.
+ * - `writeOutside`: an insert or write list naming `name`, no relation of the role.
+ * - `writeKind`: an insert or write list naming a closed or derived whole entry.
+ * - `writeUnwritable`: an insert or write list naming a query entry the writable-entry analysis refuses, for `why`.
+ * - `writeTwice`: two written entries, `entries`, that both write the base relation `relation`, in one list or across
+ *   the two, so each relation is written under one mode.
+ * - `writeClosed`: a write list naming `entry`, which writes `relation`, a closed relation: its facts are inserted,
+ *   never changed or deleted, so a role names it under `insert`, where it holds no DELETE or UPDATE.
  */
 export type RoleRule =
 	| { readonly kind: "entryOrdered"; readonly entry: string }
@@ -324,7 +326,7 @@ export type RoleRule =
 			readonly relation: string
 			readonly entries: readonly [string, string]
 	  }
-	| { readonly kind: "writeAndInsert" }
+	| { readonly kind: "writeClosed"; readonly entry: string; readonly relation: string }
 
 /**
  * A rule of a login a description breaks (schema/world.ts loginBuilder at the builder, schema/own.ts ownLogin at
@@ -568,15 +570,15 @@ export const roleRuleText = (rule: RoleRule): string => {
 		case "entryScope":
 			return `a scoped entry whose query is the row predicate scopedEntriesOf builds of its relation; ${rule.entry}'s states no scope`
 		case "writeOutside":
-			return `a write list of the role's relations; ${rule.name} is none of them`
+			return `insert and write lists of the role's relations; ${rule.name} is none of them`
 		case "writeKind":
-			return `a write list of ordinary relations and query entries; ${rule.name} is ${entryKindText[rule.entryKind]}`
+			return `insert and write lists of ordinary relations and query entries; ${rule.name} is ${entryKindText[rule.entryKind]}`
 		case "writeUnwritable":
 			return `a writable query entry ${rule.entry}; ${unwritableText(rule.why)}`
 		case "writeTwice":
 			return `one writable entry per base relation; ${rule.entries[0]} and ${rule.entries[1]} both write ${rule.relation}`
-		case "writeAndInsert":
-			return "a write list or an insert list; the role states both"
+		case "writeClosed":
+			return `a write list of open relations, each declared mutable inside a unit; ${rule.entry === rule.relation ? rule.relation : `${rule.entry} writes ${rule.relation}, which`} is closed, its facts inserted and never changed or deleted: name it under insert`
 	}
 }
 

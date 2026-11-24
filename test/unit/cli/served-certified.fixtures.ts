@@ -2,6 +2,7 @@
 
 import { element, type Gen, subarray } from "@bjornpagen/testing/gen"
 import { Array as Arr, Formatter } from "effect"
+import { wholeWritesOf } from "#compiler/public/schema.ts"
 import {
 	Budget,
 	Node,
@@ -9,7 +10,8 @@ import {
 	Pool,
 	Tag,
 	Task,
-	Ticket
+	Ticket,
+	Work
 } from "#test/support/agreement/changeset-schema.ts"
 import { repoRoot } from "#test/support/files.ts"
 
@@ -101,4 +103,22 @@ export const showCase = (c: Case): string => {
 			? `{ kind: "none" }`
 			: `{ kind: ${Formatter.format(c.direct.kind)}, writes: ${list(c.direct.writes)} }`
 	return `{ mode: ${Formatter.format(c.mode)}, writes: ${list(c.writes)}, inserts: ${list(c.inserts)}, direct: ${direct} }`
+}
+
+/**
+ * A role's lists over what `written` writes, as `mode` states them: every name under the insert list, or, writing, each
+ * of Work's open relations under the write list and each closed one under the insert list, which no write list names.
+ */
+export const listsOf = (
+	mode: Mode,
+	written: ReadonlyArray<Written>
+): { readonly insert: ReadonlyArray<string>; readonly write: ReadonlyArray<string> } => {
+	const names = Arr.flatMap(written, (w) => w.writes)
+	const open = wholeWritesOf(Work).write
+	return mode === "insert"
+		? { insert: names, write: [] }
+		: {
+				insert: Arr.filter(names, (n) => !Arr.some(open, (o) => o === n)),
+				write: Arr.filter(names, (n) => Arr.some(open, (o) => o === n))
+			}
 }

@@ -175,7 +175,7 @@ export default defineConfig({
   param("package", Name) }, … })` deletes each named relation's rows whose fields equal the given parameters or
   literals, as the delete of the query that selects them, so a replace of one package is one deleteWhere record and
   one insertAll. The role's write list names every
-  relation the delete reaches, every one open. Delete a family's other members through their owner, never one by one
+  relation the delete reaches, every one open: a role deletes nothing its insert list names. Delete a family's other members through their owner, never one by one
   when the owner is closed.
 - `connection` is the migration role's: `driver` (the pg module), `transport` (`kind: "sslRequest"`, `host`, `port`,
   `open`, which returns a new socket, `ca` and `servername`; TLS is always verify-full, the server certificate chaining
@@ -930,7 +930,7 @@ to fix, or the compiler's refusal of a schema or login with its fix, and no line
   login's roles as no drift only with SET FALSE and no ADMIN, and only while the login's effective privileges on the
   installation stay exactly those three: `rds_iam` holds nothing there, so it is no drift, and a membership handing the
   login any privilege or ownership is.
-- A role declares the contexts its `Db`'s facts hold, `role(S, "student", wholeEntriesOf(S), { write, contexts:
+- A role declares the contexts its `Db`'s facts hold, `role(S, "student", wholeEntriesOf(S), { insert, contexts:
   [Session, Acting] })`: its `Db` decodes exactly those, each from its one source, a `context(...)` from the token's
   claims (one of `{ claim: "act" }` from the nested `act` object, no row where the token has none), an
   `attested(...)` from what the server attests (`Db.open`'s `attested`, `httpHandler`'s `attest(request)`), never a
@@ -942,13 +942,18 @@ to fix, or the compiler's refusal of a schema or login with its fix, and no line
   is a type error (`RoleRefused` `entryContext`); a program matching one is a type error in a workload over the role
   and `OutsideRole` (`context`) when generate compiles it for a role that does not declare it.
 - A role is over a schema and is no schema itself: `role`, `login`, `schema.extend`, `wholeEntriesOf`,
-  `writableNamesOf`, `lawsOf` and `lawsByStatement` take a schema, and a role passed to one is a type
-  error; `query`, `ChangeSet.empty` and `workload` take either. A role's `write` names each entry once: a name listed
-  twice is a type error, and `RoleRefused` (`writeTwice`) for a JavaScript caller.
-- A role that only inserts lists its entries as `insert` in place of `write`: it holds INSERT and SELECT on them and
-  no UPDATE or DELETE, so a direct writer's UPDATE or DELETE through it is 42501, and a ChangeSet of it that deletes,
-  puts, or adds a member under a mutable owner (which updates the owner's count) is `OutsideRole` (`insert`) when it
-  compiles. Stating both is `RoleRefused` (`writeAndInsert`).
+  `wholeWritesOf`, `writableNamesOf`, `lawsOf` and `lawsByStatement` take a schema, and a role passed to one is a type
+  error; `query`, `ChangeSet.empty` and `workload` take either. A role's `insert` and `write` name each table once
+  between them: a name listed twice is a type error, and `RoleRefused` (`writeTwice`) for a JavaScript caller.
+- A role lists each entry it writes under the mode it writes that table by, least privilege per table: `insert` the
+  entries it only adds to, where it holds INSERT and SELECT and no UPDATE or DELETE, and `write` the open ones it
+  changes, each over a table declared `mutable` inside a unit, where it holds UPDATE and DELETE as well. A closed table
+  under `write` is a type error for a whole or scoped entry and `RoleRefused` (`writeClosed`) for any, so a writer that
+  puts one open table beside closed facts in one commit lists the open table under `write` and the rest under
+  `insert`. A direct writer's UPDATE or DELETE of an `insert` entry is 42501, and a ChangeSet that deletes from or puts
+  one, or adds an open one as a member under a mutable owner (which updates the owner's count), is `OutsideRole`
+  (`insert`) when it compiles; a closed member, written by `insert` alone, recounts its mutable owner. A full role is `role(S, name, wholeEntriesOf(S), wholeWritesOf(S))`: every closed table under
+  `insert`, every open one under `write`.
 - A role's writes run READ COMMITTED only where `grizzle generate` certifies it from the statements its ChangeSets
   send, against every other writer (README's READ COMMITTED writes); every other role runs SERIALIZABLE, and reads are
   always SERIALIZABLE READ ONLY. generate prints each role's level, a SERIALIZABLE one with the count of each condition

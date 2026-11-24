@@ -19,7 +19,7 @@ import {
 	v,
 	wholeEntriesOf,
 	workload,
-	writableNamesOf
+	wholeWritesOf
 } from "@bjornpagen/grizzle"
 
 const Slug = str.regex("^[a-z0-9-]{1,96}$")
@@ -46,7 +46,7 @@ export const published = query(Notes).rule((r) => {
 })
 
 const reader = role(Notes, "reader", wholeEntriesOf(Notes))
-const writer = role(Notes, "writer", wholeEntriesOf(Notes), { write: writableNamesOf(Notes) })
+const writer = role(Notes, "writer", wholeEntriesOf(Notes), wholeWritesOf(Notes))
 
 export const Web = login(Notes, "web", [reader, writer], {
 	workload: [

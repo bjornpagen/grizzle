@@ -72,6 +72,7 @@ import type {
 	IsLevelOf,
 	IsRelationOf,
 	LevelsOf,
+	MutableNameOf,
 	NameIn,
 	RelationIn,
 	RelationOf,
@@ -632,7 +633,7 @@ type IsClosed<S, N> =
 		? false
 		: IsNone<N> extends true
 			? false
-			: IsNone<Exclude<N, MutableName<S>>> extends true
+			: IsNone<Exclude<N, MutableNameOf<S>>> extends true
 				? false
 				: true
 
@@ -750,14 +751,6 @@ type CandidateKeyFieldOf<S, R> =
 	Extract<StatementsOf<S>[number], Key<Side<R, ReadonlyArray<string>>>> extends infer K
 		? K extends Key<Side<unknown, infer T extends ReadonlyArray<string>>>
 			? T[number]
-			: never
-		: never
-
-/** The names of the relations S declares mutable. */
-type MutableName<S> =
-	Extract<StatementsOf<S>[number], Mutable<unknown>> extends infer M
-		? M extends Mutable<infer X>
-			? NameOf<X>
 			: never
 		: never
 
@@ -1793,7 +1786,7 @@ type RowOwnerIndexOf<S> = {
  * (RowOwnerIndexOf), so insertAll's keys cost one each, however many families the schema holds.
  */
 type FixedOwnerOf<S, R> =
-	string extends NameOf<R> ? never : Exclude<RowOwnerIndexOf<S>[NameOf<R>], MutableName<S>>
+	string extends NameOf<R> ? never : Exclude<RowOwnerIndexOf<S>[NameOf<R>], MutableNameOf<S>>
 
 /** Whether R is a member of an ordered or a counted family of S, whose every write the engine plans as an edit. */
 type IsFamilyMember<S, R> =

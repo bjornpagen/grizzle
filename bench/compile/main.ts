@@ -51,7 +51,7 @@ import { trustedJson } from "#compiler/core/trusted.ts"
 import { login } from "#compiler/program/workload/login.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import type { AnySchema } from "#compiler/public/schema.ts"
-import { roleBuilder as role } from "#compiler/schema/world.ts"
+import { roleBuilder as role, wholeWritesOf } from "#compiler/schema/world.ts"
 import { servedPath } from "#compiler/served/forms.ts"
 import type { EntryValue } from "#compiler/types/schema/world.ts"
 import { everyCallCount } from "#test/support/kernel/calls.ts"
@@ -224,7 +224,7 @@ const build = Effect.fn("build")(function* (scale: Scale) {
 		for (const r of [...ordinary, ...Arr.map(rosters, ({ roster }) => roster)]) {
 			entries[r.name] = r
 		}
-		return role(base, "app", entries, { write: Arr.map(ordinary, (r) => r.name) })
+		return role(base, "app", entries, wholeWritesOf(base))
 	})
 	const [programs, workloadSpent] = yield* timed("workload", () => workload(app, lookups(ordinary)))
 	const [web, loginSpent] = yield* timed("login", () =>

@@ -80,7 +80,7 @@ export const compiledCase = (drawn: RosterCase): CompiledCase => {
 		"id"
 	])
 	const value = schema("Registry", [Graders, Graded], [])
-	const app = role(value, "app", { Graders, Graded }, { write: ["Graded"] })
+	const app = role(value, "app", { Graders, Graded }, { insert: ["Graded"] })
 	const grade = changeSetOver.empty(app).insert(Graded, [])
 	const artifacts = succeeded(testArtifacts(value, testCompile), "the registry's artifacts")
 	const everyHandle = queryOver(value).rule((r: RuleValue) => {

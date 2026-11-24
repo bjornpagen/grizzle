@@ -27,7 +27,7 @@ import {
 import { str } from "#compiler/public/text.ts"
 import { installationsOf } from "#compiler/schema/own.ts"
 import { ownLogin, rostersOf } from "#compiler/schema/own.ts"
-import { loginDescOf, roleBuilder as role } from "#compiler/schema/world.ts"
+import { loginDescOf, roleBuilder as role, wholeWritesOf } from "#compiler/schema/world.ts"
 import type { Expr, SqlStatement } from "#compiler/sql/ast.ts"
 import { lit, types } from "#compiler/sql/build.ts"
 import { printExpr } from "#compiler/sql/print.ts"
@@ -268,25 +268,31 @@ const queryEntry = (
 
 const written: ReadonlyArray<Written> = ["Store", "Item", "Shelf", "Slot"]
 
-/** A role: Open read whole, and each relation it writes by the entry its write names. */
+/** A role: Open read whole, and each relation it writes by the entry its write names, under its write list where the
+ * schema declares the relation open and under its insert list where it is closed. */
 export const roleOf = (s: ReturnType<typeof schemaOf>, name: RoleName, w: Writes) => {
+	const open = new Set<string>(wholeWritesOf(s).write)
 	const entries: Record<string, EntryValue> = { Open: s.relations.Open }
-	const names: Array<string> = []
+	const lists: { readonly insert: Array<string>; readonly write: Array<string> } = {
+		insert: [],
+		write: []
+	}
 	for (const t of written) {
 		const write: string = w[t]
 		if (write === "none") {
 			continue
 		}
+		const list = open.has(t) ? lists.write : lists.insert
 		if (write === "whole") {
 			entries[t] = s.relations[t]
-			names.push(t)
+			list.push(t)
 			continue
 		}
 		const [entry, value] = queryEntry(s, t, write)
 		entries[entry] = value
-		names.push(entry)
+		list.push(entry)
 	}
-	return role(s, name, entries, { write: names })
+	return role(s, name, entries, lists)
 }
 
 /** A role with every member write dropped: the control its own entries' grants are read from. */

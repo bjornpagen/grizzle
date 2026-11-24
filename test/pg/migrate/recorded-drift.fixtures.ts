@@ -25,7 +25,7 @@ import {
 	role,
 	schema,
 	wholeEntriesOf,
-	writableNamesOf
+	wholeWritesOf
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import type { ObjectName, PlFunction } from "#compiler/sql/ast.ts"
@@ -102,7 +102,7 @@ export const versionOf = (name: string) => {
 		})
 	)
 	const s = schema.extend([Base], `${name}_1`, [Tabbed], [contained(on(Tabbed, "k"), on(T, "k"))])
-	const writer = role(s, "writer", wholeEntriesOf(s), { write: writableNamesOf(s) })
+	const writer = role(s, "writer", wholeEntriesOf(s), wholeWritesOf(s))
 	return { schema: s, logins: [login(s, "desk", [writer])] }
 }
 

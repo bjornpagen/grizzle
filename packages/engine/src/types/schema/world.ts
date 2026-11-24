@@ -36,13 +36,14 @@ import type {
 	BelowOf,
 	IsLevelOf,
 	IsRelationOf,
+	MutableNameOf,
 	NamedBy,
 	RelationsOf,
 	StatementsOf,
 	least,
 	UnderName
 } from "#compiler/types/schema/schema.ts"
-import type { Statement } from "#compiler/types/schema/statements.ts"
+import type { Mutable, Statement } from "#compiler/types/schema/statements.ts"
 
 /**
  * A context field: text, uuid, boolean, an integer type, inet, cidr, a contract over one of them, or a closed handle;
@@ -116,8 +117,10 @@ export interface AnyWorld extends Built, Headed<Carriers> {
  *   plain view, whose fields are its definition's heading and whose keys are those its definition's evidence proves,
  *   as a derived relation's are. The role keeps the base's laws among its whole entries. A role holding every relation
  *   of its base whole is a full role: its base is among its levels (LevelsOf), so programs over the base run on it;
- *   its entries are wholeEntriesOf(base) (WholeEntriesOf). `write` names the role relations it may write, each once
- *   (DistinctWrites), every one it may write whole being writableNamesOf(base) (WritableNameOf).
+ *   its entries are wholeEntriesOf(base) (WholeEntriesOf). `insert` names the role relations it only adds to and
+ *   `write` the open ones it changes, each relation once between them (DistinctWrites), every one it may write whole
+ *   being writableNamesOf(base) (WritableNameOf), which wholeWritesOf(base) splits by how the base declares each
+ *   (WholeWritesOf).
  * - A login is one credential and one pool for roles over one base. DbLayer.make takes one; Db.open opens a role of
  *   the layer's login.
  *
@@ -338,6 +341,16 @@ type HeadingNameOf<R> = R extends { readonly heading: infer H } ? keyof H & stri
 export type WritableNameOf<Base extends AnySchema> = WritableKeys<WholeEntriesOf<Base>>
 
 /**
+ * The options of a role over Base that writes every whole entry it may as the base declares its relation
+ * (wholeWritesOf): `insert` the closed ones, whose facts are inserted and never changed or deleted, and `write` the open
+ * ones, each declared mutable inside a unit, the two together WritableNameOf<Base>, each name once.
+ */
+export interface WholeWritesOf<Base extends AnySchema> {
+	readonly insert: ReadonlyArray<Exclude<WritableNameOf<Base>, MutableNameOf<Base>>>
+	readonly write: ReadonlyArray<Extract<WritableNameOf<Base>, MutableNameOf<Base>>>
+}
+
+/**
  * The highest level of a role's base it holds whole, every relation of that level and of every level below it under its
  * own name: then that level, and every level below it, is among the role's levels; never when it holds not every
  * relation of the base's root whole. A relation no role holds (UnheldRelation) is no entry, so a role holds every
@@ -445,6 +458,7 @@ export interface AnyRole extends Built {
 	readonly base: AnySchema
 	readonly relations: Readonly<Record<string, AnyRelation | AnyClosed | AnyDerived | AnyWorld>>
 	readonly statements: ReadonlyArray<Statement>
+	readonly insert: ReadonlyArray<string>
 	readonly write: ReadonlyArray<string>
 }
 
@@ -475,7 +489,7 @@ export interface RoleLeastStated<Least> {
 export type RoleLeastOf<W, Least> = [Least] extends [never] ? W : Least
 
 /**
- * A role over Base named Name: its relations, the base's laws it keeps, and its write list, as written. A
+ * A role over Base named Name: its relations, the base's laws it keeps, and its insert and write lists, as written. A
  * full role extends its base, and a role holds every fragment of its base it holds whole (the phantoms LevelsOf reads);
  * `contexts` is the union of the names of the contexts it declares.
  */
@@ -483,6 +497,7 @@ export interface Role<
 	Base,
 	Name extends string,
 	Relations,
+	Insert extends string,
 	Write extends string,
 	Contexts,
 	Declared = never
@@ -497,37 +512,60 @@ export interface Role<
 	readonly base: Base
 	readonly relations: Relations
 	readonly statements: ReadonlyArray<KeptStatements<Base, Relations>>
+	readonly insert: ReadonlyArray<Insert>
 	readonly write: ReadonlyArray<Write>
 }
 
 /**
- * A role's write list names each role relation once: a relation named twice is two entries writing one relation, which
- * role refuses at run time too (writeTwice). A repeat the list's type does not show, at a widened name, a union of
- * names, or in a list of unknown length such as writableNamesOf's, is role's to refuse at run time.
+ * A role's insert and write lists name each role relation once, in one of them: a relation named twice is two entries
+ * writing one relation, which role refuses at run time too (writeTwice). A repeat the lists' types do not show, at a
+ * widened name, a union of names, or in a list of unknown length such as wholeWritesOf's, is role's to refuse at run
+ * time.
  */
-export type DistinctWrites<W> =
-	Repeats<W> extends true ? Refusal<"a write list names each role relation once"> : unknown
+export type DistinctWrites<I extends ReadonlyArray<unknown>, W extends ReadonlyArray<unknown>> =
+	Repeats<readonly [...I, ...W]> extends true
+		? Refusal<"a role's insert and write lists name each role relation once, in one of them">
+		: unknown
 
 /**
- * The arguments after a role's relations: none, or its options, `write` naming the role relations it may write, or
- * `insert` naming the ones it may only insert into, holding no DELETE or UPDATE on any of them, and `contexts` the
- * contexts it declares, the facts its Db's claims hold and the only ones its query entries and programs
- * match, each empty when left out. A role states `write` or `insert`, never both.
+ * A role's write list names open relations alone, as role refuses at run time too (writeClosed): a whole or scoped
+ * entry of a relation no mutable statement of Base names is closed, its facts inserted and never changed or deleted,
+ * so the insert list names it. A query entry's written relation is the writable-entry analysis's, which its type does
+ * not show, and a base whose statements are generic, holding every Mutable, shows no relation closed: each is role's
+ * to refuse at run time.
  */
-export type RoleOptions<W, C = ReadonlyArray<AnyContext>> =
+export type WritesOpen<Base, Rs, W> =
+	Mutable<unknown> extends StatementsOf<Base>[number]
+		? unknown
+		: [ClosedWritten<Rs, W, MutableNameOf<Base>>] extends [never]
+			? unknown
+			: Refusal<"a role's write list names open relations, each declared mutable inside a unit: its insert list names a closed one, whose facts are inserted, never changed or deleted">
+
+/** The names among N of the entries of Rs whose written relation its type shows closed, none named in Open. */
+type ClosedWritten<Rs, N, Open> = N extends keyof Rs
+	? [Exclude<NameOf<WholeWritten<Rs[N]>>, Open>] extends [never]
+		? never
+		: N
+	: never
+
+/** The base relation an entry value writes, as its type shows it: a whole entry's own, a scoped entry's relation. */
+type WholeWritten<V> = V extends AnyRelation ? V : V extends AnyScoped ? V["relation"] : never
+
+/**
+ * The arguments after a role's relations: none, or its options, `insert` naming the role relations it only adds to,
+ * on each of which it holds INSERT and no DELETE or UPDATE, `write` naming the open ones it changes, each over a
+ * relation declared mutable inside a unit, on which it holds INSERT, DELETE and UPDATE, the two naming each relation
+ * once between them, and `contexts` the contexts it declares, the facts its Db's claims hold and the only ones its
+ * query entries and programs match, each empty when left out.
+ */
+export type RoleOptions<I, W, C = ReadonlyArray<AnyContext>> =
 	| readonly []
-	| readonly [options: RoleOptionRecord<W, C>]
-export type RoleOptionRecord<W, C = ReadonlyArray<AnyContext>> =
-	| {
-			readonly write?: W
-			readonly insert?: never
-			readonly contexts?: C
-	  }
-	| {
-			readonly insert: W
-			readonly write?: never
-			readonly contexts?: C
-	  }
+	| readonly [options: RoleOptionRecord<I, W, C>]
+export type RoleOptionRecord<I, W, C = ReadonlyArray<AnyContext>> = {
+	readonly insert?: I
+	readonly write?: W
+	readonly contexts?: C
+}
 
 /**
  * The contexts a role declares: never when it declares none, and unknown for a role whose type does not say (a role
@@ -634,9 +672,12 @@ type ContextsWithin<Cx, Read> = [Cx] extends [Read]
 	? unknown
 	: Refusal<"a program on a Db of a role matches only the contexts the role declares, whose facts its claims hold">
 
-/** The names of the relations a role may write: its write list. */
-export type WriteListOf<R> = R extends { readonly write: ReadonlyArray<infer W extends string> }
-	? W
+/** The names of the relations a role may write: its insert list's and its write list's. */
+export type WriteListOf<R> = R extends {
+	readonly insert: ReadonlyArray<infer I extends string>
+	readonly write: ReadonlyArray<infer W extends string>
+}
+	? I | W
 	: never
 
 /** Any login: the members every one has. Its roles are reached by name, each through the login (LoginRole). */

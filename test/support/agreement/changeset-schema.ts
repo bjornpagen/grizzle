@@ -26,7 +26,7 @@ import {
 	tree,
 	unit,
 	wholeEntriesOf,
-	writableNamesOf
+	wholeWritesOf
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { Id } from "#test/support/ids.ts"
@@ -235,8 +235,9 @@ export const Twin = schema("Work", [Kind, Task], [])
  * Work's worlds: a writer of every ordinary relation; a clerk of Task, Budget and the families' owners, whose write list
  * leaves out every member relation an owner's insert nests or edits; and a reader that writes none.
  */
-export const Writer = role(Work, "writer", wholeEntriesOf(Work), { write: writableNamesOf(Work) })
+export const Writer = role(Work, "writer", wholeEntriesOf(Work), wholeWritesOf(Work))
 export const Clerk = role(Work, "clerk", wholeEntriesOf(Work), {
-	write: ["Task", "Budget", "Order", "Cart", "Pool", "Bin"]
+	insert: ["Order", "Pool"],
+	write: ["Task", "Budget", "Cart", "Bin"]
 })
 export const Reader = role(Work, "reader", wholeEntriesOf(Work))

@@ -11,7 +11,7 @@ import { encodeInput, type ParsedInput, parseInput } from "#compiler/live/codec.
 import type { WireFacts } from "#compiler/live/shape.ts"
 import type { WireScalar } from "#compiler/live/wire.ts"
 import { workload } from "#compiler/program/workload/value.ts"
-import { login, role, wholeEntriesOf, writableNamesOf } from "#compiler/public/schema.ts"
+import { login, role, wholeEntriesOf, wholeWritesOf } from "#compiler/public/schema.ts"
 import { ownBuilt, rostersOf } from "#compiler/schema/own.ts"
 import { servedFile } from "#compiler/served/json.ts"
 import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
@@ -104,7 +104,7 @@ export const nestingHolds = (c: NestCase, note: (feature: Feature) => void): Eff
 		const value = built.rename("Nest")
 		const inserted = insertedRelations(spec)
 		const change = insertAll(value, built, inserted)
-		const writer = role(value, "writer", wholeEntriesOf(value), { write: writableNamesOf(value) })
+		const writer = role(value, "writer", wholeEntriesOf(value), wholeWritesOf(value))
 		const served = defined(
 			builtLogin(
 				login(value, "server", [writer], { workload: [workload(value, { [member]: change })] })

@@ -16,7 +16,7 @@ import {
 	login,
 	role,
 	wholeEntriesOf,
-	writableNamesOf
+	wholeWritesOf
 } from "#compiler/public/schema.ts"
 import type { AnyWorkload } from "#compiler/types/db/workload.ts"
 import { defineConfig } from "#index.ts"
@@ -158,7 +158,7 @@ const logins = (
 			(_, name) => !reads.includes(name) || kept.has(name)
 		)
 		const again = role(fixture.Billing, "billing", wholeEntriesOf(fixture.Billing), {
-			write: writableNamesOf(fixture.Billing)
+			...wholeWritesOf(fixture.Billing)
 		})
 		return {
 			schema: fixture.Billing,
@@ -228,7 +228,10 @@ export const draftOf = (c: Case, platformReads: ReadonlyArray<string>, withReads
 			),
 			writes: new Map(
 				Arr.flatMap(built.logins, (l) =>
-					Arr.map(Rec.values(l.roles), (r) => [r.role.name, r.role.write] as const)
+					Arr.map(
+						Rec.values(l.roles),
+						(r) => [r.role.name, [...r.role.insert, ...r.role.write]] as const
+					)
 				)
 			)
 		}

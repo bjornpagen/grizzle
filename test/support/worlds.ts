@@ -1,5 +1,5 @@
 import { utf8Text } from "@bjornpagen/grizzle-text/utf8"
-import { Array as Arr, Effect, Record as Rec, Redacted, type Scope } from "effect"
+import { Effect, Record as Rec, Redacted, type Scope } from "effect"
 import { TokenRefused } from "#adapter/errors/failures.ts"
 import type { Json } from "#compiler/core/canonical.ts"
 import { jsonText, trusted, trustedJson } from "#compiler/core/trusted.ts"
@@ -12,7 +12,8 @@ import {
 	type AnyRoster,
 	type AnySchema,
 	type Role,
-	role
+	role,
+	wholeWritesOf
 } from "#compiler/public/schema.ts"
 import { loginBuilder as login } from "#compiler/schema/world.ts"
 import type { RoleRelations } from "#compiler/types/schema/world.ts"
@@ -62,7 +63,8 @@ export type HeldOf<B extends Reality> = {
  * test's identity provider issues.
  *
  * A schema's full world is the role `app` holding every relation of the schema whole but its closed and live derived
- * relations, writing every ordinary relation and declaring no context, in the login `server`, whose workload is the test's programs over the
+ * relations, writing every ordinary relation as the schema declares it, inserting into each closed one and changing
+ * each open one (wholeWritesOf), and declaring no context, in the login `server`, whose workload is the test's programs over the
  * role, each a member a Db of the role runs by its name (`db.workload.<name>`): reality itself, so every program over the
  * schema runs on it. A closed relation has no extent in the database, only its constants, so no role holds it; a roster
  * does, as its code column; a live derived relation's rows are its definition's over the relations the role holds. It is typed by no
@@ -90,11 +92,8 @@ export const fullWorld = <B extends Reality, const P extends Readonly<Record<str
 	const relations = trusted<Readonly<Record<string, AnyRelation | AnyRoster | AnyDerived>>>(
 		heldRelations(reality)
 	)
-	const names = Rec.keys(relations)
-	const app = trusted<Role<B, "app", RoleRelations<HeldOf<B>>, string, never>>(
-		role(reality, "app", relations, {
-			write: Arr.filter(names, (name) => relations[name]?.kind === "relation")
-		})
+	const app = trusted<Role<B, "app", RoleRelations<HeldOf<B>>, string, string, never>>(
+		role(reality, "app", relations, wholeWritesOf(reality))
 	)
 	return { app, server: login(base, "server", [app], [{ workload: [workload(app, programs)] }]) }
 }

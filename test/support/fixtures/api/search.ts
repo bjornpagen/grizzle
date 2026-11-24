@@ -11,7 +11,7 @@ import {
 	schema,
 	type StatementsByName,
 	wholeEntriesOf,
-	writableNamesOf
+	wholeWritesOf
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { Id } from "#test/support/ids.ts"
@@ -58,7 +58,7 @@ export type SearchNamed<N extends string> = Schema<
 export const searchWorlds = (installed: SearchNamed<string>) => {
 	const searcher = role(installed, "searcher", wholeEntriesOf(installed))
 	const writer = role(installed, "writer", wholeEntriesOf(installed), {
-		write: writableNamesOf(installed)
+		...wholeWritesOf(installed)
 	})
 	return { searcher, writer, server: login(installed, "server", [searcher, writer]) }
 }

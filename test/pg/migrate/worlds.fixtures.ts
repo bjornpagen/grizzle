@@ -117,7 +117,7 @@ export const versionOf = (name: string, k: Knobs) => {
 		ext,
 		"editor",
 		{ Doc, Busy: ext.relations.Busy, Mine: mine(), Capped: capped },
-		{ write: ["Mine"], contexts: [Session, Quota] }
+		{ insert: ["Mine"], contexts: [Session, Quota] }
 	)
 	const viewer = role(ext, "viewer", { Tier, Org, Busy: ext.relations.Busy })
 	/** Busy alone: the one relation of its level it holds, so it holds USAGE on that level's schema of whole views alone. */

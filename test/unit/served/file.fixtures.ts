@@ -27,7 +27,7 @@ import { isList, isRecord } from "#compiler/core/record.ts"
 import { trusted, trustedJson } from "#compiler/core/trusted.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { workload } from "#compiler/program/workload/value.ts"
-import { login, role, wholeEntriesOf, writableNamesOf } from "#compiler/public/schema.ts"
+import { login, role, wholeEntriesOf, wholeWritesOf } from "#compiler/public/schema.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
 import { servedDifference } from "#compiler/served/difference.ts"
 import type { ServedFile } from "#compiler/served/forms.ts"
@@ -491,7 +491,7 @@ export const changeTrip = (
 		const built = buildWSchema(schema, "Wo")
 		const { changes } = buildChangeSet(built.value, built.relations, group, c)
 		const writer = role(built.value, "writer", wholeEntriesOf(built.value), {
-			write: writableNamesOf(built.value)
+			...wholeWritesOf(built.value)
 		})
 		const compiled = yield* Effect.result(
 			compiledLogin(
@@ -569,7 +569,7 @@ export const boundTrip = (
 			note("a vector written after it was bound")
 		}
 		const writer = role(Search, "writer", wholeEntriesOf(Search), {
-			write: writableNamesOf(Search)
+			...wholeWritesOf(Search)
 		})
 		const compiled = yield* Effect.result(
 			compiledLogin(

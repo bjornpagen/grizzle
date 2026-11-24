@@ -38,7 +38,7 @@ const lawsOf = (shape: RoleShape): string =>
 	)
 
 /** The full role over the extension and what reads it: its keys of R0, a query over it, and a login of it. */
-const authorSource = `export const Author = role(E, "author", wholeEntriesOf(E), { write: writableNamesOf(E) })
+const authorSource = `export const Author = role(E, "author", wholeEntriesOf(E), wholeWritesOf(E))
 used(Author)
 declare const authorKeys: KeysOf<typeof Author, typeof R0>
 used(authorKeys)

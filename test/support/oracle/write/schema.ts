@@ -21,7 +21,7 @@ import {
 	schema,
 	select,
 	wholeEntriesOf,
-	writableNamesOf
+	wholeWritesOf
 } from "#compiler/public/schema.ts"
 import { relationBuilder } from "#compiler/schema/relation.ts"
 import type { ObjectName } from "#compiler/sql/ast.ts"
@@ -598,7 +598,7 @@ export type WSchemaValue = ReturnType<typeof schemaOf>
  * The world a generated schema is written in: the full role `writer`, writing every relation, in its login `server`.
  */
 const worldOf = (value: WSchemaValue) => {
-	const writer = role(value, "writer", wholeEntriesOf(value), { write: writableNamesOf(value) })
+	const writer = role(value, "writer", wholeEntriesOf(value), wholeWritesOf(value))
 	return { writer, server: login(value, "server", [writer]) }
 }
 export type WWorld = ReturnType<typeof worldOf>

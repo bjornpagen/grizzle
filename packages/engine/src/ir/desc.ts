@@ -1955,8 +1955,8 @@ export type UnadmittedSchemaDesc = Located & {
  * Worlds. A role is relations defined over its base, a schema: each entry is a whole relation of the base under its
  * own name; a world relation, a query over the base installed as a view; or a scoped relation, a relation of the base
  * under its own name held by its owner's rows, its query the row predicate scopedEntriesOf built (schema/scope.ts),
- * which ownership parses as a scope. `write` names role relations. A login is one credential and one pool
- * for roles over one base.
+ * which ownership parses as a scope. `insert` and `write` name the role relations it writes, each under its mode
+ * (WriteMode). A login is one credential and one pool for roles over one base.
  */
 export type RoleEntryDesc<L = Located> =
 	| (L & { readonly kind: "whole"; readonly name: string })
@@ -1964,13 +1964,20 @@ export type RoleEntryDesc<L = Located> =
 	| (L & { readonly kind: "scoped"; readonly name: string; readonly query: QueryDesc<L> })
 
 /**
- * How a role writes the role relations it names: by every operation its programs make (`write`), or by inserting alone
- * (`insert`), a role that holds no DELETE or UPDATE on any of them (physical/ddl/roles.ts grantedPrivileges). A role
- * states one of the two.
+ * How a role writes one role relation it names, each relation's own: `insert`, adding facts alone, on whose table it
+ * holds INSERT and SELECT, never DELETE or UPDATE; or `write`, changing an open relation, one declared mutable inside a
+ * unit, on whose table it holds DELETE as well, and UPDATE where it may update a field (physical/ddl/roles.ts
+ * entryPrivileges). A closed relation, whose facts are never changed or deleted, is written by `insert` alone
+ * (core/causes.ts RoleRule writeClosed).
  */
-export type RoleWriting =
-	| { readonly write: ReadonlyArray<string> }
-	| { readonly insert: NonEmptyReadonlyArray<string> }
+export const writeModes = ["insert", "write"] as const
+export type WriteMode = (typeof writeModes)[number]
+
+/**
+ * The role relations a role writes, under the mode of each (WriteMode): the insert list and the write list, each
+ * relation once between them (core/causes.ts RoleRule writeTwice), a list empty where it names none.
+ */
+export type RoleWriting = { readonly [M in WriteMode]: ReadonlyArray<string> }
 
 export type RoleDesc<L = Located> = L & {
 	readonly name: string
@@ -1983,11 +1990,15 @@ export type RoleDesc<L = Located> = L & {
 	readonly contexts: ReadonlyArray<ContextDesc>
 } & RoleWriting
 
-/** The role relations a role writes, by whichever of `write` and `insert` it states. */
-/** The key a role states its written relations under. */
-export type RoleWritingKey = "write" | "insert"
-export const writtenNames = (writing: RoleWriting): ReadonlyArray<string> =>
-	"insert" in writing ? writing.insert : writing.write
+/** A role relation a role writes, with its mode. */
+export interface WrittenName {
+	readonly name: string
+	readonly mode: WriteMode
+}
+
+/** Each role relation a role writes with its mode: the insert list's, then the write list's, each in its order. */
+export const writtenNames = (writing: RoleWriting): ReadonlyArray<WrittenName> =>
+	writeModes.flatMap((mode) => writing[mode].map((name) => ({ name, mode })))
 
 export type LoginDesc<L = Located> = L & {
 	readonly name: string
@@ -3999,32 +4010,21 @@ const roleRelations = S.nonEmptyUniqueArray(
 	(e) => e.name,
 	"role relation names"
 )
+const roleInsert = S.uniqueStrings("inserted relations", name)
 const roleWrite = S.uniqueStrings("written relations", name)
-const roleInsert = S.nonEmptyUniqueStrings("inserted relations")
 const roleContexts = S.uniqueArray(contextDescShape, (c) => c.name, "declared contexts")
 
 const roleDescShape: S.Shape<RoleDesc> = S.located(
-	S.unionShape(
-		S.structWith(
-			{
-				name,
-				base: schemaDescShape,
-				relations: roleRelations,
-				write: roleWrite,
-				contexts: roleContexts
-			},
-			loc
-		),
-		S.structWith(
-			{
-				name,
-				base: schemaDescShape,
-				relations: roleRelations,
-				insert: roleInsert,
-				contexts: roleContexts
-			},
-			loc
-		)
+	S.structWith(
+		{
+			name,
+			base: schemaDescShape,
+			relations: roleRelations,
+			insert: roleInsert,
+			write: roleWrite,
+			contexts: roleContexts
+		},
+		loc
 	)
 )
 
@@ -4064,25 +4064,15 @@ const roleContextNames = S.uniqueArray(S.struct({ name }), (c) => c.name, "decla
  * location; a query entry's query and a context's Description are no part of it, each decoded where it was taken.
  */
 const roleWrittenShape = S.located(
-	S.unionShape(
-		S.structWith(
-			{
-				name,
-				relations: S.nonEmptyUniqueArray(roleEntryPartShape, (e) => e.name, "role relation names"),
-				write: roleWrite,
-				contexts: roleContextNames
-			},
-			loc
-		),
-		S.structWith(
-			{
-				name,
-				relations: S.nonEmptyUniqueArray(roleEntryPartShape, (e) => e.name, "role relation names"),
-				insert: roleInsert,
-				contexts: roleContextNames
-			},
-			loc
-		)
+	S.structWith(
+		{
+			name,
+			relations: S.nonEmptyUniqueArray(roleEntryPartShape, (e) => e.name, "role relation names"),
+			insert: roleInsert,
+			write: roleWrite,
+			contexts: roleContextNames
+		},
+		loc
 	)
 )
 
@@ -4379,9 +4369,8 @@ const roleDescOver = (base: SchemaDesc, role: RoleParts): RoleDesc =>
 		name: role.name,
 		base,
 		relations: Object.freeze(role.relations),
-		...("insert" in role
-			? { insert: Object.freeze(role.insert) }
-			: { write: Object.freeze(role.write) }),
+		insert: Object.freeze(role.insert),
+		write: Object.freeze(role.write),
 		contexts: Object.freeze(role.contexts),
 		loc: role.loc
 	})
@@ -4410,7 +4399,8 @@ export const decodeRoleOver = (
 			return roleDescOver(base, {
 				name: written.name,
 				relations: deepFreeze([defined(first, "an entry of a role its decode admitted"), ...rest]),
-				...("insert" in written ? { insert: written.insert } : { write: written.write }),
+				insert: written.insert,
+				write: written.write,
 				contexts: deepFreeze([...role.contexts]),
 				loc: written.loc
 			})

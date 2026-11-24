@@ -23,7 +23,7 @@ import {
 	type Statement,
 	schema,
 	wholeEntriesOf,
-	writableNamesOf
+	wholeWritesOf
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { arm } from "#compiler/query/build/attach.ts"
@@ -209,7 +209,7 @@ export type SchemaValue = ReturnType<typeof schemaOf>
  * its login `server`.
  */
 const worldOf = (value: SchemaValue) => {
-	const app = role(value, "app", wholeEntriesOf(value), { write: writableNamesOf(value) })
+	const app = role(value, "app", wholeEntriesOf(value), wholeWritesOf(value))
 	return { app, server: login(value, "server", [app]) }
 }
 export type WorldValue = ReturnType<typeof worldOf>

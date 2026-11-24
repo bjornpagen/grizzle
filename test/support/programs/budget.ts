@@ -76,7 +76,7 @@ export {
 	tree,
 	unit,
 	wholeEntriesOf,
-	writableNamesOf
+	wholeWritesOf
 } from "#compiler/public/schema.ts"
 export type { AnyLogin, Fact, KeysOf } from "#compiler/public/schema.ts"
 export { str } from "#compiler/public/text.ts"

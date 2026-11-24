@@ -19,7 +19,8 @@ import {
 	type AnyRoster,
 	type AnySchema,
 	login,
-	role
+	role,
+	wholeWritesOf
 } from "#compiler/public/schema.ts"
 import type { IdentifiedLaw } from "#compiler/types/changeset/changeset.ts"
 import { type ChangeSetValue, changeSetOver } from "#compiler/write/changeset/value.ts"
@@ -62,7 +63,7 @@ import { Substrate, type SubstrateTemplate } from "#test/support/substrate/subst
 /**
  * The writers of a family schema: `app`, the grizzle writer, in the login `server`, and `direct`, the role its direct SQL
  * writers take on, in the login `psql`, each holding every relation of the schema whole and writing every ordinary
- * one. A second grizzle writer is `app` opened again through a served layer of its own (openWriter), so its session is
+ * one as the schema declares it, inserting into each closed one and changing each open one (wholeWritesOf). A second grizzle writer is `app` opened again through a served layer of its own (openWriter), so its session is
  * its own backend. The direct writers log in apart from the grizzle writers, so the backends of a login are the grizzle
  * writers' alone (pg_stat_activity names the login, never the role a session took on), which the histories and the
  * schedules resolve a writer's backend by.
@@ -74,9 +75,8 @@ export const familyWriters = (base: AnySchema) => {
 			r.kind === "closedRelation" ? [] : [[name, r] as const]
 		)
 	)
-	const write = Arr.filter(Rec.keys(relations), (name) => relations[name]?.kind === "relation")
-	const app = role(base, "app", relations, { write })
-	const direct = role(base, "direct", relations, { write })
+	const app = role(base, "app", relations, wholeWritesOf(base))
+	const direct = role(base, "direct", relations, wholeWritesOf(base))
 	return { app, direct, server: login(base, "server", [app]), psql: login(base, "psql", [direct]) }
 }
 

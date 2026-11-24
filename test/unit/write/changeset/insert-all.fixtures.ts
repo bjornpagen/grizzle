@@ -46,7 +46,8 @@ const Insall = role(
 	"insall",
 	{ ...Work.relations, Manual },
 	{
-		write: ["Manual", "Budget", "Ticket", "Order", "Line", "Pool", "Item", "Bin", "Chip", "Node"]
+		insert: ["Order", "Line", "Pool", "Item"],
+		write: ["Manual", "Budget", "Ticket", "Bin", "Chip", "Node"]
 	}
 )
 

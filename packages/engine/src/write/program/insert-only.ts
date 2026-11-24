@@ -2,12 +2,14 @@ import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { CheckedSchema } from "#compiler/analysis/schema.ts"
 import { CompileError, type RoleAccess } from "#compiler/core/errors.ts"
-import type { PhysicalNames } from "#compiler/ir/physical.ts"
+import { headsOf } from "#compiler/ir/instant.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
-import type { CteBody, MergeWhen, SqlStatement, TableName } from "#compiler/sql/ast.ts"
+import type { CteBody, MergeWhen, ObjectName, SqlStatement, TableName } from "#compiler/sql/ast.ts"
+import type { WriteWorld } from "#compiler/write/entry/precheck.ts"
+import type { WriteNames } from "#compiler/write/insert/statement.ts"
 import type { ArtifactStatement } from "#compiler/write/program/artifact.ts"
 
-/** An UPDATE or a DELETE of a stored relation, which a role that writes by its insert list holds no privilege for. */
+/** An UPDATE or a DELETE of a stored relation its role holds no privilege for, where it only inserts. */
 type BeyondInsert = Extract<RoleAccess, { readonly kind: "insert" }>
 
 /** A table one data-modifying statement updates or deletes from, and which. */
@@ -62,44 +64,57 @@ const modifiedBy = (body: CteBody): ReadonlyArray<Modified> => {
 }
 
 /**
- * A write program of a role that writes by its insert list, refused where a statement of its artifact updates or
- * deletes: the role holds INSERT and SELECT alone on what it writes (physical/ddl/roles.ts grantedPrivileges), so
+ * A write program of a role, refused where a statement of its artifact updates or deletes from a table its role holds
+ * no UPDATE or DELETE on (write/entry/precheck.ts WriteWorld `privileges`, physical/ddl/roles.ts grantedPrivileges):
+ * a relation under its insert list, or the owner of a family whose open member is, whose recount the program makes, so
  * PostgreSQL would refuse that statement with 42501 when it runs. Compilation refuses it first, an OutsideRole at the
  * role naming the relation and the operation. Every statement counts, a member's and grizzle's own alike: the artifact
  * places a family's edits, recounts and refills among them (compile.ts familyProgram). Its first UPDATE, DELETE, INSERT
- * ON CONFLICT DO UPDATE or MERGE WHEN that updates or deletes, of a stored table, is refused, named by the relation of
- * `laws` the table is; a carrier is the program's own temporary table, no relation's. A program of reality or of a role that writes by its
- * write list passes.
+ * ON CONFLICT DO UPDATE or MERGE WHEN that updates or deletes, of a stored table its role does not hold the privilege
+ * on, is refused, named by the relation of `laws` the table is or whose clock's or place's head it is, judged by that
+ * relation's privilege (a place's release deletes its head's rows of the groups a delete of the relation removes,
+ * write/insert/stamp.ts placeReleases); a carrier is the program's own temporary table, no relation's. A program of
+ * reality passes.
  */
 export const insertOnly = (
 	schema: CheckedSchema,
+	world: WriteWorld,
 	statements: ReadonlyArray<ArtifactStatement>,
-	names: PhysicalNames,
+	names: WriteNames,
 	laws: LawModel
 ): Result.Result<undefined, CompileError> => {
-	const world = schema.world
-	if (world.kind !== "role" || world.role.writing === "write") {
+	const checked = schema.world
+	if (checked.kind === "reality" || world.kind === "reality") {
 		return Result.ok(undefined)
 	}
 	const tables = new Map<string, Map<string, string>>()
+	const owned = (table: ObjectName, relation: string): void => {
+		tables
+			.getOrInsertComputed(table.schema, () => new Map<string, string>())
+			.set(table.name, relation)
+	}
 	for (const relation of laws.relations.keys()) {
-		const table = names.relation(relation)
-		const inSchema = tables.getOrInsertComputed(table.schema, () => new Map<string, string>())
-		inSchema.set(table.name, relation)
+		owned(names.relation(relation), relation)
+	}
+	for (const head of headsOf(laws.theory.instants)) {
+		owned(names.head(head.relation, head.field.name), head.relation)
 	}
 	for (const statement of statements) {
 		for (const modified of bodiesOf(statement.ast).flatMap(modifiedBy)) {
 			const table = modified.table
-			if (typeof table !== "string") {
-				const relation = defined(
-					tables.get(table.schema)?.get(table.name),
-					`the relation of ${table.schema}.${table.name}, a stored table a write program modifies`
-				)
+			if (typeof table === "string") {
+				continue
+			}
+			const relation = defined(
+				tables.get(table.schema)?.get(table.name),
+				`the relation of ${table.schema}.${table.name}, a stored table a write program modifies`
+			)
+			if (world.privileges.get(relation)?.has(modified.operation) !== true) {
 				return Result.err(
 					CompileError.make({
 						_tag: "OutsideRole",
-						at: world.role.loc,
-						role: world.role.name,
+						at: checked.role.loc,
+						role: checked.role.name,
 						access: { kind: "insert", relation, operation: modified.operation }
 					})
 				)

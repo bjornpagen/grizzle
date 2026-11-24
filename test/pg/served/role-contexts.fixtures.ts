@@ -12,7 +12,7 @@ import {
 	role,
 	schema,
 	wholeEntriesOf,
-	writableNamesOf
+	wholeWritesOf
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { workload } from "#compiler/public/workload.ts"
@@ -84,7 +84,7 @@ export const sittingsAt = (name: string) => {
 		})
 	)
 	const student = role(base, "student", wholeEntriesOf(base), {
-		write: writableNamesOf(base),
+		...wholeWritesOf(base),
 		contexts: [Session, Acting]
 	})
 	return {

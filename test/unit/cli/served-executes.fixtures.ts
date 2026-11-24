@@ -78,7 +78,10 @@ const Base = schema("served_executes", [Kind, R, Tag], [unit("Rs", { k: pg.integ
 
 /** A role of the box: every relation whole, R and Tag written where it writes. */
 const roleOf = (name: string, writes: boolean) =>
-	role(Base, name, wholeEntriesOf(Base), { write: writes ? ["R", "Tag"] : [] })
+	role(Base, name, wholeEntriesOf(Base), {
+		insert: writes ? ["Tag"] : [],
+		write: writes ? ["R"] : []
+	})
 
 type BoxRole = ReturnType<typeof roleOf>
 

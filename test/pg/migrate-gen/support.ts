@@ -697,11 +697,17 @@ const worldsOf = (
 	]
 	const whole = (names: ReadonlyArray<string>) =>
 		Arr.map(names, (name): RoleEntryDesc => ({ kind: "whole", name, loc }))
+	/** The open relations, each a mutable statement's, which the writer writes by its write list; it inserts into every
+	 * other one by its insert list. */
+	const open = new Set(
+		Arr.flatMap(desc.statements, (st) => (st.kind === "mutable" ? [st.relation] : []))
+	)
 	const login = Result.flatMap(
 		decodeRoleOver(desc, {
 			name: "writer",
 			relations: whole(stored),
-			write: stored,
+			insert: Arr.filter(stored, (r) => !open.has(r)),
+			write: Arr.filter(stored, (r) => open.has(r)),
 			contexts: [],
 			loc
 		}),
@@ -711,6 +717,7 @@ const worldsOf = (
 						decodeRoleOver(desc, {
 							name: "reader",
 							relations: whole(read),
+							insert: [],
 							write: [],
 							contexts: [],
 							loc

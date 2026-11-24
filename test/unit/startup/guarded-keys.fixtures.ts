@@ -61,7 +61,7 @@ const loginOf = (k: number) => {
 		)
 	)
 	const base = schema("Guarded", [T, U], keys)
-	const writer = role(base, "writer", { T, U }, { write: ["T", "U"] })
+	const writer = role(base, "writer", { T, U }, { insert: ["T", "U"] })
 	const load = ChangeSet.empty(writer).insert(writer.relations.U, []).insert(writer.relations.T, [])
 	return {
 		base,

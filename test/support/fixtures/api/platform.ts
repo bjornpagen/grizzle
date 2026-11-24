@@ -34,7 +34,7 @@ import {
 	select,
 	unit,
 	wholeEntriesOf,
-	writableNamesOf
+	wholeWritesOf
 } from "#compiler/public/schema.ts"
 import { paged, workload } from "#compiler/public/workload.ts"
 import { Id, type IdValue } from "#test/support/ids.ts"
@@ -642,7 +642,7 @@ export const platformAt = (name: string) => {
 	const base = platformOf(name)
 	const extended = schema.extend([base], billingOf(name), [DailySpend], [])
 	const billing = role(extended, "billing", wholeEntriesOf(extended), {
-		write: writableNamesOf(extended)
+		...wholeWritesOf(extended)
 	})
 	return {
 		Platform: base,

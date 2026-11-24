@@ -34,6 +34,8 @@ import { carrierOf, isWide } from "#test/support/worlds/execute/host.ts"
 import { attempt, type RealizeRefused } from "#test/support/worlds/execute/refused.ts"
 import { contextsRead } from "#test/support/worlds/generate/entries.ts"
 import { fieldDomain } from "#test/support/worlds/model/host.ts"
+import { relationSpecOf } from "#test/support/worlds/model/session/state.ts"
+import { writtenNamed } from "#test/support/worlds/model/session/writes.ts"
 import type {
 	BaseSpec,
 	ContextSpec,
@@ -56,7 +58,13 @@ export type BuiltRelation = Relation<
 export type BuiltClosed = Roster<string, readonly [string, ...Array<string>], "ordered">
 /** A role built from a spec: its entries and lists are known only at run time, and its type reads no context. */
 export type BuiltRole = ReturnType<
-	typeof role<AnySchema, string, Readonly<Record<string, EntryValue>>, ReadonlyArray<string>>
+	typeof role<
+		AnySchema,
+		string,
+		Readonly<Record<string, EntryValue>>,
+		ReadonlyArray<string>,
+		ReadonlyArray<string>
+	>
 >
 
 export type BuiltLogin = ReturnType<
@@ -522,8 +530,18 @@ const roleOf = (spec: InstallSpec, made: BuiltBase, r: RoleSpec) =>
 			}
 			contexts.push(built)
 		}
+		/** Whether the role's entry writes an open relation, which its write list names; it inserts into every other
+		 * relation it writes by its insert list, as the model's grants hold it (session/catalog.ts holdsTable). */
+		const open = (entry: string): boolean => {
+			const w = writtenNamed(spec.base, r, entry)
+			return w !== undefined && relationSpecOf(spec.base, w.target)?.mutability === "mutable"
+		}
 		const value: BuiltRole = yield* attempt(`role ${r.name}`, () =>
-			role(made.base, r.name, entries, { write: r.write, contexts })
+			role(made.base, r.name, entries, {
+				insert: Arr.filter(r.write, (e) => !open(e)),
+				write: Arr.filter(r.write, open),
+				contexts
+			})
 		)
 		return value
 	})

@@ -142,9 +142,9 @@ const built = (
 					: role(base, "reader", { A, B, C })
 		const writer =
 			v.writes === "A"
-				? role(base, "writer", { A, Listing: listing }, { write: ["A"] })
+				? role(base, "writer", { A, Listing: listing }, { insert: ["A"] })
 				: v.writes === "all"
-					? role(base, "writer", { A, B, C, Listing: listing }, { write: ["A", "B", "C"] })
+					? role(base, "writer", { A, B, C, Listing: listing }, { insert: ["A", "B", "C"] })
 					: role(base, "writer", { A, B, Listing: listing })
 		const desk = owned(login(base, "desk", [reader, writer]))
 		return {
@@ -167,9 +167,9 @@ const built = (
 	const reader = v.reads === "A" ? role(base, "reader", { A }) : role(base, "reader", { A, B })
 	const writer =
 		v.writes === "A"
-			? role(base, "writer", { A, Listing: listing }, { write: ["A"] })
+			? role(base, "writer", { A, Listing: listing }, { insert: ["A"] })
 			: v.writes === "all"
-				? role(base, "writer", { A, B, Listing: listing }, { write: ["A", "B"] })
+				? role(base, "writer", { A, B, Listing: listing }, { insert: ["A", "B"] })
 				: role(base, "writer", { A, B, Listing: listing })
 	const desk = owned(login(base, "desk", [reader, writer]))
 	return {

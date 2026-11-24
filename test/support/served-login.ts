@@ -408,7 +408,7 @@ const roleOf = (drawn: DrawnSchema, shape: RoleShape, place: number) => {
 	const made =
 		written.length === 0
 			? role(value, roleName(place), entries, { contexts })
-			: role(value, roleName(place), entries, { write: written, contexts })
+			: role(value, roleName(place), entries, { insert: written, contexts })
 	const changes = Arr.map(shape.changes, (change, i) => {
 		const target =
 			change.target.kind === "whole"

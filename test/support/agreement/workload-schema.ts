@@ -11,7 +11,7 @@ import {
 	role,
 	schema,
 	wholeEntriesOf,
-	writableNamesOf
+	wholeWritesOf
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { Id } from "#test/support/ids.ts"
@@ -45,7 +45,7 @@ export const Thing = relation("Thing", { id: Id }, ["id"])
 export const Other = schema("Other", [Thing], [])
 const Twin = schema("Work", [Account], [])
 
-export const Writer = role(Work, "writer", wholeEntriesOf(Work), { write: writableNamesOf(Work) })
+export const Writer = role(Work, "writer", wholeEntriesOf(Work), wholeWritesOf(Work))
 export const Reader = role(Work, "reader", wholeEntriesOf(Work))
 export const Clerk = role(Work, "clerk", { Account })
 

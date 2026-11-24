@@ -121,12 +121,13 @@ export type QueueNamed<N extends string> = Schema<
  */
 export const queueWorlds = (installed: QueueNamed<string>) => {
 	const worker = role(installed, "worker", wholeEntriesOf(installed), {
-		write: ["Work", "Wanted", "Leased", "Done", "Denied"]
+		insert: ["Done", "Denied"],
+		write: ["Work", "Wanted", "Leased"]
 	})
 	const enqueuer = role(installed, "enqueuer", wholeEntriesOf(installed), {
 		write: ["Work", "Wanted"]
 	})
-	const operator = role(installed, "operator", wholeEntriesOf(installed), { write: ["Seat"] })
+	const operator = role(installed, "operator", wholeEntriesOf(installed), { insert: ["Seat"] })
 	const m = installedQueueQueries(installed)
 	return {
 		worker,

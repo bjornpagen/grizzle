@@ -16,7 +16,7 @@ import { Array as Arr, Option, Record as Rec, Result } from "effect"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import type { TablePrivilege } from "#compiler/core/privilege.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
-import type { RoleDesc } from "#compiler/ir/desc.ts"
+import type { WriteMode } from "#compiler/ir/desc.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import { namedIdent } from "#compiler/physical/obligations/graph.ts"
@@ -39,7 +39,7 @@ import {
 import { str } from "#compiler/public/text.ts"
 import { installationsOf, ownLogin, rostersOf } from "#compiler/schema/own.ts"
 import { loginDescOf, roleBuilder as role } from "#compiler/schema/world.ts"
-import type { SqlStatement } from "#compiler/sql/ast.ts"
+import type { CteBody, SqlStatement, TableName } from "#compiler/sql/ast.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
 import type { EntryValue } from "#compiler/types/schema/world.ts"
 import { changeSetOver, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
@@ -85,11 +85,14 @@ type Member = "Item" | "Slot"
 
 type Written = Owner | Member | "Ticket"
 
-type Mutability = { readonly [O in Owner]: boolean }
+/** The relations a world declares open or closed: the owners and the counted member. */
+type Drawn = Owner | "Item"
+
+export type Mutability = { readonly [D in Drawn]: boolean }
 
 /** The world's schema: Items counted under Stores, summed into their stock and copying their region, Slots ordered
- * under Shelves, each owner mutable, inside the unit of its id, when `mutability` says so, and Ticket mutable inside the
- * unit of its number, the open relation outside every family a program puts and deletes. */
+ * under Shelves, each owner and Item mutable, inside the unit of its id, when `mutability` says so, and Ticket mutable
+ * inside the unit of its number, the open relation outside every family a program puts and deletes; Slot is closed. */
 export const schemaOf = (mutability: Mutability) =>
 	schema("Shops", Rec.values(relations), [
 		items,
@@ -100,6 +103,7 @@ export const schemaOf = (mutability: Mutability) =>
 		unit("Tickets", { no: pg.bigint }),
 		mutable(Ticket),
 		...(mutability.Store ? [mutable(Store)] : []),
+		...(mutability.Item ? [mutable(Item)] : []),
 		...(mutability.Shelf ? [mutable(Shelf)] : [])
 	])
 
@@ -115,15 +119,11 @@ export const written: Arr.NonEmptyReadonlyArray<Written> = [
 
 export const memberOf: { readonly [O in Owner]: Member } = { Store: "Item", Shelf: "Slot" }
 
-const ownerOf: { readonly [M in Member]: Owner } = { Item: "Store", Slot: "Shelf" }
-
 export const isOwner = (t: Written): t is Owner => t === "Store" || t === "Shelf"
 
-const isMember = (t: Written): t is Member => t === "Item" || t === "Slot"
-
-/** Whether `t` is mutable in a world of `mutability`: an owner as it says, Ticket always, a member never. */
+/** Whether `t` is mutable in a world of `mutability`: an owner and Item as it says, Ticket always, Slot never. */
 export const mutableIn = (mutability: Mutability, t: Written): boolean =>
-	isOwner(t) ? mutability[t] : t === "Ticket"
+	t === "Ticket" ? true : t === "Slot" ? false : mutability[t]
 
 /** How a role writes each relation: not at all, whole, or through a query entry holding every row. A Slot's key holds
  * its drawn index, which no fact through a query entry states, so Slot is written whole or not at all. */
@@ -139,17 +139,17 @@ type WriteOf<T extends Written> = (typeof writesOf)[T][number]
 
 type Writes = { readonly [T in Written]: WriteOf<T> }
 
-/** The key a role states its list under: `write`, `insert`, or both, which a JavaScript caller may pass. */
-type Stated = "write" | "insert" | "both"
+/** The list each relation is named under where a role writes it (ir/desc.ts WriteMode). */
+type Modes = { readonly [T in Written]: WriteMode }
 
 export const roleNames = ["clerk", "keeper"] as const
 
 export type RoleName = (typeof roleNames)[number]
 
-/** One role of a case: how it writes each relation, and the key it states. */
-interface RoleCase {
+/** One role of a case: how it writes each relation, and under which list. */
+export interface RoleCase {
 	readonly writes: Writes
-	readonly stated: Stated
+	readonly modes: Modes
 }
 
 type Op = "insert" | "delete" | "put"
@@ -175,15 +175,22 @@ const writesGen: Gen<Writes> = (source) => ({
 	Ticket: source.draw(element(writesOf.Ticket))
 })
 
-const statedGen: Gen<Stated> = weighted<Stated>([
-	[4, constant<Stated>("write")],
-	[5, constant<Stated>("insert")],
-	[1, constant<Stated>("both")]
+const modeGen: Gen<WriteMode> = weighted<WriteMode>([
+	[2, constant<WriteMode>("insert")],
+	[1, constant<WriteMode>("write")]
 ])
 
-const roleCaseGen: Gen<RoleCase> = (source) => ({
+const modesGen: Gen<Modes> = (source) => ({
+	Store: source.draw(modeGen),
+	Item: source.draw(modeGen),
+	Shelf: source.draw(modeGen),
+	Slot: source.draw(modeGen),
+	Ticket: source.draw(modeGen)
+})
+
+export const roleCaseGen: Gen<RoleCase> = (source) => ({
 	writes: source.draw(writesGen),
-	stated: source.draw(statedGen)
+	modes: source.draw(modesGen)
 })
 
 const memberGen: Gen<MemberCase> = (source) => ({
@@ -197,9 +204,16 @@ const memberGen: Gen<MemberCase> = (source) => ({
 	relation: source.draw(element(written))
 })
 
+/** Whether each owner and Item is open. */
+export const mutabilityGen: Gen<Mutability> = (source) => ({
+	Store: source.draw(boolean),
+	Item: source.draw(boolean),
+	Shelf: source.draw(boolean)
+})
+
 const worldGen: Gen<InsertWorld> = (source) => ({
 	roles: { clerk: source.draw(roleCaseGen), keeper: source.draw(roleCaseGen) },
-	mutability: { Store: source.draw(boolean), Shelf: source.draw(boolean) },
+	mutability: source.draw(mutabilityGen),
 	program: {
 		role: source.draw(element(roleNames)),
 		members: source.draw(array(memberGen, { min: 1, max: 3 }))
@@ -212,37 +226,48 @@ const declaring = (w: InsertWorld, role: RoleName, rc: RoleCase): InsertWorld =>
 	roles: role === "clerk" ? { ...w.roles, clerk: rc } : { ...w.roles, keeper: rc }
 })
 
-/** A drawn world one of whose roles states an insert list naming nothing, which the declaration refuses. */
-const emptyInsertGen: Gen<InsertWorld> = (source) =>
-	declaring(source.draw(worldGen), source.draw(element(roleNames)), {
-		writes: { Store: "none", Item: "none", Shelf: "none", Slot: "none", Ticket: "none" },
-		stated: "insert"
-	})
-
 /**
- * A drawn world whose program's role states insert and writes a member of a mutable owner's family whole, and whose
- * program inserts that member first: an insertion that recounts its owner, beyond insert.
+ * A drawn world whose program's role inserts into the open Item by its insert list, writing it whole beside a mutable
+ * Store, and whose program inserts an Item first: an insertion that recounts its owner, which the role, adding Items
+ * alone, holds no UPDATE on.
  */
 const recountGen: Gen<InsertWorld> = (source) => {
 	const w = source.draw(worldGen)
 	const role = w.program.role
-	const writes = w.roles[role].writes
-	const store = source.draw(boolean)
-	const member: Member = store ? "Item" : "Slot"
+	const { writes, modes } = w.roles[role]
 	return {
 		...declaring(w, role, {
-			writes: store ? { ...writes, Item: "whole" } : { ...writes, Slot: "whole" },
-			stated: "insert"
+			writes: { ...writes, Item: "whole", Store: "none" },
+			modes: { ...modes, Item: "insert" }
 		}),
-		mutability: store ? { ...w.mutability, Store: true } : { ...w.mutability, Shelf: true },
-		program: { role, members: [{ op: "insert", relation: member }, ...w.program.members] }
+		mutability: { ...w.mutability, Store: true, Item: true },
+		program: { role, members: [{ op: "insert", relation: "Item" }, ...w.program.members] }
 	}
 }
 
-/** The worlds, aimed at an empty insert list and at a recount, which a drawn world meets rarely. */
+/**
+ * A drawn world whose program's role writes the open Item whole by its write list, beside a mutable Store, and whose
+ * program inserts an Item first: an insertion that recounts its owner, which the role holds UPDATE on, as the writer of
+ * the family's member by its write list.
+ */
+const grantedRecountGen: Gen<InsertWorld> = (source) => {
+	const w = source.draw(worldGen)
+	const role = w.program.role
+	const { writes, modes } = w.roles[role]
+	return {
+		...declaring(w, role, {
+			writes: { ...writes, Item: "whole", Store: "none" },
+			modes: { ...modes, Item: "write" }
+		}),
+		mutability: { ...w.mutability, Store: true, Item: true },
+		program: { role, members: [{ op: "insert", relation: "Item" }, ...w.program.members] }
+	}
+}
+
+/** The worlds, aimed at a recount refused and one granted, which a drawn world meets rarely. */
 export const worldSpace: Aimed<InsertWorld, InsertFeature> = aimed(worldGen, [
-	["an empty insert list refused", emptyInsertGen],
-	["a recount refused", recountGen]
+	["a recount refused", recountGen],
+	["an owner's recount granted", grantedRecountGen]
 ])
 
 /** The query entry holding every row of `t`, by its name in the role. */
@@ -310,21 +335,10 @@ export const entriesOf = (
 	return { entries, names }
 }
 
-/** The options a role states, as a JavaScript caller passes them: its list under `write`, `insert` or both. */
+/** The options a role states, as a JavaScript caller passes them: its insert and write lists. */
 interface StatedOptions {
-	readonly write?: ReadonlyArray<string>
-	readonly insert?: ReadonlyArray<string>
-}
-
-const optionsOf = (stated: Stated, list: ReadonlyArray<string>): StatedOptions => {
-	switch (stated) {
-		case "write":
-			return { write: list }
-		case "insert":
-			return { insert: list }
-		case "both":
-			return { write: list, insert: list }
-	}
+	readonly insert: ReadonlyArray<string>
+	readonly write: ReadonlyArray<string>
 }
 
 /** role(...) as a JavaScript caller sees it, its options any record of lists. */
@@ -342,41 +356,47 @@ interface RoleTaking {
 
 const roleTaking: RoleTaking = { role }
 
-/** The role `name` writing as `w`, stating its list under `stated`. */
-export const roleOf = (s: Shops, name: RoleName, w: Writes, stated: Stated): BuiltRole => {
-	const { entries, names } = entriesOf(s, w)
-	return roleTaking.role(
-		s,
-		name,
-		entries,
-		optionsOf(
-			stated,
-			Arr.map(names, ([, entry]) => entry)
-		)
-	)
+/** The role `name` writing as `rc` says, each written relation's entry under its mode's list. */
+export const roleOf = (s: Shops, name: RoleName, rc: RoleCase): BuiltRole => {
+	const { entries, names } = entriesOf(s, rc.writes)
+	const under = (mode: WriteMode): ReadonlyArray<string> =>
+		Arr.flatMap(names, ([t, entry]) => (rc.modes[t] === mode ? [entry] : []))
+	return roleTaking.role(s, name, entries, { insert: under("insert"), write: under("write") })
 }
 
-/** The refusal the declaration rule expects of a role, if any: both keys stated, or an empty insert list. */
-export const declarationRefusal = (rc: RoleCase): "writeAndInsert" | "emptyInsert" | undefined => {
-	if (rc.stated === "both") {
-		return "writeAndInsert"
+/** The relation the declaration rule refuses a role for, if any: a closed relation it writes by its write list. */
+export const declarationRefusal = (rc: RoleCase, mutability: Mutability): Written | undefined =>
+	Arr.findFirst(
+		written,
+		(t) => rc.writes[t] !== "none" && rc.modes[t] === "write" && !mutableIn(mutability, t)
+	).pipe(Option.getOrUndefined)
+
+/**
+ * The control of a role: the same entries, each open relation it writes by its write list and each closed one by its
+ * insert list, the most a declaration may hold.
+ */
+export const controlOf = (rc: RoleCase, mutability: Mutability): RoleCase => ({
+	writes: rc.writes,
+	modes: {
+		Store: mutableIn(mutability, "Store") ? "write" : "insert",
+		Item: mutableIn(mutability, "Item") ? "write" : "insert",
+		Shelf: mutableIn(mutability, "Shelf") ? "write" : "insert",
+		Slot: mutableIn(mutability, "Slot") ? "write" : "insert",
+		Ticket: mutableIn(mutability, "Ticket") ? "write" : "insert"
 	}
-	const writesAny = Arr.some(written, (t) => rc.writes[t] !== "none")
-	return rc.stated === "insert" && !writesAny ? "emptyInsert" : undefined
-}
+})
 
-/** A declared role of a case: its name, how it writes, and the key it stated, `write` or `insert`. */
+/** A declared role of a case: its name and how it writes. */
 export interface InsertDeclared {
 	readonly name: RoleName
-	readonly writes: Writes
-	readonly stated: "write" | "insert"
+	readonly role: RoleCase
 }
 
 /** The installation of the declared roles, held by one login, or by none when no role is declared. */
 export const compiled = (s: Shops, declared: ReadonlyArray<InsertDeclared>) => {
 	const owned = owning(s)
 	const base: AnySchema = s
-	const roles = Arr.map(declared, (d) => roleOf(s, d.name, d.writes, d.stated))
+	const roles = Arr.map(declared, (d) => roleOf(s, d.name, d.role))
 	const logins = isNonEmpty(roles) ? [login(base, "desk", roles)] : []
 	return compileInstallation(
 		owned,
@@ -477,69 +497,117 @@ export const tablePrivileges: ReadonlyArray<TablePrivilege> = [
 export const sortedPrivileges = (xs: Iterable<TablePrivilege>): ReadonlyArray<TablePrivilege> =>
 	Arr.filter(tablePrivileges, (p) => Arr.some([...xs], (x) => x === p))
 
-/** The rule restated: the table privileges a declared role holds on `t`. */
+/**
+ * The rule restated: the table privileges a declared role holds on `t`. On a relation it writes, SELECT and INSERT, and
+ * by its write list UPDATE and DELETE; on the owner of a family whose member it writes and which it does not write
+ * whole by its write list, SELECT, and UPDATE where the owner is mutable and it writes the member in full: a closed
+ * member by its insert list, the one way it is written, an open one by its write list.
+ */
 export const rulePrivileges = (
 	d: InsertDeclared,
 	mutability: Mutability,
 	t: Written | "Open"
 ): ReadonlyArray<TablePrivilege> => {
 	const out = new Set<TablePrivilege>()
-	const byWrite = d.stated === "write"
-	if (t !== "Open" && d.writes[t] !== "none") {
+	const { writes, modes } = d.role
+	if (t !== "Open" && writes[t] !== "none") {
 		out.add("SELECT")
 		out.add("INSERT")
-		if (byWrite && mutableIn(mutability, t)) {
+		if (modes[t] === "write") {
 			out.add("UPDATE")
 			out.add("DELETE")
 		}
 	}
-	if (t !== "Open" && isOwner(t) && d.writes[memberOf[t]] !== "none" && d.writes[t] !== "whole") {
+	if (
+		t !== "Open" &&
+		isOwner(t) &&
+		writes[memberOf[t]] !== "none" &&
+		(writes[t] !== "whole" || modes[t] === "insert")
+	) {
 		out.add("SELECT")
-		if (byWrite && mutability[t]) {
+		const member = memberOf[t]
+		if (mutability[t] && (modes[member] === "write" || !mutableIn(mutability, member))) {
 			out.add("UPDATE")
 		}
 	}
 	return sortedPrivileges(out)
 }
 
-/** The relations a member writing `t` may update or delete beyond its insert: its own, its family's members and owner. */
-export const reached = (t: Written): ReadonlyArray<string> =>
-	isOwner(t) ? [t, memberOf[t]] : isMember(t) ? [t, ownerOf[t]] : [t]
+/** An UPDATE or a DELETE a statement makes of a stored table, by the table's name. */
+export interface Modification {
+	readonly table: string
+	readonly operation: "UPDATE" | "DELETE"
+}
 
-/** Whether the rule calls a member beyond insert: a deletion, a put, or an insert of a mutable owner's member. */
-export const beyondInsert = (m: MemberCase, mutability: Mutability): boolean =>
-	m.op !== "insert" || (isMember(m.relation) && mutability[ownerOf[m.relation]])
+/** What one data-modifying statement updates or deletes of a stored table: an UPDATE's and a DELETE's target, an
+ * INSERT's under ON CONFLICT DO UPDATE, and a MERGE's target by each WHEN that updates or deletes. */
+const modifiedBy = (body: CteBody): ReadonlyArray<Modification> => {
+	const stored = (table: TableName, operation: Modification["operation"]) =>
+		typeof table === "string" ? [] : [{ table: table.name, operation }]
+	switch (body.kind) {
+		case "select":
+			return []
+		case "insert":
+			return body.onConflict?.action.kind === "doUpdate" ? stored(body.table, "UPDATE") : []
+		case "update":
+			return stored(body.table, "UPDATE")
+		case "delete":
+			return stored(body.table, "DELETE")
+		case "merge":
+			return Arr.flatMap(body.whens, (w) =>
+				w.action.kind === "update"
+					? stored(body.table, "UPDATE")
+					: w.action.kind === "delete"
+						? stored(body.table, "DELETE")
+						: []
+			)
+	}
+}
+
+/** Every UPDATE and DELETE the statements make of a stored table, a WITH's CTEs among them. */
+export const modificationsOf = (
+	statements: ReadonlyArray<SqlStatement>
+): ReadonlyArray<Modification> =>
+	Arr.flatMap(statements, (st) =>
+		st.kind === "select" ||
+		st.kind === "insert" ||
+		st.kind === "update" ||
+		st.kind === "delete" ||
+		st.kind === "merge"
+			? Arr.flatMap([st, ...Arr.map(st.with?.ctes ?? [], (c) => c.query)], modifiedBy)
+			: []
+	)
 
 export type InsertFeature =
-	| "a role stating write"
-	| "a role stating insert"
-	| "both keys refused"
-	| "an empty insert list refused"
-	| "an insert role holding a family owner's columns"
-	| "an insert role over a mutable table"
-	| "an admitted insert program"
-	| "a deletion refused"
-	| "a put refused"
+	| "a role inserting alone"
+	| "a role writing an open relation"
+	| "a closed relation under write refused"
+	| "an inserting role holding a family owner's columns"
+	| "an open relation inserted into alone"
+	| "an owner's recount granted"
+	| "an admitted program"
+	| "an UPDATE refused"
+	| "a DELETE refused"
 	| "a recount refused"
-	| "an insert program the control refuses"
+	| "a program the control refuses"
 	| "a table without a guard"
 	| "a table no role writes keeps its guard"
-	| "a guarded table an insert role writes"
+	| "a guarded table an inserting role writes"
 
 export const features: Arr.NonEmptyReadonlyArray<InsertFeature> = [
-	"a role stating write",
-	"a role stating insert",
-	"both keys refused",
-	"an empty insert list refused",
-	"an insert role holding a family owner's columns",
-	"an insert role over a mutable table",
-	"an admitted insert program",
-	"a deletion refused",
-	"a put refused",
+	"a role inserting alone",
+	"a role writing an open relation",
+	"a closed relation under write refused",
+	"an inserting role holding a family owner's columns",
+	"an open relation inserted into alone",
+	"an owner's recount granted",
+	"an admitted program",
+	"an UPDATE refused",
+	"a DELETE refused",
 	"a recount refused",
-	"an insert program the control refuses",
+	"a program the control refuses",
 	"a table no role writes keeps its guard",
-	"a guarded table an insert role writes"
+	"a guarded table an inserting role writes"
 ]
 
 /** The objects, edges, revokes, defaults and comments of an installation, the privileges objects of `excluded` and the
@@ -554,20 +622,6 @@ export const comparable = (i: Installation, excluded: ReadonlySet<string>) => {
 		comments: i.manifest.comments
 	}
 }
-
-/** A role's Description's key and list. */
-export const keyed = (
-	desc: RoleDesc
-): { readonly key: "write" | "insert"; readonly list: ReadonlyArray<string> } =>
-	"insert" in desc ? { key: "insert", list: desc.insert } : { key: "write", list: desc.write }
-
-/** A role's Description but its key and list. */
-export const unkeyed = (desc: RoleDesc) => ({
-	name: desc.name,
-	base: desc.base,
-	relations: desc.relations,
-	loc: desc.loc
-})
 
 /** The manifest identity of a role's privileges object, which the installation holds. */
 export const privilegesIdent = (i: Installation, r: RoleName): string => {

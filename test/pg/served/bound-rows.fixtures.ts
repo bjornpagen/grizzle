@@ -232,7 +232,7 @@ export const worldOf = (name: string) => {
 			Operator: operator
 		},
 		{
-			write: [
+			insert: [
 				"TestVisit",
 				"TestSuspension",
 				"TestEnd",

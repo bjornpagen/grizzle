@@ -381,6 +381,13 @@
  * it holds SELECT and INSERT on its table and no UPDATE or DELETE (physical/ddl/roles.ts entryPrivileges), where format
  * 8 granted DELETE on every table a role wrote; open, mutable(R) inside a unit whose heading its primary key leads with,
  * its writers holding UPDATE and DELETE as before. A world's grants move for every closed table a role writes.
+ * A role names each relation it writes under the mode it writes it by, its insert list or its write list, the two
+ * together (ir/desc.ts RoleWriting, schema/own.ts OwnedWrite `mode`), a closed relation under its write list refused
+ * (core/causes.ts RoleRule writeClosed), where format 8 had a role state one
+ * list for every relation it wrote, so a writer that changed one open relation held UPDATE and DELETE on every open
+ * relation it only inserted into: its grants on each relation it only inserts into lose them, and a recount's UPDATE of
+ * a family's owner stands only where the role writes the member in full, a closed one by its insert list, an open one
+ * by its write list.
  * A session stands up the objects a write's flight reads and writes once, before its first call of the write, in one
  * transaction of its own (adapter apply/stand-up.ts): a served write holds its stand-ups (runtime/write/flight.ts
  * ServedWrite `standUps`), each carrier's CREATE TEMPORARY TABLE with its emptying, a pg_temp session function of the

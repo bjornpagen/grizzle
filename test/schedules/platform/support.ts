@@ -28,7 +28,7 @@ import type { NativeColumn } from "#compiler/ir/law.ts"
 import { rosterOf } from "#compiler/ir/scalar.ts"
 import type { CallError, WriteOutcome } from "#compiler/live/index.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { login, role, wholeEntriesOf, writableNamesOf } from "#compiler/public/schema.ts"
+import { login, role, wholeEntriesOf, wholeWritesOf } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
 import { type WriteAnswer as CallAnswer, writeAnswerOf } from "#test/support/calls.ts"
 import * as P from "#test/support/fixtures/api/platform.ts"
@@ -153,8 +153,8 @@ const racesPrograms = {
 
 export const racesAt = (name: string) => {
 	const base = P.platformAt(name).Platform
-	const app = role(base, "app", wholeEntriesOf(base), { write: writableNamesOf(base) })
-	const direct = role(base, "direct", wholeEntriesOf(base), { write: writableNamesOf(base) })
+	const app = role(base, "app", wholeEntriesOf(base), wholeWritesOf(base))
+	const direct = role(base, "direct", wholeEntriesOf(base), wholeWritesOf(base))
 	return {
 		schema: base,
 		app,

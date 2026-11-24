@@ -52,8 +52,8 @@ const imports = (name: string) => {
 		ordered(on(Entry, "package", "at"), fin(Package, "entries")),
 		key(on(Entry, "package", "path"))
 	])
-	const app = role(base, "app", relations, { write: ["Package", "Entry"] })
-	const direct = role(base, "direct", relations, { write: ["Package", "Entry"] })
+	const app = role(base, "app", relations, { insert: ["Package", "Entry"] })
+	const direct = role(base, "direct", relations, { insert: ["Package", "Entry"] })
 	return {
 		schema: base,
 		app,

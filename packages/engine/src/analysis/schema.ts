@@ -39,7 +39,8 @@ import {
 	type FieldDesc,
 	type KeySlotDesc,
 	type LiteralDesc,
-	nestedFields
+	nestedFields,
+	type WriteMode
 } from "#compiler/ir/desc.ts"
 import { type ExprTable, fieldReads, type TypedLiteral, storedColumn } from "#compiler/ir/expr.ts"
 import { instantInputText, isInstantDesc, isInstantType } from "#compiler/ir/instant.ts"
@@ -148,19 +149,21 @@ export type RoleEntry =
 export type CheckedEntry = WritableEntry<RelationInfo, LawField>
 
 /**
- * One entry of a role's write list over its base's handles (schema/own.ts OwnedWrite): "whole", the base's ordinary
- * relation; "rows", a query entry with its writable entry.
+ * One entry of a role's insert or write list over its base's handles, under its mode (schema/own.ts OwnedWrite):
+ * "whole", the base's ordinary relation; "rows", a query entry with its writable entry.
  */
 export type RoleWrite =
 	| {
 			readonly kind: "whole"
 			readonly name: string
+			readonly mode: WriteMode
 			readonly relation: RelationInfo
 			readonly loc: SourceLoc
 	  }
 	| {
 			readonly kind: "rows"
 			readonly name: string
+			readonly mode: WriteMode
 			readonly writable: CheckedEntry
 			readonly loc: SourceLoc
 	  }
@@ -169,6 +172,7 @@ export type RoleWrite =
 			 * its membership, its analysis `writable`, under its scope. */
 			readonly kind: "scoped"
 			readonly name: string
+			readonly mode: WriteMode
 			readonly relation: RelationInfo
 			readonly writable: CheckedEntry
 			readonly scope: Scope
@@ -239,15 +243,23 @@ const roleWrites = (role: OwnedRole, base: CheckedSchema): ReadonlyMap<string, R
 				return {
 					kind: "whole",
 					name: w.name,
+					mode: w.mode,
 					relation: ordinary(w.relation.name, w.loc),
 					loc: w.loc
 				}
 			case "rows":
-				return { kind: "rows", name: w.name, writable: checkedEntry(w), loc: w.loc }
+				return {
+					kind: "rows",
+					name: w.name,
+					mode: w.mode,
+					writable: checkedEntry(w),
+					loc: w.loc
+				}
 			case "scoped":
 				return {
 					kind: "scoped",
 					name: w.name,
+					mode: w.mode,
 					relation: ordinary(w.relation.name, w.loc),
 					writable: checkedEntry(w),
 					scope: w.scope,

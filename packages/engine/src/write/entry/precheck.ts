@@ -2,6 +2,7 @@ import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonemp
 import type { CheckedEntry, CheckedSchema } from "#compiler/analysis/schema.ts"
 import { unwrap } from "#compiler/core/canonical.ts"
 import type { EntryName, LawId } from "#compiler/core/ids.ts"
+import type { TablePrivilege } from "#compiler/core/privilege.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import type { EvidenceCatalog } from "#compiler/ir/evidence.ts"
 import { fieldReads, type ScalarExpr } from "#compiler/ir/expr.ts"
@@ -54,14 +55,17 @@ export interface CheckNames {
 }
 
 /** What a write compiles as: reality, whose writes check nothing, or a role, whose names name the filter functions its
- * query entries' checks call and whose grants the columns it may update (physical/ddl/roles.ts roleUpdates), which an
- * UPDATE's anchor is among (laws/model/generation.ts Updater). */
+ * query entries' checks call, whose grants the columns it may update (physical/ddl/roles.ts roleUpdates), which an
+ * UPDATE's anchor is among (laws/model/generation.ts Updater), and whose `privileges` the table privileges it holds
+ * on each relation, by the relation's name (physical/ddl/roles.ts grantedPrivileges), which every UPDATE and DELETE
+ * its program runs is held to (write/program/insert-only.ts). */
 export type WriteWorld =
 	| { readonly kind: "reality" }
 	| {
 			readonly kind: "role"
 			readonly names: CheckNames
 			readonly updates: (relation: string, column: string) => boolean
+			readonly privileges: ReadonlyMap<string, ReadonlySet<TablePrivilege>>
 	  }
 
 /** What a check reads of a requested fact for one probe, and what it refuses: the fields the probe's arguments are,

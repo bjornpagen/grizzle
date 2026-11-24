@@ -103,7 +103,7 @@ export const Top = schema.extend([Base], "LoginScaleQueries", [${Arr.join(
 			Arr.map(read, (m) => `key(on(D${m}, "id"))`),
 			", "
 		)}])
-export const Author = role(Top, "author", wholeEntriesOf(Top), { write: writableNamesOf(Top) })
+export const Author = role(Top, "author", wholeEntriesOf(Top), wholeWritesOf(Top))
 export const reads = {
 ${Arr.join(Arr.map(read, readSource), ",\n")}
 }

@@ -93,7 +93,7 @@ const definitionsOf = (name: string) => {
 	const s = schema(name, [K, Pairs, Picks, T], [contained(on(T, "k", "n"), on(Pairs, "k", "n"))])
 	return {
 		schema: s,
-		server: login(s, "desk", [role(s, "writer", { T }, { write: ["T"] })])
+		server: login(s, "desk", [role(s, "writer", { T }, { insert: ["T"] })])
 	}
 }
 

@@ -56,8 +56,8 @@ const contended = (name: string) => {
 		mutable(Owner),
 		counted(on(Member, "g"), fin(Owner, "n"))
 	])
-	const app = role(base, "app", relations, { write: ["Owner", "Member"] })
-	const direct = role(base, "direct", relations, { write: ["Owner", "Member"] })
+	const app = role(base, "app", relations, { insert: ["Member"], write: ["Owner"] })
+	const direct = role(base, "direct", relations, { insert: ["Member"], write: ["Owner"] })
 	return {
 		schema: base,
 		app,

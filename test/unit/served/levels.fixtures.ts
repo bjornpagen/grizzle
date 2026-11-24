@@ -8,7 +8,7 @@ import { builtLogin, ownLoginOver } from "#adapter/served/login.ts"
 import { transactionClock } from "#compiler/ir/clock.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { type RosterOrder, rosterOrders } from "#compiler/ir/scalar.ts"
-import { login, role, wholeEntriesOf, writableNamesOf } from "#compiler/public/schema.ts"
+import { login, role, wholeEntriesOf, wholeWritesOf } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { type Owned, ownBuilt } from "#compiler/schema/own.ts"
@@ -87,26 +87,24 @@ export const installationOf = (c: ProgramCase, level: LawLevel, own: Top): Insta
 			{
 				at: "a login over the installation's first level",
 				login: login(base, "probe0", [
-					role(base, "probe", wholeEntriesOf(base), { write: writableNamesOf(base) })
+					role(base, "probe", wholeEntriesOf(base), wholeWritesOf(base))
 				])
 			},
 			{
 				at: "a login over a level below a level that declares a roster",
 				login: login(laws, "probe1", [
-					role(laws, "probe", wholeEntriesOf(laws), { write: writableNamesOf(laws) })
+					role(laws, "probe", wholeEntriesOf(laws), wholeWritesOf(laws))
 				])
 			},
 			{
 				at: "a login over a level of derived relations alone, below a level that declares a roster",
 				login: login(views, "probe2", [
-					role(views, "probe", wholeEntriesOf(views), { write: writableNamesOf(views) })
+					role(views, "probe", wholeEntriesOf(views), wholeWritesOf(views))
 				])
 			},
 			{
 				at: "a login over the installation's top",
-				login: login(top, "probe3", [
-					role(top, "probe", wholeEntriesOf(top), { write: writableNamesOf(top) })
-				])
+				login: login(top, "probe3", [role(top, "probe", wholeEntriesOf(top), wholeWritesOf(top))])
 			}
 		],
 		codes: drawn.laws.codes

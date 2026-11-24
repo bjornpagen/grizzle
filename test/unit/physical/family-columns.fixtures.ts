@@ -15,7 +15,7 @@ import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { installationsOf } from "#compiler/schema/own.ts"
 import { ownLogin, rostersOf } from "#compiler/schema/own.ts"
-import { loginDescOf, roleBuilder as role } from "#compiler/schema/world.ts"
+import { loginDescOf, roleBuilder as role, wholeWritesOf } from "#compiler/schema/world.ts"
 import type { SqlStatement, TableConstraint } from "#compiler/sql/ast.ts"
 import type { AnyRelation } from "#compiler/types/schema/relation.ts"
 import { succeeded, throwsRefused } from "#test/support/assert.ts"
@@ -111,7 +111,25 @@ const familiesOf = (r: Resolved) =>
 const relationNamed = (r: Resolved, name: string): AnyRelation =>
 	defined(Option.getOrUndefined(Arr.findFirst(r.relations, (x) => x.name === name)), name)
 
-/** The clerk over `Families`: a query entry of every field of each relation of `written`, each in its write list. */
+/** The lists a role over `Families` names `names` under, each written by `entryOf`: an open relation's entry under its
+ * write list, a closed one's under its insert list. */
+const listsOver = (
+	Families: ReturnType<typeof familiesOf>,
+	names: ReadonlyArray<string>,
+	entryOf: (name: string) => string
+) => {
+	const open = wholeWritesOf(Families).write
+	const isOpen = (name: string): boolean => Arr.some(open, (o) => o === name)
+	return {
+		insert: Arr.map(
+			Arr.filter(names, (n) => !isOpen(n)),
+			entryOf
+		),
+		write: Arr.map(Arr.filter(names, isOpen), entryOf)
+	}
+}
+
+/** The clerk over `Families`: a query entry of every field of each relation of `written`, each in its list. */
 const clerkOf = (
 	Families: ReturnType<typeof familiesOf>,
 	r: Resolved,
@@ -132,7 +150,7 @@ const clerkOf = (
 				] as const
 			})
 		),
-		{ write: Arr.map(written, entryName) }
+		listsOver(Families, written, entryName)
 	)
 
 /** The installation of a case's schema with its login. */
@@ -144,7 +162,7 @@ const installationOf = (r: Resolved): Installation => {
 			Families,
 			"writer",
 			Rec.fromEntries(Arr.map(r.whole, (name) => [name, byName(name)] as const)),
-			{ write: r.whole }
+			listsOver(Families, r.whole, (name) => name)
 		)
 	const clerk = () => clerkOf(Families, r, r.entries)
 	const viewer = () =>

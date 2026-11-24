@@ -111,13 +111,14 @@ export const policedLoginOf = ({ filter, write }: Drawn) => {
 					})
 	const relations = { Account, Grant, Item, T }
 	const admin = role(Policed, "admin", relations, { insert: ["Account", "Grant", "Item"] })
+	/** `Mine` under the list `write` names. */
+	const lists: { readonly insert: ReadonlyArray<"Mine">; readonly write: ReadonlyArray<"Mine"> } =
+		write === "insert" ? { insert: ["Mine"], write: [] } : { insert: [], write: ["Mine"] }
 	const writer = role(
 		Policed,
 		"writer",
 		{ ...relations, Mine: mine },
-		write === "insert"
-			? { insert: ["Mine"], contexts: [Session] }
-			: { write: ["Mine"], contexts: [Session] }
+		{ ...lists, contexts: [Session] }
 	)
 	const stated = query(writer).rule((r) =>
 		r.find({

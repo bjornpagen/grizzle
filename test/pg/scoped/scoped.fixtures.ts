@@ -21,7 +21,7 @@ import {
 	scopedEntriesOf,
 	unit,
 	wholeEntriesOf,
-	writableNamesOf
+	wholeWritesOf
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { workload } from "#compiler/public/workload.ts"
@@ -125,9 +125,10 @@ export const scopedAt = (name: string) => {
 	})
 	const student = role(base, "student", scopedEntriesOf(base, { owner: persons, roots }), {
 		contexts: [Session],
-		write: ["Assignment", "SittingEvent", "EventAt", "TestSession", "Visit", "ItemSession"]
+		insert: ["Assignment", "SittingEvent", "EventAt", "Visit", "ItemSession"],
+		write: ["TestSession"]
 	})
-	const staff = role(base, "staff", wholeEntriesOf(base), { write: writableNamesOf(base) })
+	const staff = role(base, "staff", wholeEntriesOf(base), wholeWritesOf(base))
 	const assignments = query(base).rule((r) => {
 		const { number, student, test } = v(Assignment, "a")
 		return r.match(Assignment, { number, student, test }).find({ number, student, test })

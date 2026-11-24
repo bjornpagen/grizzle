@@ -20,7 +20,7 @@ import {
 	schema,
 	unit,
 	wholeEntriesOf,
-	writableNamesOf
+	wholeWritesOf
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { ownBuilt, rostersOf } from "#compiler/schema/own.ts"
@@ -91,7 +91,7 @@ export const rolesGen: Gen<NonEmptyReadonlyArray<ReadonlyArray<Program>>> = (sou
  */
 export const changeLoginOf = (drawn: NonEmptyReadonlyArray<ReadonlyArray<Program>>) => {
 	const roles = Arr.map(drawn, (_, i) =>
-		role(Levels, `writer${i}`, wholeEntriesOf(Levels), { write: writableNamesOf(Levels) })
+		role(Levels, `writer${i}`, wholeEntriesOf(Levels), wholeWritesOf(Levels))
 	)
 	const value = login(Levels, "app", roles, {
 		workload: Arr.map(drawn, (held, i) =>
@@ -124,7 +124,7 @@ const plainRead = () =>
  */
 export const footprintsLoginOf = (drawn: NonEmptyReadonlyArray<ReadonlyArray<Program>>) => {
 	const roles = Arr.map(drawn, (_, i) =>
-		role(Levels, `writer${i}`, wholeEntriesOf(Levels), { write: writableNamesOf(Levels) })
+		role(Levels, `writer${i}`, wholeEntriesOf(Levels), wholeWritesOf(Levels))
 	)
 	const value = login(Levels, "app", roles, {
 		workload: Arr.map(drawn, (held, i) =>

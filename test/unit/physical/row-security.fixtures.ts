@@ -163,7 +163,7 @@ const roleOf = (name: RoleName, w: { readonly [T in Table]: Write }) => {
 		entries[entry] = value
 		written.push(entry)
 	}
-	return role(Library, name, entries, { write: written })
+	return role(Library, name, entries, { insert: written })
 }
 
 const loginsOf = (p: Point): ReadonlyArray<AnyLogin> => {

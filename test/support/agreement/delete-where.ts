@@ -54,7 +54,8 @@ export const Wherer = role(
 	"wherer",
 	{ ...Work.relations, Manual },
 	{
-		write: ["Manual", "Budget", "Ticket", "Ledger", "Tag", "Order", "Line", "Cart", "Entry"]
+		insert: ["Order", "Line"],
+		write: ["Manual", "Budget", "Ticket", "Ledger", "Tag", "Cart", "Entry"]
 	}
 )
 

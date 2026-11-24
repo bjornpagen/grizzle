@@ -51,8 +51,8 @@ type Mode = "insert" | "write"
 
 /**
  * A version's roles: the writer's mode and the relations it writes and inserts, and the other role's writes. A writer
- * by `write` writes the open Tag alone, where it holds UPDATE and DELETE; a closed relation's writer holds INSERT alone
- * whichever list names it.
+ * by `write` writes the open Tag alone, where it holds UPDATE and DELETE, a closed relation being no write list's; the
+ * other role inserts into Post by its insert list and writes Tag by its write list.
  */
 interface Version {
 	readonly mode: Mode
@@ -121,15 +121,20 @@ const file = `${repoRoot}app/grizzle.config.ts`
 /** The configuration of `version` under `name`, Post named Post. */
 const withPost = (name: string, version: Version) => {
 	const S = schema(name, [Post, Tag], openTag)
-	const names = Arr.map(version.writes, (t) => (t === "post" ? "Post" : "Tag"))
-	const writer = role(
-		S,
-		"writer",
-		wholeEntriesOf(S),
-		version.mode === "insert" ? { insert: names } : { write: names }
-	)
+	/** The writer's names under its mode's list: under write, Tag alone (versionGen). */
+	const lists: {
+		readonly insert: ReadonlyArray<"Post" | "Tag">
+		readonly write: ReadonlyArray<"Tag">
+	} =
+		version.mode === "insert"
+			? { insert: Arr.map(version.writes, (t) => (t === "post" ? "Post" : "Tag")), write: [] }
+			: { insert: [], write: ["Tag"] }
+	const writer = role(S, "writer", wholeEntriesOf(S), lists)
 	const other = role(S, "other", wholeEntriesOf(S), {
-		write: Arr.map(version.other, (t) => (t === "post" ? "Post" : "Tag"))
+		insert: Arr.flatMap(version.other, (t): ReadonlyArray<"Post"> =>
+			t === "post" ? ["Post"] : []
+		),
+		write: Arr.flatMap(version.other, (t): ReadonlyArray<"Tag"> => (t === "tag" ? ["Tag"] : []))
 	})
 	const programs = Rec.fromEntries(
 		Arr.map(
@@ -153,15 +158,20 @@ const withPost = (name: string, version: Version) => {
 /** The configuration of `version` under `name`, Post renamed to Note. */
 const withNote = (name: string, version: Version) => {
 	const S = schema(name, [Note, Tag], openTag)
-	const names = Arr.map(version.writes, (t) => (t === "post" ? "Note" : "Tag"))
-	const writer = role(
-		S,
-		"writer",
-		wholeEntriesOf(S),
-		version.mode === "insert" ? { insert: names } : { write: names }
-	)
+	/** The writer's names under its mode's list: under write, Tag alone (versionGen). */
+	const lists: {
+		readonly insert: ReadonlyArray<"Note" | "Tag">
+		readonly write: ReadonlyArray<"Tag">
+	} =
+		version.mode === "insert"
+			? { insert: Arr.map(version.writes, (t) => (t === "post" ? "Note" : "Tag")), write: [] }
+			: { insert: [], write: ["Tag"] }
+	const writer = role(S, "writer", wholeEntriesOf(S), lists)
 	const other = role(S, "other", wholeEntriesOf(S), {
-		write: Arr.map(version.other, (t) => (t === "post" ? "Note" : "Tag"))
+		insert: Arr.flatMap(version.other, (t): ReadonlyArray<"Note"> =>
+			t === "post" ? ["Note"] : []
+		),
+		write: Arr.flatMap(version.other, (t): ReadonlyArray<"Tag"> => (t === "tag" ? ["Tag"] : []))
 	})
 	const programs = Rec.fromEntries(
 		Arr.map(

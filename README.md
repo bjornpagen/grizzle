@@ -450,15 +450,13 @@ import {
 	type Fact,
 	role,
 	wholeEntriesOf,
-	workload,
-	writableNamesOf
+	wholeWritesOf,
+	workload
 } from "@bjornpagen/grizzle"
 import { Db } from "@bjornpagen/grizzle/runtime"
 
-/** A role that reads all of Billing and writes every relation in it but the closed ones. */
-export const Admin = role(Billing, "admin", wholeEntriesOf(Billing), {
-	write: writableNamesOf(Billing)
-})
+/** A role that reads all of Billing, inserts into each closed relation and changes each open one. */
+export const Admin = role(Billing, "admin", wholeEntriesOf(Billing), wholeWritesOf(Billing))
 
 /** An organization's subscription and its first post: one write, judged as a whole. */
 export const launch = ChangeSet.empty(Billing).insert(Subscription, []).insert(Post, [])
@@ -564,7 +562,7 @@ Nothing ties the policy's condition to the TypeScript that relies on it, and a q
 **The reframe.** "This organization's keys" is not a filter you add to queries. It is a relation: the keys whose `org` is the caller's. What a role may see is itself a query, so write it once and make it the table the dashboard calls `ApiKey`. Three declarations say it:
 
 - **A `context`** is a claim of the caller's verified session token, which a query reads as a table of at most one row. `Tenant` holds the token's `org`.
-- **A `role`** is what one kind of user sees, laid out as tables. Each entry is a table of the schema, whole, or a query over it, `write` lists the entries the role may write, and `contexts` the contexts it declares: the claims its `Db` holds, and the only contexts its entries and programs match. `KeyAdmin`'s `ApiKey` is the query `orgKeys`: the keys whose `org` matches `Tenant`'s.
+- **A `role`** is what one kind of user sees, laid out as tables. Each entry is a table of the schema, whole, or a query over it, `insert` lists the entries the role only adds to, `write` the open ones it changes, and `contexts` the contexts it declares: the claims its `Db` holds, and the only contexts its entries and programs match. `KeyAdmin`'s `ApiKey` is the query `orgKeys`: the keys whose `org` matches `Tenant`'s.
 - **A `login`** is one PostgreSQL user, with its password and its own connection pool, that can act as the roles it lists.
 
 **The declaration.**
@@ -589,14 +587,14 @@ export const KeyAdmin = role(
 	Keys,
 	"key_admin",
 	{ ApiKey: orgKeys },
-	{ write: ["ApiKey"], contexts: [Tenant] }
+	{ insert: ["ApiKey"], contexts: [Tenant] }
 )
 export const Dashboard = login(Keys, "dashboard", [KeyAdmin])
 ```
 
 **What you get.** The dashboard's queries and writes are written over `KeyAdmin`, where `ApiKey` already means "this organization's keys", with rows `{ digest: Sha256; name: string }`, the digest its 32 bytes. There is no `where` to forget and no `org` to pass. `orgKeys` fixes `org` to the claim, so inserting `{ digest, name }` stores the caller's organization.
 
-Another organization's keys don't exist for this role: an insert at a `digest` one already holds is `refused` on the primary key, its witness the `digest` you submitted, never the other row. `ApiKey` is closed, its facts inserted and never changed or deleted, so the role holds SELECT and INSERT on its table and nothing more. Opening a `Db` of `key_admin` through the dashboard's served login doesn't compile without a token, and opening runs your `verify` function on it once.
+Another organization's keys don't exist for this role: an insert at a `digest` one already holds is `refused` on the primary key, its witness the `digest` you submitted, never the other row. `ApiKey` is closed, its facts inserted and never changed or deleted, so the role names it under `insert` and holds SELECT and INSERT on its table and nothing more; naming it under `write` is `RoleRefused` (`writeClosed`). Opening a `Db` of `key_admin` through the dashboard's served login doesn't compile without a token, and opening runs your `verify` function on it once.
 
 grizzle installs `KeyAdmin` as a PostgreSQL role that reads through a view in its own schema and writes the table under row-level security. The rule lives in PostgreSQL, so psql meets it too. `roleNameOf(Dashboard, {})` is the login's PostgreSQL role in an installation without a role prefix, here `keys__dashboard`; `roleNameOf(KeyAdmin, {})` and `schemaNameOf(KeyAdmin)` are the role and its schema of views, both `keys__key_admin`:
 
@@ -955,7 +953,7 @@ export const Credits = schema(
 	]
 )
 
-export const Metering = role(Credits, "metering", wholeEntriesOf(Credits), { write: ["Debit"] })
+export const Metering = role(Credits, "metering", wholeEntriesOf(Credits), { insert: ["Debit"] })
 
 /** Debit a grant for one call: a transient refusal is the caller's to run again; grizzle never retries. */
 export const debitGrant = ChangeSet.empty(Credits).insert(Debit, [])
@@ -2995,15 +2993,19 @@ Three declarations, all in the [example](#example):
   boolean, the integer types, contracts over them, and closed ids, whose claim is a handle's name. An absent claim
   object is no row, and a payload that is not an object has none; a context read from the top level refuses such a
   payload at stage `token`. No rule reads a context, and no ChangeSet writes one.
-- **`role(schema, name, entries, { write?, insert?, contexts? })`**: what one kind of user sees. An
-  entry is a table of the schema, whole, a scoped entry of one ([Scoped entries](#scoped-entries)), or a query over it. `write` lists the entries it writes, each once (a name
-  listed twice is a type error), and `contexts` the contexts it declares
-  ([Contexts of a role](#contexts-of-a-role)). `insert` lists them in place of `write` for a role that only
-  inserts: it holds INSERT and SELECT on what it writes and no UPDATE or DELETE, so a ChangeSet of it that deletes,
-  puts, or adds a member to a mutable owner's family, which updates the owner's count, is `OutsideRole` (`insert`)
-  when it compiles, naming the table and the operation. A role states one of the two. A role is no schema: `role`, `login`, `schema.extend`,
-  `wholeEntriesOf`, `writableNamesOf`, `lawsOf` and `lawsByStatement` take a schema, and a role passed to
-  one is a type error.
+- **`role(schema, name, entries, { insert?, write?, contexts? })`**: what one kind of user sees. An
+  entry is a table of the schema, whole, a scoped entry of one ([Scoped entries](#scoped-entries)), or a query over it.
+  Each entry the role writes is listed under the mode it writes that table by, each table once across the two lists (a
+  name listed twice is a type error): `insert` the entries it only adds to, where it holds INSERT and SELECT and no
+  UPDATE or DELETE, and `write` the open ones it changes, each over a table declared `mutable` inside a unit, where it
+  holds UPDATE and DELETE as well. A closed table under `write` is a type error for a whole or scoped entry and
+  `RoleRefused` (`writeClosed`) for any. So one role puts an open table and inserts into closed ones in one commit,
+  holding UPDATE and DELETE on the open table alone. A ChangeSet of it that deletes from or puts an entry of its
+  `insert` list, or adds an open member of its `insert` list to a mutable owner's family, which updates the owner's
+  count, is `OutsideRole` (`insert`) when it compiles, naming the table and the operation. `contexts` lists the contexts it
+  declares ([Contexts of a role](#contexts-of-a-role)). A role is no schema: `role`, `login`, `schema.extend`,
+  `wholeEntriesOf`, `wholeWritesOf`, `writableNamesOf`, `lawsOf` and `lawsByStatement` take a schema, and a role
+  passed to one is a type error.
 - **`login(schema, name, roles, { workload? })`**: one PostgreSQL user and one pool for some roles of one schema,
   owning their workloads, each over the schema, a schema it extends, or one of the login's roles. Every role is in
   exactly one login, under a name other than the login's, and is reached through it by name, `Web.roles.member`. Two
@@ -3018,15 +3020,18 @@ Roles:
   role a view evaluates it on included. Its keys are the ones its query provably has.
 - **A role declares no rules**: the schema's rules hold, whoever writes.
 - **A role that writes a family's member** reads what grizzle reads of the owner to fill the family and, when the owner
-  is mutable, changes that family's drawn count and accumulated ends on it, and nothing else of the owner unless
-  `write` lists the owner too: `role(Credits, "metering", wholeEntriesOf(Credits), { write: ["Debit"] })` spends grants
-  and edits no grant's amount.
+  is mutable and the role writes the member in full (a closed member by `insert`, the one way it is written, an open
+  one by `write`), changes that family's drawn count and accumulated ends on it, and nothing else of the owner unless
+  `write` lists the owner too: `role(Credits, "metering", wholeEntriesOf(Credits), { insert: ["Debit"] })` spends
+  grants and edits no grant's amount. An open member under `insert` is only added to: its role holds nothing of the
+  owner beyond its reads, so it adds members only beside their owner's insertion.
 - **A roster among a role's entries has no view:** every query reads its handles as codes.
-- **A full role** is `role(S, name, wholeEntriesOf(S), { write: writableNamesOf(S) })`. `wholeEntriesOf(S)` is every
+- **A full role** is `role(S, name, wholeEntriesOf(S), wholeWritesOf(S))`. `wholeEntriesOf(S)` is every
   table of every level of `S`, whole, under its own name, except the closed relations, which every role reads and none
   holds as an entry. `writableNamesOf(S)` names, in the schema's order, every table a role writes whole: all but the
-  rosters, the closed relations and the derived tables. Their types are exactly these, so `wholeEntriesOf` never
-  holds a closed relation and `writableNamesOf` never names a table `write` refuses. A role that holds every table
+  rosters, the closed relations and the derived tables. `wholeWritesOf(S)` lists them as `S` declares each: `insert`
+  every closed table, `write` every `mutable` one. Their types are exactly these, so `wholeEntriesOf` never
+  holds a closed relation and `wholeWritesOf` never lists a table its list refuses. A role that holds every table
   whole, such as `role(Blog, "staff", wholeEntriesOf(Blog))`, also runs every query and ChangeSet over the schema
   itself, such as `postPage`. So does a role over a higher level for each level below it whose every table, and every
   table below it, it holds whole: a role over `Ledger` holding `wholeEntriesOf(Qti)` runs every query over `Qti`
@@ -3036,9 +3041,9 @@ Roles:
   own, a whole entry of a live derived table, or a query entry over a role or over any schema but the role's and those
   it extends: the rules the type errors name, in their words.
 - **`RoleRefused`**, when you build the role, names the rule it breaks: a query entry reading a table the schema
-  lacks, or with parameters, nested results, vector search or an `orderBy` without `take`; a `write` naming no entry of
-  the role, a roster, a derived table or an unwritable query entry, or two entries over one table, and so for an
-  `insert`, which also names at least one entry; or both a `write` and an `insert` (`writeAndInsert`).
+  lacks, or with parameters, nested results, vector search or an `orderBy` without `take`; an `insert` or a `write`
+  naming no entry of the role, a roster, a derived table or an unwritable query entry, or two entries over one table
+  across both lists (`writeTwice`); or a `write` naming an entry over a closed table (`writeClosed`).
 
 **Installed names come from the values.** `roleNameOf(Web, connection)` is a login's PostgreSQL role in the
 installation `connection` names: the one its pool logs in as, a password is set on and `rds_iam` is granted to.
@@ -3084,8 +3089,8 @@ without `o` has no `Org` row); an `attested(...)` from the facts the server itse
 declares an attested one. Every query entry of the role, and every program on a `Db` of it, matches only the contexts it
 declares, and nothing else makes a context available:
 
-- **A program over the schema matches them on a full role.** `role(Blog, "staff", wholeEntriesOf(Blog), { write:
-  writableNamesOf(Blog), contexts: [Session] })` runs every query and ChangeSet over `Blog` itself, those matching
+- **A program over the schema matches them on a full role.** `role(Blog, "staff", wholeEntriesOf(Blog), {
+  ...wholeWritesOf(Blog), contexts: [Session] })` runs every query and ChangeSet over `Blog` itself, those matching
   `Session` among them, so one program serves every role that declares what it matches and needs no copy written over
   each role.
 - **A query entry matching a context the role does not declare** is a type error naming the rule, and
@@ -3128,7 +3133,7 @@ export const Student = role(
 	Sittings,
 	"student",
 	scopedEntriesOf(Sittings, { owner: persons, roots }),
-	{ contexts: [Session], write: studentWriteNames }
+	{ contexts: [Session], insert: studentInsertNames }
 )
 ```
 
@@ -4680,10 +4685,10 @@ export const Learner = role(
 	Ledger,
 	"learner",
 	{ ...wholeEntriesOf(Qti), MySitting: mySittings },
-	{ write: ["MySitting"], contexts: [Session] }
+	{ insert: ["MySitting"], contexts: [Session] }
 )
 export const LedgerApp = login(Ledger, "app", [Learner])
-export const QtiAuthor = role(Qti, "author", wholeEntriesOf(Qti), { write: writableNamesOf(Qti) })
+export const QtiAuthor = role(Qti, "author", wholeEntriesOf(Qti), wholeWritesOf(Qti))
 export const AuthorApp = login(Qti, "author_app", [QtiAuthor])
 ```
 

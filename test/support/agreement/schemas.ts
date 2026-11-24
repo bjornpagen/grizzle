@@ -302,7 +302,7 @@ const schemaFaults = [
 	"undeclaredStatementRelation",
 	"finMember",
 	"entryOutsideBase",
-	"writeClosed",
+	"writeRoster",
 	"writeStranger",
 	"parameterizedDefinition",
 	"derivedAtOwnLevel",
@@ -512,7 +512,7 @@ const refusals: { readonly [F in SchemaFault | KeptFault]: Refusing } = {
 		"a schema's members are relations, and fin(O, n) is none"
 	),
 	entryOutsideBase: named("a whole entry is a relation of the base under its own name"),
-	writeClosed: structural(
+	writeRoster: structural(
 		{ tag: "RoleRefused", rule: "writeKind" },
 		"a write list names ordinary relations and query entries only"
 	),
@@ -1138,10 +1138,26 @@ const sideForm: { readonly [K in DerivedSide]: SchemaForm } = {
 const extraFields = (spec: DerivedSpec): ReadonlyArray<string> =>
 	Arr.flatMap(spec.extras, (x) => (x.kind === "literal" ? [] : [x.field]))
 
-/** A role over the extension when there is one, else the base: its write list. */
+/** A role over the extension when there is one, else the base: its insert list, of closed relations, and its write
+ * list, of open ones. */
 interface RoleSpec {
 	readonly name: string
+	readonly insert: ReadonlyArray<string>
 	readonly write: ReadonlyArray<string>
+}
+
+/** The names of `relations` as a role's lists name them: each closed one under insert, each open one under write. */
+const listsOf = (
+	relations: ReadonlyArray<{ readonly name: string }>,
+	statements: ReadonlyArray<StatementSpec>
+): { readonly insert: ReadonlyArray<string>; readonly write: ReadonlyArray<string> } => {
+	const open = new Set(
+		Arr.flatMap(statements, (st) => (st.kind === "mutable" ? [st.relation] : []))
+	)
+	return {
+		insert: Arr.flatMap(relations, (r) => (open.has(r.name) ? [] : [r.name])),
+		write: Arr.flatMap(relations, (r) => (open.has(r.name) ? [r.name] : []))
+	}
 }
 
 /** A case's base: valid by construction, the engine builds and compiles it. */
@@ -1971,15 +1987,15 @@ const alternativesPack = (
 	}
 }
 
-/** The roles of a case: a reader of every relation, and a writer of drawn ordinary relations. */
+/** The roles of a case: a reader of every relation, and a writer of drawn ordinary relations, each closed one by its
+ * insert list and each open one by its write list (`statements`' mutable ones). */
 const rolesOf = (
 	d: Drawing,
-	relations: Arr.NonEmptyReadonlyArray<RelationSpec>
+	relations: Arr.NonEmptyReadonlyArray<RelationSpec>,
+	statements: ReadonlyArray<StatementSpec>
 ): Arr.NonEmptyReadonlyArray<RoleSpec> => [
-	{ name: "reader", write: [] },
-	...(d.keep("writer")
-		? [{ name: "writer", write: Arr.map(d.some(relations), (r) => r.name) }]
-		: [])
+	{ name: "reader", insert: [], write: [] },
+	...(d.keep("writer") ? [{ name: "writer", ...listsOf(d.some(relations), statements) }] : [])
 ]
 
 /** A case's base: its rosters, contracts, relations, statements, family, alternatives, derived relation and roles. */
@@ -2073,7 +2089,7 @@ const baseOf = (d: Drawing): Base => {
 					payload: d.from(["smallint", "bigint", "text"] as const),
 					generated: d.keep("generated")
 				}
-	const roles = rolesOf(d, ordinary)
+	const roles = rolesOf(d, ordinary, mutable)
 	if (closedArity !== undefined) {
 		d.note("closedRelation")
 		d.note(closedArityForm[closedArity])
@@ -2501,7 +2517,7 @@ const envOf = (base: Base): Env => {
 	const entries = { ...Rec.fromEntries([...rosters]), ...Rec.fromEntries([...relations]) }
 	const described = new Map(
 		Arr.map(base.roles, (r) => {
-			const value = role(level, r.name, entries, { write: r.write })
+			const value = role(level, r.name, entries, { insert: r.insert, write: r.write })
 			return [r.name, roleDescOf(value)] as const
 		})
 	)
@@ -2524,7 +2540,7 @@ const envOf = (base: Base): Env => {
 		level,
 		entries,
 		derived: counts,
-		writes: listed(writtenNames)
+		writes: listed((desc) => Arr.map(writtenNames(desc), (w) => w.name))
 	}
 }
 /** A case's TypeScript identifier for a value it declares under `name`. */
@@ -3523,30 +3539,32 @@ const schemaProbe = (d: Drawing, base: Base): Probe => {
 }
 
 /**
- * A role over the base's top level: a write list of ordinary relations, or one planted fault: a whole entry outside the
- * base, a write list naming a roster or a stranger.
+ * A role over the base's top level: insert and write lists of ordinary relations, each closed one under insert and each
+ * open one under write, or one planted fault: a whole entry outside the base, an insert list naming a roster or a
+ * stranger.
  */
 const roleProbe = (d: Drawing, base: Base): Probe => {
 	const ordinary = ordinaryOf(base)
 	type Planted = {
 		readonly fault: SchemaFault | undefined
 		readonly outside: boolean
+		readonly insert: ReadonlyArray<string>
 		readonly write: ReadonlyArray<string>
 	}
 	const valid: Planted = {
 		fault: undefined,
 		outside: false,
-		write: Arr.map(d.some(ordinary), (r) => r.name)
+		...listsOf(d.some(ordinary), base.statements)
 	}
 	const forms: Arr.NonEmptyReadonlyArray<Planted> = [
 		valid,
-		{ ...valid, fault: "entryOutsideBase", outside: true, write: [] },
-		{ ...valid, fault: "writeClosed", write: [d.from(base.rosters).name] },
-		{ ...valid, fault: "writeStranger", write: ["Nobody"] }
+		{ ...valid, fault: "entryOutsideBase", outside: true, insert: [], write: [] },
+		{ ...valid, fault: "writeRoster", insert: [d.from(base.rosters).name], write: [] },
+		{ ...valid, fault: "writeStranger", insert: ["Nobody"], write: [] }
 	]
 	const planted = d.from(forms)
 	const level = base.derived === undefined ? "S" : "Level"
-	const lists = `{ write: [${quoted(planted.write)}] }`
+	const lists = `{ insert: [${quoted(planted.insert)}], write: [${quoted(planted.write)}] }`
 	return {
 		construct: "roleProbe",
 		refused: planted.fault,
@@ -3566,7 +3584,10 @@ const roleProbe = (d: Drawing, base: Base): Probe => {
 							[ordinary[0].name]: got(env.relations, ordinary[0].name),
 							Outside: relation("Outside", { id: Id }, ["id"], [])
 						})
-					: role(env.level, "probe", env.entries, { write: planted.write })
+					: role(env.level, "probe", env.entries, {
+							insert: planted.insert,
+							write: planted.write
+						})
 			)
 	}
 }
@@ -5384,8 +5405,8 @@ const baseDeclarations = (base: Base, ids: Ids): ReadonlyArray<readonly [string,
 			)} }`
 			return [
 				`role_${r.name}`,
-				Arr.isReadonlyArrayNonEmpty(r.write)
-					? `Sc.role(${ids(level)}, ${jsonText(r.name)}, ${entries}, { write: [${quoted(r.write)}] })`
+				Arr.isReadonlyArrayNonEmpty(r.insert) || Arr.isReadonlyArrayNonEmpty(r.write)
+					? `Sc.role(${ids(level)}, ${jsonText(r.name)}, ${entries}, { insert: [${quoted(r.insert)}], write: [${quoted(r.write)}] })`
 					: `Sc.role(${ids(level)}, ${jsonText(r.name)}, ${entries})`
 			] as const
 		})

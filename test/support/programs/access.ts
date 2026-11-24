@@ -13,6 +13,7 @@ export {
 	schema,
 	v,
 	wholeEntriesOf,
+	wholeWritesOf,
 	workload,
 	writableNamesOf
 } from "#index.ts"

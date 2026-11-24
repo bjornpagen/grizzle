@@ -540,14 +540,15 @@ export const tagOf = (s: Stated): "RoleRefused" | "Refused" =>
 const stated = (rule: RoleRule): StatedRule =>
 	rule.kind === "writeUnwritable" ? { kind: rule.kind, entry: rule.entry } : rule
 
-/** The role a spec states, through the builder's admission core, as a JavaScript caller reaches it. */
+/** The role a spec states, through the builder's admission core, as a JavaScript caller reaches it: what it writes
+ * under its insert list, every relation of the base closed. */
 export const admitted = (name: string, spec: RoleSpec) =>
 	admitRole(
 		Reports,
 		name,
 		Rec.fromEntries(Arr.map(spec.entries, ([n, entry]) => [n, entryValue(entry)] as const)),
 		{
-			write: spec.write,
+			insert: spec.write,
 			contexts: Arr.map(spec.contexts, (c) => contextValues[c])
 		},
 		[]
@@ -577,7 +578,8 @@ export const describedOf = (c: RoleCase): Option.Option<unknown> => {
 			),
 			...Arr.flatMap(descs, Option.toArray)
 		],
-		write: c.planted.write,
+		insert: c.planted.write,
+		write: [],
 		contexts: Arr.map(c.planted.contexts, contextDesc)
 	})
 }

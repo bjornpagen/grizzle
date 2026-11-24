@@ -38,7 +38,7 @@ import {
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import type { TablePrivilege } from "#compiler/core/privilege.ts"
-import type { FieldDesc, RoleWritingKey } from "#compiler/ir/desc.ts"
+import type { FieldDesc } from "#compiler/ir/desc.ts"
 import type { EvidenceCatalog } from "#compiler/ir/evidence.ts"
 import type { Family } from "#compiler/ir/family.ts"
 import type {
@@ -778,17 +778,15 @@ const takesUpdate: Readonly<Record<HeadStanding, boolean>> = {
 	keyed: false
 }
 
-/** The fields of the table a query entry writes that its role may update by its write list: over a mutable relation,
- * each head field that takes UPDATE (`takesUpdate`) and that PostgreSQL does not compute; none over an immutable one. */
-const updatableFields = (written: RelationInfo, writable: CheckedEntry): ReadonlyArray<LawField> =>
-	written.mutable
-		? [...writable.head.values()].flatMap((h) =>
-				takesUpdate[h.kind] && h.field.writing.kind !== "generated" ? [h.field] : []
-			)
-		: []
+/** The fields of the table a query entry writes that its role may update by its write list, which names an open
+ * relation alone: each head field that takes UPDATE (`takesUpdate`) and that PostgreSQL does not compute. */
+const updatableFields = (writable: CheckedEntry): ReadonlyArray<LawField> =>
+	[...writable.head.values()].flatMap((h) =>
+		takesUpdate[h.kind] && h.field.writing.kind !== "generated" ? [h.field] : []
+	)
 
 /** What a role's write of one entry holds on the table it writes, in the order a GRANT names them: SELECT and INSERT,
- * then UPDATE and DELETE, which only a write list of an open relation holds. */
+ * then UPDATE and DELETE, which only an entry of the write list holds. */
 type EntryPrivileges = readonly [
 	"SELECT",
 	"INSERT",
@@ -796,20 +794,22 @@ type EntryPrivileges = readonly [
 ]
 
 /**
- * The privileges a role's write of one entry holds on the table it writes, the one source its grants are built from
- * (`writePlan`) and certification reads (`grantedPrivileges`). By its insert list, or of a closed relation, whose facts
- * are inserted, never changed or deleted, SELECT and INSERT alone. By its write list of an open relation, mutable inside
- * a unit, DELETE as well, and UPDATE where it may update a field: a whole entry, or a query entry with an updatable field
+ * The privileges a role's write of one entry holds on the table it writes, by the entry's mode, the one source its
+ * grants are built from (`writePlan`) and certification reads (`grantedPrivileges`). By the insert list, SELECT and
+ * INSERT alone. By the write list, which names an open relation alone (schema/own.ts writeClosed), mutable inside a
+ * unit, DELETE as well, and UPDATE where it may update a field: a whole entry, or a query entry with an updatable field
  * (`updatableFields`).
  */
-const entryPrivileges = (writing: RoleWritingKey, w: WrittenEntry): EntryPrivileges => {
-	if (writing === "insert" || !w.relation.mutable) {
-		return ["SELECT", "INSERT"]
-	}
+const entryPrivileges = (w: WrittenEntry): EntryPrivileges => {
 	const write = w.write
-	const updates =
-		write.kind === "rows" ? isNonEmpty(updatableFields(w.relation, write.writable)) : true
-	return updates ? ["SELECT", "INSERT", "UPDATE", "DELETE"] : ["SELECT", "INSERT", "DELETE"]
+	switch (write.mode) {
+		case "insert":
+			return ["SELECT", "INSERT"]
+		case "write":
+			return write.kind !== "rows" || isNonEmpty(updatableFields(write.writable))
+				? ["SELECT", "INSERT", "UPDATE", "DELETE"]
+				: ["SELECT", "INSERT", "DELETE"]
+	}
 }
 
 const writePlan = (
@@ -821,7 +821,7 @@ const writePlan = (
 ): WritePlan => {
 	const e = w.write
 	const written = w.relation
-	const held = entryPrivileges(role.writing, w)
+	const held = entryPrivileges(w)
 	const grantee: NonEmptyReadonlyArray<Grantee> = [{ kind: "role", name: identifierOf(theory) }]
 	const grant = (privileges: NonEmptyReadonlyArray<Privilege>, on: Grant["on"]): Grant => ({
 		kind: "grant",
@@ -855,7 +855,7 @@ const writePlan = (
 		...written.fields.filter((f) => f.writing.kind !== "generated").map(column),
 		...drawnColumnsOf(b, relation)
 	]
-	const updatable = held.includes("UPDATE") ? updatableFields(written, writable).map(column) : []
+	const updatable = held.includes("UPDATE") ? updatableFields(writable).map(column) : []
 	const columnGrant = (
 		privilege: ColumnPrivilege,
 		columns: ReadonlyArray<string>
@@ -1056,11 +1056,12 @@ const ownerReadColumns = (family: Family): ReadonlyArray<LawField> => {
  * What a role that writes a member of a family holds on the family's owner O, beside what its own
  * entries grant, and nothing wider. Column SELECT on its key, the owner fields the group pairs with, and
  * `ownerReadColumns`: its count, its ends and the fields its owner axis copies into members, which the role writes into
- * its own member rows. Column UPDATE, when O is mutable and the role writes by its write list, on exactly what the
- * family's recount sets (write/family/additions.ts, removals.ts): its count and `endColumns`. No UPDATE on an immutable
- * O, whose family is fixed when it is
- * inserted, nor for a role that writes by its insert list, which holds no UPDATE and whose program is refused a recount
- * (write/program/insert-only.ts). None of O's other fields. A role that writes O whole holds all of O already and takes
+ * its own member rows. Column UPDATE, when O is mutable, on exactly what the recount of each family whose member the
+ * role writes in full sets (write/family/additions.ts, removals.ts): its count and `endColumns`, a closed member by its
+ * insert list, an open one by its write list (`fullyWrittenBy`). No UPDATE on an immutable O, whose family is fixed when
+ * it is inserted, nor for a family whose open member the role names under its insert list, which only adds that
+ * member's facts and changes nothing beside them, so its program is refused a recount (write/program/insert-only.ts).
+ * None of O's other fields. A role that writes O whole holds all of O already and takes
  * none. `families` are the families of O whose member it writes, in
  * the law model's order; each column list is in O's field order.
  */
@@ -1072,17 +1073,43 @@ export interface OwnerHold {
 }
 
 /** The families whose members a role writes (`written`) and whose owner it does not write whole or scoped, a table
- * grant holding the owner then (`writePlan`), grouped by owner, in the law model's order of each owner's first family.
- * A scoped owner's families agree with it by scope (`scopedCovers`, held where the role's objects are added). */
+ * grant holding the owner then (`writePlan`), grouped by owner, in the law model's order of each owner's first family;
+ * but an owner its insert list names whole, whose table grant holds no UPDATE, holds each family of it whose recount it
+ * makes here too: a mutable owner's whose member it writes in full (`fullyWrittenBy`). A scoped owner's families agree
+ * with it by scope (`scopedCovers`, held where the role's objects are added). */
 const heldFamilies = (
 	model: LawModel,
 	written: ReadonlyArray<WrittenEntry>
 ): ReadonlyArray<NonEmptyReadonlyArray<Family>> => {
 	const writes = new Set(written.map((w) => w.relation.name))
-	const whole = new Set(written.flatMap((w) => (w.write.kind === "rows" ? [] : [w.relation.name])))
+	/** How the role's own grant holds each owner it writes whole or scoped: all of it (`covered`), by its write list or
+	 * its scope, or its rows' insertion alone (`inserted`), whole by its insert list. */
+	const owned = new Map(
+		written.flatMap((w) =>
+			w.write.kind === "rows"
+				? []
+				: [
+						[
+							w.relation.name,
+							w.write.kind === "whole" && w.write.mode === "insert" ? "inserted" : "covered"
+						] as const
+					]
+		)
+	)
+	const full = fullyWrittenBy(written)
+	const held = (f: Family): boolean => {
+		switch (owned.get(f.owner.name)) {
+			case undefined:
+				return true
+			case "covered":
+				return false
+			case "inserted":
+				return f.owner.mutable && full.has(f.member.name)
+		}
+	}
 	const byOwner = new Map<string, NonEmptyReadonlyArray<Family>>()
 	for (const f of model.families) {
-		if (writes.has(f.member.name) && !whole.has(f.owner.name)) {
+		if (writes.has(f.member.name) && held(f)) {
 			const at = byOwner.get(f.owner.name)
 			byOwner.set(f.owner.name, at === undefined ? [f] : appendNonEmpty(at, f))
 		}
@@ -1090,11 +1117,24 @@ const heldFamilies = (
 	return [...byOwner.values()]
 }
 
-/** What a role holds on `owner`, the owner of `families` (`OwnerHold`). */
+/**
+ * The relations a role writes in full (`written`): each open one by its write list, and each closed one, whose facts its
+ * insert list adds, the one way a closed relation is written. An open relation under its insert list is written short
+ * of full: the role only adds its facts and changes nothing beside them.
+ */
+const fullyWrittenBy = (written: ReadonlyArray<WrittenEntry>): ReadonlySet<string> =>
+	new Set(
+		written.flatMap((w) =>
+			w.write.mode === "write" || !w.relation.mutable ? [w.relation.name] : []
+		)
+	)
+
+/** What a role holds on `owner`, the owner of `families`, `full` the relations it writes in full (`fullyWrittenBy`,
+ * `OwnerHold`). */
 const holdOn = (
 	owner: RelationInfo,
 	families: NonEmptyReadonlyArray<Family>,
-	role: OwnedRole
+	full: ReadonlySet<string>
 ): OwnerHold => {
 	const selected = new Set(
 		families.flatMap((f) => [
@@ -1103,8 +1143,10 @@ const holdOn = (
 		])
 	)
 	const updated = new Set(
-		owner.mutable && role.writing === "write"
-			? families.flatMap((f) => [f.count.name, ...endColumns(f).map((c) => c.name)])
+		owner.mutable
+			? families.flatMap((f) =>
+					full.has(f.member.name) ? [f.count.name, ...endColumns(f).map((c) => c.name)] : []
+				)
 			: []
 	)
 	return {
@@ -1132,7 +1174,7 @@ export const ownerHolds = (
 				`a family owned by an ordinary relation, not ${name}`
 			)
 		).relation
-		return holdOn(owner, families, role)
+		return holdOn(owner, families, fullyWrittenBy(written))
 	})
 
 /**
@@ -1155,17 +1197,18 @@ export const roleUpdates = (
 		}
 	}
 	for (const w of written) {
-		if (!entryPrivileges(world.role.writing, w).includes("UPDATE")) {
+		if (!entryPrivileges(w).includes("UPDATE")) {
 			continue
 		}
 		if (w.write.kind === "rows") {
-			hold(w.relation.name, updatableFields(w.relation, w.write.writable))
+			hold(w.relation.name, updatableFields(w.write.writable))
 		} else {
 			whole.add(w.relation.name)
 		}
 	}
+	const full = fullyWrittenBy(written)
 	for (const families of heldFamilies(model, written)) {
-		hold(families[0].owner.name, holdOn(families[0].owner, families, world.role).update)
+		hold(families[0].owner.name, holdOn(families[0].owner, families, full).update)
 	}
 	return (relation, column) => whole.has(relation) || (columns.get(relation)?.has(column) ?? false)
 }
@@ -1191,7 +1234,7 @@ export const grantedPrivileges = (
 		}
 	}
 	for (const w of written) {
-		hold(w.relation.name, entryPrivileges(role.writing, w))
+		hold(w.relation.name, entryPrivileges(w))
 	}
 	for (const h of ownerHolds(model, role, written)) {
 		const privileges: Array<TablePrivilege> = []

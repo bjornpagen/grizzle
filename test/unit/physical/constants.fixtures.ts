@@ -118,6 +118,7 @@ export const installationOf = (owned: Owned, codes: Codebook): Installation => {
 		decodeRoleOver(base, {
 			name: "reader",
 			relations: [{ kind: "whole", name: "Item", loc }],
+			insert: [],
 			write: [],
 			contexts: [],
 			loc
@@ -128,7 +129,8 @@ export const installationOf = (owned: Owned, codes: Codebook): Installation => {
 		decodeRoleOver(base, {
 			name: "tagger",
 			relations: [{ kind: "whole", name: "Tags", loc }],
-			write: ["Tags"],
+			insert: ["Tags"],
+			write: [],
 			contexts: [],
 			loc
 		})

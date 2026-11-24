@@ -1,26 +1,26 @@
 /**
- * Roles that write by an insert list, `role(base, name, entries, { insert })` (schema/world.ts admitRole,
- * physical/ddl/roles.ts grantedPrivileges, write/program/insert-only.ts), over generated worlds: two roles, each
- * writing each relation whole, through a query entry holding every row, or not at all, by its write list or its insert
- * list, over a counted family with a fold and an ordered one, each owner mutable or not, and a ChangeSet of drawn members
- * over one of the roles.
+ * Roles that write each relation under the list its mode names, `role(base, name, entries, { insert, write })`
+ * (schema/world.ts admitRole, physical/ddl/roles.ts grantedPrivileges, write/program/insert-only.ts), over generated
+ * worlds: two roles, each writing each relation whole, through a query entry holding every row, or not at all, each
+ * written relation under its insert list or its write list, over a counted family with a fold and an ordered one, each
+ * owner and the counted member mutable or not, and a ChangeSet of drawn members over one of the roles.
  *
- * - **The declaration:** a role states `write` or `insert`, and an insert list names at least one entry: a role stating
- *   both is `RoleRefused` (`writeAndInsert`), an empty insert list a MalformedDescription. A role's Description holds the
- *   key it stated and its list, and the same entries stated under the other key differ in that key alone.
- * - **The grants are the declaration's:** each role's table privileges on each table, a column privilege counting as its
- *   table's, are the rule restated: on a table it writes SELECT and INSERT, and by its write list, on a mutable table,
- *   UPDATE and DELETE, a closed table's facts never changed or deleted; on the owner of a family whose member it writes,
- *   and which it does not write whole, SELECT, and UPDATE on a mutable owner by its write list. grantedPrivileges, what certification reads, is exactly the
- *   installed set.
- * - **A role stating `write` comes out byte-identical:** the installation with every insert role stated as a write role
- *   (the control) and the drawn one hold the same objects in the same order with the same DDL, the same edges, revokes,
- *   defaults and comments, save each insert role's own privileges object and the edges that name it.
- * - **A program beyond insert is refused when it compiles:** the ChangeSet compiled for the role is the control's
- *   compilation, the same role stated with `write`, wherever the control is refused, and wherever no member deletes,
- *   puts, or inserts a member of a mutable owner's family, whose count and fold the insert updates; otherwise it is
- *   `OutsideRole` at the role, naming an UPDATE or a DELETE of a relation the member reaches: its own, a member of its
- *   families or its owner. An admitted program is the control's, statement for statement.
+ * - **The declaration:** a role names a closed relation under its write list exactly when its ownership refuses it,
+ *   `RoleRefused` (`writeClosed`) naming the relation, by the closedness the owned base states; otherwise its
+ *   Description holds each entry under its list.
+ * - **The grants are the declaration's, relation by relation:** each role's table privileges on each table, a column
+ *   privilege counting as its table's, are the rule restated: on a table it writes SELECT and INSERT, and UPDATE and
+ *   DELETE exactly where its write list names it; on the owner of a family whose member it writes, and which it does
+ *   not write whole, SELECT, and UPDATE on a mutable owner whose member its write list names. No UPDATE or DELETE stands
+ *   on a relation under the insert list. grantedPrivileges, what certification reads, is exactly the installed set.
+ * - **A role's grants are its own:** the installation with every role stated as its control, each open relation it
+ *   writes under its write list and each closed one under its insert list, holds the same objects in the same order
+ *   with the same DDL, the same edges, revokes, defaults and comments, save each role's own privileges object, where
+ *   its lists differ from its control's, and the edges that name it.
+ * - **A program beyond its grants is refused when it compiles:** the ChangeSet compiled for the role is the control's
+ *   compilation wherever the control is refused, and wherever no statement of the control's program updates or
+ *   deletes from a table the rule grants the role no UPDATE or DELETE on; otherwise it is `OutsideRole` at the role,
+ *   naming such a table's relation and operation. An admitted program is the control's, statement for statement.
  * - **Never a defect:** every drawn program of a role compiles or is refused with a CompileError, and never throws. The
  *   kept case is the one that found familyProgram reading a family owner from the role's own schema (CLOSED-B-00b): a
  *   role writing a mutable owner through a query entry, whose ChangeSet inserts another owner and puts the entry in one
@@ -28,24 +28,25 @@
  *
  * Oracles: the rule restated over the case, the control installation and the control compilation.
  *
- * Features: each declaration refused and admitted, each role's way of writing each relation, an owner mutable or not,
- * and each program the control admits or the insert role is refused, with the kept case's stratum.
+ * Features: each declaration refused and admitted, each role's way and list of writing each relation, an owner's
+ * recount granted and refused, and each program the control admits or the role is refused, with the kept case's
+ * stratum.
  */
 
 import { isNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Formatter, Option, Result } from "effect"
-import { CompileError } from "#compiler/core/errors.ts"
+import { Array as Arr, Effect, Formatter, Option } from "effect"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import type { TablePrivilege } from "#compiler/core/privilege.ts"
 import { grantedPrivileges } from "#compiler/physical/ddl/roles.ts"
+import { ownRole } from "#compiler/schema/own.ts"
 import { roleDescOf } from "#compiler/schema/world.ts"
 import {
-	beyondInsert,
 	comparable,
 	compiled,
 	compiledOrRefused,
+	controlOf,
 	declarationRefusal,
 	type InsertDeclared,
 	entriesOf,
@@ -54,12 +55,11 @@ import {
 	holds,
 	type InsertFeature,
 	isOwner,
-	keyed,
 	type MemberCase,
 	memberOf,
+	modificationsOf,
 	mutableIn,
 	privilegesIdent,
-	reached,
 	relaxedByRule,
 	roleIn,
 	type RoleName,
@@ -70,14 +70,13 @@ import {
 	sortedPrivileges,
 	statementsOf,
 	tablePrivileges,
-	unkeyed,
 	type InsertWorld,
 	worldSpace,
 	written
 } from "#test/unit/physical/insert-grants.fixtures.ts"
 
-/** Roles that write by an insert list the declaration, its grants, byte-identical write roles and the refusal of programs beyond insert. Its budget is its suite's before it was a property (test/unit/physical/insert-grants.test.ts at 4ca3036a): 160 runs and 160 steered cases. */
-export const rolesThatWriteByAnInsertListTheDeclarationItsGrantsByteIdenticalWriteRolesAndTheRefusalOfProgramsBeyondInsert =
+/** Roles that write each relation under its list: the declaration, its grants relation by relation, roles stated as their controls and the refusal of programs beyond the grants. */
+export const rolesThatWriteEachRelationUnderItsListTheDeclarationItsGrantsAndTheRefusalOfProgramsBeyondThem =
 	property.explore(worldSpace, {
 		needs: {},
 		budget: { runs: 160, steered: 160 },
@@ -87,63 +86,49 @@ export const rolesThatWriteByAnInsertListTheDeclarationItsGrantsByteIdenticalWri
 				const s = schemaOf(w.mutability)
 				const declared = Arr.flatMap(roleNames, (name): ReadonlyArray<InsertDeclared> => {
 					const rc = w.roles[name]
-					const outcome = Result.try({
-						try: () => roleOf(s, name, rc.writes, rc.stated),
-						catch: (e) => e
-					})
-					const refusal = declarationRefusal(rc)
-					if (Result.isFailure(outcome)) {
-						const error = outcome.failure
-						assert.ok(error instanceof CompileError, String(error))
-						if (refusal === "writeAndInsert") {
-							c.note("both keys refused")
-							assert.deepEqual(
-								error.reason._tag === "RoleRefused" ? error.reason.rule : error.reason,
-								{ kind: "writeAndInsert" },
+					const desc = defined(roleDescOf(roleOf(s, name, rc)), "a role built by role(...)")
+					const owned = ownRole(desc)
+					const refusal = declarationRefusal(rc, w.mutability)
+					if (!owned.ok) {
+						const error = owned.error
+						c.note("a closed relation under write refused")
+						assert.ok(
+							refusal !== undefined,
+							`${name} is refused, which the rule admits: ${error.message}`
+						)
+						const reason = error.reason
+						assert.equal(reason._tag, "RoleRefused", error.message)
+						if (reason._tag === "RoleRefused") {
+							assert.equal(reason.rule.kind, "writeClosed", error.message)
+							assert.equal(
+								reason.rule.kind === "writeClosed" ? reason.rule.relation : undefined,
+								refusal,
 								error.message
 							)
-						} else {
-							c.note("an empty insert list refused")
-							assert.equal(refusal, "emptyInsert", error.message)
-							assert.equal(error.reason._tag, "MalformedDescription", error.message)
 						}
 						return []
 					}
-					assert.equal(refusal, undefined, `${name} is declared, which the rule refuses`)
-					const stated = rc.stated === "insert" ? "insert" : "write"
-					c.note(stated === "insert" ? "a role stating insert" : "a role stating write")
-					const listed = Arr.map(entriesOf(s, rc.writes).names, ([, entry]) => entry)
-					const desc = defined(roleDescOf(outcome.success), "a role built by role(...)")
-					assert.deepEqual(
-						keyed(desc),
-						{ key: stated, list: listed },
-						`${name}'s Description holds the key it stated and its list`
-					)
-					if (isNonEmpty(listed)) {
-						const other = defined(
-							roleDescOf(roleOf(s, name, rc.writes, stated === "insert" ? "write" : "insert")),
-							"the role under the other key"
-						)
+					assert.equal(refusal, undefined, `${name} is owned, which the rule refuses`)
+					const { names } = entriesOf(s, rc.writes)
+					for (const mode of ["insert", "write"] as const) {
 						assert.deepEqual(
-							keyed(other),
-							{ key: stated === "insert" ? "write" : "insert", list: listed },
-							`${name} under the other key holds that key and the same list`
-						)
-						assert.deepEqual(
-							unkeyed(desc),
-							unkeyed(other),
-							`${name} under the other key differs in its key alone`
+							desc[mode],
+							Arr.flatMap(names, ([t, entry]) => (rc.modes[t] === mode ? [entry] : [])),
+							`${name}'s Description holds each entry under its list`
 						)
 					}
-					return [{ name, writes: rc.writes, stated }]
+					c.note(
+						Arr.some(names, ([t]) => rc.modes[t] === "write")
+							? "a role writing an open relation"
+							: "a role inserting alone"
+					)
+					return [{ name, role: rc }]
 				})
 				const result = compiled(s, declared)
 				assert.ok(result.ok, result.ok ? "" : result.error.message)
 				const i = result.value
-				const control = compiled(
-					s,
-					Arr.map(declared, (d) => ({ ...d, stated: "write" as const }))
-				)
+				const controls = Arr.map(declared, (d) => ({ ...d, role: controlOf(d.role, w.mutability) }))
+				const control = compiled(s, controls)
 				assert.ok(control.ok, control.ok ? "" : control.error.message)
 				const ci = control.value
 				for (const d of declared) {
@@ -158,6 +143,7 @@ export const rolesThatWriteByAnInsertListTheDeclarationItsGrantsByteIdenticalWri
 						`the checked role ${d.name}`
 					).checked
 					const granted = grantedPrivileges(i.laws, checked)
+					const { writes, modes } = d.role
 					for (const t of [...written, "Open"] as const) {
 						const table = i.names.relation(t)
 						const installed: ReadonlyArray<TablePrivilege> = Arr.filter(tablePrivileges, (p) =>
@@ -173,13 +159,32 @@ export const rolesThatWriteByAnInsertListTheDeclarationItsGrantsByteIdenticalWri
 							installed,
 							`grantedPrivileges of ${d.name} on ${t} is what is installed`
 						)
-						if (d.stated === "insert" && t !== "Open") {
-							if (isOwner(t) && d.writes[memberOf[t]] !== "none" && d.writes[t] !== "whole") {
-								c.note("an insert role holding a family owner's columns")
+						if (t === "Open") {
+							continue
+						}
+						if (writes[t] !== "none" && modes[t] === "insert") {
+							const recounts = isOwner(t) && writes[memberOf[t]] !== "none"
+							assert.ok(
+								Arr.every(
+									installed,
+									(p) => p === "SELECT" || p === "INSERT" || (recounts && p === "UPDATE")
+								),
+								`${d.name} holds no DELETE on ${t}, which its insert list names, and no UPDATE but a recount's`
+							)
+							if (mutableIn(w.mutability, t)) {
+								c.note("an open relation inserted into alone")
 							}
-							if (d.writes[t] !== "none" && mutableIn(w.mutability, t)) {
-								c.note("an insert role over a mutable table")
-							}
+						}
+						if (
+							isOwner(t) &&
+							writes[memberOf[t]] !== "none" &&
+							(writes[t] !== "whole" || modes[t] === "insert")
+						) {
+							c.note(
+								Arr.some(installed, (p) => p === "UPDATE")
+									? "an owner's recount granted"
+									: "an inserting role holding a family owner's columns"
+							)
 						}
 					}
 					assert.ok(
@@ -187,13 +192,21 @@ export const rolesThatWriteByAnInsertListTheDeclarationItsGrantsByteIdenticalWri
 						`${d.name} holds no table privilege on what it only reads`
 					)
 				}
-				const flipped = new Set(
-					Arr.flatMap(declared, (d) => (d.stated === "insert" ? [privilegesIdent(i, d.name)] : []))
+				const differing = new Set(
+					Arr.flatMap(declared, (d) => {
+						const ctl = controlOf(d.role, w.mutability)
+						return Arr.some(
+							written,
+							(t) => d.role.writes[t] !== "none" && d.role.modes[t] !== ctl.modes[t]
+						)
+							? [privilegesIdent(i, d.name)]
+							: []
+					})
 				)
 				assert.deepEqual(
-					comparable(i, flipped),
-					comparable(ci, flipped),
-					"the installation is the control's but for each insert role's privileges"
+					comparable(i, differing),
+					comparable(ci, differing),
+					"the installation is the control's but for each role's privileges where its lists differ"
 				)
 				assert.deepEqual(
 					Arr.map(i.certification, (r) => [r.login, r.role]),
@@ -220,11 +233,12 @@ export const rolesThatWriteByAnInsertListTheDeclarationItsGrantsByteIdenticalWri
 						Arr.some(
 							declared,
 							(d) =>
-								d.stated === "insert" &&
+								d.role.writes[t] !== "none" &&
+								d.role.modes[t] === "insert" &&
 								Arr.some(rulePrivileges(d, w.mutability, t), (p) => p === "INSERT")
 						)
 					) {
-						c.note("a guarded table an insert role writes")
+						c.note("a guarded table an inserting role writes")
 					}
 				}
 				const programmed = Arr.findFirst(declared, (d) => d.name === w.program.role)
@@ -232,7 +246,7 @@ export const rolesThatWriteByAnInsertListTheDeclarationItsGrantsByteIdenticalWri
 					return
 				}
 				const d = programmed.value
-				const { names } = entriesOf(s, d.writes)
+				const { names } = entriesOf(s, d.role.writes)
 				const targeted: Array<readonly [MemberCase, string]> = []
 				for (const m of w.program.members) {
 					const at = Arr.findFirst(names, ([t]) => t === m.relation)
@@ -244,20 +258,13 @@ export const rolesThatWriteByAnInsertListTheDeclarationItsGrantsByteIdenticalWri
 				if (!isNonEmpty(targeted)) {
 					return
 				}
-				const members = Arr.map(targeted, ([m]) => m)
-				const value = roleOf(s, d.name, d.writes, d.stated)
-				const program = compiledOrRefused(value, targeted)
-				const controlProgram = compiledOrRefused(roleOf(s, d.name, d.writes, "write"), targeted)
-				if (d.stated === "write") {
-					assert.deepEqual(
-						program.ok ? { ok: true } : { ok: false, reason: program.error.reason },
-						controlProgram.ok ? { ok: true } : { ok: false, reason: controlProgram.error.reason },
-						"a write role's program is its own"
-					)
-					return
-				}
+				const program = compiledOrRefused(roleOf(s, d.name, d.role), targeted)
+				const controlProgram = compiledOrRefused(
+					roleOf(s, d.name, controlOf(d.role, w.mutability)),
+					targeted
+				)
 				if (!controlProgram.ok) {
-					c.note("an insert program the control refuses")
+					c.note("a program the control refuses")
 					assert.ok(!program.ok, "the control's refusal stands")
 					assert.deepEqual(
 						program.error.reason,
@@ -266,25 +273,26 @@ export const rolesThatWriteByAnInsertListTheDeclarationItsGrantsByteIdenticalWri
 					)
 					return
 				}
-				const beyond = Arr.filter(members, (m) => beyondInsert(m, w.mutability))
+				const relationOf = (table: string): Option.Option<(typeof written)[number]> =>
+					Arr.findFirst(written, (t) => i.names.relation(t).name === table)
+				const beyond = Arr.flatMap(modificationsOf(statementsOf(controlProgram.value)), (m) =>
+					Option.match(relationOf(m.table), {
+						onNone: () => [],
+						onSome: (t) =>
+							Arr.some(rulePrivileges(d, w.mutability, t), (p) => p === m.operation)
+								? []
+								: [{ relation: t, operation: m.operation }]
+					})
+				)
 				if (!isNonEmpty(beyond)) {
-					c.note("an admitted insert program")
+					c.note("an admitted program")
 					assert.ok(program.ok, program.ok ? "" : program.error.message)
 					assert.deepEqual(
 						statementsOf(program.value),
 						statementsOf(controlProgram.value),
-						"an admitted insert program is the control's"
+						"an admitted program is the control's"
 					)
 					return
-				}
-				for (const m of beyond) {
-					c.note(
-						m.op === "delete"
-							? "a deletion refused"
-							: m.op === "put"
-								? "a put refused"
-								: "a recount refused"
-					)
 				}
 				assert.ok(!program.ok, `refused: ${Formatter.format(beyond)}`)
 				const reason = program.error.reason
@@ -299,8 +307,22 @@ export const rolesThatWriteByAnInsertListTheDeclarationItsGrantsByteIdenticalWri
 				}
 				const access = reason.access
 				assert.ok(
-					Arr.some(beyond, (m) => Arr.some(reached(m.relation), (r) => r === access.relation)),
-					`${access.operation} of ${access.relation} is reached by a member beyond insert`
+					Arr.some(
+						beyond,
+						(b) => b.relation === access.relation && b.operation === access.operation
+					),
+					`${access.operation} of ${access.relation} is one the control's program makes beyond the role's grants`
+				)
+				const recounted = Arr.some(
+					written,
+					(t) => t === access.relation && isOwner(t) && d.role.writes[t] === "none"
+				)
+				c.note(
+					access.operation === "DELETE"
+						? "a DELETE refused"
+						: recounted
+							? "a recount refused"
+							: "an UPDATE refused"
 				)
 			}),
 		oracle: {
@@ -310,19 +332,25 @@ export const rolesThatWriteByAnInsertListTheDeclarationItsGrantsByteIdenticalWri
 		kept: [
 			{
 				token: ReplayToken(
-					"test/unit/physical/insert-grants.test.ts#rolesThatWriteByAnInsertListTheDeclarationItsGrantsByteIdenticalWriteRolesAndTheRefusalOfProgramsBeyondInsert:-:2.0.1.1.0.0.0.0.0.0.0.0.1.0.0.2.0.2.2.0"
+					"test/unit/physical/insert-grants.test.ts#rolesThatWriteEachRelationUnderItsListTheDeclarationItsGrantsAndTheRefusalOfProgramsBeyondThem:-:2.0.1.1.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.2.0.2.2.0"
 				),
 				reason:
-					"a put through a query entry over a mutable family owner, beside an owner's insertion",
+					"a put through a query entry over a mutable family owner under the write list, beside an owner's insertion",
 				since: "2026-11-10"
 			}
 		],
 		kills: [
 			{
 				file: "packages/engine/src/physical/ddl/roles.ts",
-				original: '\t\treturn ["SELECT", "INSERT"]',
-				replacement: '\t\treturn ["SELECT", "INSERT", "DELETE"]',
-				why: "A role writing by its insert list holds DELETE."
+				original: '\t\t\treturn ["SELECT", "INSERT"]',
+				replacement: '\t\t\treturn ["SELECT", "INSERT", "UPDATE", "DELETE"]',
+				why: "An entry of the insert list holds the write list's privileges: its role's UPDATE and DELETE on the table differ from the rule's."
+			},
+			{
+				file: "packages/engine/src/schema/own.ts",
+				original: '\t\tif (mode === "write" && base.relations[relation]?.mutable !== true) {',
+				replacement: "\t\tif (false) {",
+				why: "Ownership admits a closed relation under the write list: the declaration the rule refuses is owned."
 			}
 		]
 	})

@@ -97,7 +97,9 @@ export const badgeCode = key(on(Badge, "code"))
 
 const shared = { Item, Note, Code, Room, Ref, Zed } as const
 const relations = { ...shared, Badge, Gate, Claim, Seat } as const
-const written = ["Item", "Note", "Code", "Room", "Ref", "Zed"] as const
+/** What the shared roles write: the closed Ref by their insert lists, every other shared relation, open, by their
+ * write lists. */
+const writes = { insert: ["Ref"], write: ["Item", "Note", "Code", "Room", "Zed"] } as const
 const statements = [
 	unit("Id", { id: pg.integer }),
 	unit("Room", { room: pg.integer }),
@@ -211,7 +213,7 @@ const schedSchema = (name: string) => schema(name, Rec.values(relations), statem
  */
 const renamedSched = (name: string) => {
 	const base = schedSchema(name)
-	const app = role(base, "app", shared, { write: written })
+	const app = role(base, "app", shared, writes)
 	/**
 	 * The role `app`'s put of the Note rows its call passes as the list `items`, and its deletion of every other Note of
 	 * the label `scope`: the shape of a race's scoped member (races.test.ts), whose list is passed under the same name
@@ -238,7 +240,7 @@ const renamedSched = (name: string) => {
 					.find({ id, label: noteLabel })
 			})
 		)
-	const direct = role(base, "direct", shared, { write: written })
+	const direct = role(base, "direct", shared, writes)
 	const inserter = inserterOf(base)
 	const claimer = claimerOf(base)
 	return {

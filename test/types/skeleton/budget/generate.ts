@@ -101,7 +101,7 @@ ${statements(ns, declared)}
 ])
 /** A full reader and a full writer of every relation, which every program over the schema runs on. */
 export const ${ns}Reader = role(${ns}S, "reader", wholeEntriesOf(${ns}S))
-export const ${ns}Writer = role(${ns}S, "writer", wholeEntriesOf(${ns}S), { write: writableNamesOf(${ns}S) })
+export const ${ns}Writer = role(${ns}S, "writer", wholeEntriesOf(${ns}S), wholeWritesOf(${ns}S))
 ${Arr.join(
 	Arr.map(blocked, (i) => relationBlock(ns, i, relations)),
 	""

@@ -430,7 +430,7 @@ export const reportingWorlds = (installed: PayrollNamed<string>) => {
 	 */
 	const entries = Struct.omit(reporting.relations, ["LevyRate", "RunTotal"])
 	const hr = role(reporting, "hr", entries, {
-		write: [
+		insert: [
 			"Employer",
 			"Employee",
 			"ReportsTo",
@@ -439,13 +439,12 @@ export const reportingWorlds = (installed: PayrollNamed<string>) => {
 			"Employment",
 			"Assignment",
 			"Salary",
-			"Leave",
-			"Timesheet"
-		]
+			"Leave"
+		],
+		write: ["Timesheet"]
 	})
 	const clerk = role(reporting, "clerk", entries, {
-		write: [
-			"PayRun",
+		insert: [
 			"PayLine",
 			"OffCycleReason",
 			"Deposit",
@@ -453,12 +452,13 @@ export const reportingWorlds = (installed: PayrollNamed<string>) => {
 			"Posting",
 			"Payment",
 			"Voiding",
-			"Reissue",
-			"Shift"
-		]
+			"Reissue"
+		],
+		write: ["PayRun", "Shift"]
 	})
 	const approver = role(reporting, "approver", entries, {
-		write: ["PayRun", "Approval", "Request"]
+		insert: ["Approval", "Request"],
+		write: ["PayRun"]
 	})
 	const auditor = role(reporting, "auditor", entries)
 	return {

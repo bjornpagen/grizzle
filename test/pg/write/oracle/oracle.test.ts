@@ -84,9 +84,9 @@ export const writeOracle = property.explore(perturbedRunGen, {
 	kills: [
 		{
 			file: "packages/engine/src/physical/ddl/roles.ts",
-			original: '\tif (writing === "insert" || !w.relation.mutable) {',
-			replacement: '\tif (writing === "insert") {',
-			why: "A writer of a closed relation holds DELETE on its table again (physical/ddl/roles.ts entryPrivileges): the run's privilege check, a closed table's DELETE a problem, fails."
+			original: '\t\t\treturn ["SELECT", "INSERT"]',
+			replacement: '\t\t\treturn ["SELECT", "INSERT", "DELETE"]',
+			why: "A writer of a closed relation, which its insert list names (wholeWritesOf), holds DELETE on its table again (physical/ddl/roles.ts entryPrivileges): the run's privilege check, a closed table's DELETE a problem, fails."
 		},
 		{
 			file: "packages/engine/src/write/program/slot-carriers.ts",

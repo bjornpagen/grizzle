@@ -32,7 +32,7 @@ const Note = relation("Note", { id: Id, n: pg.integer }, ["id"])
  */
 const builtOf = (name: string) => {
 	const base = schema(name, [Note], [])
-	const scribe = role(base, "scribe", { Note }, { write: ["Note"] })
+	const scribe = role(base, "scribe", { Note }, { insert: ["Note"] })
 	const reader = role(base, "reader", { Note })
 	return { base, scribe, reader, desk: login(base, "desk", [scribe, reader]) }
 }

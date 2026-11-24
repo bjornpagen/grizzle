@@ -18,7 +18,7 @@ import { bindWrite } from "#compiler/runtime/write/bind.ts"
 import type { Cells } from "#compiler/runtime/write/cells.ts"
 import { normalizeChangeSet } from "#compiler/runtime/write/normalize.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
-import { roleBuilder as role } from "#compiler/schema/world.ts"
+import { roleBuilder as role, wholeWritesOf } from "#compiler/schema/world.ts"
 import { carrierScope } from "#compiler/sql/naming.ts"
 import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
@@ -543,11 +543,15 @@ export const guards = (spec: FillSpec, note: (situation: FillSituation) => void)
 					continue
 				}
 				const held = Arr.filter(Rec.keys(built.relations), (name) => name !== left)
+				const open = new Set<string>(wholeWritesOf(value).write)
 				const app = role(
 					value,
 					"refill",
 					Rec.fromEntries(Arr.map(held, (name) => [name, defined(built.relations[name])] as const)),
-					{ write: held }
+					{
+						insert: Arr.filter(held, (name) => !open.has(name)),
+						write: Arr.filter(held, (name) => open.has(name))
+					}
 				)
 				const roleArtifacts = succeeded(testArtifacts(app, testCompile), "the role's artifacts")
 				const world = roleArtifacts.world

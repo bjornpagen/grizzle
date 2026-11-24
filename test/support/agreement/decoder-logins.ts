@@ -30,7 +30,7 @@ const Shelf = schema("Shelf", [Item, Due], [])
 
 /** The login `name`'s role: every relation of Shelf whole, writing Item. */
 const clerk = (name: string) =>
-	role(Shelf, `${name}Clerk`, wholeEntriesOf(Shelf), { write: ["Item"] })
+	role(Shelf, `${name}Clerk`, wholeEntriesOf(Shelf), { insert: ["Item"] })
 
 const items = query(Shelf).rule((r) => {
 	const { id } = v(Item, "item")

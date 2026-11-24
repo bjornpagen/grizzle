@@ -341,9 +341,9 @@ const preconditionText = (kind: PreconditionKind, operand: string): string => {
 
 /**
  * A relation access a role does not hold, an OutsideRole's: a read of a relation of the role's base the role does not
- * hold (`base` naming the base); a write of a relation outside its write list; an UPDATE or DELETE of `relation` by a
- * role that writes by its insert list, which holds neither (`insert`); a
- * match of `context`, which the role does not declare,
+ * hold (`base` naming the base); a write of a relation outside its insert and write lists; an UPDATE or DELETE of
+ * `relation` its grants do not hold, where the role only inserts: `relation` is under its insert list, or owns a family
+ * whose open member is, whose recount the program makes (`insert`); a match of `context`, which the role does not declare,
  * so its Db's claims hold no fact of it; a program over the role's base, which is one only for a role holding every
  * relation of it whole or scoped; or a program over the base that reads `relation`, which the role holds scoped, other
  * than row by row (`crossOwner`, program/slice.ts): its `read` decides by rows of `relation` it cannot show are all of
@@ -381,9 +381,9 @@ const accessText = (role: string, access: RoleAccess): string => {
 		case "read":
 			return `a relation role ${role} holds; ${access.relation} is a relation of its base ${access.base} outside it`
 		case "write":
-			return `a write in role ${role}'s write list; ${access.relation} is outside it`
+			return `a write in role ${role}'s insert or write list; ${access.relation} is outside both`
 		case "insert":
-			return `an insert by role ${role}, which writes by its insert list; the program ${access.operation === "DELETE" ? "deletes from" : "updates"} ${access.relation}`
+			return `an insert alone where role ${role} holds no ${access.operation} on ${access.relation}, which it only inserts into or owns a family it only inserts into; the program ${access.operation === "DELETE" ? "deletes from" : "updates"} ${access.relation}`
 		case "context":
 			return `a context role ${role} declares, whose facts its Db's claims hold (${access.declared.length === 0 ? "it declares none" : access.declared.join(", ")}); ${access.context} is none of them`
 		case "wholeBase":

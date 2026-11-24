@@ -43,9 +43,9 @@ const boxCases: ReadonlyArray<ScopedCase> = [
 		verdict: admitted
 	},
 	{
-		what: "a write list naming a scoped ordinary relation and a whole one",
+		what: "an insert list naming a scoped closed relation and a whole one",
 		statement:
-			'role(Sitting, "writer", scopedEntriesOf(Sitting, { owner: persons, roots: { Assignment: "student" } }), { write: ["SittingEvent", "Content"], contexts: [Session] })',
+			'role(Sitting, "writer", scopedEntriesOf(Sitting, { owner: persons, roots: { Assignment: "student" } }), { insert: ["SittingEvent", "Content"], contexts: [Session] })',
 		verdict: admitted
 	},
 	{

@@ -79,7 +79,6 @@ import {
 	type RelationDesc,
 	type RoleDesc,
 	type RoleEntryDesc,
-	type RoleWritingKey,
 	type RosterDesc,
 	levelChain,
 	rosterOrderOf,
@@ -94,6 +93,7 @@ import {
 	termText,
 	type UnitDesc,
 	type UnitFieldDesc,
+	type WriteMode,
 	type Writing,
 	writtenNames
 } from "#compiler/ir/desc.ts"
@@ -2654,22 +2654,25 @@ export interface OwnedWorldEntry {
 }
 
 /**
- * One entry of a role's write list as ownership admitted it: "whole", a whole entry of an ordinary relation, which
- * writes its table as it is; "rows", a query entry the writable-entry analysis admits, with its analysis, whose writes
- * the table's row security holds to the entry's membership; "scoped", a scoped entry of an ordinary relation, which
- * writes its table as a whole entry does, behind the precheck and row security of its membership (its analysis,
- * EntryKeys scoped), under its scope.
+ * One entry of a role's insert or write list as ownership admitted it, under its list's mode (ir/desc.ts WriteMode),
+ * an open relation's alone under `write`: "whole", a whole entry of an ordinary relation, which writes its table as it
+ * is; "rows", a query entry the writable-entry analysis admits, with its analysis, whose writes the table's row
+ * security holds to the entry's membership; "scoped", a scoped entry of an ordinary relation, which writes its table
+ * as a whole entry does, behind the precheck and row security of its membership (its analysis, EntryKeys scoped), under
+ * its scope.
  */
 export type OwnedWrite =
 	| {
 			readonly kind: "whole"
 			readonly name: string
+			readonly mode: WriteMode
 			readonly relation: Extract<OwnedRelation, { readonly kind: "relation" }>
 			readonly loc: SourceLoc
 	  }
 	| {
 			readonly kind: "rows"
 			readonly name: string
+			readonly mode: WriteMode
 			readonly entry: OwnedWorldEntry
 			readonly writable: WritableEntry<string, string>
 			readonly loc: SourceLoc
@@ -2677,6 +2680,7 @@ export type OwnedWrite =
 	| {
 			readonly kind: "scoped"
 			readonly name: string
+			readonly mode: WriteMode
 			readonly relation: Extract<OwnedRelation, { readonly kind: "relation" }>
 			readonly entry: OwnedWorldEntry
 			readonly writable: WritableEntry<string, string>
@@ -2712,11 +2716,10 @@ export const entryContextBreak = (
 }
 
 /**
- * The owned role: its name, its base's Owned, its relations by name, its write list as admitted entries by name in name
- * order, the key that list was stated under (`insert`: the role holds INSERT and SELECT on what it writes, no DELETE
- * or UPDATE), whether it holds every relation of its base whole (a full role, whose
- * base is among its levels), and the contexts it declares, by name, in name order: the facts its Db's claims hold, and
- * the only contexts its query entries and programs match.
+ * The owned role: its name, its base's Owned, its relations by name, its insert and write lists as admitted entries by
+ * name in name order, each under its mode, whether it holds every relation of its base whole (a full role, whose base
+ * is among its levels), and the contexts it declares, by name, in name order: the facts its Db's claims hold, and the
+ * only contexts its query entries and programs match.
  */
 export interface OwnedRole {
 	readonly name: DeclaredName
@@ -2724,7 +2727,6 @@ export interface OwnedRole {
 	readonly base: Owned
 	readonly relations: Readonly<Record<string, OwnedEntry>>
 	readonly writes: ReadonlyMap<string, OwnedWrite>
-	readonly writing: RoleWritingKey
 	readonly full: boolean
 	readonly contexts: Readonly<Record<string, ContextDesc>>
 	/** Each scoped entry's scope (scope.ts Scope), by its relation's name, in name order: its query entry's query. */
@@ -2825,15 +2827,20 @@ const ownRoleOf = (desc: RoleDesc, base: Owned): OwnedRole => {
 		}
 	}
 	const targets = new Map<string, string>()
-	const target = (relation: string, entry: string): void => {
+	/** The base relation `relation` written by `entry` under `mode`: once across both lists, and an open one under
+	 * write. */
+	const target = (relation: string, entry: string, mode: WriteMode): void => {
 		const prior = targets.get(relation)
 		if (prior !== undefined) {
 			broken(desc.loc, { kind: "writeTwice", relation, entries: [prior, entry] })
 		}
+		if (mode === "write" && base.relations[relation]?.mutable !== true) {
+			broken(desc.loc, { kind: "writeClosed", entry, relation })
+		}
 		targets.set(relation, entry)
 	}
 	const admitted = new Map<string, OwnedWrite>()
-	for (const w of writtenNames(desc)) {
+	for (const { name: w, mode } of writtenNames(desc)) {
 		const r = Object.hasOwn(relations, w) ? relations[w] : undefined
 		if (r === undefined) {
 			broken(desc.loc, { kind: "writeOutside", name: w })
@@ -2847,8 +2854,8 @@ const ownRoleOf = (desc: RoleDesc, base: Owned): OwnedRole => {
 					entryKind: relation.kind === "closedRelation" ? "closed" : relation.kind
 				})
 			}
-			target(w, w)
-			admitted.set(w, { kind: "whole", name: w, relation, loc: r.loc })
+			target(w, w, mode)
+			admitted.set(w, { kind: "whole", name: w, mode, relation, loc: r.loc })
 			continue
 		}
 		const scope = scoped.get(w)
@@ -2862,9 +2869,16 @@ const ownRoleOf = (desc: RoleDesc, base: Owned): OwnedRole => {
 		if (!analyzed.ok) {
 			broken(r.loc, { kind: "writeUnwritable", entry: w, why: analyzed.error.reason })
 		}
-		target(analyzed.value.target, w)
+		target(analyzed.value.target, w, mode)
 		if (scope === undefined) {
-			admitted.set(w, { kind: "rows", name: w, entry: r, writable: analyzed.value, loc: r.loc })
+			admitted.set(w, {
+				kind: "rows",
+				name: w,
+				mode,
+				entry: r,
+				writable: analyzed.value,
+				loc: r.loc
+			})
 			continue
 		}
 		const relation = base.relations[w]
@@ -2874,6 +2888,7 @@ const ownRoleOf = (desc: RoleDesc, base: Owned): OwnedRole => {
 		admitted.set(w, {
 			kind: "scoped",
 			name: w,
+			mode,
 			relation,
 			entry: r,
 			writable: analyzed.value,
@@ -2894,7 +2909,6 @@ const ownRoleOf = (desc: RoleDesc, base: Owned): OwnedRole => {
 		base,
 		relations,
 		writes: new Map([...admitted].toSorted(([a], [b]) => compareStrings(a, b))),
-		writing: "insert" in desc ? "insert" : "write",
 		full,
 		contexts: ownedContexts,
 		scoped: new Map([...scoped].toSorted(([a], [b]) => compareStrings(a, b)))
@@ -2904,10 +2918,11 @@ const ownRoleOf = (desc: RoleDesc, base: Owned): OwnedRole => {
 /**
  * Owns a role description, its base first.
  *
- * ownRole is ownership of a role: its base owned first, then every rule of a role's relations and write list checked
- * against it, each a RoleRefused naming the rule it breaks (core/causes.ts RoleRule), or Refused for a rule the
- * types name too: a whole entry names a relation of the base under its own name; a query entry is a Query over the base that reads no parameter; a write entry is a whole ordinary
- * relation or a query entry the writable-entry analysis admits, at most one per base relation; and each context a query entry matches is one the role declares (entryContext), by the
+ * ownRole is ownership of a role: its base owned first, then every rule of a role's relations and its insert and write
+ * lists checked against it, each a RoleRefused naming the rule it breaks (core/causes.ts RoleRule), or Refused for a rule the
+ * types name too: a whole entry names a relation of the base under its own name; a query entry is a Query over the base that reads no parameter; a written entry is a whole ordinary
+ * relation or a query entry the writable-entry analysis admits, at most one per base relation across both lists, and
+ * one under the write list writes an open relation (writeClosed); and each context a query entry matches is one the role declares (entryContext), by the
  * declared descriptor (DuplicateIdentity). The relations' names are declared names of one namespace, the role's schema of views
  * (core/identity.ts DeclaredNamespace: MalformedDescription, or IdentifierCollision for two that convert alike). A
  * query entry's heading and types are the checker's, against the base (analysis/schema.ts checkedRoleOver), and its heading's
@@ -2985,7 +3000,8 @@ export const ownBuiltRole = (desc: RoleDesc, base: Owned): Result.Result<OwnedRo
 
 /**
  * The description of the full role `name` over a schema description: every relation of every level a role holds
- * whole (desc.ts heldRelation), writing its ordinary relations, and declaring no context.
+ * whole (desc.ts heldRelation), writing its ordinary relations, each closed one by its insert list and each open one by
+ * its write list, and declaring no context.
  */
 export const fullRoleDesc = (
 	base: SchemaDesc,
@@ -3007,7 +3023,8 @@ export const fullRoleDesc = (
 		return decodeRoleOver(base, {
 			name,
 			relations: [first, ...rest],
-			write: relations.filter((r) => r.kind === "relation").map((r) => r.name),
+			insert: relations.filter((r) => r.kind === "relation" && !r.mutable).map((r) => r.name),
+			write: relations.filter((r) => r.kind === "relation" && r.mutable).map((r) => r.name),
 			contexts: [],
 			loc
 		})

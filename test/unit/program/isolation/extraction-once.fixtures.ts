@@ -55,7 +55,7 @@ export const drawnGen: Gen<Drawn> = (source) => ({
  */
 export const fencedLoginOf = (drawn: Drawn) => {
 	const writer = role(Fenced, "writer", stored, { insert: ["Gate", "Room"] })
-	const publisher = role(Fenced, "publisher", stored, { write: ["Pub"] })
+	const publisher = role(Fenced, "publisher", stored, { insert: ["Pub"] })
 	const learner = role(Fenced, "learner", stored, { insert: ["Seen"] })
 	const p = publisher.relations
 	const proposed = query(publisher).rule((r) =>
