@@ -7,6 +7,7 @@ import {
 	array,
 	boolean,
 	constant,
+	element,
 	type Gen,
 	int,
 	map,
@@ -19,8 +20,20 @@ import { derivedKeyLayout } from "#compiler/analysis/derived/keys.ts"
 import type { DerivedRefusal, KeyFault } from "#compiler/core/causes.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
+import { Fn, Type } from "#compiler/public/compute.ts"
 import { natural, pg } from "#compiler/public/fields.ts"
-import { key, on, type Relation, relation, schema } from "#compiler/public/schema.ts"
+import { query, v } from "#compiler/public/query.ts"
+import {
+	derived,
+	fn,
+	key,
+	on,
+	type Relation,
+	relation,
+	rows,
+	schema
+} from "#compiler/public/schema.ts"
+import { str } from "#compiler/public/text.ts"
 import { queryOver, type QueryValue, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { storedDerived as runtimeDerived, relationBuilder } from "#compiler/schema/relation.ts"
@@ -1371,3 +1384,195 @@ export interface NamedKey {
 }
 
 export const keyName = (n: number): string => `n${n}`
+
+/**
+ * A source of rows a call returns, which a derived relation matches beside the row its arguments are read from: a
+ * token split of the row's list (r.tokens), a series from its low to its high (r.series), or a declared function's rows
+ * at its list (Fn.rows), each row of which has a place `at` beside its piece where it has one.
+ */
+export const callSources = ["a token split", "a series", "a declared function's rows"] as const
+export type CallSource = (typeof callSources)[number]
+
+/** How the definition reads a call's place: delivered in its head, fixed to a literal, or read and dropped. */
+export const ordinalUses = [
+	"the place in the head",
+	"the place fixed to a literal",
+	"the place dropped"
+] as const
+export type OrdinalUse = (typeof ordinalUses)[number]
+
+export interface CallKeyCase {
+	readonly call: CallSource
+	readonly ordinal: OrdinalUse
+}
+
+/**
+ * The uses of a call's place a case draws: every one, but a series' place fixed to a literal, since a rule binds no
+ * bare literal to an exact integer (scalar/compute/literal.ts).
+ */
+const seriesUses = [
+	"the place in the head",
+	"the place dropped"
+] as const satisfies ReadonlyArray<OrdinalUse>
+
+export const callKeyCase: Gen<CallKeyCase> = (source) => {
+	const call = source.draw(element(callSources))
+	return {
+		call,
+		ordinal: source.draw(element<OrdinalUse>(call === "a series" ? seriesUses : ordinalUses))
+	}
+}
+
+/** A piece a declared function returns: a text of a bound, so its whole heading is a key a B-tree entry holds. */
+const Piece = str.bytes(64, str.regex("^.*$", "su"))
+
+/**
+ * A row of lists, keyed by its id: a list of any text, whose tokens are texts of no byte bound, as edullm's walks read a
+ * pantry attribute's value (WalkCategory, WalkLiteralPair), and the two ends of a series.
+ */
+const Listed = relation(
+	"Listed",
+	{ id: Id, list: str.regex("^.*$", "su"), lo: pg.integer, hi: pg.integer },
+	["id"]
+)
+
+/** A declared function's rows of a list: each piece at its place, the rows PostgreSQL alone evaluates. */
+const pieces = fn("pieces", {
+	calls: [],
+	args: { t: str.regex("^.*$", "su") },
+	returns: rows({ at: pg.integer, piece: Piece }),
+	volatility: "immutable",
+	nullInput: "strict",
+	language: "sql",
+	body: fn.body`SELECT o::integer, left(p, 64) FROM unnest(string_to_array(t, ' ')) WITH ORDINALITY AS u(p, o)`
+})
+
+const callBase = schema("CallKeys", [Listed, pieces], [])
+
+/** Whether a case's definition reads its call's place at the literal 0, where it neither delivers nor drops it. */
+const fixed = (c: CallKeyCase): boolean => c.ordinal === "the place fixed to a literal"
+
+/** The stored relation of a token split's case: each row's tokens, at their places where its head delivers them. */
+const tokensStored = (c: CallKeyCase) =>
+	c.ordinal === "the place in the head"
+		? derived.stored(
+				"D",
+				query(callBase).rule((r) => {
+					const { id, list } = v(Listed, "row")
+					const split = r.tokens(list)
+					const { at, token } = v(split, "token")
+					return r
+						.match(Listed, { id, list })
+						.match(split, { at, token })
+						.find({ id, at, piece: token })
+				})
+			)
+		: derived.stored(
+				"D",
+				query(callBase).rule((r) => {
+					const { id, list } = v(Listed, "row")
+					const split = r.tokens(list)
+					const { at, token } = v(split, "token")
+					return r
+						.match(Listed, { id, list })
+						.match(split, { at: fixed(c) ? 0n : at, token })
+						.find({ id, piece: token })
+				})
+			)
+
+/**
+ * The stored relation of a series' case: each row's elements from its low to its high, each an exact integer between
+ * the row's ends, delivered as the integer its ends are where its head delivers them.
+ */
+const seriesStored = (c: CallKeyCase) =>
+	c.ordinal === "the place in the head"
+		? derived.stored(
+				"D",
+				query(callBase).rule((r) => {
+					const { id, lo, hi } = v(Listed, "row")
+					const series = r.series(lo, hi)
+					const { at } = v(series, "element")
+					return r
+						.match(Listed, { id, lo, hi })
+						.match(series, { at })
+						.find({ id, at: Type.cast(at, pg.integer) })
+				})
+			)
+		: derived.stored(
+				"D",
+				query(callBase).rule((r) => {
+					const { id, lo, hi } = v(Listed, "row")
+					const series = r.series(lo, hi)
+					const { at } = v(series, "element")
+					return r.match(Listed, { id, lo, hi }).match(series, { at }).find({ id })
+				})
+			)
+
+/** The stored relation of a declared function's case: each row's pieces, at their places where its head delivers them. */
+const piecesStored = (c: CallKeyCase) =>
+	c.ordinal === "the place in the head"
+		? derived.stored(
+				"D",
+				query(callBase).rule((r) => {
+					const { id, list } = v(Listed, "row")
+					const run = Fn.rows(pieces, { t: list })
+					const { at, piece } = v(run, "piece")
+					return r.match(Listed, { id, list }).match(run, { at, piece }).find({ id, at, piece })
+				})
+			)
+		: derived.stored(
+				"D",
+				query(callBase).rule((r) => {
+					const { id, list } = v(Listed, "row")
+					const run = Fn.rows(pieces, { t: list })
+					const { at, piece } = v(run, "piece")
+					return r
+						.match(Listed, { id, list })
+						.match(run, { at: fixed(c) ? 0 : at, piece })
+						.find({ id, piece })
+				})
+			)
+
+/** A case's schema: the base, and above it the stored relation D over the case's call. */
+export const callKeySchema = (c: CallKeyCase) => {
+	switch (c.call) {
+		case "a token split":
+			return schema.extend([callBase], "CallKeysTop", [tokensStored(c)], [])
+		case "a series":
+			return schema.extend([callBase], "CallKeysTop", [seriesStored(c)], [])
+		case "a declared function's rows":
+			return schema.extend([callBase], "CallKeysTop", [piecesStored(c)], [])
+	}
+}
+
+/**
+ * What a case's stored relation is keyed by, as the call's rows are (ir/rel.ts callOrdinal): a split's and a series'
+ * rows at their argument are keyed by their place, which numbers them, so a row of lists and a place key D, and the row
+ * alone where a literal fixes the place; a declared function's rows are a set nothing numbers, keyed by their whole
+ * heading, so D by the row and every field of the call it delivers. A token is a text of no byte bound, which no B-tree
+ * entry holds, so a key of it is refused, its whole heading the definition's only key where the place is dropped.
+ */
+export const callKeyModel = (
+	c: CallKeyCase
+):
+	| { readonly kind: "keyed"; readonly keys: ReadonlyArray<ReadonlyArray<string>> }
+	| { readonly kind: "refused" } => {
+	switch (c.call) {
+		case "a token split":
+			return c.ordinal === "the place in the head"
+				? { kind: "keyed", keys: [["at", "id"]] }
+				: c.ordinal === "the place fixed to a literal"
+					? { kind: "keyed", keys: [["id"]] }
+					: { kind: "refused" }
+		case "a series":
+			return {
+				kind: "keyed",
+				keys: [c.ordinal === "the place in the head" ? ["at", "id"] : ["id"]]
+			}
+		case "a declared function's rows":
+			return {
+				kind: "keyed",
+				keys: [c.ordinal === "the place in the head" ? ["at", "id", "piece"] : ["id", "piece"]]
+			}
+	}
+}

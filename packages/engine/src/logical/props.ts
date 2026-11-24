@@ -70,6 +70,7 @@ import {
 
 import {
 	type Card,
+	callOrdinal,
 	closedColumn,
 	edgesOf,
 	type Heading,
@@ -2698,15 +2699,17 @@ export const logicalPropsOf = (node: RelNode, reading: PropsReading, env: PropsE
 				)
 			)
 		}
-		case "Call":
+		case "Call": {
+			const ordinal = callOrdinal(reading.function)
 			return finish(
 				subject,
-				[],
+				ordinal === undefined ? [] : [numberedRow([], ordinal, all)],
 				oneGroup(
 					{ exactlyOne: false, provenance: noProvenance, context: "queryLocal", equal: [] },
 					[]
 				)
 			)
+		}
 		case "InputSet":
 			return reading.input.kind === "row"
 				? finish(

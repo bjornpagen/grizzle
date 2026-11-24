@@ -35,6 +35,13 @@
  *   column of every row, each a key alone: the view states the other names as the key's members, the columns its
  *   definition makes equal to its field (classMembers), not as alternatives of a factor. Features: one, two and three
  *   names.
+ * - Call keys: a stored relation over a row of lists and the rows a call returns at it, a token split of its list
+ *   (r.tokens), a series from its low to its high (r.series) or a declared function's rows (Fn.rows), each place in the
+ *   head, fixed to a literal or dropped, is keyed as the call's rows are at their argument (ir/rel.ts callOrdinal): a
+ *   split's and a series' by their place, a declared function's by its whole heading. edullm's stored walks over a
+ *   pantry attribute's tokens (WalkCategory, WalkLiteralPair) proved no key narrower than their whole heading, a token
+ *   of no byte bound, and were refused. Oracle: the call's rows keyed as their source numbers them, a specification.
+ *   Features: each call and each use of its place.
  *
  * That the keys are sound, a stored relation never holding two facts under one, is the stored relations' equality
  * oracle's (test/pg/derived), whose tables hold their unique indexes.
@@ -62,6 +69,11 @@ import { succeeded } from "#test/support/assert.ts"
 import { checkedIn } from "#test/support/policy.ts"
 import {
 	aboveOf,
+	type CallKeyCase,
+	callKeyCase,
+	callKeyModel,
+	callKeySchema,
+	callSources,
 	headName,
 	type JoinFeature,
 	joinFeatures,
@@ -74,6 +86,7 @@ import {
 	keyRules,
 	minimalKeys,
 	type NamedKey,
+	ordinalUses,
 	pastFirstColumnCaseGen,
 	productAims,
 	type ProductFeature,
@@ -510,3 +523,56 @@ export const derivedRelationKeysStateEachNameAViewsHeadGivesItsKeysVariableAsAKe
 			]
 		}
 	)
+
+/**
+ * A stored relation over a call's rows is keyed as they are at the call's argument: a split's and a series' by their
+ * place, a declared function's by its whole heading.
+ *
+ * Its budget is the runner's: a new property, with no suite before it to carry a count from.
+ */
+export const aStoredRelationOverACallsRowsIsKeyedByThePlaceThatNumbersThemAtItsArgumentOrByTheirWholeHeading =
+	property.exhaust(finite(callKeyCase), {
+		needs: {},
+		situations: [...callSources, ...ordinalUses] satisfies ReadonlyArray<
+			Reached<CallKeyCase["call"] | CallKeyCase["ordinal"]>
+		>,
+		check: (_, k: Case<CallKeyCase["call"] | CallKeyCase["ordinal"]>) => (c) =>
+			Effect.sync(() => {
+				const analyzed = Result.map(checkedIn(callKeySchema(c)), derivedAnalysis)
+				const expected = callKeyModel(c)
+				const label = `${c.call}, ${c.ordinal}`
+				if (expected.kind === "refused") {
+					assert.ok(!analyzed.ok, `${label}: a key of a token is refused`)
+					const reason = analyzed.error.reason
+					assert.ok(
+						reason._tag === "DerivedRefused" && reason.cause.kind === "wholeHeading",
+						`${label}: ${analyzed.error.message}`
+					)
+				} else {
+					assert.ok(analyzed.ok, `${label}: ${analyzed.ok ? "" : analyzed.error.message}`)
+					const d = defined(analyzed.value.relations["D"])
+					keyRules(d)
+					assert.deepEqual<ReadonlyArray<ReadonlyArray<string>>>(
+						Arr.map(d.keys, (key) => Arr.sort(key.fields, Order.String)),
+						expected.keys,
+						label
+					)
+				}
+				k.note(c.call)
+				k.note(c.ordinal)
+			}),
+		oracle: {
+			kind: "specification",
+			name: "a call's rows keyed at its argument as its source numbers them: a split's and a series' by their place, a declared function's by its whole heading"
+		},
+		box: "a row of lists keyed by its id, beside a token split of its list, a series from its low to its high or a declared function's rows of its list, each place in the head, fixed to a literal (but a series') or dropped",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/logical/props.ts",
+				original: "\t\t\t\tordinal === undefined ? [] : [numberedRow([], ordinal, all)],",
+				replacement: "\t\t\t\t[],",
+				why: "A call's place keys none of its rows: a stored relation of a list's tokens at their places proves only its whole heading, a token of no byte bound, and is refused, as edullm's WalkCategory and WalkLiteralPair were."
+			}
+		]
+	})

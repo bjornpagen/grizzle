@@ -901,6 +901,29 @@ export const seriesHeading = { at: "at" } as const
 /** A token split's heading (TextSplit `tokens`): each token's place among them, from 0, and the token. */
 export const tokensHeading = { at: "at", token: "token" } as const
 
+/** Each split's ordinal (callOrdinal): a token split's place, the count of the tokens before it. */
+const splitOrdinals: { readonly [K in TextSplit]: string } = { tokens: tokensHeading.at }
+
+/**
+ * The column of a call's heading that numbers its rows within one evaluation, no two of them alike (CallFunction): a
+ * split's ordinal (splitOrdinals), each piece's place among the pieces, and a series' element, each integer from its low
+ * end to its high end once; none for a declared function's rows or a field's of its row, which PostgreSQL alone
+ * evaluates, a set of rows nothing numbers. It keys the call's rows at its arguments, the rows of one evaluation, as a
+ * row number keys the rows of its partition (logical/props.ts, ir/keys.ts numberedRow): a split's rows are keyed by
+ * what keys its text and its ordinal.
+ */
+export const callOrdinal = (called: CallFunction): string | undefined => {
+	switch (called.kind) {
+		case "declared":
+		case "field":
+			return undefined
+		case "split":
+			return splitOrdinals[called.split]
+		case "series":
+			return seriesHeading.at
+	}
+}
+
 /**
  * A call of a function that returns rows (CallFunction): the rows it returns for its arguments, under its result's
  * heading, a set, every repeat of a row one row. Its value arguments and its rows arguments' nodes may read the scope it
