@@ -2695,7 +2695,8 @@ const tableNodeShape: S.Shape<TableNode> = S.tagged("kind", {
 					split: S.tagged("kind", {
 						tokens: S.struct({}),
 						pieces: S.struct({ separator: S.nonEmptyString }),
-						rest: S.struct({})
+						rest: S.struct({}),
+						decodedPath: S.struct({})
 					})
 				})
 			}),

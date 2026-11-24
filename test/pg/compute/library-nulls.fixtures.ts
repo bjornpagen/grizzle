@@ -22,9 +22,10 @@ import { patternGen } from "#test/unit/text/xsd.fixtures.ts"
 /**
  * The library functions the host evaluates, whose NULLs the host decides: every one but wall, a zone's wall clock by
  * PostgreSQL's tzdata, which the host does not hold (scalar/compute/registry.ts zoneWall), whose NULLs
- * test/pg/compute/wall.test.ts holds to the reference evaluator.
+ * test/pg/compute/wall.test.ts holds to the reference evaluator, and decodedPath, which no term calls, only a decoded
+ * path's split, whose argument is a stored text, never NULL (test/pg/compute/split.test.ts).
  */
-type HostLibraryFn = Exclude<LibraryFn, "wall">
+type HostLibraryFn = Exclude<LibraryFn, "wall" | "decodedPath">
 
 /** Which of a call's arguments a row holds NULL: none, one of them by its place, or every one. */
 type Nulls = "no argument" | "argument 1" | "argument 2" | "every argument"

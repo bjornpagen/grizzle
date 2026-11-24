@@ -64,6 +64,7 @@ import {
 	lt,
 	ne,
 	not,
+	notExists,
 	operandSelect,
 	operandUnionAll,
 	or,
@@ -97,6 +98,9 @@ const stated = (part: Expr): Expr => gt(length(part), integer(0))
 const unstated = (part: Expr): Expr => eq(length(part), integer(0))
 const concat = (first: Expr, ...rest: ReadonlyArray<Expr>): Expr =>
 	rest.reduce((joined, next) => binary("||", joined, next), first)
+/** The sum of integers, left to right. */
+const sumOf = ([first, ...rest]: NonEmptyReadonlyArray<Expr>): Expr =>
+	rest.reduce((sum, next) => binary("+", sum, next), first)
 const when = (condition: Expr, then: Expr, otherwise: Expr): Expr => ({
 	kind: "case",
 	operand: undefined,
@@ -593,6 +597,315 @@ const cutDefinition = (fn: "cutBefore" | "cutFrom"): LibraryBody => {
 			kind: "subquery",
 			query: operandSelect(
 				core([targetAs(cut, names.column(internal("cut")))], [series], undefined)
+			)
+		}
+	}
+}
+
+/**
+ * The letter decodedPath writes before a path it splits at its `%`s, so its first piece, all literal, is a piece however
+ * empty the path is, and the pieces' one group is never empty; the decoded path is read past it.
+ */
+const writtenFirst = "x"
+
+/** Whether the integer `x` lies within `low` and `high`, both included. */
+const within = (x: Expr, low: number, high: number): Expr =>
+	and([ge(x, integer(low)), le(x, integer(high))])
+
+/** Whether the octet `b`, -1 where there is none, is a UTF-8 continuation octet, 80 to BF. */
+const continuation = (b: Expr): Expr => within(b, 0x80, 0xbf)
+
+/** The window of a path's escapes in one run (decodedPathDefinition): the run's, by their place. */
+const lagged = (name: "lag" | "lead", b: Expr, offset: number, run: Expr, order: Expr): Expr => ({
+	...call(name, [b, integer(offset), integer(-1)]),
+	over: windowOf([run], [asc(order)])
+})
+
+/**
+ * decodedPath(text): the path a percent-encoded URI path spells (RFC 3986 §2.1, §2.5), as a text array of the one
+ * decoded path, or of none where the text spells none: a `%` that begins no `%HH` (§2.1 gives it no octet), escaped
+ * octets that are no UTF-8 (each maximal run of escapes must be well-formed UTF-8, The Unicode Standard Table 3-7, a
+ * literal character, whose own octets are UTF-8, ending a run), an escape of U+0000, which no text holds, or of `/`,
+ * which would join two segments (§2.2: an encoded reserved character is data), and a segment made of dots alone of
+ * which one is written `%2E`, which would decode to a dot segment the written path does not hold. Every other
+ * character stands as written, a literal `/`, `.` or `..` among them.
+ *
+ * The text is read once as its pieces between its `%`s, `string_to_table('x' || text, '%') WITH ORDINALITY`, each `p`
+ * numbered `n` from 1: the first all literal, every other an escape's two hex digits then a literal. Each escape's octet
+ * `b`, -1 where its digits are no hex; the escapes of one run, `run` the count of literal pieces before it, read the
+ * octets around them within the run (lag and lead, -1 past it), so a continuation octet stands where the run's octet
+ * before it begins a sequence it completes (its second octet in the lead's own range: E0 A0-BF, ED 80-9F, F0 90-BF,
+ * F4 80-8F) and a lead where the continuations it needs follow, which is exactly well-formed UTF-8, each sequence
+ * delimited by its lead. A lead's code point is its octets' bits, chr of which is its character, and the decoded path
+ * is the pieces' characters and literals in order. No regular expression reads the text, so the work is its length and
+ * the sort of its pieces, at any length. The pieces are one group, by a carried constant, which the letter written
+ * before the text (writtenFirst) makes never empty, so `bool_and` and `string_agg` read one piece at least. The array
+ * holds the path where every piece stands and no segment, `string_to_table(text, '/')`, is a written dot segment; the
+ * split of a path into its decoded path (lower/conservative/call lowerDecodedPath) reads its elements, one row or none.
+ */
+const decodedPathDefinition = (): LibraryBody => {
+	const names = new NameSupply(freshNames)
+	const path = param(1, types.text)
+	const split = relationOf(names, "path pieces", ["p", "n"])
+	const pieces: FromSource = {
+		kind: "function",
+		call: call("string_to_table", [concat(text(writtenFirst), path), text("%")]),
+		alias: split.alias,
+		columns: split.columns,
+		lateral: false,
+		ordinality: true
+	}
+	const s = split.read
+	const hex = call("left", [s("p"), integer(2)])
+	const octets = table(
+		names,
+		"escaped octets",
+		[
+			["n", s("n")],
+			["p", s("p")],
+			[
+				"b",
+				when(
+					and([
+						gt(s("n"), integer(1)),
+						ge(length(s("p")), integer(2)),
+						eq(call("translate", [hex, text("0123456789abcdefABCDEF"), text("")]), text(""))
+					]),
+					call("get_byte", [call("decode", [hex, text("hex")]), integer(0)]),
+					integer(-1)
+				)
+			],
+			[
+				"ends",
+				when(or([eq(s("n"), integer(1)), gt(length(s("p")), integer(2))]), integer(1), integer(0))
+			]
+		],
+		[pieces],
+		false
+	)
+	const o = octets.read
+	const runs = table(
+		names,
+		"escape runs",
+		[
+			["n", o("n")],
+			["p", o("p")],
+			["b", o("b")],
+			["run", binary("-", windowed("sum", o("ends"), throughHere, o("n")), o("ends"))]
+		],
+		[octets.source],
+		false
+	)
+	const r = runs.read
+	const around = table(
+		names,
+		"escape neighbours",
+		[
+			["n", r("n")],
+			["p", r("p")],
+			["b", r("b")],
+			["b1", lagged("lag", r("b"), 1, r("run"), r("n"))],
+			["b2", lagged("lag", r("b"), 2, r("run"), r("n"))],
+			["b3", lagged("lag", r("b"), 3, r("run"), r("n"))],
+			["a1", lagged("lead", r("b"), 1, r("run"), r("n"))],
+			["a2", lagged("lead", r("b"), 2, r("run"), r("n"))],
+			["a3", lagged("lead", r("b"), 3, r("run"), r("n"))]
+		],
+		[runs.source],
+		false
+	)
+	const a = around.read
+	const bits = (x: Expr, lead: number): Expr => binary("-", x, integer(lead))
+	const shifted = (x: Expr, by: number): Expr => binary("*", x, integer(by))
+	const point: Expr = {
+		kind: "case",
+		operand: undefined,
+		whens: [
+			{ when: within(a("b"), 0, 0x7f), result: a("b") },
+			{
+				when: within(a("b"), 0xc2, 0xdf),
+				result: binary("+", shifted(bits(a("b"), 0xc0), 64), bits(a("a1"), 0x80))
+			},
+			{
+				when: within(a("b"), 0xe0, 0xef),
+				result: sumOf([
+					shifted(bits(a("b"), 0xe0), 4096),
+					shifted(bits(a("a1"), 0x80), 64),
+					bits(a("a2"), 0x80)
+				])
+			},
+			{
+				when: within(a("b"), 0xf0, 0xf4),
+				result: sumOf([
+					shifted(bits(a("b"), 0xf0), 262_144),
+					shifted(bits(a("a1"), 0x80), 4096),
+					shifted(bits(a("a2"), 0x80), 64),
+					bits(a("a3"), 0x80)
+				])
+			}
+		],
+		else: integer(-1)
+	}
+	const points = table(
+		names,
+		"escape points",
+		[
+			["n", a("n")],
+			["p", a("p")],
+			["b", a("b")],
+			["b1", a("b1")],
+			["b2", a("b2")],
+			["b3", a("b3")],
+			["a1", a("a1")],
+			["a2", a("a2")],
+			["a3", a("a3")],
+			["cp", point]
+		],
+		[around.source],
+		false
+	)
+	const x = points.read
+	const b = x("b")
+	const b1 = x("b1")
+	const second = or([
+		within(b1, 0xc2, 0xdf),
+		and([eq(b1, integer(0xe0)), within(b, 0xa0, 0xbf)]),
+		within(b1, 0xe1, 0xec),
+		and([eq(b1, integer(0xed)), within(b, 0x80, 0x9f)]),
+		within(b1, 0xee, 0xef),
+		and([eq(b1, integer(0xf0)), within(b, 0x90, 0xbf)]),
+		within(b1, 0xf1, 0xf3),
+		and([eq(b1, integer(0xf4)), within(b, 0x80, 0x8f)])
+	])
+	const stands: Expr = {
+		kind: "case",
+		operand: undefined,
+		whens: [
+			{ when: eq(x("n"), integer(1)), result: lit.bool(true) },
+			{ when: or([eq(b, integer(0)), eq(b, integer(0x2f))]), result: lit.bool(false) },
+			{ when: within(b, 0x01, 0x7f), result: lit.bool(true) },
+			{
+				when: continuation(b),
+				result: or([
+					second,
+					and([continuation(b1), within(x("b2"), 0xe0, 0xf4)]),
+					and([continuation(b1), continuation(x("b2")), within(x("b3"), 0xf0, 0xf4)])
+				])
+			},
+			{ when: within(b, 0xc2, 0xdf), result: continuation(x("a1")) },
+			{ when: within(b, 0xe0, 0xef), result: and([continuation(x("a1")), continuation(x("a2"))]) },
+			{
+				when: within(b, 0xf0, 0xf4),
+				result: and([continuation(x("a1")), continuation(x("a2")), continuation(x("a3"))])
+			}
+		],
+		else: lit.bool(false)
+	}
+	const scalar = and([within(x("cp"), 1, 0x10ffff), not(within(x("cp"), 0xd800, 0xdfff))])
+	const piece: Expr = {
+		kind: "case",
+		operand: undefined,
+		whens: [
+			{ when: eq(x("n"), integer(1)), result: x("p") },
+			{ when: scalar, result: concat(call("chr", [x("cp")]), from(x("p"), integer(3))) }
+		],
+		else: from(x("p"), integer(3))
+	}
+	const decoded = table(
+		names,
+		"decoded pieces",
+		[
+			["n", x("n")],
+			["ok", stands],
+			["piece", piece],
+			["one", integer(1)]
+		],
+		[points.source],
+		false
+	)
+	const d = decoded.read
+	const wholeNames = relationOf(names, "decoded path", ["ok", "path"])
+	const whole = derived(
+		operandSelect({
+			...core(
+				[
+					targetAs(call("bool_and", [d("ok")]), wholeNames.column("ok")),
+					targetAs(
+						from(
+							{ ...call("string_agg", [d("piece"), text("")]), orderBy: [asc(d("n"))] },
+							integer(2)
+						),
+						wholeNames.column("path")
+					)
+				],
+				[decoded.source],
+				undefined
+			),
+			groupBy: [d("one")]
+		}),
+		wholeNames.alias,
+		wholeNames.columns,
+		false
+	)
+	const segment = relationOf(names, "written segments", ["g"])
+	const segments: FromSource = {
+		kind: "function",
+		call: call("string_to_table", [path, text("/")]),
+		alias: segment.alias,
+		columns: segment.columns,
+		lateral: false,
+		ordinality: false
+	}
+	const g = segment.read("g")
+	const writtenDot = and([
+		or([
+			gt(call("strpos", [g, text("%2E")]), integer(0)),
+			gt(call("strpos", [g, text("%2e")]), integer(0))
+		]),
+		eq(
+			call("translate", [
+				call("replace", [call("replace", [g, text("%2E"), text("")]), text("%2e"), text("")]),
+				text("."),
+				text("")
+			]),
+			text("")
+		)
+	])
+	const w = wholeNames.read
+	const decodedArray: Expr = {
+		kind: "array",
+		query: select(
+			provedCore(
+				"oneRow",
+				[targetAs(w("path"), names.column(internal("decoded path")))],
+				[whole],
+				and([
+					w("ok"),
+					notExists(
+						operandSelect(
+							core(
+								[targetAs(integer(1), names.column(internal("written dot segment")))],
+								[segments],
+								writtenDot
+							)
+						)
+					)
+				])
+			)
+		)
+	}
+	return {
+		params: [{ name: "path", type: types.text }],
+		returns: defined(arrayOf(types.text), "a text array type"),
+		body: {
+			kind: "subquery",
+			query: select(
+				provedCore(
+					"oneRow",
+					[targetAs(decodedArray, names.column(internal("decoded paths")))],
+					[],
+					undefined
+				)
 			)
 		}
 	}
@@ -1285,6 +1598,7 @@ const definedAs = (fn: LibraryFn, body: LibraryBody): LibraryDefinition => ({
 const definitions: { readonly [F in LibraryFn]: LibraryDefinition } = {
 	cutBefore: definedAs("cutBefore", cutDefinition("cutBefore")),
 	cutFrom: definedAs("cutFrom", cutDefinition("cutFrom")),
+	decodedPath: definedAs("decodedPath", decodedPathDefinition()),
 	isXsdPattern: definedAs("isXsdPattern", xsdPatternDefinition()),
 	resolveReference: definedAs("resolveReference", resolveReferenceDefinition()),
 	textDigest: definedAs("textDigest", textDigestDefinition()),
@@ -1300,6 +1614,10 @@ const identities: { readonly [F in LibraryFn]: Identity<"libraryFunction"> } = {
 	cutFrom: identity.libraryFunction(
 		"cutFrom",
 		constantDigest("library-function", definitions.cutFrom, everyProperty)
+	),
+	decodedPath: identity.libraryFunction(
+		"decodedPath",
+		constantDigest("library-function", definitions.decodedPath, everyProperty)
 	),
 	isXsdPattern: identity.libraryFunction(
 		"isXsdPattern",

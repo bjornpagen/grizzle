@@ -1,4 +1,5 @@
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { utf8Text } from "@bjornpagen/grizzle-text/utf8"
 import { regex } from "arkregex"
 import { Array as Arr, Option, Record as Rec, Result, String as Str } from "effect"
 import type { NodeId, ParamId } from "#compiler/core/ids.ts"
@@ -81,13 +82,50 @@ import {
 /** A run of XML whitespace (XML 1.0, S: tab, LF, CR and space), at which a whitespace-separated list splits. */
 const xmlSpaceRuns = regex("[\\t\\n\\r ]+", "u")
 
+/** A `%` that begins no `%HH`, which RFC 3986 §2.1 gives no octet. */
+const strayPercent = regex("%(?![0-9A-Fa-f]{2})", "u")
+
+/** An escape of `/`, which would join two segments of the path it decodes. */
+const escapedSlash = regex("%2[Ff]", "u")
+
+/** A segment of dots alone, one of them written `%2E`, which would decode to a dot segment. */
+const writtenDots = regex("^(?:\\.|%2[Ee])*%2[Ee](?:\\.|%2[Ee])*$", "u")
+
+/** Each escape and each other character of a path, in order. */
+const pathTokens = regex("%[0-9A-Fa-f]{2}|.", "gsu")
+
+/**
+ * The path a percent-encoded URI path spells (ir/rel.ts TextSplit `decodedPath`), by grizzle-text's strict UTF-8 reader
+ * over the octets the text writes, each `%HH` its octet and every other character its UTF-8: none where a `%` begins no
+ * `%HH`, an escape spells `/`, a segment of dots alone holds a `%2E`, the octets are no UTF-8, or the path holds
+ * U+0000.
+ */
+export const decodedPathOf = (text: string): Option.Option<string> => {
+	if (
+		strayPercent.test(text) ||
+		escapedSlash.test(text) ||
+		Arr.some(Str.split(text, "/"), (segment) => writtenDots.test(segment))
+	) {
+		return Option.none()
+	}
+	const octets = Arr.flatMap(Arr.fromIterable(Str.matchAll(pathTokens)(text)), ([token]) =>
+		Str.startsWith("%")(token)
+			? [Number.parseInt(Str.slice(1)(token), 16)]
+			: Arr.fromIterable(new TextEncoder().encode(token))
+	)
+	return Option.filter(
+		Option.fromUndefinedOr(utf8Text(Uint8Array.from(octets))),
+		(path) => !Str.includes("\u0000")(path)
+	)
+}
+
 /**
  * A split's rows over its arguments `args`, its texts by name (ir/rel.ts splitArguments), in `heading`'s order, by its
  * own reading of each kind: a token split's by XML's reading of a whitespace-separated list (XML Schema Part 2 §4.3.6
  * whiteSpace collapse, §3.3.10's lists), each maximal run of no XML whitespace (S: tab, LF, CR, space) a token, at its
  * place among them from 0, none of a text of whitespace alone; a separator split's by JavaScript's own split at its
- * separator, n occurrences n + 1 pieces, the empty text one empty piece; and a rest's, the text's code points past the
- * prefix's where the text starts with it, none where it does not.
+ * separator, n occurrences n + 1 pieces, the empty text one empty piece; a rest's, the text's code points past the
+ * prefix's where the text starts with it, none where it does not; and a decoded path's (decodedPathOf).
  */
 const splitRows = (
 	split: TextSplit,
@@ -113,6 +151,11 @@ const splitRows = (
 				? [Arr.map(heading, (): Value => Str.slice(prefix.length)(text))]
 				: []
 		}
+		case "decodedPath":
+			return Option.match(decodedPathOf(args("text")), {
+				onNone: () => [],
+				onSome: (path) => [Arr.map(heading, (): Value => path)]
+			})
 	}
 }
 

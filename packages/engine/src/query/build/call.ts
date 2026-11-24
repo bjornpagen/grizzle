@@ -11,6 +11,7 @@ import {
 } from "#compiler/ir/desc.ts"
 import type { OpenCallArg, OpenExpr } from "#compiler/ir/open.ts"
 import {
+	decodedPathHeading,
 	piecesHeading,
 	restHeading,
 	separatorPoint,
@@ -408,6 +409,35 @@ export const restRows = (text: unknown, prefix: unknown): Built & Headed<typeof 
 		restCarriers,
 		[],
 		"the rest of a text"
+	)
+}
+
+/** A decoded path's heading's descriptors: the path its text spells, any text (restField), typed as its text's bound. */
+const decodedPathCarriers = Object.freeze({ path: restField })
+
+/**
+ * r.decodedPath(text): the path a percent-encoded URI path spells (RFC 3986 §2.1, §2.5), a source a rule matches as it
+ * matches a call's rows, of `decodedPathHeading`: one fact, `path`, each `%HH` its octet and every other character its
+ * own, the octets read as UTF-8, where the text spells a path, and none where a `%` begins no `%HH`, the escaped octets
+ * are no UTF-8, an escape decodes to U+0000 or `/`, or a segment made of dots alone holds one written `%2E` (ir/rel.ts
+ * TextSplit `decodedPath`). `text` is a term, a parameter or a JavaScript value, as a call's value argument is
+ * (`valueArgument`), which the checker holds to a text.
+ */
+export const decodedPathRows = (text: unknown): Built & Headed<typeof decodedPathCarriers> => {
+	const label = "r.decodedPath"
+	return callSourceValue(
+		{
+			kind: "split",
+			split: { kind: "decodedPath" },
+			args: { text: valueArgument(text, `${label} text`) }
+		},
+		heading(
+			[[decodedPathHeading.path, typed(describedField(restField, `${label} path`).scalar)]],
+			[]
+		),
+		decodedPathCarriers,
+		[],
+		"the path a text spells"
 	)
 }
 

@@ -32,7 +32,8 @@ import {
 	type LibraryFn,
 	missing,
 	type PhysicalNames,
-	qualifiedType
+	qualifiedType,
+	splitLibrary
 } from "#compiler/ir/physical.ts"
 import { type ParamDecl, type PhysicalReason, paramColumns } from "#compiler/ir/products.ts"
 import { exprsOf, type HeadingColumn, type RelNode } from "#compiler/ir/rel.ts"
@@ -470,7 +471,8 @@ export interface DagObjects {
  * language) and a declared function's result's among them, and each contract (typeContracts) at `loc`, each name once,
  * of each column its declared parameters `params` bind, of each column of every node `roots` reach and of each
  * expression a node holds; and each library function an expression calls (physical/ddl/library.ts calledLibrary), a
- * law's Xml.isPattern over a derived relation among them. Each once, its first in that order, so a workload states as
+ * law's Xml.isPattern over a derived relation among them, or a split's lowering calls (ir/physical.ts splitLibrary), a
+ * decoded path's. Each once, its first in that order, so a workload states as
  * many objects as its programs need, never one per typed column.
  */
 export const dagObjects = (
@@ -501,6 +503,13 @@ export const dagObjects = (
 	for (const node of topoOrder({ roots })) {
 		for (const c of node.heading) {
 			add(c.type)
+		}
+		const split =
+			node.kind === "Call" && node.function.kind === "split"
+				? splitLibrary(node.function.split)
+				: undefined
+		if (split !== undefined) {
+			library.add(split)
 		}
 		for (const e of exprClosure(exprsOf(node))) {
 			add(e.type)

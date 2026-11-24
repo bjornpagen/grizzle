@@ -674,6 +674,20 @@ type RuleRest = <
 	CallReads<{ readonly text: X; readonly prefix: P }>
 >
 
+/**
+ * Rule.decodedPath: the path a percent-encoded URI path spells, a term of any text, a parameter or a JavaScript string,
+ * as a call's value argument of a text field is: a source a rule matches as it matches a call's rows (CallSource), one
+ * fact, the path, where the text spells one and none where it does not, needing what its text needs.
+ */
+type RuleDecodedPath = <const X extends CallArgs<TokensArgs>["text"]>(
+	text: X
+) => CallSource<
+	FactOfFields<DecodedPathFields>,
+	BindMapParams<{ readonly text: X }>,
+	DecodedPathFields,
+	CallReads<{ readonly text: X }>
+>
+
 /** A rest's two arguments (RuleRest): its text and its prefix, each of any text. */
 type RestArgs = { readonly text: TextField<string>; readonly prefix: TextField<string> }
 
@@ -713,6 +727,9 @@ type PieceFields = { readonly at: NaturalField; readonly piece: TextField<string
 
 /** A rest's heading (RuleRest): the text after the prefix. */
 type RestFields = { readonly rest: TextField<string> }
+
+/** A decoded path's heading (RuleDecodedPath): the path the text spells. */
+type DecodedPathFields = { readonly path: TextField<string> }
 
 /** Rule.not: a relational negation over a source of the schema of the rule it is called on (Rule). */
 type RuleNot = <
@@ -812,6 +829,12 @@ export interface Rule<S, Params = unknown, Sole = "no match", Facts = NoFacts, C
 	 * starts with the prefix, and none where it does not (RuleRest).
 	 */
 	readonly rest: RuleRest
+	/**
+	 * The path a percent-encoded URI path spells (RFC 3986 §2.1, §2.5), a source the rule matches: one fact, `path`, each
+	 * `%HH` its octet read as UTF-8, where the text spells one, and none where a `%` begins no `%HH`, the octets are no
+	 * UTF-8, an escape decodes to U+0000 or `/`, or a dot segment is written `%2E` (RuleDecodedPath).
+	 */
+	readonly decodedPath: RuleDecodedPath
 	/**
 	 * Each integer from `low` to `high`, both included, none where `low` lies above `high`, a source the rule matches:
 	 * `at`, each integer, of the ends' common type, every one between the least value `low` takes and the greatest

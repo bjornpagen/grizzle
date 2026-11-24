@@ -17,7 +17,7 @@ import { type Codebook, codecOf } from "#compiler/ir/codes.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import type { ClosedTheoryRelation } from "#compiler/ir/law.ts"
 import type { InstalledSpellings } from "#compiler/ir/pattern.ts"
-import type { ClosedIndex } from "#compiler/ir/rel.ts"
+import type { ClosedIndex, TextSplit } from "#compiler/ir/rel.ts"
 import { baseOf, regexOf, type RegexRef, type ScalarType } from "#compiler/ir/scalar.ts"
 import type {
 	Collation,
@@ -45,23 +45,42 @@ export interface SelectionKey {
 }
 
 /**
- * grizzle's library: the SQL functions of its own that a scalar operation's SQL calls, each a constant of parameters
- * (sql/ast.ts CreateConstant) named by its definition's digest (physical/ddl/library.ts), which an installation installs
- * where its schema's persistent expressions call it: cutBefore and cutFrom, a text cut at the first of a set of
- * characters (scalar/compute/registry.ts textCut); isXsdPattern, whether a text is an XML Schema 1.0 pattern
- * (textIsXsdPattern); resolveReference, RFC 3986's resolution of a reference against a
- * base (textResolveReference); textDigest, a text's SHA-256 (textSha256); and wall, a zone's wall clock at an instant
- * by PostgreSQL's tzdata (zoneWall), which an installation installs where a program of its served workload calls it.
+ * grizzle's library: the SQL functions of its own that a scalar operation's SQL or a split's calls, each a constant of
+ * parameters (sql/ast.ts CreateConstant) named by its definition's digest (physical/ddl/library.ts), which an
+ * installation installs where its schema's persistent expressions call it: cutBefore and cutFrom, a text cut at the
+ * first of a set of characters (scalar/compute/registry.ts textCut); decodedPath, the path a percent-encoded URI path
+ * spells, as an array of it or of none, which a decoded path's split reads (splitLibrary); isXsdPattern, whether a
+ * text is an XML Schema 1.0 pattern (textIsXsdPattern); resolveReference, RFC 3986's resolution of a reference
+ * against a base (textResolveReference); textDigest, a text's SHA-256 (textSha256); and wall, a zone's wall clock at an
+ * instant by PostgreSQL's tzdata (zoneWall), which an installation installs where a program of its served workload
+ * calls it.
  */
 export const libraryFns = [
 	"cutBefore",
 	"cutFrom",
+	"decodedPath",
 	"isXsdPattern",
 	"resolveReference",
 	"textDigest",
 	"wall"
 ] as const
 export type LibraryFn = (typeof libraryFns)[number]
+
+/**
+ * The library function a split's lowering calls (ir/rel.ts TextSplit), which an installation installs where a DAG
+ * holds a call of the split (physical/ddl/domains.ts dagObjects): a decoded path's, decodedPath; none for a split
+ * PostgreSQL's own functions compute.
+ */
+export const splitLibrary = (split: TextSplit): LibraryFn | undefined => {
+	switch (split.kind) {
+		case "decodedPath":
+			return "decodedPath"
+		case "tokens":
+		case "pieces":
+		case "rest":
+			return undefined
+	}
+}
 
 /** How the declared names of one schema map to PostgreSQL objects, each qualified by its schema. */
 export interface PhysicalNames {

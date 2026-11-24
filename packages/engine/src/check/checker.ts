@@ -120,6 +120,7 @@ import {
 	semiJoinRight,
 	seriesArguments,
 	seriesHeading,
+	decodedPathHeading,
 	piecesHeading,
 	restHeading,
 	separatorPoint,
@@ -144,7 +145,8 @@ import {
 	textInfoBounds,
 	textOf,
 	textPatterns,
-	typeLabel
+	typeLabel,
+	wildcardPattern
 } from "#compiler/ir/scalar.ts"
 import {
 	type AggregateOverload,
@@ -697,14 +699,16 @@ const hasColumn = (heading: Heading, name: string): boolean => heading.some((c) 
 const splitBuilders: { readonly [K in TextSplit["kind"]]: string } = {
 	tokens: "r.tokens",
 	pieces: "r.split",
-	rest: "r.rest"
+	rest: "r.rest",
+	decodedPath: "r.decodedPath"
 }
 
 /** Each split as a source of a rule, as a refusal of a match of it names it (sourceLabel). */
 const splitSources: { readonly [K in TextSplit["kind"]]: string } = {
 	tokens: "the tokens of a text",
 	pieces: "the pieces of a text between its separators",
-	rest: "the rest of a text after a prefix"
+	rest: "the rest of a text after a prefix",
+	decodedPath: "the path a percent-encoded path spells"
 }
 
 /** The lowering environment of a query expression, whose parameters are its rule's scope. */
@@ -2645,7 +2649,9 @@ export class Checker {
 	 *   refinement proves (#tokenType);
 	 * - a separator split's (`piecesHeading`): `at`, a piece's place, as a token's, and `piece`, a stretch of the text's
 	 *   characters but its separator, one Unicode scalar value but U+0000 (separatorPoint), refused as any other;
-	 * - a rest's (`restHeading`): `rest`, a stretch of the text's characters (#stretchType).
+	 * - a rest's (`restHeading`): `rest`, a stretch of the text's characters (#stretchType);
+	 * - a decoded path's (`decodedPathHeading`): `path`, any text within the text's byte bound, since each escape, three
+	 *   bytes, decodes to one byte of its character, and an escape may spell any character.
 	 */
 	#splitHeading(split: TextSplit, text: TextInfo, loc: SourceLoc): Heading {
 		switch (split.kind) {
@@ -2669,6 +2675,10 @@ export class Checker {
 			}
 			case "rest":
 				return [{ name: restHeading.rest, type: this.#stretchType(text, [], loc) }]
+			case "decodedPath":
+				return [
+					{ name: decodedPathHeading.path, type: this.#stretchedType(wildcardPattern, text, loc) }
+				]
 		}
 	}
 

@@ -9,6 +9,7 @@ import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { fieldColumnType, rowTypeOf } from "#compiler/ir/physical.ts"
 import {
 	type CallFunction,
+	decodedPathHeading,
 	type Heading,
 	type NodeOf,
 	piecesHeading,
@@ -731,6 +732,40 @@ const lowerRest = (node: NodeOf<"Call">, cx: LowerContext, env: Env): OperandSel
 	)
 }
 
+/**
+ * A decoded path's call (r.decodedPath): the path its text spells, one row, or none where it spells none.
+ *
+ *   SELECT r3.c3 FROM pg_catalog.unnest(<schema>.<decodedPath>(<the text>)) AS r3(c3)
+ *
+ * The installation's library function decodedPath (physical/ddl/library.ts) returns the decoded path as an array of it,
+ * or of none where the text is no percent-encoding of a path, so its elements are the split's rows, the one row its
+ * argument determines.
+ */
+const lowerDecodedPath = (node: NodeOf<"Call">, cx: LowerContext, env: Env): OperandSelect => {
+	const columns = splitColumns(node, 1, cx)
+	const { read } = columns
+	const library = cx.names.library("decodedPath")
+	const item = splitItem(
+		call("unnest", [
+			qualifiedCall(library.schema, library.name, [splitArgument(node, "text", cx, env)])
+		]),
+		columns,
+		false
+	)
+	return splitRows(
+		node,
+		item,
+		undefined,
+		(name) => {
+			if (name === decodedPathHeading.path) {
+				return read(0)
+			}
+			throw defect(`a decoded path's heading of its path, not ${name}`)
+		},
+		"a decoded path's rows"
+	)
+}
+
 /** A split's rows (ir/rel.ts TextSplit), by its kind. */
 const lowerSplit = (
 	node: NodeOf<"Call">,
@@ -745,6 +780,8 @@ const lowerSplit = (
 			return lowerPieces(node, split.separator, cx, env)
 		case "rest":
 			return lowerRest(node, cx, env)
+		case "decodedPath":
+			return lowerDecodedPath(node, cx, env)
 	}
 }
 
