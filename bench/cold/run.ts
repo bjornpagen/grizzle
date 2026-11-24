@@ -1,4 +1,3 @@
-import { timerMaxMs } from "@bjornpagen/grizzle/runtime"
 import {
 	Array as Arr,
 	Data,
@@ -277,8 +276,7 @@ const benchRun = Effect.fn("benchRun")(function* (options: ColdOptions) {
 		database: s.database,
 		password: Redacted.value(credentials.password),
 		caFile: s.cluster.tls.caFile,
-		account: a1,
-		idleTimeoutMs: timerMaxMs
+		account: a1
 	}
 	const databaseRaw = yield* Effect.forEach(
 		upTo(options.databaseSamples, (i) => i),

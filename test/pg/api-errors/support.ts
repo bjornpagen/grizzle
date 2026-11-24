@@ -1,6 +1,5 @@
 import { Effect } from "effect"
 import { defaultPool, poolFor, rowsOn } from "#test/pg/adapter/support.ts"
-import { testIdleTimeout } from "#test/support/limits.ts"
 import type { Credentials } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { makeTap } from "#test/support/wire-tap.ts"
@@ -19,7 +18,7 @@ export const tappedPool = (credentials: Credentials) =>
 		const pool = yield* poolFor(credentials, {
 			...defaultPool,
 			transport: { kind: "given", transport: tap.transport },
-			pool: { idleTimeoutMs: testIdleTimeout, min: 1, max: 1 }
+			pool: { max: 1 }
 		})
 		yield* Effect.orDie(
 			Effect.scoped(

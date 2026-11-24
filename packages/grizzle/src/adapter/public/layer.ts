@@ -25,13 +25,15 @@ import type { AnyLogin } from "#compiler/plan/common.ts"
  * integration input: the served login, the driver the caller imports, the transport and its verify-full TLS, the
  * credentials, the pool's bounds, and the verify that turns a Db's token into its claims. grizzle states no number of
  * its own: every bound is the caller's, and none it does not name exists (no retry, no connect, statement or
- * acquisition deadline). The config is parsed once, where it is given: one no connection can use fails the layer with
- * OpenError{stage: "config"}, as does an environment that sets a connection option grizzle cannot override
- * (connection/environment.ts) and a served file of another login than its name. Build the layer once per instance, in
- * module scope, never per request and never on globalThis: building it reads the served file once and rebuilds what
- * runs its programs, compiling nothing, and creates the login's session pool, which lives as long as the layer and
- * serves every role of the login. Closing the layer's scope destroys every connection of its pool at once, awaiting
- * nothing from the network.
+ * acquisition deadline, no idle timeout). The config is parsed once, where it is given: one no connection can use fails
+ * the layer with OpenError{stage: "config"}, as does an environment that sets a connection option grizzle cannot
+ * override (connection/environment.ts) and a served file of another login than its name. Build the layer once per
+ * process, on the process's one runtime, never per request: building it reads the served file once and rebuilds what
+ * runs its programs, compiling nothing, and creates the login's session pool, which lives as long as the layer, serves
+ * every role of the login, and keeps every session it opens for that life, so a session's connection and its first plan
+ * of each statement are paid once, whatever the pauses between requests. A framework that evaluates a module once per
+ * bundle in one process builds it on the runtime the first bundle made. Closing the layer's scope destroys every
+ * connection of its pool at once, awaiting nothing from the network.
  *
  * The Effect service Db.open requires, a layer serving exactly that role (adapter/types/layer.ts). An alias, not an
  * interface of its own: an instantiation compares with Db.open's requirement through the one interface's variance.
@@ -44,7 +46,6 @@ export type DbConfig<L> = DbConfigShape<L>
 export type { Token } from "#adapter/db/token.ts"
 export type { PgDriver, PgSocket } from "#adapter/types/driver.ts"
 export type {
-	ConnectionPool,
 	DbConnection,
 	DbLayerOf,
 	DecoderLogin,

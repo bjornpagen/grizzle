@@ -348,8 +348,8 @@ suite's residual risk. A longer search is a fuzz run, `pnpm fuzz <suite>`.
   to the global object, in every file, test files included: cases of one file
   share its module, so a fixture one case can write is state the next one reads. A WeakMap or WeakSet keyed by a handle
   is a registry and allowed, and so are the stateless codecs; a cache of a derived fact is never module state, it is
-  deleted. Its two exceptions are overrides with their reasons: the query builder's running build
-  (`packages/engine/src/query/build/scope.ts`) and the serverless tests' stand-in for Vercel's runtime.
+  deleted. Its exceptions are overrides with their reasons, the query builder's running build
+  (`packages/engine/src/query/build/scope.ts`) among them.
 - **A bound is a constant with its evidence, or the caller's input.** grizzle chooses no number on its caller's
   behalf: what is a choice is an input, and what is not is a constant in the module that uses it (one every reader may
   import, where several read it), its evidence in its JSDoc: `@limitKind` `published`, `measured`, `derived` or
@@ -385,7 +385,7 @@ suite's residual risk. A longer search is a fuzz run, `pnpm fuzz <suite>`.
   fallow requires every `src` module to lie in a zone, and `src` never imports `test`, `scripts` or `bench`. The
   packages an area loads are `oxlint.config.ts`'s `no-restricted-imports`: `packages/engine/` loads only the types of
   `effect`, no Node module but `node:crypto`, and no driver; and no module of `src` loads a platform's SDK (Vercel,
-  AWS), which the caller wires through `password` and `attachPool`.
+  AWS): the caller wires a platform's credentials through `password`.
 - **Tabs**, counted two columns wide in a 100-column line, in TypeScript, JSON and shell. oxfmt formats.
 - **Comments state rules in plain words.** Say what the code guarantees and why. Never cite a document, a line number,
   a review, a work item or a commit, and never narrate what the code used to do. Only JSDoc on a declaration survives:

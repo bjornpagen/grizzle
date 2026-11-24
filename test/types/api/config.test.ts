@@ -29,9 +29,8 @@ export const config = boxAgreement(finite(word(configBox)), {
 	kills: [
 		{
 			file: "packages/grizzle/src/adapter/connection/config.ts",
-			original: 'export const poolSettings = ["max", "min", "idleTimeoutMs"] as const',
-			replacement:
-				'export const poolSettings = ["max", "min", "idleTimeoutMs", "maxUses"] as const',
+			original: 'export const poolSettings = ["max"] as const',
+			replacement: 'export const poolSettings = ["max", "maxUses"] as const',
 			why: "The reader's pool roster (connection/config.ts poolSettings) gains a setting the type does not state; the agreement's program fails."
 		}
 	]

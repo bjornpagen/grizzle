@@ -250,7 +250,7 @@ const SCHEMA_IMPORTS = {
 const PLATFORM_SDKS = {
 	group: ["@vercel/*", "@aws-sdk/*"],
 	message:
-		"src loads no platform's SDK: the caller wires Vercel's pool and AWS's token signer through DbConfig.attachPool and DbConfig.password."
+		"src loads no platform's SDK: the caller wires AWS's token signer through DbConfig.password."
 } as const
 
 /**
@@ -657,13 +657,6 @@ export default defineConfig(
 					/** A count of native keyings: it replaces Map's and Set's keying methods while one effect runs, each calling the native it saved, and restores them after (lengthHashedKeyings), the one way to see which keys a native Map or Set hashes. */
 					"eslint/no-extend-native": "off",
 					"typescript/unbound-method": "off"
-				})
-			},
-			{
-				files: ["test/pg/serverless/support.ts"],
-				rules: active({
-					/** A test plays Vercel's runtime: it installs Vercel's request context on the global object, where @vercel/functions reads it, and restores it after. */
-					"devtools/no-module-state": "off"
 				})
 			},
 			{

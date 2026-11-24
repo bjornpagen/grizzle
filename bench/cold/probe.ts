@@ -46,8 +46,6 @@ export type ProbeDatabase = {
 	/** The password of the cold bench's login `server`, whose role `reader` the probe opens. */
 	readonly password: string
 	readonly caFile: string
-	/** The idle timeout of the probe's pool, its parent's: the longest delay a Node timer keeps (timerMaxMs). */
-	readonly idleTimeoutMs: number
 	/** The account whose tasks the parameterized reads read. */
 	readonly account: IdValue
 }
@@ -155,7 +153,7 @@ const main = Effect.gen(function* () {
 			runtime.DbLayer.make({
 				...connection,
 				password,
-				pool: { max: 1, min: 1, idleTimeoutMs: target.idleTimeoutMs },
+				pool: { max: 1 },
 				login
 			}),
 			runtime.LiveSource.layer({

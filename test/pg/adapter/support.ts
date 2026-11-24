@@ -2,7 +2,7 @@ import { liveSleep } from "@bjornpagen/testing/live"
 import { Array as Arr, Duration, Effect, Redacted, type Scope } from "effect"
 import type { CredentialError } from "#adapter/errors/credential.ts"
 import type { BatchRefused } from "#adapter/errors/failures.ts"
-import type { ConnectionPool, PoolBounds, Transport } from "#adapter/types/layer.ts"
+import type { PoolBounds, Transport } from "#adapter/types/layer.ts"
 import { type ApartFailure, oneShotStatement } from "#adapter/wire/batch.ts"
 import { makePool, type Session, type SessionPool } from "#adapter/wire/session.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
@@ -11,7 +11,6 @@ import { servedSession } from "#compiler/program/served.ts"
 import type { ServedSession } from "#compiler/served/forms.ts"
 import type { RoleSetting } from "#compiler/sql/ast.ts"
 import { printRoleSetting } from "#compiler/sql/print.ts"
-import { templateNeedBudget } from "#test/support/budgets.ts"
 import {
 	clusterConnection,
 	clusterPool,
@@ -20,10 +19,8 @@ import {
 	type SqlError
 } from "#test/support/pg.ts"
 import { testSql } from "#test/support/sql.ts"
-import { roleName } from "#test/support/substrate/names.ts"
 import type { Credentials } from "#test/support/substrate/session.ts"
-import { installTemplate, Substrate } from "#test/support/substrate/substrate.ts"
-import { templatePassword } from "#test/support/substrate/templates.ts"
+import { Substrate } from "#test/support/substrate/substrate.ts"
 import { paramText } from "#test/support/wire.ts"
 
 /**
@@ -60,32 +57,6 @@ export const substrateLogin = (
 		}
 		return credentials
 	})
-/**
- * substrateLogin's schema and login `server` with the pinned role defaults as a template (substrate.ts installTemplate):
- * made once per member, where a search made them once before its cases, each case's credentials the login's, its
- * password the one the template's allocations derived (substrate/templates.ts templatePassword). A case that changes
- * the login itself (its password, its defaults) needs a login of its own: a template's login is every clone's on the
- * member.
- */
-export const loginTemplate = (declaredIn: ImportMeta, name: string) =>
-	installTemplate({
-		budget: templateNeedBudget,
-		declaredIn,
-		name,
-		content: { login: "server" },
-		plan: (names) => Effect.succeed(names.schema),
-		install: () =>
-			Effect.gen(function* () {
-				const s = yield* Substrate
-				const schema = yield* s.schema({ create: true, label: "install" })
-				yield* substrateLogin(schema, "server", roleDefaults)
-			}),
-		bind: (schema, binding): Credentials => {
-			const role = roleName(schema, "server")
-			return { role, password: Redacted.make(templatePassword(binding.cluster, role)) }
-		}
-	})
-
 export interface PoolOptions {
 	/**
 	 * What the pool's sessions send as their password: the credentials' own, or another (a rotating Effect, a wrong one).
@@ -97,10 +68,6 @@ export interface PoolOptions {
 				readonly password: Redacted.Redacted | Effect.Effect<Redacted.Redacted, CredentialError>
 		  }
 	readonly pool: PoolBounds
-	/**
-	 * The platform's pool hook (DbConfig.attachPool): nothing, or Vercel's attachDatabasePool in the serverless suite.
-	 */
-	readonly attachPool: (pool: ConnectionPool) => void
 	/**
 	 * How the sessions reach the server: the cluster's own transport (test/support/pg.ts clusterConnection), or one a
 	 * test supplies (a tap, a fake server, another CA, host or servername).
@@ -119,7 +86,6 @@ export interface PoolOptions {
 export const defaultPool: PoolOptions = {
 	password: { kind: "credentials" },
 	pool: clusterPool,
-	attachPool: () => undefined,
 	transport: { kind: "cluster" },
 	session: servedSession
 }
@@ -149,8 +115,7 @@ export const poolFor = (
 				credentials.role
 			),
 			session: options.session,
-			bounds: options.pool,
-			attachPool: options.attachPool
+			bounds: options.pool
 		})
 	})
 

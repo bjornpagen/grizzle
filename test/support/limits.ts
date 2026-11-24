@@ -51,22 +51,6 @@ const caseHangMillis = hangLimit
 export const caseHang: Duration.Duration = Duration.millis(caseHangMillis)
 
 /**
- * The idle timeout of a test's session pool (PoolBounds.idleTimeoutMs): no session closes for idleness within the hang
- * limit. A test worker's connections to the local cluster draw from its own budget (substrate/connections.ts
- * connectionsPerWorker, substrate/budget.ts), so an idle session holds nothing another worker could take, and closing
- * the pool's scope closes every session.
- *
- * @limitKind derived
- * @owner grizzle's test tiers
- * @unit milliseconds
- * @scope one idle session of a test's pool, on the local cluster or a server the test runs itself
- * @derivation a session idles between the steps of a test, each of which the hang limit bounds, so a session idle for
- *   longer belongs to a step that hung
- * @from {@link hangLimit}
- */
-export const testIdleTimeout = hangLimit
-
-/**
  * How long a test's pg_terminate_backend waits for a terminated backend to exit: the hang limit. A backend that never
  * exits is a hang.
  *

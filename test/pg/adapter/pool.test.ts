@@ -36,7 +36,6 @@ import {
 	substrateLogin,
 	until
 } from "#test/pg/adapter/support.ts"
-import { testIdleTimeout } from "#test/support/limits.ts"
 import { superuserClient } from "#test/support/substrate/shared.ts"
 import { freshSchema, Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
@@ -63,7 +62,7 @@ export const adapterSessionPoolsReleaseWaitsForAnIdleSessionsBackendToExitUntilT
 						const pool = yield* Scope.provide(
 							poolFor(login, {
 								...defaultPool,
-								pool: { idleTimeoutMs: testIdleTimeout, min: 1, max: 1 }
+								pool: { max: 1 }
 							}),
 							layerScope
 						)
@@ -155,7 +154,7 @@ export const adapterSessionPoolsReleaseReturnsOnceNoBackendOfItsIdleSessionsIsLe
 						const pool = yield* Scope.provide(
 							poolFor(login, {
 								...defaultPool,
-								pool: { idleTimeoutMs: testIdleTimeout, min: 1, max: k.sessions }
+								pool: { max: k.sessions }
 							}),
 							layerScope
 						)

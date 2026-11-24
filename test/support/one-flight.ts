@@ -3,7 +3,6 @@ import { Array as Arr, Effect, Formatter, type Scope } from "effect"
 import type { ServedDbContext } from "#adapter/db/context.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { defaultPool, poolFor, rowsOn } from "#test/pg/adapter/support.ts"
-import { testIdleTimeout } from "#test/support/limits.ts"
 import type { Credentials } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import {
@@ -72,7 +71,7 @@ export const oneFlight = <C extends ServedDbContext>(
 		const pool = yield* poolFor(credentials, {
 			...defaultPool,
 			transport: { kind: "given", transport: tap.transport },
-			pool: { idleTimeoutMs: testIdleTimeout, min: 1, max: 1 }
+			pool: { max: 1 }
 		})
 		const session = yield* Effect.orDie(
 			Effect.scoped(Effect.tap(pool.lease, (leased) => rowsOn(leased, "SELECT 'warm'::text", [])))

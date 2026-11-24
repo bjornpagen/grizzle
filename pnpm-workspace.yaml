@@ -38,8 +38,6 @@ catalog:
   "@hyperjump/json-schema": 1.18.1
   "@types/node": 26.6.6
   "@types/pg": 8.23.1
-  # Vercel's packages and OpenTelemetry's move by hand, never in a routine bump (Bjorn, 2026-11-20).
-  "@vercel/functions": 3.11.3
   arkregex: 0.0.15
   effect: 4.1.4
   eslint-plugin-better-tailwindcss: 4.11.0

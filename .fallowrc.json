@@ -122,7 +122,6 @@
 					"packages/grizzle/src/adapter/services.ts",
 					"packages/grizzle/src/adapter/wire/batch.ts",
 					"packages/grizzle/src/adapter/wire/failure.ts",
-					"packages/grizzle/src/adapter/wire/releasing-pool.ts",
 					"packages/grizzle/src/adapter/wire/session.ts",
 					"packages/grizzle/src/adapter/witness/classify.ts",
 					"packages/grizzle/src/adapter/witness/index.ts",

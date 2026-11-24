@@ -2,14 +2,22 @@
 
 import { Buffer } from "node:buffer"
 import type { TLSSocket } from "node:tls"
-import { timerMinMs } from "@bjornpagen/grizzle/runtime"
 import { assert } from "@bjornpagen/testing/assert"
-import { array, constant, element, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
+import {
+	type Aimed,
+	aimed,
+	array,
+	constant,
+	element,
+	type Gen,
+	int,
+	map,
+	oneOf
+} from "@bjornpagen/testing/gen"
 import { type Array as Arr, Clock, Duration, Effect, Exit, Result, type Scope } from "effect"
 import type { PgSocket } from "#adapter/types/driver.ts"
 import type { Transport } from "#adapter/types/layer.ts"
 import type { Session } from "#adapter/wire/session.ts"
-import { testIdleTimeout } from "#test/support/limits.ts"
 import { memoryEndpoint, memoryTransport, tlsMaterial } from "#test/support/memory-tls.ts"
 import { pickGen } from "#test/support/pick.ts"
 type Refusal = "refused" | "no key"
@@ -20,7 +28,7 @@ type StepSketch =
 	| { readonly kind: "lease" }
 	| { readonly kind: "release"; readonly pick: number }
 	| { readonly kind: "lose"; readonly pick: number }
-	| { readonly kind: "expire" }
+	| { readonly kind: "pause" }
 	| { readonly kind: "starve"; readonly leases: Leases }
 	| { readonly kind: "abandon" }
 	| { readonly kind: "cut"; readonly at: number; readonly ops: number }
@@ -34,7 +42,6 @@ type StepSketch =
 
 interface Sequence {
 	readonly max: number
-	readonly idle: "short" | "long"
 	readonly steps: ReadonlyArray<StepSketch>
 }
 
@@ -105,7 +112,7 @@ const stepGen = (max: number): Gen<StepSketch> =>
 		() => ({ kind: "lease" }),
 		(source) => ({ kind: "release", pick: source.draw(pickGen) }),
 		(source) => ({ kind: "lose", pick: source.draw(pickGen) }),
-		() => ({ kind: "expire" }),
+		() => ({ kind: "pause" }),
 		(source) => ({ kind: "starve", leases: source.draw(leasesGen(max)) }),
 		() => ({ kind: "abandon" }),
 		(source) => ({ kind: "cut", at: source.draw(turnGen), ops: source.draw(opsGen) }),
@@ -121,14 +128,25 @@ const stepGen = (max: number): Gen<StepSketch> =>
 		(source) => ({ kind: "refuse", startup: source.draw(element<Refusal>(["refused", "no key"])) })
 	])
 
-export const sequenceGen: Gen<Sequence> = (source) => {
+const sequenceGen: Gen<Sequence> = (source) => {
 	const max = source.draw(int(1, 3))
 	return {
 		max,
-		idle: source.draw(element<Sequence["idle"]>(["short", "long"])),
 		steps: source.draw(array(stepGen(max), { min: 1, max: 12 }))
 	}
 }
+
+/**
+ * A cut lease's turn early in its acquisition: the first turns, while a fresh pool's connection is still crossing its
+ * startup and TLS, so the cut lands before the lease holds a session.
+ */
+const earlyTurnGen: Gen<number> = int(0, 2)
+
+/** A sequence of one cut, early in its lease's acquisition on a fresh pool: one that reaches "cut mid-acquisition". */
+const earlyCutGen: Gen<Sequence> = (source) => ({
+	max: source.draw(int(1, 3)),
+	steps: [{ kind: "cut", at: source.draw(earlyTurnGen), ops: source.draw(opsGen) }]
+})
 
 export type PoolFeature =
 	| "leased a new session"
@@ -136,7 +154,7 @@ export type PoolFeature =
 	| "released"
 	| "lost a leased connection"
 	| "lost an idle connection"
-	| "idle churn closed a session"
+	| "a released session kept open while idle"
 	| Waiting
 	| "abandoned while connecting"
 	| "abandoned while pg handed over an idle session"
@@ -152,7 +170,7 @@ export const situations: Arr.NonEmptyReadonlyArray<PoolFeature> = [
 	"released",
 	"lost a leased connection",
 	"lost an idle connection",
-	"idle churn closed a session",
+	"a released session kept open while idle",
 	"no waiter",
 	"a waiter queued",
 	"a waiter queued behind another waiter",
@@ -166,14 +184,12 @@ export const situations: Arr.NonEmptyReadonlyArray<PoolFeature> = [
 ]
 
 /**
- * The pool's idle timeouts, in milliseconds of real time: short, the least delay a Node timer waits (timerMinMs), so
- * a session released above the floor is closed at once, and long, which never fires while its test runs
- * (testIdleTimeout).
+ * The sequences, aimed at a cut mid-acquisition while it is pending: a cut lands there only at the first few of its 25
+ * turns, so the drawn sequences seldom reach it.
  */
-export const idleMillis: { readonly [I in Sequence["idle"]]: number } = {
-	short: timerMinMs,
-	long: testIdleTimeout
-}
+export const sequenceSpace: Aimed<Sequence, PoolFeature> = aimed(sequenceGen, [
+	["cut mid-acquisition", earlyCutGen]
+])
 
 const frame = (type: string, body: Uint8Array): Buffer => {
 	const out = Buffer.alloc(5 + body.length)
@@ -225,14 +241,13 @@ export class FakeServer {
 	readonly #held: Array<() => void> = []
 	/** The waits for a held startup, each run at the next one the server holds. */
 	readonly #holding = new Set<() => void>()
-	/** The waits on the open connections, each run again at the next close. */
-	readonly #closing = new Set<() => void>()
 	holding = false
 	next: Startup = "ready"
 	opened = 0
 	/**
-	 * The connections pg ended with a Terminate. Before the pool ends, only pg's idle timeout does: no step runs a
-	 * statement, so no session is retired and closed on release, and a lost connection is the server's own hang-up.
+	 * The connections pg ended with a Terminate. Before the pool ends, only a lease refusing a connection that sent no
+	 * cancellation key closes one: no step runs a statement, so no session is retired and closed on release, a lost
+	 * connection is the server's own hang-up, and the pool closes no session for being idle.
 	 */
 	terminated = 0
 	#pid = 1
@@ -248,31 +263,9 @@ export class FakeServer {
 		this.open.add(socket)
 		socket.once("close", () => {
 			this.open.delete(socket)
-			const waits = [...this.#closing]
-			this.#closing.clear()
-			for (const wait of waits) {
-				wait()
-			}
 		})
 		return socket
 	})
-
-	/** Returns once at most `count` connections are open: at once, or at the close that brings them down to it. */
-	openAtMost(count: number): Effect.Effect<void> {
-		return Effect.callback<void>((resume) => {
-			const wait = (): void => {
-				if (this.open.size <= count) {
-					resume(Effect.void)
-				} else {
-					this.#closing.add(wait)
-				}
-			}
-			wait()
-			return Effect.sync(() => {
-				this.#closing.delete(wait)
-			})
-		})
-	}
 
 	/** Returns once the server holds a startup's answer: at once, or when the next startup arrives to be held. */
 	startupHeld(): Effect.Effect<void> {

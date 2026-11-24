@@ -43,7 +43,6 @@ import { trustedJson } from "#compiler/core/trusted.ts"
 import { succeeded } from "#test/support/assert.ts"
 import type { TlsMember } from "#test/support/cluster.ts"
 import { pgCluster, pgPin } from "#test/support/env.ts"
-import { testIdleTimeout } from "#test/support/limits.ts"
 import type { BudgetedCluster } from "#test/support/substrate/budget.ts"
 import { testPoolMax } from "#test/support/substrate/connections.ts"
 import { randomHex } from "#test/support/substrate/names.ts"
@@ -808,15 +807,8 @@ export const textSession = (
 ): Effect.Effect<PgConnection, SqlError, Scope.Scope> =>
 	cluster.budget.opened(connectOnce(cluster, options, serverText))
 
-/**
- * The session pool of a test's DbLayer: one session per core (testPoolMax), no session closed for idleness while its
- * test runs (testIdleTimeout), and so no floor of sessions kept for their own sake, which only an idle timeout reads.
- */
-export const clusterPool: PoolBounds = {
-	max: testPoolMax,
-	min: 0,
-	idleTimeoutMs: testIdleTimeout
-}
+/** The session pool of a test's DbLayer: one session per core (testPoolMax), each kept for the layer's life. */
+export const clusterPool: PoolBounds = { max: testPoolMax }
 
 /**
  * The local cluster's transport as a plain Node caller writes it: a new net.Socket for every connection, to the pin's

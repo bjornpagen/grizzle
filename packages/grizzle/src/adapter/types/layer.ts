@@ -3,7 +3,7 @@ import type { Token } from "#adapter/db/token.ts"
 import type { CredentialError } from "#adapter/errors/credential.ts"
 import type { OpenError } from "#adapter/errors/execution.ts"
 import type { TokenRefused, VerifierUnavailable } from "#adapter/errors/failures.ts"
-import type { PgDriver, PgSocket, PoolListener } from "#adapter/types/driver.ts"
+import type { PgDriver, PgSocket } from "#adapter/types/driver.ts"
 import type { ShapeOf } from "#compiler/live/index.ts"
 import type {
 	AnyLogin,
@@ -23,8 +23,7 @@ import type { ServedFile } from "#compiler/plan/serve.ts"
 
 /**
  * The connection layer. Types only: packages/grizzle/src/adapter implements DbLayer. A platform's credentials (an RDS IAM token, a
- * secret manager's lookup) and its pool integration (Vercel's attachDatabasePool) are the caller's, through `password`
- * and `attachPool`: grizzle names no platform's SDK.
+ * secret manager's lookup) are the caller's, through `password`: grizzle names no platform's SDK.
  *
  * A layer is built for one login: one credential and one pool, which serves every role of the login, and the login's
  * workloads, compiled once. Db.open(Web.roles.member) requires DbLayer<role>, and the layer of a login provides
@@ -40,18 +39,6 @@ export interface DbLayerService<in out R> {
 /** What the layer of login L provides: DbLayer<R> for every role R of the login. */
 export type DbLayerOf<L> =
 	RolesOf<L> extends infer R ? (R extends unknown ? DbLayerService<R> : never) : never
-
-/**
- * A session pool DbLayer.make builds, as a platform that manages idle connections between invocations reads it: its idle
- * timeout, and its release event, emitted each time a session goes back to it with pg's own arguments (PoolListener). It
- * is the Pool of the caller's driver (PgDriver), whose `connect` a hook may wrap, since every checkout calls it through
- * the pool; on Vercel Fluid compute, `attachDatabasePool` from @vercel/functions/db-connections takes it as it is, and
- * ends each release's wait with the request that checked its client out.
- */
-export interface ConnectionPool {
-	readonly options: { readonly idleTimeoutMillis: number | null }
-	on(event: "release", listener: PoolListener): unknown
-}
 
 /**
  * How a connection reaches the server, the one way there is: the transport's socket, which `open` makes unconnected
@@ -104,23 +91,19 @@ export interface DbConnection {
 }
 
 /**
- * The session pool a DbLayer builds for its login, sized by the caller: grizzle chooses no size and no timeout. A lease
- * waits for a session as long as its caller lets it: no deadline of grizzle's bounds the wait, which is interruptible
- * and holds nothing, so the caller's own timeout ends it.
+ * The session pool a DbLayer builds for its login, sized by the caller: grizzle chooses no size. A lease waits for a
+ * session as long as its caller lets it: no deadline of grizzle's bounds the wait, which is interruptible and holds
+ * nothing, so the caller's own timeout ends it.
+ *
+ * It states no idle timeout and no floor: a session, once opened, is kept for the pool's life, the layer's, and closed
+ * only when it fails or the layer's scope closes. A session's cold cost, its connection and the planning of each
+ * statement it runs first, is paid once per session, never again after a pause between requests: PostgreSQL holds an
+ * idle session open for as long as its client does (idle_session_timeout is off by default), so nothing forces a
+ * close, and one that closed for idleness would make the next request that leases in its place cold again.
  */
 export interface PoolBounds {
 	/** The most sessions open at once, leased, idle or being established: an integer from 1. */
 	readonly max: number
-	/**
-	 * The sessions kept open once opened, however long they stay idle: an integer from 0 to `max`. It opens none ahead:
-	 * a session is opened only when a lease asks for one.
-	 */
-	readonly min: number
-	/**
-	 * How long a session idle above `min` stays open, in milliseconds, an integer from 1 to 2,147,483,647: a platform's
-	 * hook reads it as the pool's idle timeout (ConnectionPool).
-	 */
-	readonly idleTimeoutMs: number
 }
 
 /**
@@ -227,11 +210,6 @@ export type DbConfigShape<L> = DbConnection & {
 	readonly login: ServedLogin<L>
 	/** The login's one session pool, which serves every role of the login. */
 	readonly pool: PoolBounds
-	/**
-	 * Called once with each session pool the layer builds, when it is built: the platform's hook for idle connections
-	 * (on Vercel, `attachPool: attachDatabasePool`). Without it, nothing is attached.
-	 */
-	readonly attachPool?: (pool: ConnectionPool) => void
 } & VerifyOf<L>
 
 /**

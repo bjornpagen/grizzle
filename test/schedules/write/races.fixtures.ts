@@ -89,7 +89,6 @@ import {
 	Zed
 } from "#test/schedules/write/support.ts"
 import { writeAnswerOf, type WriteAnswer, writeOnce } from "#test/support/calls.ts"
-import { testIdleTimeout } from "#test/support/limits.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { refusedEntries } from "#test/support/refused.ts"
@@ -2394,7 +2393,7 @@ export const runInserterAlone = (
 		const pool = yield* poolFor(o.rig.installed.as(o.rig.worlds.server), {
 			...defaultPool,
 			transport: { kind: "given", transport: tap.transport },
-			pool: { idleTimeoutMs: testIdleTimeout, min: 1, max: 1 },
+			pool: { max: 1 },
 			session: servedSession
 		})
 		yield* Effect.orDie(

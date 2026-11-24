@@ -700,7 +700,8 @@ to fix, or the compiler's refusal of a schema or login with its fix, and no line
   `connection` is the config's connection without its `role` and its password, which are the migration role's
   (`DbLayer.make` refuses a `role` as an unknown setting): `driver: pgDriver` (`import pgDriver from "pg"`), the
   `transport` (`{ kind: "sslRequest", host, port, open: () => new net.Socket(), ca, servername }`, always
-  verify-full) and the `database`. `password` is the login's own, and `pool` is `{ max, min, idleTimeoutMs }`.
+  verify-full) and the `database`. `password` is the login's own, and `pool` is `{ max }`:
+  each session is kept open once opened, for the layer's life, never closed for being idle.
   grizzle states no number of its own: a `Db` call waits for a session until it gets one or is interrupted, a
   connection attempt for the server's answer or the operating system's failure, and an interrupted statement ends once
   the server has stopped it, a CancelRequest sent at the interruption and again at each answer of the server until it

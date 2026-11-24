@@ -65,11 +65,8 @@ export const dbLayerMakeBuildsEveryValidConfigAndRefusesEveryFaultInjectedIntoOn
 			"refused DbConfig.password",
 			"refused DbConfig.pool",
 			"refused DbConfig.pool.max",
-			"refused DbConfig.pool.min",
-			"refused DbConfig.pool.idleTimeoutMs",
 			"refused DbConfig.login",
 			"refused DbConfig.verify",
-			"refused DbConfig.attachPool",
 			"refused an unknown setting",
 			"refused a host that is a path"
 		] satisfies ReadonlyArray<Reached<LayerFeature>>,
@@ -134,14 +131,6 @@ export const dbLayerMakeBuildsEveryValidConfigAndRefusesEveryFaultInjectedIntoOn
 		budget: { runs: 400, steered: 0 },
 		kept: [],
 		kills: [
-			{
-				file: "packages/grizzle/src/adapter/connection/config.ts",
-				original:
-					"export const timerDelay = (v: number): boolean => integerIn(v, timerMinMs, timerMaxMs)",
-				replacement:
-					"export const timerDelay = (v: number): boolean => integerIn(v, 0, timerMaxMs)",
-				why: "A timer's delay of 0 is admitted."
-			},
 			{
 				file: "packages/grizzle/src/adapter/connection/config.ts",
 				original:

@@ -1700,7 +1700,6 @@ import net from "node:net"
 import { CredentialError } from "@bjornpagen/grizzle"
 import { DbLayer, LiveSource, served, TokenRefused } from "@bjornpagen/grizzle/runtime"
 import { verifyToken } from "@clerk/backend"
-import { attachDatabasePool } from "@vercel/functions/db-connections"
 import { Config, Effect, Layer } from "effect"
 import pgDriver from "pg"
 import etlJobFile from "./migrations/blog/served/etl_job.json" with { type: "json" }
@@ -1742,8 +1741,7 @@ export const WebLayer = DbLayer.make({
 	password: Config.Redacted("BLOG_WEB_PASSWORD").pipe(
 		Effect.mapError((cause) => new CredentialError({ cause }))
 	),
-	pool: { max: 10, min: 1, idleTimeoutMs: 5_000 },
-	attachPool: attachDatabasePool,
+	pool: { max: 10 },
 	verify: (token) =>
 		clerkJwtKey.pipe(
 			Effect.mapError((cause) => new TokenRefused({ cause })),
@@ -1763,9 +1761,9 @@ export const WebLayer = DbLayer.make({
 - `transport`: how each connection reaches the server. `open` makes a new, unconnected socket, which pg connects to `host` and `port`; then come an SSLRequest and verify-full TLS over the socket, the server's certificate chained to `ca` and naming `servername`. `host` is a name or an IP address, never a Unix socket's path, since PostgreSQL offers no TLS over one. A tunnel connects to its local end and names the server it reaches. A CancelRequest opens its own connection the same way.
 - `password`: a `Redacted`, or an Effect that yields one for each new connection, so a rotated credential needs no restart.
 - `rolePrefix`, optional: the installation's, when two installations of the schema share a cluster, each login's and role's PostgreSQL role `<rolePrefix>__<stem>` ([Migrations](#migrations)); without it, each role is its stem, the name `grizzle generate` committed. The same prefix as the installation's `grizzle.config.ts` connection, used verbatim: `qti_pie_v2` makes `qti_pie_v2__blog__web`.
-- `pool`: at most `max` sessions open, `min` of them kept open once opened, and the others closed `idleTimeoutMs` after their last use. None is opened before a call asks for one.
+- `pool`: at most `max` sessions open. None is opened before a call asks for one, and each is kept open once opened, for the layer's life: grizzle closes no session for being idle, so a session's connection and its first plan of each statement are paid once, never again after a pause between requests. A call takes the idle session released last, so calls one after another run on one session.
 
-A login whose roles read the token also needs `verify`, your function from a bearer token to its verified payload: here, Clerk's `verifyToken`, which judges a token by its key alone, so its every failure is a `TokenRefused`. A verifier that calls a service fails with `VerifierUnavailable` where the service gives no answer, so the caller retries an outage and never reads it as a refused token. `attachPool` hands the pool to Vercel, so idle connections close before a function instance suspends.
+A login whose roles read the token also needs `verify`, your function from a bearer token to its verified payload: here, Clerk's `verifyToken`, which judges a token by its key alone, so its every failure is a `TokenRefused`. A verifier that calls a service fails with `VerifierUnavailable` where the service gives no answer, so the caller retries an outage and never reads it as a refused token.
 
 A login whose workloads serve a read requires its installation's live source, `LiveSource.layer`, which its type states: the `DbLayer` of `Web` is a layer that needs `BlogLive`, and the program does not compile until it is provided. Build it once per process for the installation and provide it to every such layer, so one process holds one of it however many logins it serves. It takes the connection of the installation's decoder login, the one login `grizzle migrate` grants REPLICATION, whose `password` is that login's credential, and any served login of the installation that reads. The served login names that decoder login, `WebServed.decoder`, its PostgreSQL role `roleNameOf(WebServed.decoder, connection)`, which the layer logs in as. Its type is the login's: a `DecoderLogin` for `Web`, whose type proves it serves a read, which `roleNameOf` takes as it is; `{ kind: "none" }` for `EtlJob`, whose type proves it serves none and whose live source reads no credential; and either, narrowed by `kind`, for a login whose type cannot tell, `AnyLogin` among them. It connects nothing until a Db's first `watch`; from then on, for its scope, it holds one listening session of the decoder login and the process's candidacy for the installation's live leader, which streams the committed changes of the tables live reads read from the installation's replication slot and fans out which rows they touched, sealed under the installation's secret. These serve every watch alike, so they run under the services the live source was built with, outside the span it was built in, and never under the first watch's: no request's trace holds them, and a request's own calls are traced under its own span. A `watch` made before the slot stands, a fresh installation's first ones, waits for it: the leader makes the slot, which PostgreSQL holds back until every transaction that holds a transaction id at its start has ended, then fans out `:stands`, and each waiting read checks the slot once more. `EtlJob` serves no read, so its layer needs no live source. A login whose type hides its workloads, `AnyLogin` among them, requires one too, since its type cannot prove it reads nothing; providing a source no layer uses is legal. Every watch ends with `stale` when the installation is migrated: the leader decodes the migration's ledger row and fans out a version notice, so a read of closed relations alone, whose rows only a migration changes, needs the live source too.
 
@@ -1853,7 +1851,7 @@ export const EtlLayer = DbLayer.make({
 	password: Config.Redacted("BLOG_ETL_PASSWORD").pipe(
 		Effect.mapError((cause) => new CredentialError({ cause }))
 	),
-	pool: { max: 2, min: 0, idleTimeoutMs: 5_000 }
+	pool: { max: 2 }
 })
 
 const etl = ManagedRuntime.make(EtlLayer)
@@ -1902,7 +1900,7 @@ Read the SQL `generate` drafts, edit it if you need to, and commit it with the c
 - **The code and the database move together.** `grizzle check` refuses a served file that is not its login's compile under the snapshot, so the app's programs are the schema's. Every `Db` transaction refuses a database whose latest migration did not reach the snapshot its served file was compiled under. `grizzle drift`, from CI or a schedule, and `grizzle migrate` after every apply compare the whole database with the snapshot: roles, settings, privileges, view definitions and policies included.
 - **Migrations are downtime.** While one runs, every `Db` call fails at once with a `stale` `CallError` (reason `Migrating`); once it completes, a `Db` of the old code fails with `stale` (reason `Migrated`). Deploy the code that carries the new served files.
 
-[Migrations](#migrations) covers the whole loop, with renames, drops, markers and data steps. [Deploying](#deploying) covers what `DbLayer.make` and every transaction check, Vercel, and RDS IAM authentication.
+[Migrations](#migrations) covers the whole loop, with renames, drops, markers and data steps. [Deploying](#deploying) covers what `DbLayer.make` and every transaction check, the sessions a deployment holds on the server, and RDS IAM authentication.
 
 ## Tables and types
 
@@ -6098,8 +6096,20 @@ one checks the snapshot and takes on the role and the claims for that transactio
 carries one request's role or claims into the next. An apply with nothing to write still sends BEGIN, those two
 statements and COMMIT, so a stale `Db` never answers `unchanged`.
 
-**Vercel.** `attachPool: attachDatabasePool` hands each pool to Vercel, as the example does, so it closes idle
-connections before an instance suspends. grizzle depends on no platform's package.
+**Sessions on the server.** A pool keeps every session it opened until the session fails or the layer's scope
+closes, so a deployment holds at most its processes times their pools' `max` sessions open on the server, each process
+the most its calls ever needed at once. A platform that suspends an instance between requests, as Vercel's Fluid
+compute does, suspends its sessions with it: an instance that resumes reuses them warm, and the server ends those of
+an instance that stays suspended once its TCP keepalive finds no answer, after `tcp_keepalives_idle` plus
+`tcp_keepalives_count` times `tcp_keepalives_interval` seconds of silence: 300 + 2 × 30 = 360 s under the defaults of
+Amazon RDS for PostgreSQL, and 7,200 + 9 × 75 = 7,875 s under PostgreSQL's own, which take Linux's. Size `max` so that
+it, times the instances live or suspended within that window, beside every other login's sessions and the
+migration's, stays within the server's `max_connections` (on RDS, `LEAST({DBInstanceClassMemory/9531392}, 5000)` by
+default); Vercel publishes no cap on its instances. Past it, the server refuses the next session, which the call that
+asked for it reports as `unavailable` with the cause `tooManyConnections`. A session the server ended while its
+instance was suspended is found dead by the first call that runs on it once the instance resumes: a write answers
+`commitUnknown`, since its COMMIT went out with the rest of its flight and no answer came back, and a read `transport`;
+that session is closed, and the next call opens another. grizzle depends on no platform's package.
 
 **RDS with IAM authentication.** The password is an Effect that signs a token for each connection attempt;
 `@aws-sdk/rds-signer` signs locally, without a network call, for the user `roleNameOf(EtlServed, connection)` names. Grant that role
@@ -6117,7 +6127,7 @@ import { Redacted } from "effect"
 export const RdsEtlLayer = DbLayer.make({
 	...connection,
 	login: EtlServed,
-	pool: { max: 2, min: 0, idleTimeoutMs: 5_000 },
+	pool: { max: 2 },
 	password: Effect.tryPromise({
 		try: () =>
 			new Signer({

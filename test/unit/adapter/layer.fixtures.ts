@@ -1,7 +1,6 @@
 /** What the properties of layer.test.ts read: its spaces, models and helpers. */
 
 import net from "node:net"
-import { timerMaxMs, timerMinMs } from "@bjornpagen/grizzle/runtime"
 import {
 	array,
 	boolean,
@@ -154,13 +153,6 @@ interface Drawn {
 	readonly password: string
 }
 
-/** A timer's delay, from the least to the longest a Node timer keeps: its range's ends, or one between. */
-const delayGen: Gen<number> = oneOf<number>([
-	constant(timerMinMs),
-	constant(timerMaxMs),
-	int(timerMinMs, timerMaxMs)
-])
-
 export const drawnGen: Gen<Drawn> = (source) => {
 	const host = source.draw(hostGen)
 	const port = source.draw(int(1, 65535))
@@ -176,11 +168,6 @@ export const drawnGen: Gen<Drawn> = (source) => {
 	)
 	const servername = source.draw(textGen)
 	const max = source.draw(int(1, 20))
-	const min = source.draw(int(0, max))
-	/**
-	 * A platform's pool hook, or none: building the layer never calls it, since no pool exists before a Db.open.
-	 */
-	const attachPool = source.draw(boolean)
 	/**
 	 * A verify, or none: the login's roles read no context, so it needs none, and building the layer never calls it.
 	 */
@@ -198,10 +185,9 @@ export const drawnGen: Gen<Drawn> = (source) => {
 				servername
 			},
 			database,
-			pool: { max, min, idleTimeoutMs: source.draw(delayGen) },
+			pool: { max },
 			login: PlainServed,
 			password: lazy ? Effect.succeed(Redacted.make(password)) : Redacted.make(password),
-			...(attachPool ? { attachPool: () => undefined } : {}),
 			...(verify ? { verify: () => Effect.succeed({}) } : {})
 		}
 	}
@@ -221,11 +207,8 @@ type Setting =
 	| "password"
 	| "pool"
 	| "pool.max"
-	| "pool.min"
-	| "pool.idleTimeoutMs"
 	| "login"
 	| "verify"
-	| "attachPool"
 
 /**
  * What a run reaches: its valid config built, and its fault refused at the setting it breaks, or as an unknown key; a
@@ -293,18 +276,6 @@ export const ruleOf = (f: Fault): Option.Option<SettingRule["kind"]> =>
 			? Option.some("networkHost")
 			: Option.none()
 
-/** A timer's delay no timer keeps: none, one fired at once, one past the longest, or no integer. */
-const badDelays: Arr.NonEmptyReadonlyArray<unknown> = [
-	0,
-	-1,
-	timerMaxMs + 1,
-	1.5,
-	Number.NaN,
-	Number.POSITIVE_INFINITY,
-	"1000",
-	undefined
-]
-
 /**
  * Each fault a JavaScript caller can pass. The last: a login one of whose roles reads a context, without a verify, so
  * no Db of it could turn a token into claims.
@@ -320,7 +291,8 @@ export const faultGen: Gen<Fault> = oneOf<Fault>([
 			"host",
 			"port",
 			"tls",
-			"connectTimeoutMs"
+			"connectTimeoutMs",
+			"attachPool"
 		]),
 		(key) => fault(unknownKey(key), "top", { [key]: "x" })
 	),
@@ -373,17 +345,11 @@ export const faultGen: Gen<Fault> = oneOf<Fault>([
 	map(element<unknown>([undefined, null, 10, []]), (pool) =>
 		fault(setting("pool"), "top", { pool })
 	),
-	map(element(["size", "connectionTimeoutMillis", "waitMs"]), (key) =>
+	map(element(["min", "idleTimeoutMs", "size", "connectionTimeoutMillis"]), (key) =>
 		fault(unknownKey(key), "pool", { [key]: 1 })
 	),
 	map(element<unknown>([0, -1, 1.5, "10", Number.NaN, undefined]), (max) =>
 		fault(setting("pool.max"), "pool", { max })
-	),
-	map(element<unknown>([-1, 1.5, 21, "1", undefined]), (min) =>
-		fault(setting("pool.min"), "pool", { min })
-	),
-	map(element(badDelays), (idleTimeoutMs) =>
-		fault(setting("pool.idleTimeoutMs"), "pool", { idleTimeoutMs })
 	),
 	map(element<unknown>(["", 1, undefined, null, {}, Shelf, "plain"]), (value) =>
 		fault(setting("login"), "top", { login: value })
@@ -391,10 +357,7 @@ export const faultGen: Gen<Fault> = oneOf<Fault>([
 	map(element<unknown>(["verify", 1, null, {}]), (value) =>
 		fault(setting("verify"), "top", { verify: value })
 	),
-	constant(fault(setting("verify"), "top", { login: ClaimingServed, verify: undefined })),
-	map(element<unknown>(["attachDatabasePool", 1, null, {}]), (attachPool) =>
-		fault(setting("attachPool"), "top", { attachPool })
-	)
+	constant(fault(setting("verify"), "top", { login: ClaimingServed, verify: undefined }))
 ])
 
 /** A layer, whatever it provides, built in a scope of its own and closed: its exit. */

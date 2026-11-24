@@ -71,7 +71,6 @@
 		"@hyperjump/json-schema": "catalog:",
 		"@types/node": "catalog:",
 		"@types/pg": "catalog:",
-		"@vercel/functions": "catalog:",
 		"fallow": "catalog:",
 		"oxfmt": "catalog:",
 		"oxlint": "catalog:",

@@ -1083,7 +1083,7 @@ const prelude = await Effect.runPromise(preludeAt("test/support/programs/access.
 const accessHeader: ReadonlyArray<string> = [
 	"type Equals<A, B> = (<X>() => X extends A ? 1 : 2) extends <X>() => X extends B ? 1 : 2 ? true : false",
 	"type Expect<T extends true> = T",
-	'declare const destination: Omit<DbConfigShape<typeof L0>, "login" | "password" | "verify" | "attachPool">',
+	'declare const destination: Omit<DbConfigShape<typeof L0>, "login" | "password" | "verify">',
 	"declare const password: Redacted.Redacted",
 	"declare const verify: Verify",
 	"declare const file: unknown",

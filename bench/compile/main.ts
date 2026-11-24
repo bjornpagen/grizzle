@@ -1,6 +1,5 @@
 #!/usr/bin/env -S node
 import net from "node:net"
-import { timerMaxMs } from "@bjornpagen/grizzle/runtime"
 import { nonEmpty } from "@bjornpagen/testing/assert"
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime"
 import * as NodeServices from "@effect/platform-node/NodeServices"
@@ -264,7 +263,7 @@ const offline: DbConnection = {
 
 const owner: MigrationConnectionConfig = { ...offline, role: "bench_owner" }
 
-const pool: PoolBounds = { max: 1, min: 0, idleTimeoutMs: timerMaxMs }
+const pool: PoolBounds = { max: 1 }
 
 /** A command line's run in process over the configuration, refused unless it ended with status 0. */
 const command = (phase: Phase, argv: ReadonlyArray<string>, cwd: string, load: ConfigLoader) =>

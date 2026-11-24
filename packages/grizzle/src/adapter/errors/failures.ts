@@ -246,7 +246,7 @@ export type SettingRule =
 			readonly kind: "integer"
 			readonly least: number
 			readonly most: number
-			readonly unit: "port" | "milliseconds" | "sessions"
+			readonly unit: "port" | "milliseconds"
 	  }
 	| { readonly kind: "integerFrom"; readonly least: number }
 	| { readonly kind: "certificates" }
@@ -291,7 +291,7 @@ const ruleText = (rule: SettingRule): string => {
 		case "networkHost":
 			return "must be a network host, a name or an IP address: node-postgres reads a host starting with / as a Unix socket's directory, and PostgreSQL offers no TLS over a Unix socket"
 		case "integer":
-			return `must be an integer ${rule.unit === "port" ? "port number" : rule.unit === "milliseconds" ? "number of milliseconds" : "number of sessions"} from ${rule.least} to ${rule.most}`
+			return `must be an integer ${rule.unit === "port" ? "port number" : "number of milliseconds"} from ${rule.least} to ${rule.most}`
 		case "integerFrom":
 			return `must be an integer from ${rule.least}`
 		case "certificates":

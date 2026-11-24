@@ -57,12 +57,13 @@
  *   server's own answer or failure, as the operating system reports an unreachable host (a refused or timed-out TCP
  *   connect, a reset) and as PostgreSQL ends a startup it does not finish (authentication_timeout). A caller that
  *   answers by a deadline states it on its own call (`Effect.timeout`).
- * - Pool. The driver's own Pool (releasing-pool.ts), handed once, when it is built, to the config's attachPool: a
- *   platform's hook for idle connections, which on Vercel is attachDatabasePool (its pg branch reads
- *   `options.idleTimeoutMillis` and subscribes to `release`), and nothing elsewhere. Its bounds are the caller's
- *   (DbConfig.pool): pg's Pool closes an idle client above the floor the idle timeout after its release, and keeps the
- *   floor open. It opens no session before a lease asks for one, so the floor is the sessions it keeps once opened,
- *   never sessions it opens ahead. The wait for a session is the lease's own: its ask takes one of the pool's `max`
+ * - Pool. The driver's own Pool, its most sessions the caller's (DbConfig.pool), which keeps every session it opened
+ *   for its life: it is built with an idle timeout of 0, pg's "never" (types/driver.ts PgPoolConfig), so no session is
+ *   closed for being idle, and a session's cold cost, its connection and its first plan of each statement, is paid once
+ *   in the pool's life, never again after a pause between requests. It opens no session before a lease asks for one,
+ *   and hands a lease the idle session released last (pg-pool's idle list is a stack), so one request at a time runs on
+ *   one session. A session leaves the pool only once it is not open (State, below) or the pool ends (Release). The
+ *   wait for a session is the lease's own: its ask takes one of the pool's `max`
  *   permits, or waits for one in order, before pg's Pool is asked for a client, and the permit is held until pg has
  *   that client back, so pg's Pool always has an idle client or room and never keeps a lease waiting for one, holding
  *   an ask only for the turn it takes to hand an idle client over. The lease waits, interruptibly and with no deadline
@@ -137,7 +138,7 @@ import type {
 	PgSocket,
 	PgWireMode
 } from "#adapter/types/driver.ts"
-import type { ConnectionPool, PoolBounds } from "#adapter/types/layer.ts"
+import type { PoolBounds } from "#adapter/types/layer.ts"
 import type {
 	BatchOutcome,
 	OneShotStatement,
@@ -145,7 +146,6 @@ import type {
 	Transaction
 } from "#adapter/wire/batch.ts"
 import { type ServerAnswer, serverFailure } from "#adapter/wire/failure.ts"
-import { releasingPool } from "#adapter/wire/releasing-pool.ts"
 import type { EmittedText, Isolation, OutputRows } from "#compiler/plan/common.ts"
 import type { ServedSession } from "#compiler/plan/serve.ts"
 
@@ -1430,8 +1430,6 @@ interface PoolConfig {
 	readonly session: ServedSession
 	/** The pool's bounds (DbConfig.pool). */
 	readonly bounds: PoolBounds
-	/** The platform's hook, handed pg's Pool once, when it is built (DbConfig.attachPool). */
-	readonly attachPool: (pool: ConnectionPool) => void
 }
 
 /**
@@ -1451,7 +1449,7 @@ export interface PoolState {
 
 export interface SessionPool {
 	readonly role: string
-	/** pg's Pool, attached to the platform's pool integration when it was built, holding the pool's bounds. */
+	/** pg's Pool, holding the pool's bounds. */
 	readonly native: PgPool
 	/** A session for the scope. */
 	readonly lease: Effect.Effect<Session, AcquireRefusal, Scope.Scope>
@@ -1463,12 +1461,9 @@ export interface SessionPool {
 
 /**
  * Builds the pool in the current scope; it ends when that scope closes. A pool is a login's: each of its sessions
- * starts under the login's pinned defaults (SessionSpec startup).
- *
- * pg's Pool is handed once, as it is built, to the platform's hook (Vercel's attachDatabasePool reads the idle timeout
- * and subscribes to release), whose throw is a defect of the caller's hook; the function's deadline never becomes a
- * statement or lock timeout. pg's Pool reports an idle client that failed after it has closed and dropped it, so its
- * `error` event wants nothing. The lease's services hold only while pg constructs and starts connecting a client inside
+ * starts under the login's pinned defaults (SessionSpec startup), and is kept for the pool's life once opened, never
+ * closed for being idle (see the header's Pool). pg's Pool reports an idle client that failed after it has closed and
+ * dropped it, so its `error` event wants nothing. The lease's services hold only while pg constructs and starts connecting a client inside
  * `connect`, and that client keeps them only until its connection is set up.
  *
  * Its end, when the scope closes: pg's Pool ends, which writes a Terminate to each idle client, half-closes its
@@ -1509,8 +1504,7 @@ export const makePool = (config: PoolConfig): Effect.Effect<SessionPool, never, 
 		const sessions = new WeakMap<PgClient, Session>()
 		const wires = new Map<PgClient, PgSocket>()
 		const handshakes: Handshakes = new WeakSet()
-		const ReleasingPool = releasingPool(spec.driver.Pool)
-		const native = new ReleasingPool({
+		const native = new spec.driver.Pool({
 			Client: sessionClient(spec, attemptServices, handshakes, {
 				opened: (client, socket) => {
 					wires.set(client, socket)
@@ -1525,9 +1519,8 @@ export const makePool = (config: PoolConfig): Effect.Effect<SessionPool, never, 
 					sessions.set(client, session)
 				}
 			}),
-			min: bounds.min,
 			max: bounds.max,
-			idleTimeoutMillis: bounds.idleTimeoutMs
+			idleTimeoutMillis: 0
 		})
 		native.on("error", () => undefined)
 		/**
@@ -1694,9 +1687,6 @@ export const makePool = (config: PoolConfig): Effect.Effect<SessionPool, never, 
 			return closedAll(closing)
 		}
 		yield* Effect.addFinalizer(() => Effect.suspend(end))
-		yield* Effect.sync(() => {
-			config.attachPool(native)
-		})
 
 		/**
 		 * `client` back to pg's Pool, which closes it when `close` holds, and then its permit: pg's Pool counts a closed

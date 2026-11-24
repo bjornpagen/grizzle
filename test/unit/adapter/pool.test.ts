@@ -4,18 +4,18 @@
  * the pool must hold no connection, session, waiter or permit past its life, whatever leases, interruptions and
  * connection losses happen.
  *
- * A property over drawn sequences on a pool of a drawn maximum (1 to 3) whose idle timeout is short (pg closes idle
- * sessions above the floor while the sequence runs) or long. Each step leases a session and holds it, or releases a
- * held one; ends one of the server's connections, a leased session's or an idle one's; leases a second session where
- * the maximum allows and releases one above the floor, which a short timeout then closes; leases at once, as many as
+ * A property over drawn sequences on a pool of a drawn maximum (1 to 3), which keeps every session it opened for its
+ * life. Each step leases a session and holds it, or releases a held one; ends one of the server's connections, a
+ * leased session's or an idle one's; leases a second session where the maximum allows, releases one and lets it idle
+ * past the least delay a Node timer waits, after which it is still open; leases at once, as many as
  * one, the pool's size, one past it or more past it, those its free permits admit connecting and the rest waiting for a
  * permit, until every one is interrupted, then releases a session; abandons a lease,
  * interrupted while pg connects it or hands it an idle session; cuts a lease, interrupted at a drawn turn of the
  * scheduler, which runs it a drawn few operations a turn, so the cut lands at every step of its acquisition and of its
  * hold; races such a cut, on a lease queued behind a saturated pool, with a release at another drawn turn, often a turn
  * or few before the cut, which hands it the permit; or has the server refuse a connection, at startup or by sending no
- * cancellation key. After every step, at a turn of the event loop, once every idle timeout due has closed its session
- * (a short one is due at once): the sessions a release reaches are exactly the server's open connections, pg's Pool
+ * cancellation key. After every step, at a turn of the event loop: the sessions a release reaches are exactly the
+ * server's open connections, pg's Pool
  * counts exactly those, nothing waits in pg's queue, and the leased count is the model's; the pool's permits
  * (SessionPool state) are each free, held by an attempt or leased, their sum its maximum, so a permit no one holds is
  * lost at the step that lost it, and no lease waits for one. A wait has no deadline of its own: it ends with a session,
@@ -34,6 +34,7 @@
  * waiting behind another; the kept case reaches every abandonment, loss, starvation and refusal on a pool of two.
  */
 
+import { timerMinMs } from "@bjornpagen/grizzle/runtime"
 import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
@@ -49,10 +50,9 @@ import {
 	FakeServer,
 	typedFailureOf,
 	type Held,
-	idleMillis,
 	leaseCount,
 	type PoolFeature,
-	sequenceGen,
+	sequenceSpace,
 	settle,
 	situations,
 	type Startup,
@@ -68,12 +68,12 @@ import {
  * grizzle 4ca3036a).
  */
 export const theSessionPoolKeepsExactlyTheOpenConnectionsAndRecoversFromEveryInterruptionLossAndRefusalOverDrawnSequences =
-	property.explore(sequenceGen, {
+	property.explore(sequenceSpace, {
 		needs: {},
 		situations: situations satisfies ReadonlyArray<Reached<PoolFeature>>,
 		check:
 			(_, c: Case<PoolFeature>) =>
-			({ max, idle, steps }) =>
+			({ max, steps }) =>
 				Effect.gen(function* () {
 					const server = new FakeServer()
 					/**
@@ -94,39 +94,19 @@ export const theSessionPoolKeepsExactlyTheOpenConnectionsAndRecoversFromEveryInt
 								"fake"
 							),
 							session: servedSession,
-							bounds: { idleTimeoutMs: idleMillis[idle], min: 1, max },
-							attachPool: () => undefined
+							bounds: { max }
 						}),
 						poolScope
 					)
 					const held: Array<Held> = []
 					/**
-					 * The idle churn due. Under the short timeout: a Node timer of its delay, set after every idle timer
-					 * pg's Pool has set and so run after them (Node keeps the timers of one delay in one list, in the
-					 * order they were set: node v26.13.0 lib/internal/timers.js, "any timer added later will always
-					 * have been scheduled to timeout later"), then the close of every session they removed, each an
-					 * event at the server. Under the long timeout, which never fires while its test runs: none.
+					 * The pool's state once the event loop has settled twice: a session a step gave back closed (a lease
+					 * refusing a connection that sent no cancellation key) ends at the server only after its Terminate and
+					 * the server's end cross TLS in memory, more turns than one settle takes.
 					 */
-					const churned = Effect.gen(function* () {
-						switch (idle) {
-							case "short": {
-								yield* wallClock(idleMillis.short)
-								const size = yield* pool.size
-								yield* server.openAtMost(size)
-								return
-							}
-							case "long":
-								return
-						}
-					})
-					/** The pool's state at a turn of the event loop, once the idle churn due has closed its sessions. */
 					const holds = Effect.gen(function* () {
 						yield* settle
-						yield* churned
 						yield* settle
-						if (server.terminated > 0) {
-							c.note("idle churn closed a session")
-						}
 						const open = server.open.size
 						const size = yield* pool.size
 						assert.equal(size, open, "pg's Pool counts exactly the open connections")
@@ -216,12 +196,28 @@ export const theSessionPoolKeepsExactlyTheOpenConnectionsAndRecoversFromEveryInt
 								c.note(lost.length > 0 ? "lost a leased connection" : "lost an idle connection")
 								break
 							}
-							case "expire":
+							case "pause": {
 								while (held.length < Math.min(2, max)) {
 									yield* lease
 								}
 								yield* releaseOrLease(0)
+								yield* settle
+								const open = server.open.size
+								const terminated = server.terminated
+								/**
+								 * The released session idles past the least delay a Node timer waits: a timer set now runs
+								 * after any pg's Pool set at the release, since Node keeps the timers of one delay in one list
+								 * in the order they were set and runs a shorter one no later (node v26.13.0
+								 * lib/internal/timers.js, "any timer added later will always have been scheduled to timeout
+								 * later"), so an idle timeout of that delay would have closed it by then.
+								 */
+								const idled = Effect.andThen(wallClock(timerMinMs), settle)
+								yield* idled
+								assert.equal(server.terminated, terminated, "no session is closed for idling")
+								assert.equal(server.open.size, open, "the released session is still open")
+								c.note("a released session kept open while idle")
 								break
+							}
 							case "starve": {
 								const count = leaseCount(step.leases, max)
 								const waiters = Math.max(0, count - (max - held.length))
@@ -371,7 +367,7 @@ export const theSessionPoolKeepsExactlyTheOpenConnectionsAndRecoversFromEveryInt
 		kept: [
 			{
 				token: ReplayToken(
-					"test/unit/adapter/pool.test.ts#theSessionPoolKeepsExactlyTheOpenConnectionsAndRecoversFromEveryInterruptionLossAndRefusalOverDrawnSequences:-:1.1.a.0.5.5.0.4.3.0.2.0.2.0.8.0.8.1.4.0"
+					"test/unit/adapter/pool.test.ts#theSessionPoolKeepsExactlyTheOpenConnectionsAndRecoversFromEveryInterruptionLossAndRefusalOverDrawnSequences:-:1.a.0.5.5.0.4.3.0.2.0.2.0.8.0.8.1.4.0"
 				),
 				reason:
 					"abandonments, losses, leases waiting behind one another, and refusals on a pool of two",
@@ -379,14 +375,7 @@ export const theSessionPoolKeepsExactlyTheOpenConnectionsAndRecoversFromEveryInt
 			},
 			{
 				token: ReplayToken(
-					"test/unit/adapter/pool.test.ts#theSessionPoolKeepsExactlyTheOpenConnectionsAndRecoversFromEveryInterruptionLossAndRefusalOverDrawnSequences:-:1.0.4.0.0.1.0.1.0"
-				),
-				reason: "the idle timeout closes a released session above the floor",
-				since: "2026-10-29"
-			},
-			{
-				token: ReplayToken(
-					"test/unit/adapter/pool.test.ts#theSessionPoolKeepsExactlyTheOpenConnectionsAndRecoversFromEveryInterruptionLossAndRefusalOverDrawnSequences:-:0.1.5.6.0.0.6.2.0.6.o.5.7.0.0.6.0.7.1.0.4.1"
+					"test/unit/adapter/pool.test.ts#theSessionPoolKeepsExactlyTheOpenConnectionsAndRecoversFromEveryInterruptionLossAndRefusalOverDrawnSequences:-:0.5.6.0.0.6.2.0.6.o.5.7.0.0.6.0.7.1.0.4.1"
 				),
 				reason: "cuts at every early turn, alone and racing a release, on a pool of one",
 				since: "2026-10-29"
@@ -404,6 +393,12 @@ export const theSessionPoolKeepsExactlyTheOpenConnectionsAndRecoversFromEveryInt
 				original: "\t\t\t\t\tpermits = withdrawn(permits, ask)\n",
 				replacement: "",
 				why: "An interrupted waiter stays queued, so a permit goes to it and is lost."
+			},
+			{
+				file: "packages/grizzle/src/adapter/wire/session.ts",
+				original: "\t\t\tidleTimeoutMillis: 0\n",
+				replacement: "\t\t\tidleTimeoutMillis: 1\n",
+				why: "The pool closes a session idle for a millisecond, as it closed one idle past the caller's idleTimeoutMs: the next lease opens a cold session in its place."
 			}
 		]
 	})

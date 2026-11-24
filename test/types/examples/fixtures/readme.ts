@@ -86,7 +86,6 @@ import {
 	TokenRefused
 } from "@bjornpagen/grizzle/runtime"
 import { verifyToken } from "@clerk/backend"
-import { attachDatabasePool } from "@vercel/functions/db-connections"
 import { Array, Config, Effect, Layer, ManagedRuntime, type Option, Redacted, Schema } from "effect"
 import pgDriver from "pg"
 
@@ -721,8 +720,7 @@ export const WebLayer = DbLayer.make({
 	password: Config.Redacted("BLOG_WEB_PASSWORD").pipe(
 		Effect.mapError((cause) => new CredentialError({ cause }))
 	),
-	pool: { max: 10, min: 1, idleTimeoutMs: 5_000 },
-	attachPool: attachDatabasePool,
+	pool: { max: 10 },
 	verify: (token) =>
 		clerkJwtKey.pipe(
 			Effect.mapError((cause) => new TokenRefused({ cause })),
@@ -793,7 +791,7 @@ export const EtlLayer = DbLayer.make({
 	password: Config.Redacted("BLOG_ETL_PASSWORD").pipe(
 		Effect.mapError((cause) => new CredentialError({ cause }))
 	),
-	pool: { max: 2, min: 0, idleTimeoutMs: 5_000 }
+	pool: { max: 2 }
 })
 
 const etl = ManagedRuntime.make(EtlLayer)
@@ -1825,7 +1823,7 @@ export const Work = schema(
 export const RdsEtlLayer = DbLayer.make({
 	...connection,
 	login: EtlServed,
-	pool: { max: 2, min: 0, idleTimeoutMs: 5_000 },
+	pool: { max: 2 },
 	password: Effect.tryPromise({
 		try: () =>
 			new Signer({
@@ -2038,7 +2036,7 @@ export const webWithoutVerify = DbLayer.make({
 	...connection,
 	login: WebServed,
 	password: Redacted.make("secret"),
-	pool: { max: 10, min: 1, idleTimeoutMs: 5_000 }
+	pool: { max: 10 }
 })
 
 /** The gallery's types, as its prose states them. */

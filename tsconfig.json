@@ -204,15 +204,6 @@
 						}
 					},
 					{
-						"include": ["test/pg/serverless/support.ts"],
-						"options": {
-							"diagnosticSeverity": {
-								"processEnv": "off",
-								"processEnvInEffect": "off"
-							}
-						}
-					},
-					{
 						"include": [
 							"test/support/memory-tls.ts",
 							"test/unit/dev/consumer.ts",
@@ -276,7 +267,6 @@
 							"packages/grizzle/src/adapter/served/served.ts",
 							"packages/grizzle/src/adapter/wire/batch.ts",
 							"packages/grizzle/src/adapter/wire/failure.ts",
-							"packages/grizzle/src/adapter/wire/releasing-pool.ts",
 							"packages/grizzle/src/adapter/wire/session.ts",
 							"packages/grizzle/src/adapter/witness/classify.ts",
 							"packages/grizzle/src/adapter/witness/keylaw.ts",

@@ -21,17 +21,17 @@ export interface Cluster {
 export const serverName = "localhost"
 
 /**
- * The bound of every wait grizzle makes its caller state for the tier's calls (an idle session, a heartbeat), in
- * milliseconds: the largest grizzle admits, so none of the tier's own fires, and the runner's hang guard
- * on each case and each need's open is the one bound on a wait that never ends.
+ * The bound of every wait grizzle makes its caller state for the tier's calls (a heartbeat), in milliseconds: the
+ * largest grizzle admits, so none of the tier's own fires, and the runner's hang guard on each case and each need's open
+ * is the one bound on a wait that never ends.
  *
  * @limitKind derived
  * @owner the grizzle tier (test/grizzle)
  * @unit milliseconds
- * @scope a pooled session's idleness and an answer's heartbeat, each of the tier's twins
- * @derivation grizzle reads each of them as "an integer from 1 to 2,147,483,647" (PoolBounds.idleTimeoutMs,
- *   HttpConfig.heartbeatMs), the largest delay Node's timers take; the loopback server and the
- *   CLI have no proxy or idle timeout between them for a heartbeat to keep open
+ * @scope an answer's heartbeat, each of the tier's twins
+ * @derivation grizzle reads it as "an integer from 1 to 2,147,483,647" (HttpConfig.heartbeatMs), the largest delay
+ *   Node's timers take; the loopback server and the CLI have no proxy or idle timeout between them for a heartbeat to
+ *   keep open
  */
 export const unboundedMillis = 2_147_483_647
 

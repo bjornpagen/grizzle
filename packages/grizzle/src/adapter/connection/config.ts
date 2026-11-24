@@ -22,13 +22,13 @@ import {
 } from "#compiler/plan/runtime.ts"
 
 /**
- * The least delay a Node timer waits: pg-pool's idle timeout and an SSE heartbeat's tick are Node timers, and grizzle
- * admits an idleTimeoutMs or a heartbeatMs from it.
+ * The least delay a Node timer waits: an SSE heartbeat's tick is a Node timer, and grizzle admits a heartbeatMs from
+ * it.
  *
  * @limitKind published
  * @owner Node.js 26.13.0 timers
  * @unit milliseconds
- * @scope a DbConfig's pool.idleTimeoutMs and an HttpConfig's heartbeatMs, each the delay of a Node timer
+ * @scope an HttpConfig's heartbeatMs, the delay of a Node timer
  * @constraint protocol constant
  * @source https://nodejs.org/docs/v26.13.0/api/timers.html#settimeoutcallback-delay-args
  * @quote When `delay` is larger than `2147483647` or less than `1` or `NaN`, the `delay` will be set to `1`.
@@ -37,13 +37,13 @@ import {
 export const timerMinMs = 1
 
 /**
- * The longest delay a Node timer keeps: pg-pool's idle timeout and an SSE heartbeat's tick are Node timers, and one
- * longer is set to 1, so it fires at once.
+ * The longest delay a Node timer keeps: an SSE heartbeat's tick is a Node timer, and one longer is set to 1, so it
+ * fires at once.
  *
  * @limitKind published
  * @owner Node.js 26.13.0 timers
  * @unit milliseconds
- * @scope a DbConfig's pool.idleTimeoutMs and an HttpConfig's heartbeatMs, each the delay of a Node timer
+ * @scope an HttpConfig's heartbeatMs, the delay of a Node timer
  * @constraint protocol constant
  * @source https://nodejs.org/docs/v26.13.0/api/timers.html#settimeoutcallback-delay-args
  * @quote When `delay` is larger than `2147483647` or less than `1` or `NaN`, the `delay` will be set to `1`.
@@ -106,12 +106,12 @@ export const roleSettings: BlockSettings<{ readonly role: string }> = {
 }
 
 /**
- * A served DbConfig's: its served login, pool bounds, pool hook and verify. The parse returns the pool bounds, plain
- * data parsed with the connection's (parsePool); the served login, the hook and verify are read off the typed config by
- * the layer (pool/served.ts).
+ * A served DbConfig's: its served login, pool bounds and verify. The parse returns the pool bounds, plain data parsed
+ * with the connection's (parsePool); the served login and verify are read off the typed config by the layer
+ * (pool/served.ts).
  */
 export const servedLoginSettings: BlockSettings<{ readonly pool: PoolBounds }> = {
-	settings: ["login", "pool", "attachPool", "verify"],
+	settings: ["login", "pool", "verify"],
 	parse: (plain, where) => {
 		const { pool } = plain
 		return Result.map(parsePool(pool, [...where, "pool"]), (bounds) => ({ pool: bounds }))
@@ -127,15 +127,14 @@ export const liveSourceSettings: BlockSettings<Readonly<Record<string, never>>> 
 /**
  * The settings the block's read leaves unread, each read once off the typed block instead: the driver, a module whose
  * members may be getters; the password; the transport, read by its own read (readTransport), whose `open` is the
- * caller's function; and a DbConfig's login value, its functions and its snapshot, which the layer reads (pool/served.ts,
- * pool/served.ts), the snapshot by its own parser (boundary/snapshot.ts parseSnapshot).
+ * caller's function; and a DbConfig's login value, its verify and its snapshot, which the layer reads (pool/served.ts),
+ * the snapshot by its own parser (boundary/snapshot.ts parseSnapshot).
  */
 const typedSettings: ReadonlySet<string> = new Set([
 	"driver",
 	"password",
 	"transport",
 	"login",
-	"attachPool",
 	"verify",
 	"snapshot"
 ])
@@ -155,8 +154,8 @@ export const connectionSettings = [
 /** A transport's settings. */
 export const transportSettings = ["kind", "host", "port", "open", "ca", "servername"] as const
 
-/** A pool's settings. */
-export const poolSettings = ["max", "min", "idleTimeoutMs"] as const
+/** A pool's settings: its most sessions, the one bound a pool takes (types/layer.ts PoolBounds). */
+export const poolSettings = ["max"] as const
 
 /**
  * A host a socket reaches over the network, as the parse admits it (parseTransport): a name or an IP address, nonempty,
@@ -367,8 +366,7 @@ const parseTransport = (
  * The block at `where`, which holds `extras` besides its connection: parsed, with what `extras` parses of it, or the
  * setting it refuses and the rule it breaks.
  *
- * A DbConfig's login value, pool hook and verify are the layer's to read (pool/served.ts), never plain
- * data.
+ * A DbConfig's login value and verify are the layer's to read (pool/served.ts), never plain data.
  */
 export const parseConnection = <E>(
 	block: DbConnection,
@@ -515,17 +513,9 @@ const parsePool = (
 	if (Option.isSome(extra)) {
 		return Result.fail(extra.value)
 	}
-	const { max, min, idleTimeoutMs } = setting
+	const { max } = setting
 	if (typeof max !== "number" || !Number.isSafeInteger(max) || max < 1) {
 		return Result.fail(faultAt(where, "max", { kind: "integerFrom", least: 1 }))
 	}
-	if (typeof min !== "number" || !integerIn(min, 0, max)) {
-		return Result.fail(
-			faultAt(where, "min", { kind: "integer", least: 0, most: max, unit: "sessions" })
-		)
-	}
-	if (typeof idleTimeoutMs !== "number" || !timerDelay(idleTimeoutMs)) {
-		return Result.fail(faultAt(where, "idleTimeoutMs", timerRule))
-	}
-	return Result.succeed({ max, min, idleTimeoutMs })
+	return Result.succeed({ max })
 }

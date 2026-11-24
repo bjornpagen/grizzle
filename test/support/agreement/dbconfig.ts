@@ -16,7 +16,6 @@ import { queryUses } from "#compiler/schema/walk.ts"
 import { loginDescOf } from "#compiler/schema/world.ts"
 import { PlainLogin, WebLogin } from "#test/support/agreement/access-schema.ts"
 import { compiledServedFile } from "#test/support/compiled-served.ts"
-import { testIdleTimeout } from "#test/support/limits.ts"
 import { preludeAt, preludeFrom, preludeModule } from "#test/support/prelude.ts"
 import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/batch/batch.ts"
 
@@ -148,7 +147,7 @@ const transport = {
 	servername: "localhost"
 } as const
 
-const pool = { max: 1, min: 0, idleTimeoutMs: testIdleTimeout } as const
+const pool = { max: 1 } as const
 
 /** A verify that refuses every token. */
 const verifyToken: Verify = (token) => Effect.fail(new TokenRefused({ cause: token }))
@@ -294,11 +293,7 @@ const settingLines = (
 		]),
 		...line("top", "database", '\tdatabase: "work",'),
 		...line("top", "password", '\tpassword: Redacted.make("secret"),'),
-		...nested("pool", [
-			["max", "1"],
-			["min", "0"],
-			["idleTimeoutMs", "1000"]
-		]),
+		...nested("pool", [["max", "1"]]),
 		...line("top", "login", `\tlogin: ${login}Served,`),
 		...(login === "WebLogin" ? line("top", "verify", "\tverify: verifyToken,") : []),
 		...(extra === "top" ? [{ text: "\textra: 1,", block: "top" as const, key: "extra" }] : [])
@@ -467,7 +462,7 @@ const configHeader: ReadonlyArray<string> = [
 	"export declare const failingPassword: Effect.Effect<Redacted.Redacted, Error>",
 	'export declare const servicedPassword: Effect.Effect<Redacted.Redacted, CredentialError, "Vault">',
 	'export declare const unpipelined: Omit<typeof pgDriver, "Client"> & { readonly Client: new (config: ClientConfig) => Omit<Client, "pipeline"> }',
-	'export const base = { driver: pgDriver, transport: { kind: "sslRequest", host: "localhost", port: 5433, open: () => new net.Socket(), ca: "PEM", servername: "localhost" }, database: "work", pool: { max: 1, min: 0, idleTimeoutMs: 1000 } } as const',
+	'export const base = { driver: pgDriver, transport: { kind: "sslRequest", host: "localhost", port: 5433, open: () => new net.Socket(), ca: "PEM", servername: "localhost" }, database: "work", pool: { max: 1 } } as const',
 	"export const v_PlainLogin = { ...base, login: PlainLoginServed, password: credentialPassword } as const",
 	"export const v_WebLogin = { ...base, login: WebLoginServed, password: credentialPassword, verify: verifyToken } as const",
 	""

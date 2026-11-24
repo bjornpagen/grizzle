@@ -278,7 +278,7 @@ const drafted = (bin: string) =>
 
 /**
  * A login's pool: two sessions, the most calls a case has open on one twin at once, a followed read and the put it
- * sees; none opened ahead; an idle one kept as long as the pool lives.
+ * sees; none opened ahead; each kept as long as the pool lives.
  *
  * @limitKind derived
  * @owner the grizzle tier (test/grizzle/twins.ts)
@@ -286,7 +286,7 @@ const drafted = (bin: string) =>
  * @scope one twin's session pool, for its worker's life
  * @derivation once.test.ts calls each twin one call at a time, but for a followed read, beside which it makes one put
  */
-const pool = Object.freeze({ max: 2, min: 0, idleTimeoutMs: unboundedMillis })
+const pool = Object.freeze({ max: 2 })
 
 /**
  * One twin, for the worker's scope: a database of its own, the login installed in it by `grizzle migrate` from `draft`

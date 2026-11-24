@@ -25,7 +25,6 @@ import pgDriver from "pg"
 import { openMigrationSession } from "#adapter/migrate/session.ts"
 import { makePool } from "#adapter/wire/session.ts"
 import { servedSession } from "#compiler/program/served.ts"
-import { testIdleTimeout } from "#test/support/limits.ts"
 import { noPassword, parsedConnection } from "#test/support/pg.ts"
 import { FakeServer, wallClock } from "#test/unit/adapter/pool.fixtures.ts"
 
@@ -59,8 +58,7 @@ const attemptOver = (server: FakeServer, path: Path): Effect.Effect<void, string
 					makePool({
 						connection,
 						session: servedSession,
-						bounds: { idleTimeoutMs: testIdleTimeout, min: 0, max: 1 },
-						attachPool: () => undefined
+						bounds: { max: 1 }
 					}),
 					(pool) => Effect.scoped(pool.lease)
 				)

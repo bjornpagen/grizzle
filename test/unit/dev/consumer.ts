@@ -12,15 +12,10 @@ type Manifest = {
 export const exitedCleanly = ChildProcessSpawner.ExitCode(0)
 
 /**
- * The packages a consumer program installs beside grizzle, not the package: Vercel's, for its attachPool, the AWS signer
- * and Clerk's backend the README's programs import, and Node's types.
+ * The packages a consumer program installs beside grizzle, not the package: the AWS signer and Clerk's backend the
+ * README's programs import, and Node's types.
  */
-const consumerDependencies = [
-	"@vercel/functions",
-	"@aws-sdk/rds-signer",
-	"@clerk/backend",
-	"@types/node"
-] as const
+const consumerDependencies = ["@aws-sdk/rds-signer", "@clerk/backend", "@types/node"] as const
 
 /**
  * Runs `command` in `cwd` to completion, its environment this process's with `env` over it, reading nothing, and

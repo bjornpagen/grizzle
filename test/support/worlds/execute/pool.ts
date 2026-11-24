@@ -1,6 +1,6 @@
 import { Effect, Option, Ref, Result, type Scope } from "effect"
 import { Pool, type PoolClient } from "pg"
-import type { ConnectionPool } from "#adapter/types/layer.ts"
+import type { PgPool } from "#adapter/types/driver.ts"
 import { oneShotStatement } from "#adapter/wire/batch.ts"
 import type { SessionPool } from "#adapter/wire/session.ts"
 import { runAlone } from "#test/support/pg.ts"
@@ -8,11 +8,10 @@ import { testSql } from "#test/support/sql.ts"
 import type { Probe } from "#test/support/worlds/model/types.ts"
 
 /**
- * The pg Pool a login's DbLayer builds, as its `attachPool` hook hands it over (the hook Vercel's attachDatabasePool
- * is): grizzle's pool is node-postgres's own, whose `acquire` event names the backend of each connection a lease takes.
+ * The pg Pool a login's DbLayer builds (SessionPool native): grizzle's pool is node-postgres's own, whose `acquire`
+ * event names the backend of each connection a lease takes.
  */
-export const isNativePool = (pool: ConnectionPool): pool is ConnectionPool & Pool =>
-	pool instanceof Pool
+const isNativePool = (pool: PgPool): pool is PgPool & Pool => pool instanceof Pool
 
 /** The backend of the connection a pool most recently leased. */
 const leasedBackend = (client: unknown): number | undefined =>

@@ -26,7 +26,6 @@ import { liveSourceSessions } from "#adapter/live/layer.ts"
 import { type Subscriptions, unsourced } from "#adapter/live/subscriptions.ts"
 import { type LoadedLogin, type LoadedRole, loadServed } from "#adapter/served/load.ts"
 import type {
-	ConnectionPool,
 	DbConfigShape,
 	DbLayerOf,
 	DbLayerService,
@@ -190,19 +189,14 @@ export interface ReadLogin {
 }
 
 /**
- * A DbConfig parsed: the served login it names, its file as served(...) read it and its name, its connection, its pool's bounds,
- * the hook each pool is handed when it is built, which attaches nothing when the config names none, and its token
- * check.
+ * A DbConfig parsed: the served login it names, its file as served(...) read it and its name, its connection, its pool's
+ * bounds and its token check.
  */
 interface ParsedDbConfig extends ParsedConnection {
 	readonly login: ReadLogin
 	readonly pool: PoolBounds
-	readonly attachPool: (pool: ConnectionPool) => void
 	readonly token: TokenCheck
 }
-
-/** The pool hook of a config that names none. */
-const attachNothing = (): void => undefined
 
 const refusedConfig = (fault: SettingFault): OpenError =>
 	new OpenError({ reason: new DbConfigRefused(fault) })
@@ -249,33 +243,27 @@ export const readServedLogin = <L>(
 
 /**
  * The config's own settings, read once at the boundary as the connection's are (core/host.ts readCaller): the served
- * login, the pool hook and verify, each read once off the typed config and checked as a JavaScript caller may pass any
- * value, and the login's kind and names read once off its copy; nothing after reads the config or the login again. The
- * pool's bounds are plain data, parsed with the connection (connection/config.ts servedLoginSettings).
+ * login and verify, each read once off the typed config and checked as a JavaScript caller may pass any value, and the
+ * login's kind and names read once off its copy; nothing after reads the config or the login again. The pool's bounds
+ * are plain data, parsed with the connection (connection/config.ts servedLoginSettings).
  */
 const ownSettings = <L extends AnyLogin>(
 	config: DbConfigShape<L>
-): Result.Result<Pick<ParsedDbConfig, "login" | "attachPool" | "token">, SettingFault> =>
+): Result.Result<Pick<ParsedDbConfig, "login" | "token">, SettingFault> =>
 	readHost({ setting: dbConfig, rule: { kind: "data" } }, () => {
 		const login = config.login
-		const hook = config.attachPool
 		const verify = config.verify
-		/** The same values as plain JavaScript passes them: a block written in JavaScript is checked all the same. */
-		const passedHook: unknown = hook
+		/** The same value as plain JavaScript passes it: a block written in JavaScript is checked all the same. */
 		const passedVerify: unknown = verify
 		const read = readServedLogin(login, loginRefused)
 		if (Result.isFailure(read)) {
 			return Result.fail(read.failure)
-		}
-		if (hook !== undefined && typeof passedHook !== "function") {
-			return Result.fail(faultAt(dbConfig, "attachPool", { kind: "function" }))
 		}
 		if (verify !== undefined && typeof passedVerify !== "function") {
 			return Result.fail(faultAt(dbConfig, "verify", { kind: "function" }))
 		}
 		return Result.succeed({
 			login: read.success,
-			attachPool: hook ?? attachNothing,
 			token: verify === undefined ? { kind: "none" } : { kind: "verify", verify }
 		})
 	})
@@ -347,8 +335,7 @@ const makeServedSessions = Effect.fn("makeServedSessions")(function* <L>(
 	const pool = yield* makePool({
 		connection,
 		session: login.session,
-		bounds: config.pool,
-		attachPool: config.attachPool
+		bounds: config.pool
 	})
 	const subscriptions = yield* liveSubscriptions<L>(login)
 	return { login, pool, token: config.token, subscriptions }

@@ -10,8 +10,8 @@ import type { ClientBase, Submittable } from "pg"
  * - Client: the class grizzle extends for every session (wire/session.ts sessionClient), constructed with the
  *   configuration grizzle states in full (PgClientConfig). Its instances keep `pipeline`, which pg 8.23 added with the
  *   pipeline mode every flight is written in.
- * - Pool: the pool grizzle builds each session pool from (wire/releasing-pool.ts), which constructs its clients from the
- *   Client class grizzle derives from this driver's own (PgPoolConfig.Client).
+ * - Pool: the pool grizzle builds each session pool from (wire/session.ts makePool), which constructs its clients from
+ *   the Client class grizzle derives from this driver's own (PgPoolConfig.Client).
  * - Query: the query class every statement of a flight is submitted as (wire/session.ts submit), with listeners and no
  *   callback, so pg hands over each row as it arrives and keeps none: a pipelined client takes no other submittable.
  * - DatabaseError: the class pg reports an ErrorResponse with, which grizzle tells from its other failures by
@@ -160,33 +160,30 @@ interface PgStream {
 	prependListener(event: "error", listener: (error: unknown) => void): unknown
 }
 
-/** What grizzle builds pg's Pool with: its client class, and its bounds (DbConfig.pool). */
+/**
+ * What grizzle builds pg's Pool with: its client class, its most sessions (DbConfig.pool), and an idle timeout of 0,
+ * pg's own "never": pg's Pool sets an idle client's timer only when its idleTimeoutMillis is truthy (pg-pool 3.14.0
+ * index.js 409, `if (this.options.idleTimeoutMillis && this._isAboveMin())`), and reads one left out as 10,000 (index.js
+ * 98), so the 0 is stated, and its type admits no other: a session is kept for the pool's life (types/layer.ts
+ * PoolBounds).
+ */
 export interface PgPoolConfig {
 	readonly Client: new () => PgClient
-	readonly min: number
 	readonly max: number
-	readonly idleTimeoutMillis: number
+	readonly idleTimeoutMillis: 0
 }
 
 /**
- * A pool event's listener, called with pg's own arguments: the error the client was released or failed with, none for
- * a client kept, and the client, so a hook can tell which of its checkouts the event ends.
- */
-export type PoolListener = (error: unknown, client: object | undefined) => void
-
-/**
- * pg's Pool as grizzle reaches it: asked for a client, ended without awaiting, its counts, and its `error` and `release`
- * events, the last a platform's hook (types/layer.ts ConnectionPool).
+ * pg's Pool as grizzle reaches it: asked for a client, ended without awaiting, its counts, and its `error` event.
  */
 export interface PgPool {
-	readonly options: { readonly idleTimeoutMillis: number | null }
 	readonly ending: boolean
 	readonly totalCount: number
 	readonly idleCount: number
 	readonly waitingCount: number
 	connect(callback: (error: unknown, client: PgPoolClient | undefined) => void): void
 	end(callback: () => void): void
-	on(event: "error" | "release", listener: PoolListener): unknown
+	on(event: "error", listener: (error: unknown) => void): unknown
 }
 
 /** pg's report of an ErrorResponse: the server's fields grizzle keeps (wire/failure.ts serverFailure). */
