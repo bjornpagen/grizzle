@@ -1,7 +1,7 @@
 /**
  * Each put's statement (write/put/choose.ts choosePutTargets), held to the rules its header states, restated over the
- * box's names: a mutable R(b, c, d) keyed by (b, c), beside one more unique object or none, put by each form a ChangeSet
- * writes it in, in one stratum or after an insert in an earlier one.
+ * box's names: a mutable R(b, c, d) keyed by (b, c), beside one more unique object or none, and a closed S(b, c, e) of
+ * R's key, put by each form a ChangeSet writes it in, in one stratum or after an insert in an earlier one.
  *
  * - A unique object reading a field outside the primary key, key(d), makes every put the pair (candidateKey): an UPDATE
  *   checks it at each row, so a statement moving a value between facts would raise 23505 on a lawful final state.
@@ -12,7 +12,11 @@
  *   since two facts it could hold apart share their primary key. Beside an insert into R too, the deletion reads the
  *   stratum's additions, so the put is the pair (unproved).
  * - A put of R's own facts, each key a stored fact's, is an UPDATE ... FROM (existingKeys) when the stratum deletes
- *   nothing of R, and the pair (unproved) beside a deletion, whose key the UPDATE would leave no row to update.
+ *   nothing of R, and the pair (unproved) beside a deletion, whose key the UPDATE would leave no row to update. So is a
+ *   put of R's fact at a parameter key joined with S's, which the navigation reads a step a relation (ir/rel.ts Step):
+ *   R's step reading R at the key its region fixes to the parameters, under a filter fixing R's key to them with each
+ *   row found at the parameters, or at the columns S's step bound before it, the key each row carries being a stored
+ *   fact of R's (write/put/proof.ts existingKeysProofOver).
  * - An enumerated put is an ON CONFLICT DO UPDATE (enumerated), unless another stratum writes R too: the netting of its
  *   strata needs every fact the put displaces, whose old version neither ON CONFLICT DO UPDATE nor MERGE returns, so the
  *   put is the pair (netting).
@@ -42,6 +46,7 @@ import {
 	type ChoiceFeature,
 	expectedOf,
 	featureOf,
+	ownFactsAlone,
 	schemaOf
 } from "#test/unit/write/put/choose.fixtures.ts"
 
@@ -90,7 +95,7 @@ export const aPutsStatementIsTheOneItsRelationsUniqueObjectsAndItsStratumsOtherA
 							"an enumerated input is key-unique"
 						)
 					}
-					if (form === "own facts") {
+					if (ownFactsAlone(form)) {
 						assert.equal(guarantees.keyUnique.kind, "proved", "R's own facts are unique at R's key")
 					}
 					const expected = expectedOf(uniques, form)
@@ -105,7 +110,7 @@ export const aPutsStatementIsTheOneItsRelationsUniqueObjectsAndItsStratumsOtherA
 			kind: "specification",
 			name: "choosePutTargets' rules, restated over the box"
 		},
-		box: "a mutable R(b, c, d) keyed by (b, c), beside no other unique object, key(c), a key over a selected (b, c) or key(d), put from a relation parameter beside the scoped deletion of what it lacks, alone or beside an insert, from its own facts, alone or beside a deletion, or enumerated, alone or after an insert in an earlier stratum",
+		box: "a mutable R(b, c, d) keyed by (b, c), beside no other unique object, key(c), a key over a selected (b, c) or key(d), put from a relation parameter beside the scoped deletion of what it lacks, alone or beside an insert, from its own facts, alone or beside a deletion, from its fact at a parameter key joined with S's, read in its step at the key its region fixes, under a filter fixing it or after S's step, or enumerated, alone or after an insert in an earlier stratum",
 		kept: [],
 		kills: [
 			{
@@ -121,6 +126,24 @@ export const aPutsStatementIsTheOneItsRelationsUniqueObjectsAndItsStratumsOtherA
 					'\t\t\t\t\t\t: severalStrata(action.relation)\n\t\t\t\t\t\t\t? "netting"\n\t\t\t\t\t\t\t: undefined',
 				replacement: "\t\t\t\t\t\t: undefined",
 				why: "A put of a relation another stratum writes is no longer the pair for its netting (write/put/choose.ts noOldVersion)."
+			},
+			{
+				file: "packages/engine/src/write/put/proof.ts",
+				original: '\t\t\tcase "Step":\n\t\t\t\treturn yield question(node.input, keyed)\n',
+				replacement: '\t\t\tcase "Step":\n\t\t\t\treturn false\n',
+				why: "A navigation's step is opaque to the existing-keys proof: a put of R's fact at a parameter key joined with S's is the pair (unproved)."
+			},
+			{
+				file: "packages/engine/src/write/put/proof.ts",
+				original: "\t\tconst keyed = asFixedColumns(node, q.values, fixed)\n",
+				replacement: "\t\tconst keyed = q.values\n",
+				why: "A column the physical analysis fixes to a parameter stands for nothing in the proof: a put of R's fact under a filter fixing its key to the parameters is the pair (unproved)."
+			},
+			{
+				file: "packages/engine/src/write/put/proof.ts",
+				original: '\t\t\t\t\t\touter: { kind: "outer", node: node.id, column: v.name }\n',
+				replacement: '\t\t\t\t\t\touter: { kind: "outer", node: node.id, column: "" }\n',
+				why: "A step that reads R at the columns S's step bound names no column of the region the proof asks of: a put of R's fact after S's step is the pair (unproved)."
 			}
 		]
 	})

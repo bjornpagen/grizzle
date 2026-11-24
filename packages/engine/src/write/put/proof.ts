@@ -1,6 +1,8 @@
 import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
-import { canonicalTextOf } from "#compiler/core/canonical.ts"
+import { type PropsUnder, propsUnder, unplaced } from "#compiler/analysis/physical/analyze.ts"
+import type { FixedFacts } from "#compiler/analysis/physical/props.ts"
 import type { NodeId, ParamId, VarId } from "#compiler/core/ids.ts"
+import { once } from "#compiler/core/lazy.ts"
 import { fieldReads, type ScalarExpr } from "#compiler/ir/expr.ts"
 import { Fold } from "#compiler/ir/fold.ts"
 import type { RelationInfo } from "#compiler/ir/law.ts"
@@ -11,25 +13,28 @@ import {
 	type RelNode,
 	regionVarClasses
 } from "#compiler/ir/rel.ts"
-import { baseOf, sameScalarType } from "#compiler/ir/scalar.ts"
+import { sameScalarType } from "#compiler/ir/scalar.ts"
+import { type CatalogSchema, evidenceCatalog } from "#compiler/laws/model/catalog.ts"
+import { fixedEqual, type Named, nameKey, valueAt } from "#compiler/logical/props.ts"
 import { only } from "#compiler/write/defined.ts"
 import { unrefined } from "#compiler/write/insert/statement.ts"
 
-/** The value one key field carries at some node: a column of the node, or a parameter or literal it equals. */
+/**
+ * The value one key field carries at some node: a column of the node, or the value a name holds throughout, a
+ * parameter, a literal or an outer column (logical/props.ts Named, the identity a fixed column's value has).
+ */
 type KeyValue =
 	| { readonly kind: "column"; readonly name: string }
-	| { readonly kind: "constant"; readonly key: string }
+	| { readonly kind: "named"; readonly name: Named }
 
-/** The identity of a parameter or a literal expression, under which two of them denote the same value. */
-const constantKey = (expr: ScalarExpr): string | undefined => {
-	if (expr.kind === "param") {
-		return `param:${expr.param}`
-	}
-	if (expr.kind === "literal") {
-		return `literal:${canonicalTextOf({ value: expr.value, type: baseOf(expr.type).carrier })}`
-	}
-	return undefined
+/** The name an expression a node evaluates over the input `input` holds throughout, where it holds one (valueAt). */
+const namedAt = (expr: ScalarExpr, input: ReadonlySet<NodeId>): Named | undefined => {
+	const value = valueAt(expr, input)
+	return value.kind === "local" || value.kind === "expr" ? undefined : value
 }
+
+/** Each node's columns fixed per evaluation, as the physical analysis proves them (analysis/physical/props.ts fixed). */
+type FixedColumns = (node: RelNode) => ReadonlyMap<string, FixedFacts>
 
 /** The value of output column `name` of a ProjectSet, in terms of its input. */
 const projected = (node: NodeOf<"ProjectSet">, name: string): KeyValue | undefined => {
@@ -41,11 +46,11 @@ const projected = (node: NodeOf<"ProjectSet">, name: string): KeyValue | undefin
 	if (expr.kind === "column" && expr.column.node === node.input.id) {
 		return { kind: "column", name: expr.column.name }
 	}
-	const key = constantKey(expr)
-	return key === undefined ? undefined : { kind: "constant", key }
+	const held = namedAt(expr, new Set([node.input.id]))
+	return held === undefined ? undefined : { kind: "named", name: held }
 }
 
-/** Key values through a projection: a column's as the input column it copies, a constant as it is; undefined when a
+/** Key values through a projection: a column's as the input column it copies, a name's as it is; undefined when a
  * column is computed. */
 const throughProjection = (
 	node: NodeOf<"ProjectSet">,
@@ -53,7 +58,7 @@ const throughProjection = (
 ): ReadonlyMap<string, KeyValue> | undefined => {
 	const next = new Map<string, KeyValue>()
 	for (const [field, v] of values) {
-		const p = v.kind === "constant" ? v : projected(node, v.name)
+		const p = v.kind === "named" ? v : projected(node, v.name)
 		if (p === undefined) {
 			return undefined
 		}
@@ -69,11 +74,36 @@ interface KeyQuestion {
 }
 
 /**
- * A question's identity over its node: each field, then its value's kind and its column's name or its constant's key,
- * so two questions over one node ask the same thing exactly when their identities are one tuple.
+ * A question's identity over its node: each field, then its value's kind and its column's name or its name's identity
+ * (nameKey), so two questions over one node ask the same thing exactly when their identities are one tuple.
  */
 const questionKey = (vs: ReadonlyMap<string, KeyValue>): ReadonlyArray<string> =>
-	[...vs].flatMap(([field, v]) => [field, v.kind, v.kind === "column" ? v.name : v.key])
+	[...vs].flatMap(([field, v]) => [field, v.kind, v.kind === "column" ? v.name : nameKey(v.name)])
+
+/**
+ * Key values at `node` with each name a column of the node holds throughout read as that column: the column `fixed`
+ * proves fixed to the name (fixedEqual), the first of the node's heading that is. A field every row carries the name at,
+ * where a column of every row holds the name too, carries that column's value, so the question is the same question.
+ */
+const asFixedColumns = (
+	node: RelNode,
+	values: ReadonlyMap<string, KeyValue>,
+	fixed: FixedColumns
+): ReadonlyMap<string, KeyValue> => {
+	if (![...values.values()].some((v) => v.kind === "named")) {
+		return values
+	}
+	const facts = fixed(node)
+	const columnOf = (name: Named): string | undefined =>
+		node.heading.find((c) => facts.get(c.name)?.some((f) => fixedEqual(f.fixed, name)) ?? false)
+			?.name
+	return new Map(
+		[...values].map(([field, v]): readonly [string, KeyValue] => {
+			const column = v.kind === "named" ? columnOf(v.name) : undefined
+			return [field, column === undefined ? v : { kind: "column", name: column }]
+		})
+	)
+}
 
 /**
  * Whether every row of `root` carries at the given fields the values (`values`, one per field `keyedBy` names) of one
@@ -87,7 +117,8 @@ const questionKey = (vs: ReadonlyMap<string, KeyValue>): ReadonlyArray<string> =
 const provesKeys = (
 	root: RelNode,
 	relation: RelationInfo,
-	values: ReadonlyMap<string, KeyValue>
+	values: ReadonlyMap<string, KeyValue>,
+	fixed: FixedColumns
 ): boolean => {
 	const asked = new Map<RelNode, TupleMap<ReadonlyArray<string>, KeyQuestion>>()
 	const question = (node: RelNode, vs: ReadonlyMap<string, KeyValue>): KeyQuestion => {
@@ -106,27 +137,30 @@ const provesKeys = (
 	}
 	const answers = new Fold<KeyQuestion, boolean>(function* (q) {
 		const node = q.node
+		const keyed = asFixedColumns(node, q.values, fixed)
 		switch (node.kind) {
 			case "Base":
 				return (
 					node.relation === relation.name &&
 					node.relationKind === "relation" &&
-					[...q.values].every(
+					[...keyed].every(
 						([f, v]) =>
 							v.kind === "column" && v.name === f && node.heading.some((c) => c.name === f)
 					)
 				)
 			case "ProjectSet": {
-				const next = throughProjection(node, q.values)
+				const next = throughProjection(node, keyed)
 				return next !== undefined && (yield question(node.input, next))
 			}
+			case "Step":
+				return yield question(node.input, keyed)
 			case "Union": {
 				if (node.groups.length === 0) {
 					return false
 				}
 				for (const g of node.groups) {
 					for (const arm of g.arms) {
-						if (!(yield question(arm, q.values))) {
+						if (!(yield question(arm, keyed))) {
 							return false
 						}
 					}
@@ -136,35 +170,53 @@ const provesKeys = (
 			case "MatchRegion": {
 				const classOf = regionVarClasses(node)
 				const correlated = new Set(node.correlated.map((c) => classOf(c.var)))
-				/** Each key field's variable class, or the constant it equals. */
+				const locals = new Set([node.id])
+				/**
+				 * Each key field's variable class with the name of the region's column the question reads it at, as an
+				 * occurrence correlated to the region reads it (an outer column), or the name whose value the field carries.
+				 * An occurrence carries a key field at the column it binds the field's variable at, or at the column it fixes
+				 * to the field's name; any other field its source's rows must carry, the same question asked there of the name
+				 * it holds: a variable's as the outer column a step that reads the region fixes its column to, a name as the
+				 * column a step's filter fixes to it (asFixedColumns).
+				 */
 				const wanted = new Map<
 					string,
-					| { readonly kind: "class"; readonly cls: VarId }
-					| { readonly kind: "constant"; readonly key: string }
+					| { readonly kind: "class"; readonly cls: VarId; readonly outer: Named }
+					| { readonly kind: "named"; readonly name: Named }
 				>()
-				for (const [field, v] of q.values) {
-					if (v.kind === "constant") {
-						wanted.set(field, { kind: "constant", key: v.key })
+				for (const [field, v] of keyed) {
+					if (v.kind === "named") {
+						wanted.set(field, v)
 						continue
 					}
 					const decl = node.vars.find((d) => d.name === v.name)
 					if (decl === undefined || correlated.has(classOf(decl))) {
 						return false
 					}
-					wanted.set(field, { kind: "class", cls: classOf(decl) })
+					wanted.set(field, {
+						kind: "class",
+						cls: classOf(decl),
+						outer: { kind: "outer", node: node.id, column: v.name }
+					})
 				}
 				for (const o of node.occurrences) {
 					const next = new Map<string, KeyValue>()
 					for (const [field, w] of wanted) {
+						const name = w.kind === "class" ? w.outer : w.name
 						const column =
-							w.kind === "class"
+							(w.kind === "class"
 								? o.bindings.find((b) => classOf(b.var) === w.cls)?.column
-								: o.constants.find((c) => constantKey(c.expr) === w.key)?.column
-						if (column !== undefined) {
-							next.set(field, { kind: "column", name: column })
-						}
+								: undefined) ??
+							o.constants.find((c) => {
+								const held = namedAt(c.expr, locals)
+								return held !== undefined && fixedEqual(held, name)
+							})?.column
+						next.set(
+							field,
+							column === undefined ? { kind: "named", name } : { kind: "column", name: column }
+						)
 					}
-					if (next.size === wanted.size && (yield question(o.source, next))) {
+					if (yield question(o.source, next)) {
 						return true
 					}
 				}
@@ -190,14 +242,13 @@ const provesKeys = (
 			case "Forbid":
 			case "Window":
 			case "OrderedSetAggregate":
-			case "Call":
-			case "Step": {
+			case "Call": {
 				/** A kept row is its input's (`keptRowsOf`), and an intersection's row is its right side's too. */
 				const kept = keptRowsOf(node)
-				if (kept !== undefined && (yield question(kept.input, q.values))) {
+				if (kept !== undefined && (yield question(kept.input, keyed))) {
 					return true
 				}
-				return node.kind === "Intersect" && (yield question(node.right, q.values))
+				return node.kind === "Intersect" && (yield question(node.right, keyed))
 			}
 		}
 	})
@@ -216,9 +267,9 @@ const castKeeps = (node: RelNode, relation: RelationInfo, field: string): boolea
 	)
 }
 
-/** Whether every row of the described member `id` carries the primary key of a stored fact of `relation`, so the put
- * reads only existing keys. The key columns must keep their values under the statement's cast, so the
- * UPDATE's key comparison is the comparison the proof is about.
+/** Whether every row of a described member carries the primary key of a stored fact of `relation`, so the put reads
+ * only existing keys, over the physical analysis of `schema`'s templates (existingKeysProofOver). The key columns must
+ * keep their values under the statement's cast, so the UPDATE's key comparison is the comparison the proof is about.
  *
  * The structural proofs a put target needs beyond the relation's mutability.
  *
@@ -227,11 +278,15 @@ const castKeeps = (node: RelNode, relation: RelationInfo, field: string): boolea
  * - UPDATE ... FROM realizes "a described put that reads only existing keys of a mutable relation, such as counters
  *   and status moves". existingKeysProof proves that every row of a described member carries, at the
  *   relation's primary key, the key of a stored fact of that relation in the state the member is evaluated against:
- *   following the key columns down through projections, filters, matches and set operations, each must come from one
- *   occurrence of the relation's own Base, all key fields from the same occurrence. A key fixed by a parameter or a
- *   literal counts when the same occurrence fixes the same key field to the same parameter or literal, as the worked
- *   example's arm switch writes it. Then every member row updates a stored row or is identical to one, and no
- *   member row would be inserted, so the UPDATE realizes the put's insertion completely.
+ *   following the key columns down through projections, filters, a navigation's steps, matches and set operations,
+ *   each must come from one occurrence of the relation's own Base, all key fields from the same occurrence. A key fixed
+ *   to a parameter, a literal or an outer column counts when the same occurrence fixes the same key field to it, as the
+ *   worked example's arm switch writes it, or when a column of the occurrence's source is fixed to it, the column the
+ *   occurrence binds the key field at: a key bound at a parameter, which a navigation's step reads through a filter
+ *   (`__key = $key`). A column fixed to a value is the one fact the physical analysis proves of it (analysis/physical
+ *   props.ts PhysicalProps fixed, which a shared node's key set reads too), each node's computed where the proof first
+ *   asks of it. Then every member row updates a stored row or is identical to one, and no member row would be
+ *   inserted, so the UPDATE realizes the put's insertion completely.
  * - MERGE realizes "puts mixed with deletes of absent keys over one mutable relation, a reread, when the deletion
  *   member is provably `R where <scope predicate> and key not in put input`". mergeScopeProof proves it:
  *   the deletion member is an anti-join whose left side is every complete fact of the relation's own Base occurrence
@@ -241,16 +296,30 @@ const castKeeps = (node: RelNode, relation: RelationInfo, field: string): boolea
  *
  * Every proof is structural and conservative: a shape it does not recognize proves nothing, and the put falls back to
  * the DELETE-then-insert pair, which is always admissible. */
-export const existingKeysProof = (node: RelNode, relation: RelationInfo): boolean => {
-	const fields = keyedBy(node, relation)
-	if (!fields.every((f) => castKeeps(node, relation, f))) {
-		return false
-	}
-	return provesKeys(
-		node,
-		relation,
-		new Map(fields.map((f) => [f, { kind: "column", name: f } as const]))
+export const existingKeysProofOver = (
+	schema: CatalogSchema
+): ((node: RelNode, relation: RelationInfo) => boolean) => {
+	const physical = once((): PropsUnder =>
+		propsUnder({
+			context: "transaction",
+			catalog: evidenceCatalog(schema),
+			realization: unplaced,
+			roots: "ignored"
+		})
 	)
+	const fixed: FixedColumns = (node) => physical().of(node).fixed
+	return (node, relation) => {
+		const fields = keyedBy(node, relation)
+		return (
+			fields.every((f) => castKeeps(node, relation, f)) &&
+			provesKeys(
+				node,
+				relation,
+				new Map(fields.map((f) => [f, { kind: "column", name: f } as const])),
+				fixed
+			)
+		)
+	}
 }
 
 /**
@@ -326,13 +395,15 @@ const regionScope = (
 		return undefined
 	}
 	const { fieldOf, bound } = bindings
-	/** Whether the occurrence fixes `field` to the parameter or literal `key`. */
-	const fixedTo = (field: string, key: string): boolean => {
-		const fixed = occurrence.constants.find((c) => c.column === field)
-		return fixed !== undefined && constantKey(fixed.expr) === key
+	const locals = new Set([node.id])
+	/** Whether the occurrence fixes `field` to the value `name` holds. */
+	const fixedTo = (field: string, name: Named): boolean => {
+		const constant = occurrence.constants.find((c) => c.column === field)
+		const held = constant === undefined ? undefined : namedAt(constant.expr, locals)
+		return held !== undefined && fixedEqual(held, name)
 	}
 	const held = [...columns].every(([field, v]) =>
-		v.kind === "column" ? fieldOf.get(v.name) === field : fixedTo(field, v.key)
+		v.kind === "column" ? fieldOf.get(v.name) === field : fixedTo(field, v.name)
 	)
 	if (occurrence.constants.some((c) => bound.has(c.column)) || !held) {
 		return undefined

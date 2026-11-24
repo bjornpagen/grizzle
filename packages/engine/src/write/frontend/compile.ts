@@ -171,7 +171,7 @@ import {
 	relationUniques
 } from "#compiler/write/insert/unique.ts"
 import { computedChecks, hostChecks } from "#compiler/write/normalize/normalize.ts"
-import { existingKeysProof } from "#compiler/write/put/proof.ts"
+import { existingKeysProofOver } from "#compiler/write/put/proof.ts"
 
 export interface FrontendOptions {
 	/** Which contexts the Db holds a fact of: a query entry's addition fills its fixed fields from them. */
@@ -1094,6 +1094,7 @@ const compile = (
 	const columns = queryColumns(checked, at)
 	const { laws, derived, codes, clock } = options
 	const views = derivedKeyConstraints(derived)
+	const existingKeysProof = existingKeysProofOver({ laws, views })
 	/** The base every written relation is an ordinary relation of: reality's own, or the role's base. */
 	const base = checked.definitions()
 

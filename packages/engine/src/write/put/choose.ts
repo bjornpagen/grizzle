@@ -21,7 +21,11 @@ import {
 } from "#compiler/write/frontend/compile.ts"
 import type { FamilyAt } from "#compiler/write/frontend/schedule.ts"
 import { type Payload, payloadOf, primaryKeyShape } from "#compiler/write/frontend/targets.ts"
-import { existingKeysProof, type MergeScope, mergeScopeProof } from "#compiler/write/put/proof.ts"
+import {
+	existingKeysProofOver,
+	type MergeScope,
+	mergeScopeProof
+} from "#compiler/write/put/proof.ts"
 
 /** Why a put is the DELETE-then-insert pair (see `choosePutTargets`). */
 type PairReason =
@@ -237,6 +241,7 @@ const describedNode = (action: Action<ActionInfo>): RelNode | undefined =>
  *   no row to update, where the put's definition inserts its member (S' = (S \ D) ∪ A). */
 export const choosePutTargets = (frontend: WriteFrontend): ChosenTargets => {
 	const { ir } = frontend
+	const existingKeysProof = existingKeysProofOver(frontend)
 	const removedOf = new Set(
 		frontend.deltas.flatMap((d) =>
 			d.kind !== "relation" || !d.sides.has("removed") ? [] : [d.relation.name]

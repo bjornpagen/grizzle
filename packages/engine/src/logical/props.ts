@@ -406,12 +406,12 @@ export const fixedEqual = (a: Fixed, b: Fixed): boolean => {
  * which no evaluation fixes. Fixed itself is also what a fixed column holds (physical/props.ts FixedFact), where no
  * value is local, so the local arm is this union's alone.
  */
-type ValueAt = Fixed | { readonly kind: "local" }
+export type ValueAt = Fixed | { readonly kind: "local" }
 
 const local: ValueAt = Object.freeze({ kind: "local" })
 
 /** What an expression is per evaluation of a node whose own rows' columns are those of `locals` (ValueAt). */
-const valueAt = (e: ScalarExpr, locals: ReadonlySet<NodeId>): ValueAt => {
+export const valueAt = (e: ScalarExpr, locals: ReadonlySet<NodeId>): ValueAt => {
 	if (e.deps.nodes.some((n) => locals.has(n))) {
 		return local
 	}
@@ -537,7 +537,7 @@ type Steps = Omit<Table, "naming" | "sources">
 const attributesOf = (props: Pick<Table, "stated">): Attributes => props.stated.attributes
 
 /** A value a fixed column holds that names it: a literal, a parameter or an outer column. */
-type Named = Exclude<Fixed, { readonly kind: "expr" }>
+export type Named = Exclude<Fixed, { readonly kind: "expr" }>
 
 /**
  * A name of the value a fixed column holds, with its derivation from nothing, whose first step to reach the column
@@ -678,7 +678,7 @@ type Offers =
 	  }
 
 /** A name's identity, as fixedEqual compares two names: a literal by its key, a parameter by its id, an outer column. */
-const nameKey = (name: Named): string => {
+export const nameKey = (name: Named): string => {
 	switch (name.kind) {
 		case "literal":
 			return `l${name.key}`
