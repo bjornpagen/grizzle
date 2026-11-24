@@ -135,8 +135,10 @@ import {
 	sameScalarType,
 	type ScalarType,
 	type SpanCarrier,
-	textBoundsOf,
-	tokenPattern,
+	type TextInfo,
+	textInfoBounds,
+	textOf,
+	textPatterns,
 	typeLabel
 } from "#compiler/ir/scalar.ts"
 import {
@@ -187,6 +189,7 @@ import {
 } from "#compiler/scalar/compute/typing.ts"
 import { type PlainCarrier, plainType } from "#compiler/scalar/native.ts"
 import type { CompilePatterns, PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
+import { tokenSource } from "#compiler/scalar/regex/whitespace.ts"
 import { hasCapability, spanType } from "#compiler/scalar/registry.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
 /**
@@ -2574,7 +2577,8 @@ export class Checker {
 		const at = childLoc(loc, splitArgument)
 		const value = bind(src.text, splitArgument, at)
 		const type = value.kind === "column" ? value.type : wildcardText
-		if (baseOf(type).carrier !== "text") {
+		const text = textOf(type)
+		if (text === undefined) {
 			return fail(
 				"MalformedDescription",
 				at,
@@ -2593,18 +2597,18 @@ export class Checker {
 						type
 					}
 				],
-				heading: this.#splitHeading(src.split, type, loc)
+				heading: this.#splitHeading(src.split, text, loc)
 			},
 			loc
 		)
 	}
 
 	/**
-	 * A split's heading over a text of type `text`: a token split's (`tokensHeading`), `at`, a token's place, the count
-	 * of the tokens before it, of a count's type, natural, and `token`, a run of no XML whitespace within the text's
-	 * byte bound, the one the text's type proves (#tokenType).
+	 * A split's heading over a text of refinement `text`: a token split's (`tokensHeading`), `at`, a token's place, the
+	 * count of the tokens before it, of a count's type, natural, and `token`, a run of the text's characters but XML
+	 * whitespace within the text's byte bound, the one its refinement proves (#tokenType).
 	 */
-	#splitHeading(split: TextSplit, text: ScalarType, loc: SourceLoc): Heading {
+	#splitHeading(split: TextSplit, text: TextInfo, loc: SourceLoc): Heading {
 		const headings: { readonly [K in TextSplit]: () => Heading } = {
 			tokens: () => [
 				{ name: tokensHeading.at, type: countOverload().result },
@@ -2615,16 +2619,18 @@ export class Checker {
 	}
 
 	/**
-	 * A token's type over a text of type `text`: the language of a run of no XML whitespace (`tokenPattern`), within the
-	 * text's byte bound where its type proves one, since a token is a stretch of it, typed as str.bytes declares it, so
-	 * a token is a text of a bound wherever its text is and a query's Text.matches reads it there.
+	 * A token's type over a text of refinement `text`: a run of the characters its language holds but XML whitespace
+	 * (scalar/regex/whitespace.ts tokenSource), within the text's byte bound where its refinement proves one, since a
+	 * token is a stretch of it, typed as str.bytes declares it, so a token is a text of a bound wherever its text is,
+	 * inside every pattern that holds a run of those characters, and a query's Text.matches reads it there.
 	 */
-	#tokenType(text: ScalarType, loc: SourceLoc): ScalarType {
-		const pattern = unwrap(textLookup([tokenPattern]))
-		const bytes = textBoundsOf(text)?.bytes
+	#tokenType(text: TextInfo, loc: SourceLoc): ScalarType {
+		const source = tokenSource(textPatterns(text), this.patterns)
+		const pattern = unwrap(textLookup([source]))
+		const bytes = textInfoBounds(text)?.bytes
 		const language = bytes === undefined ? pattern : languageWithin(pattern, bytes)
 		return this.schema.queryFieldType(
-			{ kind: "text", patterns: [tokenPattern], bytes: languageOctets(language), language },
+			{ kind: "text", patterns: [source], bytes: languageOctets(language), language },
 			loc,
 			this.#declarations,
 			this.patterns

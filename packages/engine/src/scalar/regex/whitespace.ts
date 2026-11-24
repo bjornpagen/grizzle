@@ -2,16 +2,19 @@ import {
 	type CharSet,
 	charSet,
 	complement,
+	domain,
+	intersection,
 	isEmpty,
 	union
 } from "@bjornpagen/grizzle-text/regex/charset"
 import type { LiveNode } from "@bjornpagen/grizzle-text/regex/ir"
-import type { PatternSource } from "@bjornpagen/grizzle-text/regex/parse"
+import type { Patterns, PatternSource } from "@bjornpagen/grizzle-text/regex/parse"
 import { regexMaxRepeat } from "@bjornpagen/grizzle-text/regex/parse"
 import type { RegexFlags } from "@bjornpagen/grizzle-text/regex/parse"
 import { sourceSet } from "@bjornpagen/grizzle-text/regex/print"
 import { alphabetOf, sourceFlags } from "@bjornpagen/grizzle-text/regex/source"
 import { xmlWhitespace } from "@bjornpagen/grizzle-text/text"
+import { tokenPattern } from "#compiler/ir/scalar.ts"
 import { memberNode, type PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 
 /**
@@ -41,6 +44,9 @@ const isFreeOver = (node: LiveNode): boolean => {
 
 /** The code points of `a` that `b` does not hold. */
 const without = (a: CharSet, b: CharSet): CharSet => complement(union([complement(a), b]))
+
+/** Every admitted code point but white space: what a token of a text of any characters is a run of. */
+const solid: CharSet = without(domain, whitespace)
 
 /**
  * The characters of N a bounded image's run begins and ends with, around its counted middle: `N(?:[N ]{0,n-2}N)?`.
@@ -103,4 +109,26 @@ export const collapseSources = (
 				? `^${n}?$`
 				: `^(?:${n}(?:${spaced}{0,${lengthBound - boundedEnds}}${n})?)?$`
 	return [{ source: bounded, flags: sourceFlags, exact: false }, free]
+}
+
+/**
+ * The pattern a token of a text of `patterns`' conjunction is stated by (r.tokens, ir/rel.ts TextSplit `tokens`), a
+ * piece of the text collapsed and split at its spaces, so a maximal run of the text's characters but white space: a run
+ * of N's, `^N+$`, N the characters every pattern's alphabet holds (source.ts alphabetOf) without white space. It is
+ * exactly the tokens of every text over an alphabet, `^[A]*$`, and holds every token of any other text, each of whose
+ * characters its alphabet holds. Where N is every character but white space, as it is of any text, the split's own
+ * pattern (ir/scalar.ts tokenPattern) states it, that language's one spelling; where N is none, the text holds no
+ * token, and the split's own pattern types the tokens it never yields.
+ */
+export const tokenSource = (patterns: Patterns, automata: PatternAutomata): PatternSource => {
+	const n = without(
+		patterns.reduce(
+			(a, pattern) => intersection(a, alphabetOf(memberNode(pattern, automata))),
+			domain
+		),
+		whitespace
+	)
+	return isEmpty(n) || isEmpty(without(solid, n))
+		? tokenPattern
+		: { source: `^${sourceSet(n)}+$`, flags: sourceFlags }
 }

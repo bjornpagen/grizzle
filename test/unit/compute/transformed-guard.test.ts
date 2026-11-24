@@ -7,12 +7,18 @@
  * - A chain of transforms cast into a byte-bounded text compiles exactly when its language lies inside the target's
  *   pattern and its bytes within the target's bound, every image evaluated on the host within the bound. Oracle: each
  *   step's language and bytes as README states them, by a dynamic program over counts of characters and bytes.
+ * - A token of a text, its piece under the split of its collapse at its spaces (r.tokens), cast into a byte-bounded text
+ *   under a guard of its bytes, compiles exactly when a run of the text's characters but whitespace lies inside the
+ *   target's pattern (scalar/regex/whitespace.ts tokenSource): a token of a pantry attribute's value, XML's characters,
+ *   is a QTI identifier's, which edullm's WalkCategory keys, where every token was a run of no whitespace of any
+ *   character and the cast was refused. Oracle: language inclusion of the token's language as README states it.
  *
- * Features: each route admitted and refused, for the guard and for the byte cast.
+ * Features: each route admitted and refused, for the guard and for the byte cast; each text and target of a token.
  */
 
 import { inclusion } from "@bjornpagen/grizzle-text/regex/inclusion"
 import type { Reached } from "@bjornpagen/testing/features"
+import { element, finite } from "@bjornpagen/testing/gen"
 import { type Case as CaseOf, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -58,6 +64,14 @@ import {
 	relationOf,
 	routes,
 	stepped,
+	type TokenCase,
+	tokenCastSchema,
+	tokenLanguage,
+	type TokenTargetName,
+	tokenTargetNames,
+	tokenTargets,
+	type TokenTextName,
+	tokenTextNames,
 	typedWithin
 } from "#test/unit/compute/transformed-guard.fixtures.ts"
 
@@ -312,3 +326,70 @@ export const aTransformedTextsByteBoundAdmitsACastIntoABoundedTextExactlyWhenThe
 			}
 		]
 	})
+
+/**
+ * A token of a text cast into a byte-bounded text under a guard of its bytes compiles exactly when a run of the text's
+ * characters but whitespace lies inside the target's pattern.
+ *
+ * Its budget is the runner's: a new property, with no suite before it to carry a count from.
+ */
+export const aTokenCastIntoABoundedTextUnderAGuardOfItsBytesCompilesExactlyWhenARunOfItsTextsCharactersButWhitespaceLiesInsideTheTarget =
+	property.exhaust(
+		finite((source): TokenCase => ({
+			text: source.draw(element(tokenTextNames)),
+			target: source.draw(element(tokenTargetNames))
+		})),
+		{
+			needs: {},
+			situations: [
+				...tokenTextNames,
+				...tokenTargetNames,
+				"a token cast admitted",
+				"a token cast refused"
+			] satisfies ReadonlyArray<
+				Reached<TokenTextName | TokenTargetName | "a token cast admitted" | "a token cast refused">
+			>,
+			check:
+				(
+					_,
+					run: CaseOf<
+						TokenTextName | TokenTargetName | "a token cast admitted" | "a token cast refused"
+					>
+				) =>
+				(c) =>
+					Effect.sync(() => {
+						const checked = checkedIn(tokenCastSchema(c))
+						const verdict = inclusion(
+							[minimal(nfaOf(tokenLanguage(c), "u"))],
+							[minimal(nfaOf(tokenTargets[c.target].source, "u"))],
+							regexDfaLimits
+						).kind
+						const label = `a token of ${c.text} cast into ${c.target}: ${verdict}`
+						assert.equal(
+							checked.ok,
+							verdict === "included",
+							`${label}, ${checked.ok ? "admitted" : checked.error.message}`
+						)
+						if (!checked.ok) {
+							assert.equal(checked.error.reason._tag, "PartialOperation", label)
+						}
+						run.note(c.text)
+						run.note(c.target)
+						run.note(checked.ok ? "a token cast admitted" : "a token cast refused")
+					}),
+			oracle: {
+				kind: "second-implementation",
+				name: "language inclusion of a run of the text's characters but whitespace, as README states a token's language, in the target's pattern"
+			},
+			box: "every text of six, XML's characters, letters and whitespace, an alternation of a spaced word, letters within 8 bytes, any text and whitespace alone, against every target of four, a QTI identifier, letters, the first four letters and no space",
+			kept: [],
+			kills: [
+				{
+					file: "packages/engine/src/scalar/regex/whitespace.ts",
+					original: "\treturn isEmpty(n) || isEmpty(without(solid, n))\n",
+					replacement: "\treturn isEmpty(n) || !isEmpty(n)\n",
+					why: "Every token is a run of no whitespace of any character, its text's language dropped, so a token of XML's characters cast into a QTI identifier is refused, as edullm's WalkCategory was."
+				}
+			]
+		}
+	)

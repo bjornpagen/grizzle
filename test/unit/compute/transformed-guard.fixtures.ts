@@ -23,8 +23,10 @@ import { Array as Arr, Formatter, Option, String as Str } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { workloadExtension } from "#compiler/physical/access/extension.ts"
 import { workload } from "#compiler/program/workload/value.ts"
+import { Logic, Num, Text, Type } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
-import { relation, schema } from "#compiler/public/schema.ts"
+import { query, v } from "#compiler/public/query.ts"
+import { derived, relation, schema } from "#compiler/public/schema.ts"
 import { decimalText, doubleText, lexicalForm, str } from "#compiler/public/text.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
@@ -1054,4 +1056,115 @@ export const installsStored = (
 		`the workload over ${Formatter.format(steps)} stored uncast`
 	)
 	compile(Installed, { ...asDrafted, extensions: [workloadExtension(plan)] })
+}
+
+/**
+ * A list's language a token case splits (r.tokens), with N, the characters its alphabet holds but XML whitespace, as
+ * README states a token's type: a run of N's (scalar/regex/whitespace.ts tokenSource), every character but whitespace
+ * where N is all of them, and none where its text holds no token, whose type is then the split's own,
+ * `^[^\t\n\r ]+$`.
+ */
+interface TokenText {
+	readonly field: FieldBase
+	readonly n: string
+}
+
+/** XML 1.0's Char, every character an XML document holds: pantry's attribute values, which edullm's walks split. */
+const xmlChars = "\\t\\n\\r\\u{20}-\\u{D7FF}\\u{E000}-\\u{FFFD}\\u{10000}-\\u{10FFFF}"
+
+/** XML's characters but its whitespace: N of a text of XML characters. */
+const xmlSolid = "\\u{21}-\\u{D7FF}\\u{E000}-\\u{FFFD}\\u{10000}-\\u{10FFFF}"
+
+/** Every character but XML whitespace: a token of any text, the split's own pattern's. */
+const anySolid = "^\\t\\n\\r "
+
+const tokenTexts = {
+	"XML characters": { field: str.regex(`^[${xmlChars}]*$`), n: xmlSolid },
+	"letters and whitespace": { field: str.regex("^[a-z \\t\\n]*$"), n: "a-z" },
+	"an alternation spaced": { field: str.regex("^(ab|c d)$"), n: "a-d" },
+	"letters within 8 bytes": { field: str.bytes(8, str.regex("^[a-z ]*$")), n: "a-z" },
+	"any text": { field: AnyText, n: anySolid },
+	"whitespace alone": { field: str.regex("^[ \\t]*$"), n: anySolid }
+} as const satisfies Readonly<Record<string, TokenText>>
+
+export type TokenTextName = keyof typeof tokenTexts
+
+/** Every text a token case splits, in the order of the box. */
+export const tokenTextNames = [
+	"XML characters",
+	"letters and whitespace",
+	"an alternation spaced",
+	"letters within 8 bytes",
+	"any text",
+	"whitespace alone"
+] as const satisfies ReadonlyArray<TokenTextName>
+
+/**
+ * A target a token is cast into, with its bytes and the member a token past them takes: a QTI identifier as edullm keys
+ * one (pantry's QtiIdentifier), and others.
+ */
+export const tokenTargets = {
+	"a QTI identifier": { source: `^[${xmlChars}]*$`, bytes: 503, member: "" },
+	letters: { source: "^[a-z]+$", bytes: 64, member: "a" },
+	"the first four letters": { source: "^[a-d]*$", bytes: 64, member: "" },
+	"no space": { source: "^[^ ]*$", bytes: 64, member: "" }
+} as const satisfies Readonly<
+	Record<string, { readonly source: string; readonly bytes: number; readonly member: string }>
+>
+
+export type TokenTargetName = keyof typeof tokenTargets
+
+/** Every target a token case casts into, in the order of the box. */
+export const tokenTargetNames = [
+	"a QTI identifier",
+	"letters",
+	"the first four letters",
+	"no space"
+] as const satisfies ReadonlyArray<TokenTargetName>
+
+export interface TokenCase {
+	readonly text: TokenTextName
+	readonly target: TokenTargetName
+}
+
+/** README's language of a token of a case's text: a run of N's characters. */
+export const tokenLanguage = (c: TokenCase): string => `^[${tokenTexts[c.text].n}]+$`
+
+/**
+ * A case's schema: a row of lists of the case's text, and a derived relation of each token of a row's list cast into the
+ * target under a guard of its bytes, the target's member where the bytes pass it, as edullm's WalkCategory keys a
+ * category (pantry's keyedIdentifier).
+ */
+export const tokenCastSchema = (c: TokenCase) => {
+	const target = tokenTargets[c.target]
+	const Target = str.bytes(target.bytes, regexField<string>(target.source, ["u"]))
+	const Listed = relation("Listed", { id: Id, list: tokenTexts[c.text].field }, ["id"])
+	const base = schema("Tokens", [Listed], [])
+	return schema.extend(
+		[base],
+		"TokensCast",
+		[
+			derived(
+				"Cast",
+				query(base).rule((r) => {
+					const { id, list } = v(Listed, "row")
+					const split = r.tokens(list)
+					const { at, token } = v(split, "token")
+					return r
+						.match(Listed, { id, list })
+						.match(split, { at, token })
+						.find({
+							id,
+							at,
+							cast: Logic.when(
+								Num.within(Text.octetLength(token), 0, target.bytes),
+								() => Type.cast(token, Target),
+								Type.literal(Target, target.member)
+							)
+						})
+				})
+			)
+		],
+		[]
+	)
 }

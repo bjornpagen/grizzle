@@ -289,8 +289,8 @@ export const callFields = <
 
 /**
  * A token's descriptor as the builder types a token split's `token` (tokensRows): a run of no XML whitespace, the
- * token pattern's text. The checker types it within its text's byte bound where its text has one (check/checker.ts
- * #tokenType).
+ * token pattern's text. The checker types it as a run of its text's characters but XML whitespace, within its text's
+ * byte bound where its text has one (check/checker.ts #tokenType).
  */
 const tokenField = regexField<string>(tokenPattern.source, [])
 
