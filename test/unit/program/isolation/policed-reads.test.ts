@@ -153,6 +153,13 @@ export const aWriteThroughAPolicedEntryIsReadOverItsRowSecurity = property.exhau
 		kept: [],
 		kills: [
 			{
+				file: "packages/engine/src/program/isolation/extract.ts",
+				original:
+					'\t\t\treturn carrier === undefined ? source : { kind: "table", table: carrier, alias: source.alias }\n',
+				replacement: "\t\t\treturn source\n",
+				why: "A carrier's reader read as the call's own rows, as when PROLOGUE's 245f3af7a sent every carrier through it: the insert's precheck and its write read the slot's carrier through pg_temp.<carrier>_rows(), its number bound to nothing the call holds, and fault at T's key in the unit Numbers; the property fails."
+			},
+			{
 				file: "packages/engine/src/program/isolation/member-facts.ts",
 				original:
 					'\t\t\tr.kind === "relation" || (r.kind === "derived" && r.view.kind !== "live") ? [name] : []',

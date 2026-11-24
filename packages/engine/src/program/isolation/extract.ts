@@ -26,6 +26,7 @@ import {
 import type { ParamId } from "#compiler/core/ids.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { compareStrings } from "#compiler/core/order.ts"
+import { temporarySchema } from "#compiler/core/temporary.ts"
 import { overRowsOf } from "#compiler/lower/conservative/expr/lateral.ts"
 import type {
 	Assignment,
@@ -53,7 +54,9 @@ import type {
 	With
 } from "#compiler/sql/ast.ts"
 import { col, derived, eq, simpleSelect, targetAs } from "#compiler/sql/build.ts"
+import { readerCarrier } from "#compiler/sql/naming.ts"
 import { printExpr, printObjectName } from "#compiler/sql/print.ts"
+import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
 
 /**
  * How the extractor reads one role's statements back:
@@ -2214,13 +2217,38 @@ const modeOf = (c: Context, arbiter: boolean): ReadFact["mode"] => {
 	return c.counted ? "counted" : "positive"
 }
 
-/** One statement's facts (analysis/isolation/facts.ts StatementFacts). */
+/**
+ * A statement with every FROM item that calls a carrier's reader, pg_temp."<carrier>_rows"() with no ordinality, read
+ * as the carrier's table (write/carriers/carriers.ts carrierRead, sql/naming.ts readerCarrier): the reader returns every
+ * row of the carrier, every column under its own name, which the item's alias list repeats, so its rows are the
+ * carrier's, the call's own rows its fill states (Carriers), as a read of the carrier's table is.
+ */
+const carrierReads = (s: SqlStatement): SqlStatement =>
+	transformStatement(s, {
+		...identityHooks,
+		fromSource: (source) => {
+			if (
+				source.kind !== "function" ||
+				source.ordinality ||
+				source.call.args.length > 0 ||
+				source.call.fn.kind !== "qualified" ||
+				source.call.fn.schema !== temporarySchema
+			) {
+				return source
+			}
+			const carrier = readerCarrier(source.call.fn.name)
+			return carrier === undefined ? source : { kind: "table", table: carrier, alias: source.alias }
+		}
+	})
+
+/** One statement's facts (analysis/isolation/facts.ts StatementFacts), its carriers' readers read as their tables. */
 const statementFacts = (
-	s: SqlStatement,
+	sent: SqlStatement,
 	names: ExtractNames,
 	slotOf: (n: number) => SlotFill,
 	level: Isolation
 ): StatementFacts => {
+	const s = carrierReads(sent)
 	const statement = new Statement(names, slotOf, level)
 	const walk = new Walk<undefined>(statement, [])
 	walk.statement(s)
@@ -2406,7 +2434,7 @@ const probeAt = <Core extends SiteCore>(
  *   source appear only in a statement compiled for SERIALIZABLE (`level`), whose transaction snapshot the met row's
  *   seal rests on: in a READ COMMITTED one each is a read no names clear, `?every:"schema"."name"` or
  *   `?met:"schema"."name"`, which the certifier refuses.
- * - A carrier's read is the call's own, named `carrier:<name>`. A table no relation is read as `?"schema"."name"`, a
+ * - A carrier's read is the call's own, named `carrier:<name>`, a call of its reader in FROM among them (carrierReads). A table no relation is read as `?"schema"."name"`, a
  *   schema function no names clear as `?function:"schema"."name"`, and a statement that is no DML, carrier, ANALYZE or
  *   transaction control as `?statement:<kind>`: the certifier refuses each as a relation
  *   it states no fact of. Each object is named as the printer quotes it (sql/print.ts printObjectName), so two names are
