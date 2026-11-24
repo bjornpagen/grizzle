@@ -1,22 +1,25 @@
 /**
- * An existence test reads its right side per left row where that side is more than a scan of one source and its join
- * columns restrict every relation it reads (lower/conservative/semi-join/exists.ts): a step correlated inside it, the
- * right side's rows at the left row with the join's equalities inside the step, read apart by the one printer of a step
+ * An existence test reads its right side per left row where that side reads a stored relation and its join columns
+ * restrict every relation it reads (lower/conservative/semi-join/exists.ts): a step correlated inside it, the right
+ * side's rows at the left row with the join's equalities inside the step, read apart by the one printer of a step
  * (lower/conservative/step fencedRead, OFFSET 0), and the test's own condition empty, so PostgreSQL never pulls it up. In
  * a bare NOT EXISTS, PostgreSQL pulls such a side up into the anti-join and plans the parameterizations of every subset
  * of its relations by the left side's: on edullm's ledger grade write (KDL-runtime, grizzle 3821324d3) an anti-join on
- * six key columns over 56 relations planned in 17 s, the statement's 32 such reads past 8.5 minutes and 43.8 GB.
+ * six key columns over 56 relations planned in 17 s, the statement's 32 such reads past 8.5 minutes and 43.8 GB; and
+ * an estimate picks the anti-join's method, a hash join reading even a scan of one relation at whatever the left side
+ * fixes of it.
  *
  * The box, exhausted: a negation of a query over one relation, over a join of two, over a fold by the negation's keys,
- * over a fold whose count the negation binds, and over a fold at the statement's value, which it restricts.
+ * over a fold whose count the negation binds, over a fold at the statement's value, which it restricts, and over a
+ * closed relation's rows, which no table holds.
  *
- * Oracle: specification, the rule: the join and the fold by its keys are read per left row, the NOT EXISTS over a step
- * whose WHERE holds the join's equalities and no condition of its own; the scan of one source stays in a bare NOT
- * EXISTS, its equalities its own condition, which PostgreSQL probes per left row through its index, and so does the
- * fold whose count is bound, a column no relation it reads holds, past which a fixed value would derive the fold whole
- * for each row, and the fold the statement's value restricts, small derived once, which a step per left row would fold
- * again for each (edullm's PERF-COMMIT submit at 100x: the call's previous attempts, 20 rows, folded again for each of
- * 1,650,480 processed attempts, 11.3 s).
+ * Oracle: specification, the rule: the scan of one relation, the join and the fold by its keys are read per left row,
+ * the NOT EXISTS over a step whose WHERE holds the join's equalities and no condition of its own; the fold whose count
+ * is bound stays in a bare NOT EXISTS, its equalities its own condition, a column no relation it reads holds, past which
+ * a fixed value would derive the fold whole for each row, and so do the fold the statement's value restricts, small
+ * derived once, which a step per left row would fold again for each (edullm's PERF-COMMIT submit at 100x: the call's
+ * previous attempts, 20 rows, folded again for each of 1,650,480 processed attempts, 11.3 s), and the closed relation's
+ * rows, which no index reads per left row.
  *
  * Features: a right side read per left row; a right side left in NOT EXISTS.
  */
@@ -25,16 +28,27 @@ import { assert } from "@bjornpagen/testing/assert"
 import { element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, String as Str } from "effect"
-import { natural, pg } from "#compiler/public/fields.ts"
+import { closedId, natural, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { relation, schema } from "#compiler/public/schema.ts"
+import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 
 const A = relation("A", { k1: pg.integer, k2: pg.integer, v: natural }, ["k1", "k2"])
 const B = relation("B", { k1: pg.integer, k2: pg.integer, x: pg.integer }, ["k1", "k2", "x"])
 const C = relation("C", { k1: pg.integer, k2: pg.integer, y: pg.integer }, ["k1", "k2", "y"])
-const S = schema("ExistencePerRow", [A, B, C], [])
+const Mark = closed.ordered("Mark", ["low", "high"])
+/** A closed relation of A's keys by their mark: its rows the schema's own, held by no table. */
+const D = closed.relation(
+	"D",
+	{ mark: closedId(Mark), k1: pg.integer, k2: pg.integer },
+	["mark"],
+	[
+		{ mark: "low", k1: 1, k2: 1 },
+		{ mark: "high", k1: 2, k2: 2 }
+	]
+)
+const S = schema("ExistencePerRow", [A, B, C, Mark, D], [])
 
 type Shape =
 	| "a scan of one source"
@@ -42,6 +56,7 @@ type Shape =
 	| "a fold by the negation's keys"
 	| "a fold whose count is bound"
 	| "a fold at the statement's value"
+	| "a closed relation's rows"
 
 type Feature = "a right side read per left row" | "a right side left in NOT EXISTS"
 
@@ -70,6 +85,12 @@ const foldedAt = query(S).rule((r) => {
 		.find({ k1, k2, n: r.count() })
 })
 
+/** The closed relation's keys of one mark: a scan of no table. */
+const marked = query(S).rule((r) => {
+	const { k1, k2 } = v(D, "d")
+	return r.match(D, { k1, k2, mark: "high" }).find({ k1, k2 })
+})
+
 /** The rows of A no fact of the right side matches, by the shape's bindings. */
 const negated = (shape: Shape) =>
 	query(S).rule((r) => {
@@ -88,6 +109,8 @@ const negated = (shape: Shape) =>
 				return matched
 					.where(r.not(foldedAt.bind({ k: r.param("k", pg.integer) }), { k1, k2 }))
 					.find({ k1, k2 })
+			case "a closed relation's rows":
+				return matched.where(r.not(marked, { k1, k2 })).find({ k1, k2 })
 		}
 	})
 
@@ -169,11 +192,13 @@ const testOf = (sql: string): TestForm => {
 
 /** Whether the shape's right side is read per left row, by the rule. */
 const perRow = (shape: Shape): boolean =>
-	shape === "a join of two sources" || shape === "a fold by the negation's keys"
+	shape === "a scan of one source" ||
+	shape === "a join of two sources" ||
+	shape === "a fold by the negation's keys"
 
 /**
  * An existence test reads a right side of several sources or a fold by its keys per left row, a step correlated inside it
- * at the row's keys.
+ * at the row's keys, and so a scan of one stored relation.
  */
 export const anExistenceTestReadsARightSideOfSeveralSourcesOrAFoldByItsKeysPerLeftRowAStepCorrelatedInsideItAtTheRowsKeys =
 	property.exhaust(
@@ -184,7 +209,8 @@ export const anExistenceTestReadsARightSideOfSeveralSourcesOrAFoldByItsKeysPerLe
 					"a join of two sources",
 					"a fold by the negation's keys",
 					"a fold whose count is bound",
-					"a fold at the statement's value"
+					"a fold at the statement's value",
+					"a closed relation's rows"
 				])
 			)
 		),
@@ -209,16 +235,22 @@ export const anExistenceTestReadsARightSideOfSeveralSourcesOrAFoldByItsKeysPerLe
 				}),
 			oracle: {
 				kind: "specification",
-				name: "a right side of several sources, or a fold by the keys, is read per left row, a step correlated inside its NOT EXISTS; a scan of one source, a fold whose count is bound and a fold the statement's value restricts stay in a bare NOT EXISTS"
+				name: "a right side of one stored relation or several sources, or a fold by the keys, is read per left row, a step correlated inside its NOT EXISTS; a fold whose count is bound, a fold the statement's value restricts and a closed relation's rows stay in a bare NOT EXISTS"
 			},
-			box: "a negation of a query over one relation, a join of two, a fold by its keys, a fold whose count it binds, and a fold at the statement's value",
+			box: "a negation of a query over one relation, a join of two, a fold by its keys, a fold whose count it binds, a fold at the statement's value, and a closed relation's rows",
 			kept: [],
 			kills: [
 				{
 					file: "packages/engine/src/lower/conservative/semi-join/exists.ts",
-					original: '\tcostClass(node.right) !== "scan" &&\n',
+					original: "\treadsStored(node.right) &&\n",
 					replacement: "\tfalse &&\n",
-					why: "Every right side stays in a bare NOT EXISTS, as before: the join and the fold by the keys are tested there, which PostgreSQL pulls up and plans every parameterization of, and the property fails."
+					why: "Every right side stays in a bare NOT EXISTS: the scan, the join and the fold by the keys are tested there, which PostgreSQL pulls up, plans every parameterization of and joins by the method an estimate picks, and the property fails."
+				},
+				{
+					file: "packages/engine/src/lower/conservative/semi-join/exists.ts",
+					original: '\tpostorder([right], (n) => inputsOf(n)).some((n) => n.kind === "Base")',
+					replacement: "\tpostorder([right], (n) => inputsOf(n)).length > 0",
+					why: "A right side that reads no stored relation is read per left row too: the closed relation's rows, which no index reads, are read again for each row of A, and the property fails."
 				},
 				{
 					file: "packages/engine/src/lower/conservative/semi-join/exists.ts",

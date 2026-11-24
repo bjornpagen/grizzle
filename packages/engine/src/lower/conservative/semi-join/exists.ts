@@ -1,4 +1,5 @@
-import type { NodeOf } from "#compiler/ir/rel.ts"
+import { postorder } from "@bjornpagen/grizzle-text/base/graph"
+import { inputsOf, type NodeOf, type RelNode } from "#compiler/ir/rel.ts"
 import {
 	columnIn,
 	type Env,
@@ -10,11 +11,7 @@ import {
 } from "#compiler/lower/conservative/context.ts"
 import { fencedRead } from "#compiler/lower/conservative/step/index.ts"
 import type { ConservativeOptions } from "#compiler/lower/conservative/types.ts"
-import {
-	costClass,
-	restrictedByKeys,
-	restrictedWithin
-} from "#compiler/lower/optimize/cte-policy/index.ts"
+import { restrictedByKeys, restrictedWithin } from "#compiler/lower/optimize/cte-policy/index.ts"
 import { columnType } from "#compiler/runtime/lower/columns.ts"
 import type { Expr, FromSource, Select } from "#compiler/sql/ast.ts"
 import {
@@ -111,19 +108,25 @@ export const existenceTest = (
 
 /**
  * Whether an existence test reads its right side per left row, a step correlated inside it (existenceTest): a right side
- * that is no scan of one source (cte-policy costClass), whose join columns each restrict every relation it reads
- * (cte-policy restrictedByKeys), that the statement does not derive once (`derivedOnce`), in a statement that does not
- * meet every row of its left side (`readsWhole`), the right side one no value fixed where the test is evaluated
- * restricts (cte-policy restrictedWithin), the statement's or an outer row's, its own left row's aside. Each witness
- * then reads the right side's relations at the left row's values alone, never the whole of it: a right side the
- * write's restriction reaches only through its left side, which deriving it once would read all of (cte-policy rule
- * 5b). A scan of one source stays in EXISTS, which PostgreSQL probes per left row through its index; so does a CTE's
- * read, whose rows the statement derives once whatever reads them; so does every test of a law's full violation query,
- * whose tests a hash join of both sides reads once; and so does a right side restricted where the test is evaluated,
- * small derived once there, which a probe of each left row would derive again for each:
- * edullm's PERF-COMMIT submit at 100x read every processed attempt against the call's previous attempts, a fold of its
- * own 20 rows folded again for each of 1,650,480 rows (11.3 s), where the 20 rows each probe the processed attempts'
- * key once.
+ * that reads a stored relation (`readsStored`), whose join columns each restrict every relation it reads (cte-policy
+ * restrictedByKeys), that the statement does not derive once (`derivedOnce`), in a statement that does not meet every
+ * row of its left side (`readsWhole`), the right side one no value fixed where the test is evaluated restricts
+ * (cte-policy restrictedWithin), the statement's or an outer row's, its own left row's aside. Each witness then reads
+ * the right side's relations at the left row's values alone, its stored relations through the index the test's join
+ * columns request (physical/access extract.ts), never the whole of it, whatever PostgreSQL estimates of either side: a
+ * right side the write's restriction reaches only through its left side, which deriving it once would read all of
+ * (cte-policy rule 5b). A scan of one stored relation is read so too: in a bare test PostgreSQL pulls it up into the
+ * semi- or anti-join, whose method an estimate picks, and a hash join reads the relation at whatever the left side
+ * fixes of it, the unit alone where the test's keys are a unit's and a row: rule-whole's Fanout tested each childless
+ * node of a written document by a Hash Right Anti Join over a sequential scan of Node at the document, every stored
+ * node read for the three it holds, once Node's document was declared at 1,024 rows on a table of 6,003. A right side
+ * that reads no stored relation, only the statement's own sets (a delta, the call's input or context, a closed
+ * relation's rows), stays in EXISTS, no index reading it per left row; so does a CTE's read, whose rows the statement
+ * derives once whatever reads them; so does every test of a law's full violation query, whose tests a hash join of both
+ * sides reads once; and so does a right side restricted where the test is evaluated, small derived once there, which a
+ * probe of each left row would derive again for each: edullm's PERF-COMMIT submit at 100x read every processed attempt
+ * against the call's previous attempts, a fold of its own 20 rows folded again for each of 1,650,480 rows (11.3 s),
+ * where the 20 rows each probe the processed attempts' key once.
  */
 const readPerLeftRow = (
 	cx: LowerContext,
@@ -132,12 +135,16 @@ const readPerLeftRow = (
 ): boolean =>
 	!readsWhole(cx.options.subject) &&
 	!restrictedWithin(node.right, node) &&
-	costClass(node.right) !== "scan" &&
+	readsStored(node.right) &&
 	restrictedByKeys(
 		node.right,
 		node.on.map((p) => p.right)
 	) &&
 	!derivedOnce(right)
+
+/** Whether a right side reads a stored relation, a Base, which an index reads at the test's join columns. */
+const readsStored = (right: RelNode): boolean =>
+	postorder([right], (n) => inputsOf(n)).some((n) => n.kind === "Base")
 
 /**
  * Whether a lowering's existence tests meet every row of their left sides: a law's full violation query, the migration's

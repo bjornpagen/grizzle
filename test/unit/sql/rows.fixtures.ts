@@ -136,8 +136,8 @@ export const repeats = (s: Source): boolean => s === "operand derived" || s === 
 /** A body's kinds: a set of rows, or an operand whose rows may repeat. */
 export const bodies = ["set", "operand"] as const
 
-/** The bounds a query may take: none, a LIMIT of one or two, or an OFFSET. */
-export const bounds = ["none", "LIMIT 1", "LIMIT 2", "OFFSET 1"] as const
+/** The bounds a query may take: none, a LIMIT of one or two, an OFFSET past 0, or OFFSET 0, a fence. */
+export const bounds = ["none", "LIMIT 1", "LIMIT 2", "OFFSET 1", "OFFSET 0"] as const
 
 /** A bound a query takes. */
 type Bound = (typeof bounds)[number]
@@ -154,6 +154,8 @@ export const bounded = (q: OperandSelect, b: Bound): OperandSelect => {
 			return { ...q, limit: lit.int(2, types.integer) }
 		case "OFFSET 1":
 			return { ...q, offset: one }
+		case "OFFSET 0":
+			return { ...q, offset: lit.int(0, types.integer) }
 	}
 }
 

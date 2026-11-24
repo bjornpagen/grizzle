@@ -165,6 +165,16 @@ const isLiteralOne = (e: Expr | undefined): boolean =>
 /** Whether a query keeps at most one row of its body: LIMIT 1 and no OFFSET. */
 const firstRowOnly = (q: OperandSelect): boolean => isLiteralOne(q.limit) && q.offset === undefined
 
+const isLiteralZero = (e: Expr | undefined): boolean =>
+	e?.kind === "literal" && e.value.kind === "int" && e.value.value === 0n
+
+/**
+ * Whether a query counts its body's rows: a LIMIT, or an OFFSET past 0. OFFSET 0 alone keeps every row, a fence
+ * PostgreSQL plans apart (lower/conservative/step fencedRead), and counts none.
+ */
+const countsRows = (q: OperandSelect): boolean =>
+	q.limit !== undefined || (q.offset !== undefined && !isLiteralZero(q.offset))
+
 /**
  * The expression a derived table of a core's FROM delivers at the column `e` reads, when that table's query is one core:
  * undefined for any other expression.
@@ -284,7 +294,8 @@ const writeSources = (statement: SqlStatement): ReadonlyArray<FromItem> => {
  *
  * - every derived table and query CTE whose rows may repeat is read only by a core that keeps no repeat it reads and
  *   counts none (fromNeed), or by a write, which changes each target row once whatever matches it;
- * - a LIMIT or OFFSET over rows that may repeat is LIMIT 1 alone, which keeps one of equal rows;
+ * - a LIMIT or an OFFSET past 0 over rows that may repeat is LIMIT 1 alone, which keeps one of equal rows, and OFFSET
+ *   0 alone, a fence, counts none;
  * - a core claiming one row shows it by its shape (no FROM, aggregates and no GROUP BY) or is the body of a query whose
  *   LIMIT is 1, and a UNION ALL claiming one row is such a body;
  * - a core claiming its groups shows each GROUP BY expression among its targets.
@@ -335,7 +346,7 @@ export const rowsViolations = (statement: SqlStatement): ReadonlyArray<string> =
 			const body = s.body
 			if (firstRowOnly(s)) {
 				limited.add(body)
-			} else if (!isSetBody(body) && (s.limit !== undefined || s.offset !== undefined)) {
+			} else if (!isSetBody(body) && countsRows(s)) {
 				out.push(
 					"a LIMIT or OFFSET counts the rows of a body that may repeat them: a bound reads a set, or is LIMIT 1 alone"
 				)

@@ -104,7 +104,10 @@ export const theRowsAuditOracleVerifyRowsTsRefusesExactlyTheDerivedTablesAndCTEs
 		}
 	)
 
-/** The rows audit (oracle/verify/rows.ts) refuses a bound that counts repeated rows, LIMIT 1 alone keeping one of equal rows. */
+/**
+ * The rows audit (oracle/verify/rows.ts) refuses a bound that counts repeated rows, LIMIT 1 alone keeping one of equal
+ * rows, and OFFSET 0 alone, a fence, counting none.
+ */
 export const theRowsAuditOracleVerifyRowsTsRefusesABoundThatCountsRepeatedRowsLIMIT1AloneKeepingOneOfEqualRows =
 	property.exhaust(
 		finite((s) => ({ body: s.draw(element(bodies)), bound: s.draw(element(bounds)) })),
@@ -128,11 +131,18 @@ export const theRowsAuditOracleVerifyRowsTsRefusesABoundThatCountsRepeatedRowsLI
 					}),
 			oracle: {
 				kind: "specification",
-				name: "a bound counts the rows it reads: only LIMIT 1 alone keeps one of equal rows"
+				name: "a bound counts the rows it reads: only LIMIT 1 alone keeps one of equal rows, and OFFSET 0 counts none"
 			},
-			box: "a set body and a body that may repeat rows, each unbounded, under LIMIT 1, LIMIT 2 and OFFSET 1",
+			box: "a set body and a body that may repeat rows, each unbounded, under LIMIT 1, LIMIT 2, OFFSET 1 and OFFSET 0",
 			kept: [],
 			kills: [
+				{
+					file: "test/support/oracle/verify/rows.ts",
+					original:
+						"\tq.limit !== undefined || (q.offset !== undefined && !isLiteralZero(q.offset))",
+					replacement: "\tq.limit !== undefined || q.offset !== undefined",
+					why: "OFFSET 0, the fence a step read per row carries (lower/conservative/step fencedRead), counts the rows of a body that may repeat them, so the audit refuses every existence test read per left row."
+				},
 				{
 					file: "packages/engine/src/sql/ast.ts",
 					original: '\t\t\treturn body.distinct !== false || body.rows !== "operand"',
