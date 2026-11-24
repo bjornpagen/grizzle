@@ -64,6 +64,7 @@ import {
 	deltaTable,
 	foreignOf,
 	headed,
+	headedDelete,
 	holding,
 	readersCalled,
 	type JudgedSide,
@@ -295,15 +296,15 @@ const compileProbe = (
  * read whole (`perStatement`); then checked as a region read (check/checker.ts QueryRead `region`) and lowered by the
  * optimized pipeline under the transaction's evidence, each Delta node read from the relation `deltas` names
  * (RegionLowering), to one main statement of no parameter, its outputs unaliased, each of its reads of a session's
- * delta read through the reader of the selection it reads the delta under, which `reads` records (deltas.ts headed);
- * with the index requests of `rule` its checked DAG's access
+ * delta a read of the delta's table, which `judgedStatement` and an upkeep's DELETE read through readers (deltas.ts
+ * headed, headedDelete); with the index requests of `rule` its checked DAG's access
  * paths are (`requestsOf`). It reads each suffix test of a text its requests' indexes hold the suffix key of as the
  * key's range (sql/suffix.ts seekingSuffixes), and of no other. Navigation reads the
  * heading of each union it splits in `columns`: the installation's (InstallBuilder `columns`), at the definition a
  * walked copy of it was walked from where the query is a whole rule's violation over its units (WholeRule
  * `definitionOf`).
  */
-const judgedStatement = (
+const loweredJudged = (
 	b: InstallBuilder,
 	catalog: ReturnType<typeof evidenceCatalog>,
 	requestsAt: (root: RelNode) => ReadonlyArray<IndexRequest>,
@@ -312,7 +313,6 @@ const judgedStatement = (
 	label: string,
 	loc: SourceLoc,
 	deltas: (relation: string, side: DeltaSide) => DeltaRelation | undefined,
-	reads: DeltaReads,
 	extent: RegionExtent
 ): Compiled => {
 	const checked = unwrap(
@@ -356,10 +356,30 @@ const judgedStatement = (
 	}
 	const statement = main.ast
 	return {
-		statement: headed({ ...statement, body: unaliased(statement.body) }, reads),
+		statement: { ...statement, body: unaliased(statement.body) },
 		heading: main.heading.map((c) => c.name),
 		requests
 	}
+}
+
+/**
+ * A query the judge reads (`loweredJudged`), each of its reads of a session's delta read through the reader of the
+ * selection it reads the delta under, which `reads` records (deltas.ts headed).
+ */
+const judgedStatement = (
+	b: InstallBuilder,
+	catalog: ReturnType<typeof evidenceCatalog>,
+	requestsAt: (root: RelNode) => ReadonlyArray<IndexRequest>,
+	query: InferredQuery,
+	columns: QueryColumns,
+	label: string,
+	loc: SourceLoc,
+	deltas: (relation: string, side: DeltaSide) => DeltaRelation | undefined,
+	reads: DeltaReads,
+	extent: RegionExtent
+): Compiled => {
+	const lowered = loweredJudged(b, catalog, requestsAt, query, columns, label, loc, deltas, extent)
+	return { ...lowered, statement: headed(lowered.statement, reads) }
 }
 
 /**
@@ -1176,10 +1196,10 @@ const besidesOf = (
  * A part's body, run where the transaction wrote a row into one of its deltas, `written` the names of those it wrote
  * (`marked`):
  *
- * - the names of its written deltas that hold a row once netted, into `rowedName`: each side of news netted first
- *   (`netted`), so it holds delta.added, and read again, since the images it held may all cancel; a side of olds holds
- *   the rows it was marked for. A delta the transaction did not write is never read: a session's deltas of every
- *   relation an earlier transaction wrote hold no row of this one;
+ * - the names of its written deltas that hold a row once netted, into `rowedName`: each side of news, which the judge
+ *   netted before phase A (`nettingsOf`), so it holds delta.added, read again, since the images it held may all cancel;
+ *   a side of olds holds the rows it was marked for. A delta the transaction did not write is never read: a session's
+ *   deltas of every relation an earlier transaction wrote hold no row of this one;
  * - each delta a block reads beside the one that ran it stands: the stand-up of each table a write writes makes the
  *   deltas the judge reads beside its own (`besidesOf`, addStandUps), and the capture that wrote the delta that ran the
  *   block required them (addCapture);
@@ -1196,7 +1216,7 @@ const partBody = (
 	blockOf: (block: Judged) => ObjectName
 ): PlBlock => {
 	const flags = mapNonEmpty(part.deltas, (delta): PlStatement => {
-		const { t, s } = sideOf(delta.name)
+		const { s } = sideOf(delta.name)
 		const record: PlStatement = {
 			kind: "assign",
 			target: rowedName,
@@ -1211,7 +1231,6 @@ const partBody = (
 		const kept: NonEmptyReadonlyArray<PlStatement> =
 			s.side === "added"
 				? [
-						netted(t.relation, s),
 						{
 							kind: "if",
 							branches: [{ condition: holding(delta.name, "r1"), body: [record] }],
@@ -1275,6 +1294,37 @@ const emptiedWhereWritten = (delta: SessionDelta): PlStatement => ({
 	branches: [{ condition: wrote(delta.name), body: [emptied(delta)] }],
 	else: []
 })
+
+/**
+ * Each side of news of a table of `tables` a transaction writes that a rule reads (`ruled`, the deltas of the rules'
+ * parts), netted where the transaction wrote it (deltas.ts netted), in its delta's name order: the judge's one netting
+ * of each, before phase A, so every rule and every upkeep reads it netted and no part nets one, where each part netted
+ * each side of news it held, and a delta an upkeep part and a rule part both held was netted twice in one run, the
+ * second pass deleting nothing. A side no rule reads is never netted: an upkeep reads of it the units its rows name, and
+ * the images a netting deletes, cancelled or repeated, name units its rows name already or units the write touched, at
+ * which the upkeep's definition is read again to the same rows, so netting it is a pass nothing needs. A stored
+ * relation's (`stored`) side of news is netted as its upkeep writes it: only the upkeep writes its table, once in a run,
+ * its DELETE before its INSERT, so no removal is counted there (deltas.ts captured) and each image it puts stands once.
+ *
+ *   IF __written @> '{<delta>}' THEN <the delta netted> END IF
+ */
+const nettingsOf = (
+	tables: ReadonlyArray<JudgedTable>,
+	stored: ReadonlySet<string>,
+	ruled: ReadonlySet<string>
+): ReadonlyArray<PlStatement> =>
+	tables
+		.flatMap((t) =>
+			stored.has(t.relation.name)
+				? []
+				: t.sides.flatMap((s) => (s.side === "added" && ruled.has(s.delta.name) ? [{ t, s }] : []))
+		)
+		.toSorted((x, y) => compareStrings(x.s.delta.name, y.s.delta.name))
+		.map(({ t, s }): PlStatement => ({
+			kind: "if",
+			branches: [{ condition: wrote(s.delta.name), body: [netted(t.relation, s)] }],
+			else: []
+		}))
 
 /**
  * Rules over queries in the installation, held by the set judge: each table a rule over a query reads captures the rows
@@ -1539,7 +1589,10 @@ export const addRules = (
 	 * whose DELETE finds nothing; a removal, whose INSERT finds nothing; and any other. A
 	 * key or a check over S alone is S's own index or constraint, which the INSERT fires. Its reads ask the indexes a
 	 * whole rule's do (`requestsOf`), each led by the unit's key, under the stored relation's enforcement: a chain's
-	 * later steps look rows up by the columns the steps before them bound, which no primary key range serves.
+	 * later steps look rows up by the columns the steps before them bound, which no primary key range serves. Each
+	 * statement reads each delta's selection through one reader (deltas.ts headed): the DELETE is headed whole
+	 * (headedDelete), so its USING's region and the region its definition reads share their readers' calls, where its
+	 * parts headed apart called each reader of the region twice, and the INSERT reads the region once, in its definition.
 	 */
 	const upkeepBlock = (u: StoredUpkeep): Judged => {
 		const label = `stored relation ${u.relation} over the units a transaction wrote`
@@ -1552,7 +1605,7 @@ export const addRules = (
 			unit: u.stored.unit,
 			display: `the upkeep of stored relation ${u.relation}`
 		}
-		const units = judgedStatement(
+		const units = loweredJudged(
 			b,
 			catalog,
 			(root) => requestsOf(b, requester, root),
@@ -1561,10 +1614,9 @@ export const addRules = (
 			label,
 			u.loc,
 			deltas,
-			reads,
 			"units"
 		)
-		const rows = judgedStatement(
+		const rows = loweredJudged(
 			b,
 			catalog,
 			(root) => requestsOf(b, requester, root),
@@ -1573,7 +1625,6 @@ export const addRules = (
 			label,
 			u.loc,
 			deltas,
-			reads,
 			"units"
 		)
 		appendAll(requests, units.requests)
@@ -1587,9 +1638,10 @@ export const addRules = (
 		/** The generated column a derived table of `n` columns names its i-th, c<i+1>. */
 		const columnsAt = (n: number): ReadonlyArray<string> =>
 			Array.from({ length: n }, (_, i) => `c${i + 1}`)
-		/** The rows of its definition at the written units under `alias`, every relation they name shifted past `past`. */
-		const fresh = (alias: string, past: number): FromSource =>
-			derived(shifted(rows.statement, past), alias, columnsAt(heading.length), false)
+		/** The rows of `definition`, its definition at the written units, under `alias`, every relation it names shifted
+		 * past `past`. */
+		const fresh = (definition: OperandSelect, alias: string, past: number): FromSource =>
+			derived(shifted(definition, past), alias, columnsAt(heading.length), false)
 		/** That the row `stored` of S and the row `found` of its definition agree at every field. */
 		const sameRow = (stored: string, found: string): Expr =>
 			and(
@@ -1608,24 +1660,41 @@ export const addRules = (
 		)
 		const removed: PlStatement = {
 			kind: "modify",
-			statement: {
-				kind: "delete",
-				with: undefined,
-				table,
-				alias: "r1",
-				using: [
-					derived(shifted(units.statement, 1), regionAlias, columnsAt(units.heading.length), false)
-				],
-				where: and([
-					...atUnits,
-					notExists(simpleSelect([], [fresh(foundAlias, unitNames + 2)], sameRow("r1", foundAlias)))
-				]),
-				returning: []
-			}
+			statement: headedDelete(
+				{
+					kind: "delete",
+					with: undefined,
+					table,
+					alias: "r1",
+					using: [
+						derived(
+							shifted(units.statement, 1),
+							regionAlias,
+							columnsAt(units.heading.length),
+							false
+						)
+					],
+					where: and([
+						...atUnits,
+						notExists(
+							simpleSelect(
+								[],
+								[fresh(rows.statement, foundAlias, unitNames + 2)],
+								sameRow("r1", foundAlias)
+							)
+						)
+					]),
+					returning: []
+				},
+				reads
+			)
 		}
-		/** The INSERT's names: the definition's own, its rows r<r+1>, S r<r+2>. */
-		const rowsAlias = `r${rowNames + 1}`
-		const storedAlias = `r${rowNames + 2}`
+		/** The INSERT's definition, which reads the region once, headed apart; its names: the definition's own, its
+		 * readers' CTEs among them, its rows r<r+1>, S r<r+2>. */
+		const definition = headed(rows.statement, reads)
+		const definitionNames = lastNumbered(definition)
+		const rowsAlias = `r${definitionNames + 1}`
+		const storedAlias = `r${definitionNames + 2}`
 		const inserted: PlStatement = {
 			kind: "modify",
 			statement: {
@@ -1641,7 +1710,7 @@ export const addRules = (
 					query: provedSelect(
 						"keyed",
 						heading.map((_, i) => ({ expr: col(rowsAlias, `c${i + 1}`), alias: undefined })),
-						[fresh(rowsAlias, 0)],
+						[fresh(definition, rowsAlias, 0)],
 						notExists(
 							simpleSelect(
 								[],
@@ -1763,7 +1832,7 @@ export const addRules = (
 		.toSorted(([x], [y]) => compareNumbers(x, y))
 		.map(([, blocks]) => blocks.map((x) => x.block))
 	const ruled = b.model.rules.flatMap(judgedBy).toSorted((x, y) => compareStrings(x.order, y.order))
-	/** Each judged table's side by its delta's name: the side a part nets, where it is a side of news. */
+	/** Each judged table's side by its delta's name: the side a part records the delta's rows of. */
 	const sideOf = new Map(
 		tables.flatMap((t) => t.sides.map((s) => [s.delta.name, { t, s }] as const))
 	)
@@ -1865,7 +1934,8 @@ export const addRules = (
 		return { part, fn, node }
 	})
 	/**
-	 * The judge's run, in two passes: the transaction's written set read from the sentinel's row (`marked`); phase A,
+	 * The judge's run, in two passes: the transaction's written set read from the sentinel's row (`marked`), and each
+	 * side of news it wrote that a rule reads netted, once (`nettingsOf`); phase A,
 	 * stratum by stratum (`stratumOf`), each upkeep part of the stratum run where the transaction wrote one of its deltas,
 	 * with the set, whose writes of a stored relation's table fire that table's captures where a rule or an upkeep a
 	 * stratum up reads it, which mark the standing row, and the set read again after each stratum, the deltas its upkeeps
@@ -1923,6 +1993,8 @@ export const addRules = (
 	const ruledDeltas = new Set(
 		parts.flatMap(({ part }) => (part.pass === "rules" ? part.deltas.map((d) => d.name) : []))
 	)
+	/** The stored relations, whose tables their upkeeps alone write. */
+	const storedNames = new Set(b.model.theory.upkeeps.map((u) => u.relation))
 	const upkeptOnly = [
 		...new Map(
 			parts.flatMap(({ part }) =>
@@ -1936,6 +2008,7 @@ export const addRules = (
 		? [consumed]
 		: [
 				readWritten,
+				...nettingsOf(tables, storedNames, ruledDeltas),
 				...upkeep,
 				consumed,
 				...partsRun(parts.flatMap(({ part }) => (part.pass === "rules" ? [part] : []))),

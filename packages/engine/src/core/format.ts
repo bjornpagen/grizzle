@@ -468,6 +468,12 @@
  * and collation (sql/ast.ts FunctionColumns `defined`), one reader of a selection in a statement however many of its
  * reads read it, their columns' union, so the reader's name holds its columns too, and no delta has a row type, where
  * format 8 created one for each delta's readers. So every judge statement, every reader and every stand-up moves.
+ * A stored relation's upkeep's DELETE reads each selection through one call of its reader, the region its USING reads
+ * and the region its definition is read at sharing it (physical/ddl/deltas.ts headedDelete), where format 8 read the
+ * region's deltas in each part apart; so every upkeep's DELETE moves. The judge nets each side of news a transaction
+ * wrote that a rule reads once in its run, before phase A, one only an upkeep reads never (physical/ddl/rules.ts
+ * nettingsOf), and no part nets one, where format 8's parts each netted the sides of news they held, a delta an
+ * upkeep's part and a rule's part both held netted twice; so the judge and every part move.
  * Every read the index engine plans lands on an index whose leading columns are exactly the columns it binds by
  * equality, or on a unique index all of whose keys it binds, and the B-trees created for the reads no installed key
  * serves are the fewest that do, grouped so each group's sets are one chain (physical/indexes/engine.ts chainsOf,

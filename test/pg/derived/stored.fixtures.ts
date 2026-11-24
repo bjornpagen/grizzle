@@ -13,6 +13,7 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
+import { withLeading } from "#compiler/lower/conservative/context.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { admittedIdentifier, notificationText } from "#compiler/plan/runtime.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
@@ -908,8 +909,9 @@ export type CallsFeature =
 
 /**
  * The two queries of stored relation `relation`'s upkeep (physical/ddl/rules.ts upkeepBlock): the units the transaction
- * wrote, its delete's region, each a row of the unit's key, and its insert's rows, its definition at those units that
- * its table does not hold yet.
+ * wrote, its delete's region, each a row of the unit's key, under the delete's WITH, whose CTEs hold the calls of the
+ * readers its region shares with the definition the delete reads (physical/ddl/deltas.ts headedDelete); and its
+ * insert's rows, its definition at those units that its table does not hold yet.
  */
 const upkeepOf = (
 	installation: Installation,
@@ -923,11 +925,15 @@ const upkeepOf = (
 			? statement.body.body
 			: []
 	)
-	const [region] = Arr.flatMap(body, (step) =>
-		step.kind === "modify" && step.statement.kind === "delete"
-			? Arr.flatMap(step.statement.using, (u) => (u.kind === "derived" ? [u.query] : []))
-			: []
-	)
+	const [region] = Arr.flatMap(body, (step) => {
+		if (step.kind !== "modify" || step.statement.kind !== "delete") {
+			return []
+		}
+		const ctes = step.statement.with?.ctes ?? []
+		return Arr.flatMap(step.statement.using, (u) =>
+			u.kind === "derived" ? [withLeading(u.query, ctes)] : []
+		)
+	})
 	const [inserted] = Arr.flatMap(body, (step) =>
 		step.kind === "modify" &&
 		step.statement.kind === "insert" &&

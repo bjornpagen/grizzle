@@ -3,6 +3,8 @@
 import { assert } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, String as Str } from "effect"
+import { identifierOf, identity } from "#compiler/core/identity.ts"
+import { withDerivedRelations } from "#compiler/physical/derived/objects.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
@@ -19,12 +21,18 @@ import {
 	unit
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import type { ColumnDefinition, Expr, FromSource, OperandSelect } from "#compiler/sql/ast.ts"
+import type {
+	ColumnDefinition,
+	Expr,
+	FromSource,
+	OperandSelect,
+	PlStatement
+} from "#compiler/sql/ast.ts"
 import { cUtf8Collation } from "#compiler/sql/build.ts"
 import { printExpr, printObjectName } from "#compiler/sql/print.ts"
 import { inertVisitor, visitSelect } from "#compiler/sql/transform.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { judgedStatementsOf } from "#test/support/judge.ts"
+import { judgedStatementsOf, upkeepReadsOf } from "#test/support/judge.ts"
 import { owning } from "#test/support/policy.ts"
 
 /**
@@ -482,3 +490,306 @@ export type ProjectedReached =
 	| "a text column delivered"
 	| "a reader read twice or more in one statement"
 	| "a reader of no column read"
+
+/**
+ * One upkeep: D stored at T's document's unit, the union of `arms` rules over T, the k-th T's facts whose `a` is k, by
+ * document and place with their `b` and `tag`, each where S holds no row at its place or regardless of S.
+ */
+interface Upkept {
+	readonly arms: 1 | 2 | 3 | 4
+	readonly unlessS: boolean
+}
+
+export const upkeptGen: Gen<Upkept> = (s) => ({
+	arms: s.draw(element<Upkept["arms"]>([1, 2, 3, 4])),
+	unlessS: s.draw(element([false, true]))
+})
+
+export type UpkeepReached =
+	| "a region of one arm"
+	| "a region of two arms or more"
+	| "an upkeep's DELETE"
+	| "an upkeep's INSERT"
+	| "a reader read twice or more in one statement"
+	| "a statement reading two deltas"
+
+/** T and S, each keyed by its document first, at the document's unit; D, stored, the union of `shape`'s arms over T. */
+const upkeptSchemaOf = (shape: Upkept) => {
+	const T = relation(
+		"T",
+		{ doc: pg.integer, at: pg.integer, a: pg.integer, b: pg.integer, tag: word },
+		["doc", "at"]
+	)
+	const S = relation("S", { doc: pg.integer, at: pg.integer }, ["doc", "at"])
+	const Base = schema("upkeep_reads", [T, S], [unit("Document", { doc: pg.integer })])
+	/** The k-th arm: T's facts whose `a` is k, where S holds no row at their place if the shape says so. */
+	const arm = (k: number) => (r: Rule<typeof Base>) => {
+		const { doc, at, b, tag } = v(T, "t")
+		const matched = r.match(T, { doc, at, a: k, b, tag })
+		return shape.unlessS
+			? matched.where(r.not(S, { doc, at })).find({ doc, at, b, tag })
+			: matched.find({ doc, at, b, tag })
+	}
+	const first = query(Base).rule(arm(1))
+	const second = first.rule(arm(2))
+	const third = second.rule(arm(3))
+	const fourth = third.rule(arm(4))
+	const D = derived.stored(
+		"D",
+		shape.arms === 1 ? first : shape.arms === 2 ? second : shape.arms === 3 ? third : fourth
+	)
+	return schema.extend([Base], "upkeep_reads_1", [D], [])
+}
+
+/**
+ * Judges the reads of each statement of D's upkeep in `shape`'s installation (support/judge.ts upkeepReadsOf), its
+ * DELETE and its INSERT: each reads T's deltas through readers whose one condition fixes T's `a` to an arm's literal,
+ * every arm's literal among them, so neither reads T's delta whole; it calls each reader once, however many of its reads
+ * read its rows, the DELETE's region and the region its definition reads alike; and each call defines exactly the
+ * columns the statement reads of it.
+ */
+export const upkept = (shape: Upkept, note: (r: UpkeepReached) => void): void => {
+	const owned = owning(upkeptSchemaOf(shape))
+	const installation = succeeded(
+		compileInstallation(owned, withDerivedRelations(installOptions(owned)))
+	)
+	const tReaders = tReadersIn(installation)
+	const readers = deltaReadersIn(installation)
+	const statements = upkeepReadsOf(installation, "D")
+	assert.equal(statements.length, 2, "D's upkeep is a DELETE and an INSERT")
+	note(shape.arms === 1 ? "a region of one arm" : "a region of two arms or more")
+	for (const [at, statement] of statements.entries()) {
+		note(at === 0 ? "an upkeep's DELETE" : "an upkeep's INSERT")
+		const literals = new Set<number>()
+		for (const name of calledIn(statement)) {
+			if (!tReaders.has(name)) {
+				continue
+			}
+			const condition = tReaders.get(name)
+			const literal = fixedA(condition)
+			assert.ok(
+				literal !== undefined && literal >= 1 && literal <= shape.arms,
+				`D's upkeep reads T's delta through ${name} under ${condition === undefined ? "no condition" : printExpr(condition)}, which fixes a to no arm's literal`
+			)
+			literals.add(literal)
+		}
+		const arms = Array.from({ length: shape.arms }, (_, i) => i + 1)
+		assert.ok(
+			Arr.every(arms, (k) => literals.has(k)),
+			`each statement of D's upkeep reads every arm's rows of T's delta, a fixed to each of ${Arr.join(Arr.map(arms, String), ", ")}, not only ${Arr.join(Arr.map([...literals], String), ", ")}`
+		)
+		const calls = callsOf(statement)
+		/** Whether the statement calls a reader of a delta of `relation`, its name's stem T's `t`, S's `s`. */
+		const reads = (relation: string): boolean =>
+			Arr.some([...calls.keys()], (name) =>
+				Arr.some(["news", "olds"], (side) =>
+					Str.startsWith(`__delta_${side}_${relation}_`)(readers.get(name)?.delta ?? "")
+				)
+			)
+		if (reads("t") && reads("s")) {
+			note("a statement reading two deltas")
+		}
+		for (const [name, c] of calls) {
+			assert.equal(
+				c.calls,
+				1,
+				`a statement of D's upkeep calls the reader ${name} ${c.calls} times, its rows read by ${c.reads} FROM sources`
+			)
+			if (c.reads >= 2) {
+				note("a reader read twice or more in one statement")
+			}
+		}
+		for (const call of readerCallsOf(statement, readers)) {
+			const defined = new Set(Arr.map(call.definitions, (d) => d.name))
+			assert.ok(
+				call.read.size === 0
+					? defined.size === 1
+					: defined.size === call.read.size && Arr.every([...call.read], (c) => defined.has(c)),
+				`the call of ${call.reader} in D's upkeep defines ${Arr.join([...defined], ", ")}, the columns its statement reads of it being ${Arr.join([...call.read], ", ")}`
+			)
+		}
+	}
+}
+
+/**
+ * One judge of A's facts: Media, A's facts of governor 1, a derived relation, a stored one, or a stored one a stored
+ * relation reads in turn, each held in R by a containment; and Named, the names of A's facts of governor 2, held in Q
+ * by a rule over A, or none.
+ */
+interface Netted {
+	readonly media: "derived" | "stored" | "stored beneath another"
+	readonly named: boolean
+}
+
+export const nettedGen: Gen<Netted> = (s) => ({
+	media: s.draw(element<Netted["media"]>(["derived", "stored", "stored beneath another"])),
+	named: s.draw(element([false, true]))
+})
+
+export type NettedReached =
+	| "A's news read by an upkeep and a rule"
+	| "A's news read by rules alone"
+	| "A's news read by an upkeep alone"
+	| "a stored relation's news read above it"
+
+/** A, mutable in its package's unit; R and Q in their pack's; Media and Named over A as `shape` says (`Netted`). */
+const nettedSchemaOf = (shape: Netted) => {
+	const A = relation(
+		"A",
+		{
+			package: pg.integer,
+			path: pg.integer,
+			start: pg.integer,
+			name: pg.integer,
+			governor: pg.integer
+		},
+		["package", "path", "start", "name"]
+	)
+	const R = relation(
+		"R",
+		{ pack: pg.integer, path: pg.integer, start: pg.integer, name: pg.integer },
+		["pack", "path", "start", "name"]
+	)
+	const Q = relation("Q", { pack: pg.integer, name: pg.integer }, ["pack", "name"])
+	const Base = schema(
+		"netted",
+		[A, R, Q],
+		[
+			mutable(A),
+			mutable(R),
+			mutable(Q),
+			unit("Package", { package: pg.integer }),
+			unit("Pack", { pack: pg.integer })
+		]
+	)
+	const mediaQuery = query(Base).rule((r) => {
+		const { package: p, path, start, name } = v(A, "a")
+		return r
+			.match(A, { package: p, path, start, name, governor: 1 })
+			.find({ package: p, path, start, name })
+	})
+	const Media =
+		shape.media === "derived" ? derived("Media", mediaQuery) : derived.stored("Media", mediaQuery)
+	const Named = derived(
+		"Named",
+		query(Base).rule((r) => {
+			const { package: p, name } = v(A, "a")
+			return r.match(A, { package: p, name, governor: 2 }).find({ package: p, name })
+		})
+	)
+	const held = contained(
+		on(Media, "package", "path", "start", "name"),
+		on(R, "pack", "path", "start", "name")
+	)
+	const First = schema.extend(
+		[Base],
+		"netted_1",
+		shape.named ? [Media, Named] : [Media],
+		shape.named ? [held, contained(on(Named, "package", "name"), on(Q, "pack", "name"))] : [held]
+	)
+	if (shape.media !== "stored beneath another") {
+		return First
+	}
+	const Placed = derived.stored(
+		"Placed",
+		query(First).rule((r) => {
+			const { package: p, path, start } = v(Media, "m")
+			return r.match(Media, { package: p, path, start }).find({ package: p, path, start })
+		})
+	)
+	return schema.extend([First], "netted_2", [Placed], [])
+}
+
+/** Each delta a statement among `body` nets (physical/ddl/deltas.ts netted), at any depth of its IFs, in order. */
+const nettedIn = (body: ReadonlyArray<PlStatement>): ReadonlyArray<string> =>
+	Arr.flatMap(body, (st): ReadonlyArray<string> => {
+		if (st.kind === "if") {
+			return [...Arr.flatMap(st.branches, (b) => nettedIn(b.body)), ...nettedIn(st.else)]
+		}
+		if (st.kind === "whenFound") {
+			return nettedIn(st.body)
+		}
+		if (st.kind !== "modify" || st.statement.kind !== "delete") {
+			return []
+		}
+		const { table, where } = st.statement
+		return typeof table !== "string" &&
+			table.schema === "pg_temp" &&
+			Str.startsWith("__delta_news_")(table.name) &&
+			where?.kind === "inQuery" &&
+			where.expr.kind === "column" &&
+			where.expr.column === "ctid"
+			? [table.name]
+			: []
+	})
+
+/** Whether `body` calls a function of the judge's (a part's), at any depth of its IFs. */
+const callsAPart = (body: ReadonlyArray<PlStatement>): boolean =>
+	Arr.some(body, (st) =>
+		st.kind === "if"
+			? Arr.some(st.branches, (b) => callsAPart(b.body)) || callsAPart(st.else)
+			: st.kind === "perform"
+	)
+
+/**
+ * Judges the nettings of the judge of `shape`'s installation: its run nets A's side of news once where a rule reads it,
+ * Media's containment over a derived Media or Named's rule, in the judge's own body before it calls any part, so every
+ * rule and every upkeep reads it netted, and never where only an upkeep reads it, which needs the units its rows name
+ * alone; no part, block or upkeep nets a delta; and no stored relation's side of news is netted, its upkeep writing each
+ * image once.
+ */
+export const nettedOnce = (shape: Netted, note: (r: NettedReached) => void): void => {
+	const owned = owning(nettedSchemaOf(shape))
+	const installation = succeeded(
+		compileInstallation(owned, withDerivedRelations(installOptions(owned)))
+	)
+	const judge = identifierOf(identity.ruleJudge())
+	const functions = Arr.flatMap(installation.statements, (st) =>
+		st.kind === "createFunction" && st.language === "plpgsql" ? [st] : []
+	)
+	const [judgeFn] = Arr.filter(functions, (f) => f.name.name === judge)
+	assert.ok(judgeFn !== undefined, "the installation holds the rule judge")
+	note(
+		shape.media === "derived"
+			? "A's news read by rules alone"
+			: shape.named
+				? "A's news read by an upkeep and a rule"
+				: "A's news read by an upkeep alone"
+	)
+	if (shape.media === "stored beneath another") {
+		note("a stored relation's news read above it")
+	}
+	for (const f of functions) {
+		if (f.name.name !== judge) {
+			const nets = nettedIn(f.body.body)
+			assert.equal(
+				nets.length,
+				0,
+				`${f.name.name}, no run of the judge's own, nets ${Arr.join(nets, ", ")}`
+			)
+		}
+	}
+	const body = judgeFn.body.body
+	const nets = nettedIn(body)
+	const aNews = Arr.filter(nets, Str.startsWith("__delta_news_a_"))
+	const ruled = shape.media === "derived" || shape.named
+	assert.equal(
+		aNews.length,
+		ruled ? 1 : 0,
+		`the judge nets A's side of news ${ruled ? "once, a rule reading it," : "never, an upkeep alone reading it,"} not ${aNews.length} times`
+	)
+	assert.equal(
+		nets.length,
+		aNews.length,
+		`the judge nets A's side of news and no stored relation's: ${Arr.join(nets, ", ")}`
+	)
+	const firstPart = Arr.findFirstIndex(body, (st) => callsAPart([st]))
+	const netting = Arr.findFirstIndex(body, (st) => nettedIn([st]).length > 0)
+	if (ruled) {
+		assert.ok(
+			Option.isSome(netting) &&
+				Option.match(firstPart, { onNone: () => true, onSome: (at) => netting.value < at }),
+			`the judge nets A's side of news, at its statement ${String(Option.getOrUndefined(netting))}, before it calls a part, at its statement ${String(Option.getOrUndefined(firstPart))}`
+		)
+	}
+}

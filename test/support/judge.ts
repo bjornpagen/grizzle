@@ -10,7 +10,8 @@ import { standUpsOf } from "#compiler/deploy/diff/diff.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import type { OperandSelect, PlStatement } from "#compiler/sql/ast.ts"
-import { printExpr } from "#compiler/sql/print.ts"
+import { simpleSelect } from "#compiler/sql/build.ts"
+import { printExpr, printStatement } from "#compiler/sql/print.ts"
 import { identityHooks, Transform } from "#compiler/sql/transform.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { standUpCallsOf } from "#test/support/kernel/naming.ts"
@@ -175,6 +176,78 @@ export const judgedStatementsIn = (
 /** Every statement the judge and its parts test a rule by (`JudgedStatement`), in their bodies' order. */
 export const judgedStatementsOf = (installation: Installation): ReadonlyArray<JudgedStatement> =>
 	judgedStatementsIn(judgeBodiesOf(installation))
+
+/** A statement a PL/pgSQL body runs for its effect (sql/ast.ts PlStatement `modify`). */
+type Modified = Extract<PlStatement, { readonly kind: "modify" }>["statement"]
+
+/**
+ * The statements of the upkeep of stored relation `relation` (physical/ddl/rules.ts upkeepBlock), in its body's order:
+ * the DELETE of its rows its definition no longer holds at the written units, then the INSERT of those it gained.
+ */
+const upkeepStatementsOf = (
+	installation: Installation,
+	relation: string
+): ReadonlyArray<Modified> => {
+	const upkeep = identifierOf(identity.storedUpkeep(relation))
+	return Arr.flatMap(installation.statements, (s): ReadonlyArray<Modified> =>
+		s.kind === "createFunction" && s.language === "plpgsql" && s.name.name === upkeep
+			? Arr.flatMap(s.body.body, (b): ReadonlyArray<Modified> =>
+					b.kind === "modify" ? [b.statement] : []
+				)
+			: []
+	)
+}
+
+/**
+ * The reads of each statement of the upkeep of stored relation `relation` (`upkeepStatementsOf`), each as the query of
+ * the rows it reads: a DELETE's, its target and its USING under its WHERE, below its WITH, as PostgreSQL reads a DELETE
+ * USING as their join; an INSERT's, the query its rows come from.
+ */
+export const upkeepReadsOf = (
+	installation: Installation,
+	relation: string
+): ReadonlyArray<OperandSelect> =>
+	Arr.flatMap(upkeepStatementsOf(installation, relation), (m): ReadonlyArray<OperandSelect> => {
+		if (m.kind === "delete") {
+			return [
+				{
+					...simpleSelect(
+						[],
+						[{ kind: "table", table: m.table, alias: m.alias }, ...m.using],
+						m.where
+					),
+					with: m.with
+				}
+			]
+		}
+		return m.kind === "insert" && m.source.kind === "query" ? [m.source.query] : []
+	})
+
+/**
+ * Each statement of the upkeep of stored relation `relation` (`upkeepStatementsOf`) explained (EXPLAIN ANALYZE) over
+ * the transaction's deltas as the judge would run it, in its body's order, the DELETE's effect before the INSERT, all
+ * under a savepoint the explanation rolls back to, so the upkeep's table and the deltas stand as the captures left them:
+ * explained before anything runs the judge, SET CONSTRAINTS ALL IMMEDIATE or COMMIT, which empties the deltas.
+ */
+export const upkeepPlans = <E>(
+	query: (sql: string) => Effect.Effect<unknown, E>,
+	values: (sql: string) => Effect.Effect<ReadonlyArray<ReadonlyArray<unknown>>, E>,
+	installation: Installation,
+	relation: string
+): Effect.Effect<ReadonlyArray<PlanNode>, E> =>
+	Effect.gen(function* () {
+		yield* query("SAVEPOINT upkeep_explained")
+		const plans = yield* Effect.forEach(upkeepStatementsOf(installation, relation), (m) =>
+			Effect.map(
+				values(
+					`EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, SETTINGS, FORMAT JSON) ${printStatement(m)}`
+				),
+				(explained) => succeeded(parsePlan(explained[0]?.[0]), "one EXPLAIN plan").plan
+			)
+		)
+		yield* query("ROLLBACK TO SAVEPOINT upkeep_explained")
+		return plans
+	})
 
 /**
  * A judged statement as the SQL PostgreSQL plans for it: the SELECT whose keyword its PERFORM replaces, `SELECT 1 FROM

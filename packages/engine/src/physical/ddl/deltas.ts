@@ -4,7 +4,7 @@
  * empties it, and how a judged statement reads it. physical/ddl/rules.ts holds the captures' triggers, the sentinel
  * that arms the judge, the parts and the judge.
  */
-import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	appendNonEmpty,
 	headNonEmpty,
@@ -37,6 +37,7 @@ import {
 import type {
 	ColumnDefinition,
 	Cte,
+	Delete,
 	Expr,
 	FromSource,
 	Insert,
@@ -896,6 +897,28 @@ export const headed = (statement: OperandSelect, reads: DeltaReads): OperandSele
 		}
 	}).select(pushed)
 	return withLeading(resolved, shared.values())
+}
+
+/**
+ * `statement`, a DELETE, with its reads of a session's deltas read as `headed` reads a query's, the query being the
+ * DELETE's reads: its target and its USING under its WHERE, below its WITH, as PostgreSQL reads a DELETE USING as their
+ * join. So each selection it reads is read through one reader for the whole statement, its USING and each subquery of
+ * its WHERE alike, where each part headed apart read a selection the parts share once for each: a stored relation's
+ * upkeep's DELETE reads its region in its USING and again in its definition at the region, which its NOT EXISTS reads
+ * (physical/ddl/rules.ts upkeepBlock). The target, a stored relation's table, is no delta, so `headed` leaves it as it
+ * stands, first in the query's FROM.
+ */
+export const headedDelete = (statement: Delete, reads: DeltaReads): Delete => {
+	const target: FromSource = { kind: "table", table: statement.table, alias: statement.alias }
+	const read = headed(
+		{ ...simpleSelect([], [target, ...statement.using], statement.where), with: statement.with },
+		reads
+	)
+	const [first, ...using] = read.body.kind === "core" ? read.body.from : []
+	if (read.body.kind !== "core" || first?.kind !== "table" || first.alias !== statement.alias) {
+		throw defect("a DELETE's reads headed as one core whose FROM leads with the DELETE's target")
+	}
+	return { ...statement, with: read.with, using, where: read.body.where }
 }
 
 /**

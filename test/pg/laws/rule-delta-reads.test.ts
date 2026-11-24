@@ -5,20 +5,25 @@
  * B-tree of the delta (deltaIndexes), so the rows a COMMIT's judge reads of a delta grow with the rows each rule
  * constrains, never with the rules times the delta. edullm's giant pattern package's COMMIT read Node's delta whole for
  * each of 92 statements that kept one kind's nodes, 23.3 million rows, 23.3 s, and Attribute's for each of 134 that
- * kept one name's, 31.6 million rows (s18 at 39989d602).
+ * kept one name's, 31.6 million rows (s18 at 39989d602). A stored relation's upkeep reads its deltas so too: its region
+ * reads, of each delta, the rows its occurrence's conditions select, and each of its statements calls each reader once,
+ * where edullm's upkeeps read Node's news whole, 7.1 s of their own time at a COMMIT (STORED-CONTENT, g9mb).
  *
  * On PostgreSQL 19, over T, a document's rows each of a kind, and three rules, each a check over T's rows of one kind
- * (rule-delta-reads.fixtures.ts Selection): each case writes up to 24 rows of each of the three judged kinds and of
- * two kinds no rule reads, and maybe one breaking row, in one transaction, and runs the judge.
+ * (rule-delta-reads.fixtures.ts Selection), and Kept, U's rows of one kind, stored at the document's unit: each case
+ * writes up to 24 rows of each of the three judged kinds and of two kinds no rule reads, the same lawful rows into U,
+ * and maybe one breaking row, in one transaction, and runs the judge.
  *
  * Oracle: PostgreSQL's statement statistics (pg_stat_statements, track all, in the case's database alone), each
  * reader's one SELECT of the delta counted with the rows it returned, and the transaction's table statistics of the
  * delta (pg_stat_xact_all_tables), its tuples an index fetched: the readers return every judged kind's rows, each call
- * at most the rows of the judged kind written most, each through the delta's B-tree; a breaking row is refused exactly
- * where a rule reads its kind.
+ * at most the rows of the judged kind written most, each through the delta's B-tree; and EXPLAIN ANALYZE of Kept's
+ * upkeep's statements over the case's deltas, each reader of U's deltas called once at most in each, its call returning
+ * U's rows of the kept kind and no other; a breaking row is refused exactly where a rule reads its kind.
  *
  * Features: rows of a kind no rule reads in the delta, two judged kinds holding rows, a judged kind holding no row, a
- * breaking row of a judged kind refused and one of a kind no rule reads committed.
+ * breaking row of a judged kind refused and one of a kind no rule reads committed; an upkeep whose selection holds rows
+ * beside rows it does not select, and one whose selection holds no written row.
  */
 import { property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
@@ -44,7 +49,9 @@ export const eachReadOfADeltaReturnsTheRowsItsSelectionAdmitsThroughTheDeltasInd
 			"two judged kinds holding rows",
 			"a judged kind holding no row",
 			"a breaking row of a judged kind refused",
-			"a breaking row of a kind no rule reads committed"
+			"a breaking row of a kind no rule reads committed",
+			"an upkeep whose selection holds rows beside rows it does not select",
+			"an upkeep whose selection holds no written row"
 		] satisfies ReadonlyArray<DeltaReadsFeature>,
 		check:
 			({ selection }, c) =>
@@ -55,7 +62,7 @@ export const eachReadOfADeltaReturnsTheRowsItsSelectionAdmitsThroughTheDeltasInd
 				}),
 		oracle: {
 			kind: "postgresql",
-			name: "the case database's statement statistics, each reader's SELECT of the delta with its calls and rows, and the transaction's tuples of the delta an index fetched: every judged kind's rows returned, at most the most-written judged kind's at each call, each through the delta's B-tree; a breaking row refused exactly where a rule reads its kind"
+			name: "the case database's statement statistics, each reader's SELECT of the delta with its calls and rows, and the transaction's tuples of the delta an index fetched: every judged kind's rows returned, at most the most-written judged kind's at each call, each through the delta's B-tree; and EXPLAIN ANALYZE of Kept's upkeep's statements over the case's deltas: each reader of U's deltas called once at most in each, each call returning exactly U's rows of the kept kind, none of U's olds; a breaking row refused exactly where a rule reads its kind"
 		},
 		kept: [],
 		kills: [
@@ -70,6 +77,18 @@ export const eachReadOfADeltaReturnsTheRowsItsSelectionAdmitsThroughTheDeltasInd
 				original: "\t\t\treturn best === undefined || (held.get(best) ?? 0) < 2 ? [] : [best]",
 				replacement: "\t\t\treturn []",
 				why: "No delta is stood up with a B-tree: each reader of a kind passes over every row of T's delta to find its kind's, a pass of the whole delta at each read, which the delta's index fetches no tuple of; the property fails."
+			},
+			{
+				file: "packages/engine/src/analysis/theory/unit.ts",
+				original: "\t\t\t\t\t...r.where.map((c) => mapLeaves(c, leaves)),\n",
+				replacement: "",
+				why: "A region's rules keep none of their occurrences' conditions: Kept's upkeep reads every row of U's news at each call, the kinds it keeps none of among them, and puts each one's unit in its region, as edullm's upkeeps read Node's news whole; the property fails."
+			},
+			{
+				file: "packages/engine/src/physical/ddl/rules.ts",
+				original: "shifted(units.statement, 1),",
+				replacement: "headed(shifted(units.statement, 1), reads),",
+				why: "The upkeep's DELETE heads its USING apart from the definition its NOT EXISTS reads, so it calls each reader of U's deltas twice, the region's rows produced twice; the property fails."
 			}
 		]
 	})
