@@ -352,24 +352,27 @@ export const worldsCaseGen: Gen<WorldsCase> = (source) => ({
 })
 
 /**
- * The worlds box under `name`: a base of a roster, Kind, an Item holding a code of it and a Note, each keyed by its id
- * in the unit Record, and a level over it holding a Tag of an item and Busy, the notes stored, each in its note's unit. `reader` holds every relation whole, so it reads Busy in full, and its whole views read
- * both levels', Kind's none; `writer` holds Item and Tag whole and writes Tag, and, where the case says, reads Labelled,
- * the tagged items, a query entry of its own; one login serves both. Where the case says, `auditor`, over the base, holds
- * Item and Note whole, served by a login of its own. So a whole view is held by several roles, a role holds whole
- * entries alone, and the two levels each hold a schema of whole views.
+ * The worlds box under `name`: a base of a roster, Kind, an Item holding a code of it keyed by its id and a Note, each
+ * line of a record's note keyed by its id and its line, both in the unit Record, and a level over it holding a Tag of
+ * an item and Busy, the notes' lines, stored at the line, a unit narrower than the record, so a write's upkeep
+ * re-derives the lines it touched alone (analysis/derived/storage.ts deltaBounded). `reader` holds every relation
+ * whole, so it reads Busy in full, and its whole views read both levels', Kind's none; `writer` holds Item and Tag
+ * whole and writes Tag, and, where the case says, reads Labelled, the tagged items, a query entry of its own; one login
+ * serves both. Where the case says, `auditor`, over the base, holds Item and Note whole, served by a login of its own.
+ * So a whole view is held by several roles, a role holds whole entries alone, and the two levels each hold a schema of
+ * whole views.
  */
 export const worldsBox = (name: string, c: WorldsCase) => {
 	const Kind = closed.ordered("Kind", ["a", "b"])
 	const Item = relation("Item", { id: Id, kind: closedId(Kind) }, ["id"])
-	const Note = relation("Note", { id: Id, words: pg.integer }, ["id"])
+	const Note = relation("Note", { id: Id, line: pg.integer, words: pg.integer }, ["id", "line"])
 	const base = schema(name, [Kind, Item, Note], [unit("Record", { id: Id })])
 	const Tag = relation("Tag", { item: Id, label: str.regex("^[a-z]{1,8}$") }, ["item", "label"])
 	const Busy = derived(
 		"Busy",
 		query(base).rule((r) => {
-			const { id, words } = v(Note, "note")
-			return r.match(Note, { id, words }).find({ id, words })
+			const { id, line, words } = v(Note, "note")
+			return r.match(Note, { id, line, words }).find({ id, line, words })
 		})
 	)
 	const upper = schema.extend([base], `${name}_1`, [Tag, Busy], [])
@@ -411,7 +414,7 @@ export const storeWorlds = (base: string, upper: string): ReadonlyArray<string> 
 	`SELECT ${quoteIdent(base)}.${quoteIdent(identifierOf(identity.ruleStandUp("Note")))}()`,
 	"BEGIN ISOLATION LEVEL SERIALIZABLE",
 	`INSERT INTO ${quoteIdent(base)}."item" (id, kind) VALUES ('00000000-0000-0000-0000-000000000001', 0), ('00000000-0000-0000-0000-000000000002', 1)`,
-	`INSERT INTO ${quoteIdent(base)}."note" (id, words) VALUES ('00000000-0000-0000-0000-000000000003', 7)`,
+	`INSERT INTO ${quoteIdent(base)}."note" (id, line, words) VALUES ('00000000-0000-0000-0000-000000000003', 1, 7)`,
 	`INSERT INTO ${quoteIdent(upper)}."tag" (item, label) VALUES ('00000000-0000-0000-0000-000000000001', 'red')`,
 	"COMMIT"
 ]
