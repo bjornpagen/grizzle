@@ -15,9 +15,11 @@
 
 import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
-import { element, type Gen } from "@bjornpagen/testing/gen"
+import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import { type Case, type Kill, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter, String as Str } from "effect"
+import { canonicalEquals } from "#compiler/core/canonical.ts"
+import { everyCallCount } from "#test/support/kernel/calls.ts"
 import {
 	admitted,
 	brokenDocs,
@@ -46,7 +48,9 @@ import {
 	type Transition,
 	wholeReads,
 	wholeRuleInOrder,
-	wholeRuleOf
+	wholeRuleOf,
+	wholeRuleOver,
+	withUnrelated
 } from "#test/unit/analysis/theory/region-proofs.fixtures.ts"
 import type { TestTheory } from "#test/unit/analysis/theory/support.ts"
 
@@ -259,8 +263,8 @@ export const aWholeRuleOverTwoNodesReadsEveryDocumentATransitionBreaksItInAndEve
 		[
 			{
 				file: "packages/engine/src/analysis/theory/unit.ts",
-				original: "[...(facts.into.get(n.name) ?? []), identity]",
-				replacement: "(facts.into.get(n.name) ?? [])",
+				original: "[...containmentsInto(facts, n.name), identity]",
+				replacement: "containmentsInto(facts, n.name)",
 				why: "Two occurrences of a relation at one key do not witness each other, so a plain node read again at its key is read whole twice."
 			},
 			{
@@ -477,6 +481,87 @@ export const aWholeRulesProofsAreItsLeastReadingWitnessesWhateverOrderItsSchemas
 					original: "const fixedRank = { key: 0, roots: 1 } as const",
 					replacement: "const fixedRank = { key: 1, roots: 0 } as const",
 					why: "A root's witness taken before a key's: in a tree, the order box's node is proved at its document, doc, and two nodes at one key at doc, so the region reads every gained node of a document that lost one, where it read the one that replaced a node."
+				}
+			]
+		}
+	)
+
+/** Every function of the region's module (analysis/theory/unit.ts), whose calls are a region's work. */
+const isRegionModule = (file: string): boolean => Str.endsWith("analysis/theory/unit.ts")(file)
+
+/** What a node box's region reaches of the counted work: a proof's witnesses read, and none. */
+type RegionWork = "an occurrence proved" | "no occurrence proved"
+
+/**
+ * A whole rule's region reads the containments into its occurrences' relations alone: decided over its theory's region
+ * facts and over those facts with one to sixty-four containments more among relations it reads none of
+ * (region-proofs.fixtures.ts withUnrelated), its region is the same and the calls of the region's module, counted (kernel/calls.ts
+ * everyCallCount), are the same, where each occurrence's proof scanned every containment of the facts, its work growing
+ * with them, O(occurrences × containments) over a theory (5,171,760 tests over edullm's QTI schema's 2,612 occurrences).
+ * Each facts value's index is made before the count begins, as a theory's is by its first region (unit.ts
+ * containmentsInto). Its budget is the runner's: a new property, with no suite before it to carry a count from.
+ */
+export const aWholeRulesRegionDoesTheSameWorkHoweverManyContainmentsTheFactsHoldAmongRelationsItReadsNoneOf =
+	property.explore(
+		(s) => ({
+			box: s.draw(
+				nodeBoxGen([
+					"parent beside child",
+					"child beside its parent's tag",
+					"two nodes at one key",
+					"two nodes of one kind",
+					"a tag beside its node",
+					"a false tag beside its node",
+					"a node beside its kind"
+				])
+			),
+			unrelated: s.draw(int(1, 64))
+		}),
+		{
+			needs: {},
+			situations: ["an occurrence proved", "no occurrence proved"] satisfies ReadonlyArray<
+				Reached<RegionWork>
+			>,
+			check:
+				(_, c: Case<RegionWork>) =>
+				({ box, unrelated }) =>
+					Effect.gen(function* () {
+						const t = nodeTheoryOf(box)
+						const work = (facts: typeof t.regionFacts) =>
+							Effect.gen(function* () {
+								wholeRuleOver(t, facts)
+								const [rule, counts] = yield* everyCallCount(
+									Effect.sync(() => wholeRuleOver(t, facts)),
+									isRegionModule
+								)
+								return { rule, calls: Arr.reduce([...counts.values()], 0, (n, k) => n + k) }
+							})
+						const own = yield* work(t.regionFacts)
+						const more = yield* work(withUnrelated(t.regionFacts, unrelated))
+						const { definitionOf: _own, ...ownRegion } = own.rule
+						const { definitionOf: _more, ...moreRegion } = more.rule
+						assert.ok(
+							canonicalEquals(ownRegion, moreRegion),
+							"the region over facts with unrelated containments is the region over the theory's own"
+						)
+						assert.equal(
+							more.calls,
+							own.calls,
+							`the region's work over ${unrelated} unrelated containments more is its work over the theory's own`
+						)
+						c.note(own.rule.replaced.length > 0 ? "an occurrence proved" : "no occurrence proved")
+					}),
+			oracle: {
+				kind: "specification",
+				name: "the region's module's calls, counted (kernel/calls.ts everyCallCount), and the region itself, alike over facts with containments it reads none of"
+			},
+			kept: [],
+			kills: [
+				{
+					file: "packages/engine/src/analysis/theory/unit.ts",
+					original: "[...containmentsInto(facts, n.name), identity]",
+					replacement: "[...facts.containments.filter((c) => c.to === n.name), identity]",
+					why: "Each occurrence's proof scans every containment of the facts for those into its relation, as it did before the index: its work grows with every containment among relations the rule reads none of, and the property fails."
 				}
 			]
 		}

@@ -1072,13 +1072,6 @@ export interface FieldContainment {
 export interface RegionFacts {
 	readonly containments: ReadonlyArray<FieldContainment>
 	/**
-	 * The containments, by their target, each target's in their order among `containments`: what a region's proofs read
-	 * of the containments into an occurrence's relation (`witnessesOf`), once for each occurrence, where each occurrence
-	 * scanned every containment of the schema, O(occurrences × containments) over a theory: 5,171,760 tests over the
-	 * 2,612 occurrences of edullm's QTI schema's whole rules (qti-pie 1bf7dcc).
-	 */
-	readonly into: ReadonlyMap<string, ReadonlyArray<FieldContainment>>
-	/**
 	 * Each stored relation's keys over every row, by the relation: its primary key, then each candidate key a statement
 	 * of the schema states of it, each once. A lookup bound at every field of one reads one row at most.
 	 */
@@ -1326,7 +1319,7 @@ export const regionFactsOf = (
 			return [[r.name, held] as const]
 		})
 	)
-	return { containments, into: Map.groupBy(containments, (c) => c.to), roots, keys, members }
+	return { containments, roots, keys, members }
 }
 
 /** E ⊆ N from E ⊆ M (`first`) and M ⊆ N (`second`), a containment over every row of M (`regionFactsOf` reads each
@@ -1446,6 +1439,35 @@ interface FixedAt {
 	readonly fields: NonEmptyReadonlyArray<string>
 }
 
+/** A containment's target: what the containments into a relation are grouped by (`containmentsInto`). */
+const targetOf = (c: FieldContainment): string => c.to
+
+/**
+ * Each region facts value's containments by their target, each target's in their order among the facts' containments,
+ * made where a proof first reads the facts: the one place a region's state attaches to its facts, which are immutable,
+ * so a value read again reads its index. A WeakMap holds nothing alive and is never enumerated.
+ */
+const containmentsByTarget = new WeakMap<
+	RegionFacts,
+	ReadonlyMap<string, ReadonlyArray<FieldContainment>>
+>()
+
+/**
+ * The containments of `facts` into `relation`, in their order among its containments: what an occurrence's proof reads
+ * (`witnessesOf`), from the facts' index by target (`containmentsByTarget`), O(1) an occurrence where each occurrence
+ * scanned every containment of the schema, O(occurrences × containments) over a theory: 5,171,760 tests over the 2,612
+ * occurrences of edullm's QTI schema's whole rules (qti-pie 1bf7dcc).
+ */
+const containmentsInto = (
+	facts: RegionFacts,
+	relation: string
+): ReadonlyArray<FieldContainment> => {
+	const known = containmentsByTarget.get(facts)
+	const index = known ?? Map.groupBy(facts.containments, targetOf)
+	containmentsByTarget.set(facts, index)
+	return index.get(relation) ?? []
+}
+
 /** A witness of an occurrence (`witnessesOf`): what it fixes N's rows at, and the place of the occurrence beside it the
  * proof rests on. */
 interface Witness extends FixedAt {
@@ -1516,7 +1538,7 @@ const witnessesOf = (
 	}
 	/** Each containment into N of the relation of an occurrence beside `r`, by the occurrence's place, at the fields of N
 	 * it fixes N's rows at (`fixedAt`) among the pairs both bind alike, with the selection it holds over. */
-	const held = [...(facts.into.get(n.name) ?? []), identity].flatMap((c) =>
+	const held = [...containmentsInto(facts, n.name), identity].flatMap((c) =>
 		r.beside.flatMap((beside) => {
 			const e = defined(regions[beside], "an occurrence beside another")
 			if (e.relation !== c.from) {
@@ -1668,7 +1690,7 @@ const regionOf = (
 	 * canonical comparisons of whole rules for o occurrences and r rules, 116,435 over the 559 regions of edullm's QTI
 	 * schema (qti-pie 1bf7dcc; 4,957 occurrences, 1,935 rules, one region of 1,319 occurrences and one rule), its
 	 * occurrence's conditions are compared with those of the few made at its side, relation and proof alone. With the
-	 * containments read by their target (RegionFacts `into`), the regions of that schema's laws went from 459 ms to 191
+	 * containments read by their target (`containmentsInto`), the regions of that schema's laws went from 459 ms to 191
 	 * ms under a 100 µs CPU profile, the rules' comparisons from 238 ms to 52 ms.
 	 */
 	const made = new Map<string, Array<ReadonlyArray<InferredExpr>>>()

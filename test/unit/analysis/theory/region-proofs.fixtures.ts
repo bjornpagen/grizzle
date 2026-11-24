@@ -17,7 +17,11 @@ import {
 import { Array as Arr, Formatter, Option, Record as Rec } from "effect"
 import type { TheoryLaw } from "#compiler/analysis/theory/laws.ts"
 import type { WholeRule } from "#compiler/analysis/theory/query.ts"
-import { wholeRule } from "#compiler/analysis/theory/unit.ts"
+import {
+	type FieldContainment,
+	type RegionFacts,
+	wholeRule
+} from "#compiler/analysis/theory/unit.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type {
 	InferredExpr,
@@ -595,6 +599,32 @@ export const wholeRuleInOrder = (t: TestTheory, order: ReadonlyArray<number>): W
 		"the rule is whole whatever order its containments stand in"
 	)
 }
+
+/** `t`'s whole rule decided again over region facts `facts` (unit.ts wholeRule). */
+export const wholeRuleOver = (t: TestTheory, facts: RegionFacts): WholeRule => {
+	const { rule } = wholeRuleOf(t)
+	return defined(
+		wholeRule(rule.law, rule.everyRow, relationsOf(t), facts, loc),
+		"the rule is whole over facts that add containments among relations it reads none of"
+	)
+}
+
+/**
+ * `facts` with `n` containments more, each among relations no node theory names, `U0` into `V0` and so on, at their key:
+ * facts no occurrence of a node theory's rule reads, whose proofs read the containments into T, Tag and K alone.
+ */
+export const withUnrelated = (facts: RegionFacts, n: number): RegionFacts => ({
+	...facts,
+	containments: [
+		...facts.containments,
+		...Array.from({ length: n }, (_, i): FieldContainment => ({
+			from: `U${i}`,
+			to: `V${i}`,
+			pairs: [{ from: "k", to: "k" }],
+			selection: []
+		}))
+	]
+})
 
 /** A permutation of `n` places (gen.ts shuffled, every place drawn). */
 export const permutationGen = (n: number): Gen<ReadonlyArray<number>> => {
