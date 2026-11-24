@@ -326,6 +326,14 @@ const termsOf = (c: ReadOnce, p: number): ReadonlyArray<readonly [number, number
 
 const isGone = (c: ReadOnce, p: number): boolean => c.gone > 0 && p % c.gone === 0
 
+/**
+ * How many times the heads read reads a stored row at most: its classifications read inside each head, as the
+ * attachment's child is read per key (lower/shapes/attach), read at most 1.79 times the rows the tables hold in every
+ * statistics state, where joined beside the heads' keys they read 4.61 to 7.15 times them in each, and took 4.7 times as
+ * long to plan (TEST_SEED=2219874524, 76 reads each, 2026-11-23).
+ */
+const headsReadsAStoredRow = 2
+
 /** The ledger's stored tables. */
 const tablesOf = (installed: Installed): ReadonlyArray<string> => {
 	const names = namesOf(installed)
@@ -615,6 +623,18 @@ export const runReadOnce = (
 				`${Formatter.format(c)}: the heads read's current packages and their three terms each at ${stored} packages`
 			)
 			bounded("the heads read", heads.plan)
+			const [held] = yield* connection.queryValues(
+				`SELECT (${Arr.join(
+					Arr.map(tablesOf(installed), (t) => `(SELECT pg_catalog.count(*) FROM ${t})`),
+					" + "
+				)})::text`,
+				[]
+			)
+			const storedRows = Number(held?.[0])
+			assert.ok(
+				rowsRead(heads.plan) <= headsReadsAStoredRow * storedRows,
+				`${Formatter.format(c)}: the heads read reads ${rowsRead(heads.plan)} stored rows, at most ${headsReadsAStoredRow} times the ${storedRows} the tables hold`
+			)
 		}
 		k.note(c.gone > 0 ? "a package taken away" : "every package current")
 		k.note(c.stats)

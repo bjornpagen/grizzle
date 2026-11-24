@@ -13,7 +13,8 @@
  *   the host's count of every term's packages and items, the heads read (`versions`'s classifications) every current
  *   package with its three terms, and every scan either plan runs more than once, of a stored relation or of a CTE it
  *   derived once, handles fewer rows a run than there are packages, so its work grows with what it reads, not with its
- *   square. A parallel scan's leader and workers are one run of it. An installation whose sizes count no row is outside
+ *   square, and the heads read reads each stored row at most twice. A parallel scan's leader and workers are one run of
+ *   it. An installation whose sizes count no row is outside
  *   the envelope (R1): there every estimate is one row and PostgreSQL may
  *   read the classifications' eight elements by unparameterized inner scans, 2.5 s at 150 packages, 12.7 s at 450,
  *   where any counted state reads them in 37 ms. Before rule 5b a derived relation joined to another stood
@@ -23,7 +24,8 @@
  *   their join derived again for each of its rows, so the region reads the rest of itself once per row of the set,
  *   LATERAL by its values (lower/shapes/region keyedByOnce). An attachment's child no fold is read for each parent key
  *   inside, never joined beside its parents' keys, where PostgreSQL derived `versions`'s classifications of every
- *   package once per head (40 s at 183 heads). The one rescan left is the items attachment's, the terms' folds scanned
+ *   package once per head (40 s at 183 heads); under declared statistics joined beside them they read 4.61 to 7.15 times
+ *   the rows stored in every counted state, where read inside each head at most 1.79 times, and plan 4.7 times as long. The one rescan left is the items attachment's, the terms' folds scanned
  *   for each term, which grows with the square of the terms, in memory, never of a stored row. This property kills
  *   neither rule 5b's per-row reads nor the region's chain from a set derived once: without the first these reads'
  *   SQL changes but PostgreSQL plans it within the bound under every counted state, and without the second it does not
@@ -103,7 +105,7 @@ export const aWorkloadReadDerivesEachDerivedRelationOncePerStatementSoNoScanRead
 				original: '\tconst inside = attachmentRead(attach).kind === "perKey"',
 				replacement:
 					'\tconst inside = attachmentRead(attach).kind === "perKey" && foldedByCorrelation(child, attach) !== undefined',
-				why: "An attachment's child that is no fold is joined to its parents' keys beside it, so PostgreSQL may plan the heads read's classifications derived for every package once per head, the head's package a filter above them."
+				why: "An attachment's child that is no fold is joined to its parents' keys beside it: the heads read's classifications, derived beside every head, read 4.61 to 7.15 times the rows stored where read per key they read at most 1.79 times them, and take 4.7 times as long to plan."
 			}
 		]
 	})
