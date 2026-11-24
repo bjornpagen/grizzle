@@ -24,7 +24,7 @@ import {
 	foreignKeysInto,
 	handlesOf,
 	hashedName,
-	judgedWhole,
+	judged,
 	Item,
 	levelStatements,
 	type NamingFeature,
@@ -156,8 +156,8 @@ export const productionNamesFromSrcAgreeWithSrcsRecordsAtEveryNamedNativeKeyAlte
 							const arm = defined(laws.arms[handle], `${handle}'s arm law`)
 							assert.ok(
 								Arr.some(fks, (fk) => Arr.contains(L.lawsOfConstraint(fk.owner, fk.ident), arm)) !==
-									judgedWhole(L.model, arm),
-								`${handle}'s arm is contained in its parents one way: through a foreign key into them, or whole by the judge`
+									judged(L.model, arm),
+								`${handle}'s arm is contained in its parents one way: through a foreign key into them, or by the rule judge`
 							)
 						}
 					}
@@ -168,11 +168,11 @@ export const productionNamesFromSrcAgreeWithSrcsRecordsAtEveryNamedNativeKeyAlte
 						const handle = Arr.headNonEmpty(handlesOf(reverse.left))
 						const law = defined(laws.reverse[handle], `${handle}'s reverse law`)
 						assert.ok(theory.has(law), `${handle}'s reverse is a law of the theory`)
-						if (judgedWhole(L.model, law)) {
+						if (judged(L.model, law)) {
 							assert.deepEqual(
 								L.constraintsOf(law, "ForeignKey"),
 								[],
-								`${handle}'s reverse, judged whole, installs no foreign key`
+								`${handle}'s reverse, held by the rule judge, installs no foreign key`
 							)
 							continue
 						}

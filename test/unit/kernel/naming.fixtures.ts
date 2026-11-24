@@ -108,10 +108,10 @@ export const foreignKeysInto = (
 			: []
 	)
 
-/** Whether the law model judges `law` whole, a unit-local rule its judge holds at COMMIT that installs nothing
- * (laws/model/plan.ts containmentDischarge), rather than by its natives. */
-export const judgedWhole = (model: LawModel, law: LawId): boolean =>
-	Arr.some(model.rules, (r) => r.law.id === law && r.rule.kind === "whole")
+/** Whether the rule judge holds `law` at COMMIT, a unit-local rule that installs nothing, whole or by its probes
+ * (laws/model/plan.ts containmentDischarge), rather than its natives. */
+export const judged = (model: LawModel, law: LawId): boolean =>
+	Arr.some(model.rules, (r) => r.law.id === law)
 
 /** The declared relation, field and field description of an installed table and column, as ownership registered them. */
 export const declaredColumn = (
