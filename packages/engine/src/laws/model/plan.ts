@@ -1191,7 +1191,9 @@ const ruleRoute = (
 	discharge: RuleDischarge
 ): RuleRoute => {
 	if (
-		!law.reads.some((r) => relations[r]?.kind === "relation" || relations[r]?.kind === "stored")
+		![...law.reads].some(
+			(r) => relations[r]?.kind === "relation" || relations[r]?.kind === "stored"
+		)
 	) {
 		return { kind: "migration" }
 	}

@@ -730,7 +730,7 @@ const plannedLaws = (
 	cycles.kind === "planned"
 		? laws
 		: laws.filter(
-				(l) => l.detail.kind === "contract" || readBySlice(l.reads, referencedSides(l), slice)
+				(l) => l.detail.kind === "contract" || readBySlice([...l.reads], referencedSides(l), slice)
 			)
 
 /**
@@ -1285,7 +1285,7 @@ class Specializer {
 		}
 
 		const rules = plans.flatMap((plan) =>
-			plan.discharge === "trigger" && plan.law.reads.some((r) => this.writes.has(r))
+			plan.discharge === "trigger" && !plan.law.reads.isDisjointFrom(this.writes)
 				? [this.#ruleTrigger(plan.law, plan.rule)]
 				: []
 		)
@@ -1435,7 +1435,7 @@ class Specializer {
 	 */
 	#ruleTrigger(law: TheoryLaw, rule: QueryRule): RuleTrigger {
 		const named = this.#named(identity.lawTrigger(law.named))
-		const tables = law.reads.flatMap((name): ReadonlyArray<RuleTable> => {
+		const tables = [...law.reads].flatMap((name): ReadonlyArray<RuleTable> => {
 			const relation = this.theory.relations[name]
 			const touched = touches(rule, name)
 			return (relation?.kind === "relation" || relation?.kind === "stored") && touched !== undefined
@@ -1443,7 +1443,7 @@ class Specializer {
 						{
 							relation,
 							touches: touched,
-							function: this.#named(identity.lawFunction(name, law.named, law.reads))
+							function: this.#named(identity.lawFunction(name, law.named, [...law.reads]))
 						}
 					]
 				: []
@@ -2138,7 +2138,7 @@ const dischargedLaws = (
  */
 export const triggerLawsOver = (model: LawModel, relation: string): ReadonlyArray<TriggerLaw> =>
 	model.rules.flatMap((r) =>
-		r.law.reads.includes(relation) || r.tables.some((t) => t.relation.name === relation)
+		r.law.reads.has(relation) || r.tables.some((t) => t.relation.name === relation)
 			? [{ law: r.law.id, witnesses: witnesses(r.rule) }]
 			: []
 	)

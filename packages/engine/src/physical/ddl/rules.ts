@@ -1413,7 +1413,7 @@ export const addRules = (
 				: [
 						{
 							reasons: lawReasonOf(rule),
-							relations: rule.law.reads,
+							relations: [...rule.law.reads],
 							order: identifierOf(rule.named),
 							named: identity.ruleJudgeBlock(rule.named, rule.law.named, {
 								kind: "probe",
@@ -1465,7 +1465,7 @@ export const addRules = (
 		)
 		return {
 			reasons: lawReasonOf(rule),
-			relations: rule.law.reads,
+			relations: [...rule.law.reads],
 			order: identifierOf(rule.named),
 			named: identity.ruleJudgeBlock(rule.named, rule.law.named, { kind: "units" }),
 			reads: [
@@ -1710,7 +1710,7 @@ export const addRules = (
 	const tablesNamed = (names: ReadonlyArray<string>) =>
 		[...new Set(names)].flatMap((name) => (b.model.relations.has(name) ? [b.table(name)] : []))
 	const tablesOf = (rules: ReadonlyArray<RuleTrigger>) =>
-		tablesNamed(rules.flatMap((rule) => rule.law.reads))
+		tablesNamed(rules.flatMap((rule) => [...rule.law.reads]))
 	const readers = addReaders(
 		b,
 		tables.flatMap((t) => t.sides.map((s) => ({ relation: t.relation, delta: s.delta }))),

@@ -395,8 +395,12 @@ export interface NormalizedLaw {
 	readonly id: LawId
 	readonly source: LawSource
 	readonly shape: LawShape
-	/** The relations its violation query reads, which the theory's relation dependency graph joins. */
-	readonly reads: ReadonlyArray<string>
+	/**
+	 * The relations its violation query reads, which the theory's relation dependency graph joins, each once: a
+	 * containment of one relation's selection in another of it reads the relation once, so the rule judge holds one
+	 * table of it (laws/model/model.ts ruleTrigger) and one block of each side its writes break.
+	 */
+	readonly reads: ReadonlySet<string>
 	/**
 	 * Where the law is declared: its first declaring statement's location, or for a law no statement declares, the
 	 * relation of its primary key or its contract.

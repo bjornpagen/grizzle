@@ -12,6 +12,8 @@ import { quoteIdent } from "#compiler/core/text.ts"
 import type { ProofStatements } from "#compiler/deploy/ledger/ledger.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { parseIdent } from "#compiler/physical/obligations/graph.ts"
+import { pg } from "#compiler/public/fields.ts"
+import { contained, on, relation, schema, select, type Statement } from "#compiler/public/schema.ts"
 import { firstCodes } from "#test/support/compile.ts"
 import { atName } from "#test/support/kernel/naming.ts"
 import { draftChain, fromEmpty, noDeclarations } from "#test/support/migrate/kit.ts"
@@ -201,3 +203,64 @@ const editable: Arr.NonEmptyReadonlyArray<readonly [HandEdit, Arr.NonEmptyReadon
 
 /** The statement of a hand edit as the migration session sends it, in a step of its own. */
 export const editStatement = (made: MadeEdit) => oneShotStatement(testSql(made.sql), [])
+
+/**
+ * The laws over one relation on both sides, or over two, each the one law of a schema of its own: a selection of a
+ * relation contained in another selection of it, which the rule judge holds (qti's Track srclang: a `track` whose
+ * `kind` attribute is `subtitles` carries a `srclang` one, two rows of Attribute); a relation contained in its own key,
+ * a foreign key referencing its own table; and a selection of one relation contained in a selection of another, which
+ * the judge holds over two tables.
+ */
+export const readLaws = [
+	"a selection in another of its relation",
+	"a relation in its own key",
+	"a selection in another relation's"
+] as const
+export type ReadLaw = (typeof readLaws)[number]
+
+/** A document's attributes, each by its element's start and its name. */
+const Attribute = relation("Attribute", { doc: pg.integer, start: pg.integer, name: pg.integer }, [
+	"doc",
+	"start",
+	"name"
+])
+
+/** A document's elements, each by its start, with its parent's start and its kind. */
+const Element = relation(
+	"Element",
+	{ doc: pg.integer, start: pg.integer, parent: pg.integer, kind: pg.integer },
+	["doc", "start"]
+)
+
+/** Each law of readLaws over Attribute and Element. */
+const readStatements: { readonly [L in ReadLaw]: Statement } = {
+	"a selection in another of its relation": contained(
+		on(
+			select(Attribute, (a) => a.eq(a.name, 1)),
+			"doc",
+			"start"
+		),
+		on(
+			select(Attribute, (a) => a.eq(a.name, 2)),
+			"doc",
+			"start"
+		)
+	),
+	"a relation in its own key": contained(on(Element, "doc", "parent"), on(Element, "doc", "start")),
+	"a selection in another relation's": contained(
+		on(
+			select(Attribute, (a) => a.eq(a.name, 1)),
+			"doc",
+			"start"
+		),
+		on(
+			select(Element, (e) => e.eq(e.kind, 2)),
+			"doc",
+			"start"
+		)
+	)
+}
+
+/** The schema of Attribute and Element under `law` alone. */
+export const readSchema = (law: ReadLaw) =>
+	schema("Read", [Attribute, Element], [readStatements[law]])

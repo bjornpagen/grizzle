@@ -328,12 +328,10 @@ export const sharesLoweredTarget = (
 		(l) => l.detail.kind === "rule" && l.detail.lowering.kind === "foreignKeys"
 	)
 	const reading = (l: LawModel["theory"]["laws"][number]): boolean =>
-		Arr.some(l.reads, (r) => writes.has(r))
+		!l.reads.isDisjointFrom(writes)
 	return Arr.some(
 		lowered,
-		(l) =>
-			reading(l) &&
-			Arr.some(lowered, (m) => !reading(m) && Arr.some(m.reads, (r) => l.reads.includes(r)))
+		(l) => reading(l) && Arr.some(lowered, (m) => !reading(m) && !m.reads.isDisjointFrom(l.reads))
 	)
 }
 
@@ -845,8 +843,8 @@ export const plannedOver = (
 	new Set(
 		Arr.flatMap(whole.theory.laws, (law) =>
 			law.shape === "contract" ||
-			Arr.some(law.reads, (r) => writes.has(r)) ||
-			Arr.every(law.reads, (r) => names.has(r)) ||
+			!law.reads.isDisjointFrom(writes) ||
+			law.reads.isSubsetOf(names) ||
 			Arr.some(
 				law.detail.kind === "containment"
 					? [law.detail.to]

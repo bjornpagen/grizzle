@@ -33,6 +33,21 @@
  * - **Box, exhausted:** each of the two changes of the set's table (schemas.ts setChanges).
  * - **Kill:** no edge from a type a cast names.
  * - **Features:** each change.
+ *
+ * And a law over one relation on both sides (laws/model/model.ts ruleTrigger, analysis/theory/laws.ts `reads`, each
+ * relation once; physical/obligations/graph.ts, each identity one object): a migrate records one proof of each object
+ * its drift check describes, where qti's ledger installation, whose Track srclang is a selection of Attribute contained
+ * in another of it, held each of the rule's judge blocks twice and its migrate refused at the stage record, a duplicate
+ * key of __drift_proofs_pk.
+ *
+ * - **Property:** a schema of the law alone, migrated by the runner, its drift check and its record among it: the
+ *   proofs then hold each object the check describes once, and the next check replays nothing and records nothing.
+ * - **Oracle:** specification: each object of the manifest of a kind a description names, its identity once
+ *   (test/support/migrate/proofs.ts specifiedProofs).
+ * - **Box, exhausted:** each of the three laws (drift-proofs.fixtures.ts readLaws).
+ * - **Kill:** a rule's tables one for each side of its law, the relation of a containment of one relation's
+ *   selection in another of it held twice.
+ * - **Features:** each law.
  */
 
 import { assert, defined } from "@bjornpagen/testing/assert"
@@ -55,6 +70,9 @@ import {
 	type ProofFeature,
 	proofRowsOf,
 	proofsHeld,
+	type ReadLaw,
+	readLaws,
+	readSchema,
 	versions
 } from "#test/pg/migrate/drift-proofs.fixtures.ts"
 import { driftedOf } from "#test/pg/migrate/recorded-drift.fixtures.ts"
@@ -69,7 +87,7 @@ import { succeeded } from "#test/support/assert.ts"
 import { firstCodes } from "#test/support/compile.ts"
 import { atName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { draftChain, fromEmpty, noDeclarations } from "#test/support/migrate/kit.ts"
-import { specifiedReplay } from "#test/support/migrate/proofs.ts"
+import { specifiedProofs, specifiedReplay } from "#test/support/migrate/proofs.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 import { type SetChange, setChanges, setsSchema } from "#test/unit/deploy/schemas.ts"
 
@@ -257,6 +275,85 @@ export const driftReplaysTheDomainAnUnprovenTablesCastNames = property.exhaust(
 				original: '\t\t\t\t\tnamed("type", t.schema, t.name)\n',
 				replacement: "",
 				why: "An object is created after no type a cast or a literal of its statements names, so the unproven table is replayed without the bits domain its cast names, and PostgreSQL refuses the replay (42704): S7's drift check on qti's attribute."
+			}
+		]
+	}
+)
+
+/** A migrate records one proof of each object its drift check describes, its law reading one relation on both sides or not. */
+export const aMigrateRecordsOneProofOfEachObjectThoughItsLawReadsARelationTwice = property.exhaust(
+	finite((source): ReadLaw => defined(readLaws[source.draw(int(0, readLaws.length - 1))], "a law")),
+	{
+		needs: { caseSubstrate: Substrate.fresh(baseSubstrate) },
+		situations: readLaws satisfies ReadonlyArray<Reached<ReadLaw>>,
+		check:
+			({ caseSubstrate }, c: Case<ReadLaw>) =>
+			(law) =>
+				Effect.provideServiceEffect(
+					Effect.gen(function* () {
+						const substrate = yield* Substrate
+						const m = yield* openMigrator(substrate, substrate.owner)
+						return yield* Effect.scoped(
+							Effect.gen(function* () {
+								const allocated = yield* substrate.schema({ create: false, label: "reads" })
+								const schema = identifierOf(identity.schema(parsedSchemaName(allocated)))
+								const ledger = succeeded(statementsFor(schema))
+								const proofs = succeeded(proofStatements(schema))
+								const folder = defined(
+									draftChain(
+										[
+											{
+												desc: readSchema(law),
+												options: { schema: atName(allocated), extensions: [], codes: firstCodes },
+												declared: noDeclarations
+											}
+										],
+										fromEmpty
+									)[0],
+									"the drafted folder"
+								)
+								const target = parsedTarget({
+									snapshot: folder.snapshot,
+									folders: [reviewedSource(folder, kept)]
+								})
+								yield* applyOnSession(m, [target])
+								c.note(law)
+								const recorded = yield* proofRowsOf(m, proofs)
+								assert.deepEqual<ReadonlyArray<string>>(
+									Arr.map(recorded, (row) => row.object),
+									specifiedProofs(target.snapshot),
+									`${law}: the migrate recorded one proof of each object its drift check describes`
+								)
+								const again = yield* checkDrift(m, target.snapshot, ledger, proofs, [])
+								assert.deepEqual(
+									again.replayed,
+									[],
+									`${law}: proven, the next check replays nothing`
+								)
+								assert.equal(
+									again.proofs.kind,
+									"held",
+									`${law}: proven, the next check records nothing`
+								)
+							})
+						)
+					}),
+					Substrate,
+					Effect.map(caseSubstrate, (taken) => taken.substrate)
+				),
+		oracle: {
+			kind: "specification",
+			name: "each object of the manifest of a kind a description names, its identity once"
+		},
+		box: "each of the three laws, a selection of a relation in another of it, a relation in its own key and a selection in another relation's, a schema each",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/laws/model/model.ts",
+				original: "const tables = [...law.reads].flatMap(",
+				replacement:
+					'const tables = (law.detail.kind === "containment" ? [law.detail.from.relation, law.detail.to.relation] : [...law.reads]).flatMap(',
+				why: "A rule's tables are one for each side of its law, so a selection of Attribute contained in another of it holds Attribute's table twice and the judge each of its blocks twice, two objects of one identity: the generate refuses it, and where it did not, the migrate's record of the proofs refused a duplicate key of __drift_proofs_pk (23505), qti's ledger installation."
 			}
 		]
 	}

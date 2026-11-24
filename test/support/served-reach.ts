@@ -324,9 +324,7 @@ export const raisedBy = (
 		}
 	})
 	const reading = new Set(
-		Arr.flatMap(artifacts.laws.theory.laws, (l) =>
-			Arr.some(l.reads, (r) => written.has(r)) ? [l.id] : []
-		)
+		Arr.flatMap(artifacts.laws.theory.laws, (l) => (l.reads.isDisjointFrom(written) ? [] : [l.id]))
 	)
 	return {
 		relations: new Set(Arr.map(relations, (r) => r.name)),

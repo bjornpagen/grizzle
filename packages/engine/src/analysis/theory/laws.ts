@@ -497,7 +497,7 @@ const keyDraft = (
 		identity: {
 			shape,
 			source,
-			reads: [relation],
+			reads: new Set([relation]),
 			detail: { kind: "key", relation, rel: r, key }
 		},
 		sources
@@ -1208,7 +1208,7 @@ export class Normalizer {
 				identity: {
 					shape: "contract",
 					source: { statement: index, kind: "contract" },
-					reads: [...new Set(uses.map((u) => u.relation))],
+					reads: new Set(uses.map((u) => u.relation)),
 					detail: { kind: "contract", contract: name, owned, uses }
 				},
 				sources: []
@@ -1327,7 +1327,7 @@ export class Normalizer {
 						identity: {
 							shape: "check",
 							source: { statement: index, kind: "check" },
-							reads: [s.relation],
+							reads: new Set([s.relation]),
 							detail: stated
 						},
 						sources
@@ -1693,7 +1693,7 @@ export class Normalizer {
 						identity: {
 							shape: "key",
 							source: { statement: index, kind: "key" },
-							reads: [side.relation],
+							reads: new Set([side.relation]),
 							detail: { kind: "projectedKey", side }
 						},
 						sources
@@ -1731,7 +1731,7 @@ export class Normalizer {
 		return {
 			shape: source.kind === "tree" ? "tree" : "family",
 			source,
-			reads: [f.member.name, f.owner.name]
+			reads: new Set([f.member.name, f.owner.name])
 		}
 	}
 
@@ -1833,7 +1833,7 @@ export class Normalizer {
 		const identity = {
 			shape: "fold" as const,
 			source: { statement: index, kind: "fold" as const },
-			reads: [step.relation, end.relation],
+			reads: new Set([step.relation, end.relation]),
 			detail
 		}
 		/** The fold's law's identifier, which names its hidden accumulators: its identity is no position among the
@@ -1930,7 +1930,7 @@ export class Normalizer {
 						span === undefined ? { kind: "scalar" } : { kind: "span", ...span }
 					),
 					source,
-					reads: [fromSide.relation, toSide.relation],
+					reads: new Set([fromSide.relation, toSide.relation]),
 					detail: {
 						kind: "containment",
 						from: fromSide,

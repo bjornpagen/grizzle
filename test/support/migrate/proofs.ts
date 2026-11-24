@@ -154,3 +154,17 @@ export const specifiedReplay = (
 	}
 	return Arr.flatMap(now.manifest.objects, (o) => (needed.has(o.ident) ? [o.ident] : []))
 }
+
+/**
+ * The objects whose proofs a drift check that found no drift records of `snapshot`: each object of a kind a description
+ * names, its identity once, in code point order, as the proofs' rows statement reads them back.
+ */
+export const specifiedProofs = (snapshot: DeploySnapshot): ReadonlyArray<string> =>
+	Arr.sort(
+		new Set(
+			Arr.flatMap(snapshot.manifest.objects, (o) =>
+				Arr.every(undescribed, (kind) => kind !== parseIdent(o.ident).kind) ? [o.ident] : []
+			)
+		),
+		Order.String
+	)

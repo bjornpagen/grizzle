@@ -456,7 +456,7 @@ export const raisableOf = (
 	const unmatched = unmatchedOf(artifacts, (relation) => written.has(relation))
 	const cast = new Set(judged.cast.flatMap((t) => castDomains(artifacts.names, t)))
 	const raised = new Set(
-		artifacts.laws.theory.laws.flatMap((l) => (l.reads.some((r) => written.has(r)) ? [l.id] : []))
+		artifacts.laws.theory.laws.flatMap((l) => (l.reads.isDisjointFrom(written) ? [] : [l.id]))
 	)
 	const typed = [...relations.flatMap((r) => r.fields.map((f) => f.type)), ...judged.cast]
 	return {

@@ -177,9 +177,7 @@ export const aCompilesLawModelIsTheWholeSchemasRestrictedToItsSlicesWritesAndNam
 					Arr.flatMap(held, (h) => (raisable(h.whole) ? [h.whole] : [])),
 					"the natives a write of the slice can raise, as the whole model orders, names and describes them"
 				)
-				const rules = Arr.filter(whole.rules, (r) =>
-					Arr.some(r.law.reads, (read) => writes.has(read))
-				)
+				const rules = Arr.filter(whole.rules, (r) => !r.law.reads.isDisjointFrom(writes))
 				assert.deepEqual(
 					Arr.map(model.rules, (r) => r.law.id),
 					Arr.map(rules, (r) => r.law.id),
@@ -264,7 +262,7 @@ export const aCompilesLawModelIsTheWholeSchemasRestrictedToItsSlicesWritesAndNam
 
 				const wholeRaised = installationWitness(wholeArtifacts, noLevelAbove).laws.raised
 				for (const law of whole.theory.laws) {
-					if (!Arr.some(law.reads, (r) => writes.has(r))) {
+					if (law.reads.isDisjointFrom(writes)) {
 						continue
 					}
 					const raised = witness.raised.get(law.id)
@@ -427,7 +425,7 @@ export const aCompilesLawModelIsTheWholeSchemasRestrictedToItsSlicesWritesAndNam
 					for (const law of model.theory.laws) {
 						if (!keptLaws.has(law.id)) {
 							assert.ok(
-								!Arr.some(law.reads, (r) => writes.has(r)),
+								law.reads.isDisjointFrom(writes),
 								`${law.id}, which the served refusals drop, reads no relation a write changes`
 							)
 						}
@@ -512,7 +510,7 @@ export const aCompilesLawModelIsTheWholeSchemasRestrictedToItsSlicesWritesAndNam
 						(l) =>
 							l.detail.kind === "rule" &&
 							l.detail.lowering.kind === "foreignKeys" &&
-							Arr.some(l.reads, (r) => writes.has(r))
+							!l.reads.isDisjointFrom(writes)
 					)
 				) {
 					k.note("a lowered rule reading the writes")

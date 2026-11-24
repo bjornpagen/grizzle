@@ -586,16 +586,26 @@ class ReadyHeap {
 }
 
 export class ObligationGraph {
-	readonly #nodes: Array<Node<DeployPhase>> = []
+	/** Every object by its manifest key (`identText`), each identity once (`add`), in the order they were added. */
+	readonly #nodes = new Map<string, Node<DeployPhase>>()
 	readonly #reasons = new Map<Node<DeployPhase>, Array<PhysicalReason>>()
 
-	/** Adds an object, created after each of `after`. */
+	/**
+	 * Adds an object, created after each of `after`. An identity names one object PostgreSQL installs, so a second object
+	 * of an identity the graph holds is a defect of the additions, never an object: the manifest would hold the identity
+	 * twice, the later statements replacing the earlier, and the drift check would record two proofs of one object,
+	 * which its proofs' key refuses (deploy/ledger/ledger.ts proofsTable; qti's judge, whose every block of a
+	 * containment of one relation's selection in another of it stood twice).
+	 */
 	add<P extends DeployPhase>(
 		spec: ObjectSpec<P>,
 		after: ReadonlyArray<Node<Before<NoInfer<P>>>>
 	): Node<P> {
 		const node = new GraphNode(spec, after)
-		this.#nodes.push(node)
+		if (this.#nodes.has(node.text)) {
+			throw defect(`physical: two objects of the identity ${node.text}`)
+		}
+		this.#nodes.set(node.text, node)
 		return node
 	}
 
@@ -613,12 +623,12 @@ export class ObligationGraph {
 	 * stated one does; one of a later phase is a defect of the graph's additions, which no phase's file could create.
 	 */
 	#createdAfter(): ReadonlyMap<Node<DeployPhase>, ReadonlySet<Node<DeployPhase>>> {
-		const byText = new Map(this.#nodes.map((n) => [n.text, n] as const))
-		const after = new Map(this.#nodes.map((n) => [n, new Set(n.after)] as const))
-		const stated = this.#nodes.map((n) => ({ ident: n.text, ddl: n.ddl }))
+		const nodes = [...this.#nodes.values()]
+		const after = new Map(nodes.map((n) => [n, new Set(n.after)] as const))
+		const stated = nodes.map((n) => ({ ident: n.text, ddl: n.ddl }))
 		for (const e of namedEdges(stated, stated)) {
-			const from = defined(byText.get(e.from), "a named object of the graph")
-			const to = defined(byText.get(e.to), "an object of the graph")
+			const from = defined(this.#nodes.get(e.from), "a named object of the graph")
+			const to = defined(this.#nodes.get(e.to), "an object of the graph")
 			if (phaseRank(from.phase) > phaseRank(to.phase)) {
 				throw defect(
 					`physical: ${e.to}, of phase ${to.phase}, names ${e.from}, of phase ${from.phase}`
@@ -645,14 +655,16 @@ export class ObligationGraph {
 		const next = new Map<Node<DeployPhase>, Array<Node<DeployPhase>>>()
 		const afterOf = (node: Node<DeployPhase>): ReadonlySet<Node<DeployPhase>> =>
 			defined(after.get(node), "an object of the graph")
-		for (const node of this.#nodes) {
+		for (const node of this.#nodes.values()) {
 			waiting.set(node, afterOf(node).size)
 			for (const from of afterOf(node)) {
 				next.getOrInsertComputed(from, () => []).push(node)
 			}
 		}
 		const ready = new ReadyHeap()
-		for (const node of this.#nodes.filter((n) => afterOf(n).size === 0).toSorted(priority)) {
+		for (const node of [...this.#nodes.values()]
+			.filter((n) => afterOf(n).size === 0)
+			.toSorted(priority)) {
 			ready.push(node)
 		}
 		const out: Array<InstallObject> = []
@@ -678,7 +690,7 @@ export class ObligationGraph {
 		const after = this.#createdAfter()
 		return {
 			objects: this.#orderOver(after),
-			edges: this.#nodes
+			edges: [...this.#nodes.values()]
 				.flatMap((to) =>
 					[...defined(after.get(to), "an object of the graph")].map((from) => ({ from, to }))
 				)

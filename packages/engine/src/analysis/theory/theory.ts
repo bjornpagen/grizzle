@@ -814,9 +814,7 @@ class Builder {
 					decided
 				)
 			)
-			upkeeps.push(
-				storedUpkeep(r.name, definition, decided, relations, facts, r.desc.loc)
-			)
+			upkeeps.push(storedUpkeep(r.name, definition, decided, relations, facts, r.desc.loc))
 		}
 		return { stored: Object.freeze(stored), upkeeps: Object.freeze(upkeeps) }
 	}
@@ -987,7 +985,7 @@ class Builder {
 			deps.set(name, new Set())
 		}
 		const reads = laws.flatMap((law) => {
-			const read = [...new Set(law.reads)]
+			const read = [...law.reads]
 			return read.flatMap((r) =>
 				read.filter((other) => other !== r).map((other) => [r, other] as const)
 			)

@@ -1042,22 +1042,22 @@ const everyRead = (arm: ArmReads): ReadonlyArray<ReadMatch> => [
  * The stored relations a rule reads, sorted, each once: a probed rule's by a match of its arms or inside a negated arm,
  * at any depth, an aggregating rule's body among them, a whole rule's every occurrence its violation query reads.
  */
-export const ruleReads = (rule: QueryRule): ReadonlyArray<string> => {
+export const ruleReads = (rule: QueryRule): ReadonlySet<string> => {
 	switch (rule.kind) {
 		case "contained":
 		case "key":
 		case "check":
-			return [
-				...new Set(
-					[...breakingArms(rule), ...targetArms(rule)].flatMap((a) =>
+			return new Set(
+				[...breakingArms(rule), ...targetArms(rule)]
+					.flatMap((a) =>
 						everyRead(a)
 							.flatMap(storedOf)
 							.map((m) => m.relation)
 					)
-				)
-			].toSorted(compareStrings)
+					.toSorted(compareStrings)
+			)
 		case "whole":
-			return [...new Set(rule.reads.map((r) => r.relation))].toSorted(compareStrings)
+			return new Set(rule.reads.map((r) => r.relation).toSorted(compareStrings))
 	}
 }
 
