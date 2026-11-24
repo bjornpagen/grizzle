@@ -1481,13 +1481,15 @@ const endpoint = (
  * - a set over a roster's union (bitor), intersection (bitand) and cardinality (bit_count(bit)), its difference, subset
  *   and disjointness composed of them, and a set with one more handle (set_bit(bit,integer,integer) at a live code),
  *   all total; bitnot only inside those, since it sets the hole and padding bits;
- * - text length in code points (char_length) and in UTF-8 bytes (octet_length), concatenation (textcat), and the
- *   prefix and suffix tests (starts_with, and right, char_length and = composed), each for checks only; the
- *   containment test (strpos and > composed), everywhere; and the regex match (textregexeq), whose pattern operand's every value was
- *   admitted inside PostgreSQL's regex compile space where the node was typed (compute/typing.ts), everywhere. textcat
- *   allocates its result, which past PostgreSQL's MaxAllocSize raises "invalid memory alloc request size": no query
- *   holds it, an equation with a concatenation lowering without it (compute/typing.ts concatEquation), and a check or
- *   generated column holding it fails a write whose texts would pass 1 GB;
+ * - text length in code points (char_length) and in UTF-8 bytes (octet_length), and the prefix and suffix tests
+ *   (starts_with, and right, char_length and = composed), each for checks only; the containment test (strpos and >
+ *   composed), everywhere; concatenation (textcat), everywhere its operands bound it; and the regex match
+ *   (textregexeq), whose pattern operand's every value was admitted inside PostgreSQL's regex compile space where the
+ *   node was typed (compute/typing.ts), everywhere. textcat allocates its result, which past PostgreSQL's MaxAllocSize
+ *   raises "invalid memory alloc request size": a query holds it only over operands whose patterns bound its bytes
+ *   within bytesMaxLength (compute/typing.ts concat), an equation with a concatenation lowering it under its bytes'
+ *   guard over any operands (compute/typing.ts concatEquation), and a check or generated column holding it fails a
+ *   write whose texts would pass 1 GB;
  * - translate(text, text, text), whose map lowering admits of from and to literals of one length, each character of
  *   from once (scalar/regex/translate.ts charMapOf): it allocates four bytes per byte of its operand, and past
  *   MaxAllocSize raises "requested length too large", so a query holds it only over an operand whose pattern bounds its

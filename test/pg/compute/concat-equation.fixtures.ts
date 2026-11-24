@@ -37,7 +37,14 @@ import {
 	readsNull,
 	referenceValueOf,
 	rowFeatures,
-	shapeFeatures
+	shapeFeatures,
+	type TermCase,
+	type TermFeature,
+	termFeatures,
+	termHostValueOf,
+	termLoweredAt,
+	termMeaningOf,
+	termRowFeatures
 } from "#test/unit/compute/concat-equation.fixtures.ts"
 import { plainRender, renderSql } from "#test/unit/compute/support.ts"
 
@@ -120,13 +127,74 @@ export const runEquation = (db: CaseSession, c: EquationCase, k: Case<EquationFe
 	})
 
 /**
+ * One term case on PostgreSQL, over its transaction's session `db`: the concatenation lowered at both sites, a query's
+ * and a check's, each over every row in one statement, `jsonb_to_recordset` the rows; at each, PostgreSQL's text is the
+ * parts' texts joined in order, NULL at a NULL operand, as the host evaluates it.
+ */
+export const runTerm = (db: CaseSession, c: TermCase, k: Case<TermFeature>) =>
+	Effect.gen(function* () {
+		const label = Formatter.format({ parts: c.parts, shape: c.shape })
+		const lowered = Arr.map(["query", "check"] as const, (mode) => ({
+			mode,
+			root: succeeded(termLoweredAt(mode, c), `${mode} lowers it: ${label}`).root.expr
+		}))
+		const columns = Arr.join(
+			Array.from({ length: mostParts }, (_, i) => `${partColumn(i)} text`),
+			", "
+		)
+		const rows = yield* db.values(
+			`SELECT ${Arr.join(
+				Arr.map(lowered, (l) => `(${renderSql(l.root, plainRender)})::text`),
+				", "
+			)} FROM jsonb_to_recordset($1::text::jsonb) AS r0(ord int4, ${columns}) ORDER BY r0.ord`,
+			[
+				jsonText(
+					Arr.map(c.rows, (row, ord) => ({
+						ord,
+						...Rec.fromEntries(
+							Arr.flatMap(row, (value, i) =>
+								value === null ? [] : [[partColumn(i), value] as const]
+							)
+						)
+					}))
+				)
+			]
+		)
+		assert.equal(rows.length, c.rows.length, "a row per input")
+		for (const [i, values] of rows.entries()) {
+			const row = defined(c.rows[i], "the row PostgreSQL read")
+			const meaning = termMeaningOf(row)
+			const where = `${Formatter.format(row)}: ${label}`
+			for (const [j, { mode, root }] of lowered.entries()) {
+				assert.equal(
+					values[j],
+					meaning,
+					`${mode}: PostgreSQL's is the parts in order over ${where}`
+				)
+				assert.equal(
+					termHostValueOf(root, row),
+					meaning,
+					`${mode}: the host's is the parts in order over ${where}`
+				)
+			}
+			for (const feature of termRowFeatures(row)) {
+				k.note(feature)
+			}
+		}
+		for (const feature of termFeatures(c)) {
+			k.note(feature)
+		}
+	})
+
+/**
  * pantry's reference split in small: each element's attributes, keyed by the element and the attribute's name, their
  * lexical forms, and each reference an attribute holds, split into its lead, target, params and trail. Spelled is the
  * join of each reference with its attribute's lexical form, a derived relation no table stores, and "Reference split"
  * holds that the lexical form is the four in order, `lexical = lead || target || params || trail`, a check over the
  * join, which the rule judge decides in its query; Inline states the split of one row of its own, a row check, which
- * PostgreSQL decides as a CHECK. Neither builds the concatenation. Every relation is immutable and keyed by its package
- * first, so the rule is unit-local, judged whole over the packages a transaction wrote.
+ * PostgreSQL decides as a CHECK. Neither builds the concatenation. Joined builds it, the four joined in its head beside
+ * the lexical form, and "Joined split" holds that the two are one text. Every relation is immutable and keyed by its
+ * package first, so the rule is unit-local, judged whole over the packages a transaction wrote.
  */
 const Short = str.bytes(64, str.regex("^.*$", "su"))
 
@@ -181,6 +249,31 @@ const referenceSplit = check("Reference_split", Spelled, (s) =>
 	s.eq(s.lexical, Text.concat(Text.concat(Text.concat(s.lead, s.target), s.params), s.trail))
 )
 
+/**
+ * Each reference's four parts joined in order in the head of a derived relation, beside its attribute's lexical form: a
+ * concatenation a query holds, its parts' types bounding its bytes, so the judge's query builds it, text within their
+ * bounds summed.
+ */
+const Joined = derived(
+	"Joined",
+	query(Base).rule((r) => {
+		const { package: pkg, element, name, lead, target, params, trail } = v(Reference, "r")
+		const { lexical } = v(Attribute, "a")
+		return r
+			.match(Reference, { package: pkg, element, name, lead, target, params, trail })
+			.match(Attribute, { package: pkg, element, name, lexical })
+			.find({
+				package: pkg,
+				element,
+				name,
+				lexical,
+				joined: Text.concat(Text.concat(Text.concat(lead, target), params), trail)
+			})
+	})
+)
+
+const joinedSplit = check("Joined_split", Joined, (j) => j.eq(j.lexical, j.joined))
+
 const inlineSplit = check("Inline_split", Inline, (s) =>
 	s.eq(s.lexical, Text.concat(s.lead, Text.concat(s.target, Text.concat(s.params, s.trail))))
 )
@@ -188,8 +281,8 @@ const inlineSplit = check("Inline_split", Inline, (s) =>
 const splitSchema = schema.extend(
 	[Base],
 	"concat_split_1",
-	[Spelled],
-	[referenceSplit, inlineSplit]
+	[Spelled, Joined],
+	[referenceSplit, joinedSplit, inlineSplit]
 )
 
 export const splitTemplate = migratedTemplate({
@@ -263,7 +356,7 @@ export const writtenGen: Gen<Written> = (s) => ({
 
 export type SplitFeature =
 	| "accepted"
-	| "refused by Reference split"
+	| "refused by a split over the join"
 	| "refused by Inline split"
 	| "the lengths hold and a middle part differs"
 	| "a part of multibyte characters"
@@ -341,7 +434,7 @@ export const runWritten = (
 			names.column(Reference, f)
 		const i = (f: "package" | "element" | "lexical" | "lead" | "target" | "params" | "trail") =>
 			names.column(Inline, f)
-		const referenceLaw = lawIdOf(splitSchema, referenceSplit)
+		const referenceLaws = [lawIdOf(splitSchema, referenceSplit), lawIdOf(splitSchema, joinedSplit)]
 		const inlineLaw = lawIdOf(splitSchema, inlineSplit)
 		const where = Formatter.format(written)
 		for (const drawn of [...written.references, ...written.inline]) {
@@ -399,11 +492,13 @@ export const runWritten = (
 		}
 		if (
 			!broken ||
-			!Arr.contains(refusedLaws(installed.installation, refused.value), referenceLaw)
+			!Arr.some(refusedLaws(installed.installation, refused.value), (law) =>
+				Arr.contains(referenceLaws, law)
+			)
 		) {
 			return yield* new Disagreed({
 				message: `the judge refused under ${refused.value.code} ${refused.value.constraint ?? "naming no constraint"} where ${broken ? "it names another law" : "every reference is split as its lexical form is"}: ${where}`
 			})
 		}
-		c.note("refused by Reference split")
+		c.note("refused by a split over the join")
 	})

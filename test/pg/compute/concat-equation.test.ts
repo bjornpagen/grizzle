@@ -16,7 +16,15 @@
  *   references and inline references; the CHECK refuses exactly the inline references whose lexical form is not their
  *   parts in order, and the judge exactly the packages with such a reference, each naming its law.
  *
- * Oracle: the equation's plain meaning, the whole against the parts' texts joined in order, NULL at a NULL operand.
+ * - **terms**: a concatenation as a term (scalar/compute/typing.ts concat), a tree of two to five parts of any
+ *   bracketing over text columns whose types bound their bytes and bare literals, which a query holds, lowered as a
+ *   query and as a check lowers it and run over a batch of rows in one statement: PostgreSQL's text is the parts' texts
+ *   joined in order, characters beyond the BMP among them, NULL at a NULL operand, as the host evaluates it. Joined, a
+ *   derived relation of the reference split, builds the four parts joined in its head, and its law compares them with
+ *   the lexical form in the judge's query.
+ *
+ * Oracle: the equation's plain meaning, the whole against the parts' texts joined in order, NULL at a NULL operand; a
+ * term's, its parts' texts joined in order.
  */
 
 import type { Reached } from "@bjornpagen/testing/features"
@@ -24,6 +32,7 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import {
 	runEquation,
+	runTerm,
 	runWritten,
 	type SplitFeature,
 	splitTemplate,
@@ -32,7 +41,9 @@ import {
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 import {
 	type EquationFeature,
-	loweredEquationGen
+	loweredEquationGen,
+	narrowTermGen,
+	type TermFeature
 } from "#test/unit/compute/concat-equation.fixtures.ts"
 
 /**
@@ -97,7 +108,7 @@ export const anEquationWithAConcatenationOfAnyNumberOfPartsIsOnPostgreSQLTheWhol
 					'\tif (desc.kind !== "compute" || desc.fn !== "concat") {\n\t\treturn [{ desc, at, concat, stands }]',
 				replacement:
 					'\tif (desc.kind !== "compute" || desc.fn !== "concat" || at === at) {\n\t\treturn [{ desc, at, concat, stands }]',
-				why: "Flattening is capped at two parts: a concatenation nested in an equation's side is one part, typed as a term, which a query refuses beside an equation, so no query compiles an equation of three parts or more."
+				why: "Flattening is capped at two parts: a concatenation nested in an equation's side is one part, typed as a term, which a query refuses over a part no type bounds, so no query compiles such an equation of three parts or more."
 			},
 			{
 				file: "packages/engine/src/scalar/compute/typing.ts",
@@ -142,7 +153,7 @@ export const aReferenceSplitOverAJoinAndARowCheckRefuseExactlyTheReferencesWhose
 		needs: { substrate: Substrate.rolledBack(splitTemplate) },
 		situations: [
 			"accepted",
-			"refused by Reference split",
+			"refused by a split over the join",
 			"refused by Inline split",
 			"the lengths hold and a middle part differs",
 			"a part of multibyte characters",
@@ -165,10 +176,48 @@ export const aReferenceSplitOverAJoinAndARowCheckRefuseExactlyTheReferencesWhose
 			{
 				file: "packages/engine/src/scalar/compute/typing.ts",
 				original:
-					'\tif (desc.kind !== "compute" || desc.fn !== "concat") {\n\t\treturn [{ desc, at, concat, stands }]',
+					'\t\t\t\t\tthis.overload("concat", [a.actual, b.actual], here),\n\t\t\t\t\t[a, b],',
 				replacement:
-					'\tif (desc.kind !== "compute" || desc.fn !== "concat" || at === at) {\n\t\treturn [{ desc, at, concat, stands }]',
-				why: "Flattening is capped at two parts: the split over the join reads its nested concatenations as terms, which the judge's query refuses, so the schema does not compile."
+					'\t\t\t\t\tthis.overload("concat", [b.actual, a.actual], here),\n\t\t\t\t\t[b, a],',
+				why: "An equation builds its concatenation's parts in reverse: the judge, comparing a lexical form with its reference's parts over the join, or with Joined's head, which the judge reads as the parts it joins, refuses a package whose every reference is split as its lexical form is."
+			}
+		]
+	})
+
+/**
+ * A concatenation as a term, over parts whose types bound its bytes, lowered as a query and as a check lowers it, is on
+ * PostgreSQL its parts' texts joined in order, NULL at a NULL operand, as the host evaluates it.
+ *
+ * Its budget is the runner's: a new property, with no suite before it to carry a count from.
+ */
+export const aConcatenationTermIsOnPostgreSQLItsPartsJoinedInOrderInAQueryAndACheck =
+	property.explore(narrowTermGen, {
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
+		situations: [
+			"held by a query",
+			"a concatenation nested in a concatenation",
+			"a literal part",
+			"a NULL operand",
+			"a character beyond the Basic Multilingual Plane",
+			"an empty part"
+		] satisfies ReadonlyArray<TermFeature>,
+		check:
+			({ tx }, k: Case<TermFeature>) =>
+			(c) =>
+				Effect.flatMap(tx, ({ session }) => runTerm(session, c, k)),
+		oracle: {
+			kind: "specification",
+			name: "a concatenation's plain meaning, its parts' texts joined in order, NULL at a NULL operand"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/scalar/compute/typing.ts",
+				original:
+					"\t\tconst node = this.native(op, [a, b], wildcardText, undefined, at, spelling.concat)\n\t\tconst aBytes",
+				replacement:
+					"\t\tconst node = this.native(op, [b, a], wildcardText, undefined, at, spelling.concat)\n\t\tconst aBytes",
+				why: "A concatenation term builds its operands in reverse, so PostgreSQL's text is its parts out of order wherever two differ."
 			}
 		]
 	})

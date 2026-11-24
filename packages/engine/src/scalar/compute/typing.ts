@@ -2550,6 +2550,11 @@ class Typing<R extends Refs> {
 	 * Text.concat(a, b), PostgreSQL's textcat: the node computes text, and the term is text of no pattern within the
 	 * sum of its operands' bytes where both are bounded, a text literal by its own and a term by its type's byte bound,
 	 * since a || b takes a's bytes and b's; any text where either is unbounded, or where the text goes unanalyzed.
+	 * textcat allocates its result, which PostgreSQL refuses past 1 GB, so a query holds it only over operands whose
+	 * types bound that sum within the most bytes one varlena holds (values/fault.ts bytesMaxLength), as it holds
+	 * resolveReference, a nested concatenation by the sum its own operands bound; a check, generated field or fold over
+	 * longer texts fails its write, and an equation with a concatenation builds it only within that bound
+	 * (concatEquation), so a query decides one over texts of any length.
 	 */
 	concat(first: ExprDesc<Located, R>, second: ExprDesc<Located, R>, at: SourceLoc): Typed {
 		const [a, b] = this.texts("concat", first, second, at)
@@ -2557,12 +2562,20 @@ class Typing<R extends Refs> {
 		const node = this.native(op, [a, b], wildcardText, undefined, at, spelling.concat)
 		const aBytes = textBytes(a)
 		const bBytes = textBytes(b)
+		const bytes = aBytes === undefined || bBytes === undefined ? undefined : aBytes + bBytes
+		if (bytes === undefined || bytes > bytesMaxLength) {
+			this.refusedAt(
+				"query",
+				at,
+				`concat in a query over texts whose patterns bound the concatenation within ${bytesMaxLength} bytes: it allocates its result, which PostgreSQL refuses past 1 GB, and a read never fails on a value; ${bytes === undefined ? "an operand's pattern bounds no length" : `the operands' patterns bound it at ${bytes} bytes`}, so bound them, compare a text with the concatenation, which a query decides over texts of any length, or concatenate in a contract predicate, row check, generated field or fold`
+			)
+		}
 		const analysis = this.env.analysis
-		return analysis.kind === "unanalyzed" || aBytes === undefined || bBytes === undefined
+		return analysis.kind === "unanalyzed" || bytes === undefined
 			? node
 			: this.restate(
 					node,
-					this.textWithin([wildcardPattern], aBytes + bBytes, analysis.patterns.language, at),
+					this.textWithin([wildcardPattern], bytes, analysis.patterns.language, at),
 					node.actual,
 					node.facts
 				)
@@ -4492,11 +4505,6 @@ class Typing<R extends Refs> {
 			case "utf16Length":
 				return this.utf16Length(arg(0), here)
 			case "concat":
-				this.refusedAt(
-					"query",
-					here,
-					"concat in a query beside an equation: a concatenation allocates its result, which PostgreSQL refuses past 1 GB, and a read never fails on a value; a query compares a text with a concatenation, which builds it only within the bytes one varlena holds, and every other concatenation stands in contract predicates, row checks, generated fields and folds"
-				)
 				return this.concat(arg(0), arg(1), here)
 			case "startsWith":
 			case "endsWith":

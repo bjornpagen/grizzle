@@ -6,22 +6,32 @@
 
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Engine from "@bjornpagen/grizzle-text/base/result"
+import type { Patterns } from "@bjornpagen/grizzle-text/regex/parse"
 import { assert, defined } from "@bjornpagen/testing/assert"
 import { array, boolean, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Formatter, Option, Predicate, Record as Rec, String as Str } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
 import { predicateTable, type ScalarExpr } from "#compiler/ir/expr.ts"
+import {
+	languageOctets,
+	languageWithin,
+	type ScalarType,
+	textBoundsOf,
+	wildcardPattern
+} from "#compiler/ir/scalar.ts"
 import { compiledExpr, sqlNull } from "#compiler/scalar/compute/evaluate.ts"
 import { nativeOp } from "#compiler/scalar/compute/registry.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { bytesMaxLength } from "#compiler/scalar/values/fault.ts"
 import type { HostValue } from "#compiler/scalar/values/identity.ts"
+import { textLookup } from "#compiler/text/refinement.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { evaluate } from "#test/support/oracle/evaluate/catalog.ts"
 import { patternMember } from "#test/support/oracle/reference/evaluate.ts"
 import {
 	baseParams,
+	field as testField,
 	type LeafBinding,
 	type LoweredTable,
 	lowerWith,
@@ -225,8 +235,11 @@ export const loweredEquationGen: Gen<EquationCase> = equationGen(loweredPartGen)
 export const anyEquationGen: Gen<EquationCase> = equationGen(() => anyPartGen)
 
 /** A text column of no bound, and one whose pattern bounds it within 16 bytes. */
-const unbounded: LeafBinding = { kind: "column", type: testPg.text.scalar }
-const bounded: LeafBinding = { kind: "column", type: testPg.regex("^.{0,4}$", "su").scalar }
+const unbounded = { kind: "column", type: testPg.text.scalar } as const satisfies LeafBinding
+const bounded = {
+	kind: "column",
+	type: testPg.regex("^.{0,4}$", "su").scalar
+} as const satisfies LeafBinding
 
 /** The column part `i` reads. */
 export const partColumn = (i: number): string => `p${i}`
@@ -252,15 +265,21 @@ const partDesc = (part: DrawnPart, i: number): ExprDesc => {
 	}
 }
 
-/** A shape's concatenation, nested as the shape is. */
-const shapeDesc = (c: EquationCase, shape: Shape): ExprDesc =>
+/** A shape's concatenation, nested as the shape is, each part `i` the description `partAt(i)`. */
+const shapeDesc = (partAt: (i: number) => ExprDesc, shape: Shape): ExprDesc =>
 	shape.kind === "part"
-		? partDesc(defined(c.parts[shape.index], "a shape's part"), shape.index)
+		? partAt(shape.index)
 		: {
 				kind: "compute",
 				fn: "concat",
-				args: [shapeDesc(c, shape.first), shapeDesc(c, shape.second)]
+				args: [shapeDesc(partAt, shape.first), shapeDesc(partAt, shape.second)]
 			}
+
+/** An equation case's part `i`'s description. */
+const equationPartAt =
+	(c: EquationCase) =>
+	(i: number): ExprDesc =>
+		partDesc(defined(c.parts[i], "a shape's part"), i)
 
 /** The whole's description: the column t, or its literal. */
 const wholeDesc = (whole: Whole): ExprDesc =>
@@ -278,7 +297,8 @@ const equationOf = (c: EquationCase, cat: ExprDesc): ExprDesc => {
 }
 
 /** The case's equation, its concatenation nested as its shape is. */
-export const equationDesc = (c: EquationCase): ExprDesc => equationOf(c, shapeDesc(c, c.shape))
+export const equationDesc = (c: EquationCase): ExprDesc =>
+	equationOf(c, shapeDesc(equationPartAt(c), c.shape))
 
 /**
  * The two-part analogue of part `i`: the case's equation over a concatenation of that part, at its own place, beside an
@@ -348,19 +368,18 @@ const columnOf = (c: EquationCase, row: EquationRow, name: string): string | und
 	return Option.isSome(at) ? (row.parts[at.value] ?? undefined) : undefined
 }
 
-/** The host's value of a lowered equation over a row: true, false or NULL (scalar/compute/evaluate.ts). */
-export const hostValueOf = (
-	c: EquationCase,
+/** The host's value of a lowered expression over a row whose columns `column` reads, NULL as null (scalar/compute/evaluate.ts). */
+const hostValue = (
 	root: ScalarExpr,
-	row: EquationRow
-): boolean | null => {
+	column: (name: string) => string | undefined
+): HostValue | null => {
 	const table = predicateTable(root)
 	const value: HostValue | typeof sqlNull = succeeded(
 		Engine.mapError(
 			compiledExpr(table)(
 				{
 					value: undefined,
-					column: (ref) => columnOf(c, row, ref.name) ?? sqlNull,
+					column: (ref) => column(ref.name) ?? sqlNull,
 					closed: () => undefined
 				},
 				ProgramPatterns.of(tablePatterns(table))
@@ -369,32 +388,52 @@ export const hostValueOf = (
 		),
 		"the host evaluates it"
 	)
-	if (value === sqlNull) {
-		return null
-	}
-	return typeof value === "boolean"
-		? value
-		: assert.fail(`a truth value: ${Formatter.format(value)}`)
+	return value === sqlNull ? null : value
+}
+
+/**
+ * The reference evaluator's value of a lowered expression over a row whose columns `column` reads, none of them NULL,
+ * which it never reads (test/support/oracle/evaluate/catalog.ts).
+ */
+const referenceValue = (
+	root: ScalarExpr,
+	column: (name: string) => string | undefined
+): unknown => {
+	const value = evaluate(root, {
+		kind: "row",
+		column: (ref) => column(ref.name),
+		param: () => undefined,
+		regexMember: patternMember
+	})
+	return value._tag === "Success"
+		? value.success
+		: assert.fail(`the reference evaluates it: ${Formatter.format(value.failure)}`)
+}
+
+/** A truth value, as an equation's evaluation gives it. */
+const truthOf = (value: unknown): boolean =>
+	typeof value === "boolean" ? value : assert.fail(`a truth value: ${Formatter.format(value)}`)
+
+/** A text, as a concatenation's evaluation gives it. */
+const textOf = (value: unknown): string =>
+	typeof value === "string" ? value : assert.fail(`a text: ${Formatter.format(value)}`)
+
+/** The host's value of a lowered equation over a row: true, false or NULL (scalar/compute/evaluate.ts). */
+export const hostValueOf = (
+	c: EquationCase,
+	root: ScalarExpr,
+	row: EquationRow
+): boolean | null => {
+	const value = hostValue(root, (name) => columnOf(c, row, name))
+	return value === null ? null : truthOf(value)
 }
 
 /**
  * The reference evaluator's value of a lowered equation over a row none of whose operands is NULL, which it never
  * reads (test/support/oracle/evaluate/catalog.ts).
  */
-export const referenceValueOf = (c: EquationCase, root: ScalarExpr, row: EquationRow): boolean => {
-	const value = evaluate(root, {
-		kind: "row",
-		column: (ref) => columnOf(c, row, ref.name),
-		param: () => undefined,
-		regexMember: patternMember
-	})
-	if (value._tag !== "Success") {
-		return assert.fail(`the reference evaluates it: ${Formatter.format(value.failure)}`)
-	}
-	return typeof value.success === "boolean"
-		? value.success
-		: assert.fail(`a truth value: ${Formatter.format(value.success)}`)
-}
+export const referenceValueOf = (c: EquationCase, root: ScalarExpr, row: EquationRow): boolean =>
+	truthOf(referenceValue(root, (name) => columnOf(c, row, name)))
 
 /** The native function an expression applies, when it is a native node: none for any other. */
 const nativeFnOf = (e: ScalarExpr): string | undefined =>
@@ -511,3 +550,208 @@ export const rowFeatures = (c: EquationCase, row: EquationRow): ReadonlyArray<Eq
 		...(Arr.some(read, (r) => r === "") ? ["an empty part" as const] : [])
 	]
 }
+
+/**
+ * How a column part of a concatenation term bounds its bytes by its type: within 16, `^.{0,4}$`'s four characters of
+ * at most four bytes each; within the lower or the upper half of the most bytes one varlena holds
+ * (values/fault.ts bytesMaxLength), so the two halves together are exactly it; or not at all.
+ */
+const columnBounds = ["narrow", "lower half", "upper half", "none"] as const
+
+export type ColumnBound = (typeof columnBounds)[number]
+
+/** A part of a concatenation term: a text column of a bound, or, standing second, a bare literal. */
+export type TermPart =
+	| { readonly kind: "column"; readonly bound: ColumnBound }
+	| { readonly kind: "literal"; readonly text: string }
+
+/**
+ * A drawn concatenation term, its parts the tree's leaves in order, and the rows it is read over: each row a value per
+ * part, a literal's its own text, a column's drawn or NULL.
+ */
+export interface TermCase {
+	readonly parts: NonEmptyReadonlyArray<TermPart>
+	readonly shape: Shape
+	readonly rows: ReadonlyArray<ReadonlyArray<string | null>>
+}
+
+/** The lower half of the most bytes one varlena holds, and the upper, which together are exactly it. */
+const lowerHalf = Math.floor(bytesMaxLength / 2)
+const upperHalf = bytesMaxLength - lowerHalf
+
+/**
+ * A column type of `^.*$` whose bytes its type bounds at `bytes`, as str.bytes states it: its pattern's language cut to
+ * them (scalar/registry.ts registerTextDescriptor).
+ */
+const textWithin = (bytes: number): ScalarType => {
+	const patterns: Patterns = [wildcardPattern]
+	const cut = languageWithin(succeeded(textLookup(patterns), "every text's language"), bytes)
+	return testField({ kind: "text", patterns, language: cut, bytes: languageOctets(cut) }, "text")
+		.scalar
+}
+
+/** Each column bound's type. */
+const boundTypes: { readonly [B in ColumnBound]: ScalarType } = {
+	narrow: bounded.type,
+	"lower half": textWithin(lowerHalf),
+	"upper half": textWithin(upperHalf),
+	none: unbounded.type
+}
+
+/** A part of a term at its place: a column of a bound `bound` draws, or, standing second, a bare literal now and then. */
+const termPartGen =
+	(bound: Gen<ColumnBound>, place: "first" | "second"): Gen<TermPart> =>
+	(s) =>
+		place === "second" && s.draw(int(0, 3)) === 0
+			? { kind: "literal", text: s.draw(textGen) }
+			: { kind: "column", bound: s.draw(bound) }
+
+/** A concatenation term of two to five parts, drawn as a tree of any bracketing, its columns' bounds by `bound`, and a few rows. */
+const termGenOf =
+	(bound: Gen<ColumnBound>): Gen<TermCase> =>
+	(s) => {
+		const n = s.draw(int(2, 5))
+		const shape = s.draw(shapeGen(0, n))
+		const places = placesOf(shape)
+		const [head, ...tail] = Arr.map(
+			Array.from({ length: n }, (_, i) => i),
+			(i) => s.draw(termPartGen(bound, defined(places[i], "a part's place")))
+		)
+		const parts: NonEmptyReadonlyArray<TermPart> = [defined(head, "the first part"), ...tail]
+		return {
+			parts,
+			shape,
+			rows: s.draw(
+				array(
+					(r) =>
+						Arr.map(parts, (p) =>
+							p.kind === "literal"
+								? p.text
+								: r.draw(
+										weighted<string | null>([
+											[12, textGen],
+											[1, () => null]
+										])
+									)
+						),
+					{ min: 1, max: 12 }
+				)
+			)
+		}
+	}
+
+/** A term whose columns are narrow most often and of either half or of no bound now and then. */
+export const termGen: Gen<TermCase> = termGenOf(
+	weighted<ColumnBound>([
+		[4, () => "narrow"],
+		[2, () => "lower half"],
+		[2, () => "upper half"],
+		[2, () => "none"]
+	])
+)
+
+/** A term every site holds: its columns narrow. */
+export const narrowTermGen: Gen<TermCase> = termGenOf(() => "narrow")
+
+/** The case's concatenation term, nested as its shape is. */
+const termDesc = (c: TermCase): ExprDesc =>
+	shapeDesc((i) => {
+		const part = defined(c.parts[i], "a shape's part")
+		return part.kind === "literal"
+			? { kind: "literal", value: part.text }
+			: { kind: "var", var: partColumn(i) }
+	}, c.shape)
+
+/** Every column a term reads, each at its bound's type. */
+const termBindings = (c: TermCase): Readonly<Record<string, LeafBinding>> =>
+	Rec.fromEntries(
+		Arr.flatMap(c.parts, (p, i): ReadonlyArray<readonly [string, LeafBinding]> =>
+			p.kind === "column" ? [[partColumn(i), { kind: "column", type: boundTypes[p.bound] }]] : []
+		)
+	)
+
+/** The case's concatenation term lowered at a site. */
+export const termLoweredAt = (
+	mode: "query" | "check",
+	c: TermCase
+): Engine.Result<LoweredTable, CompileError> =>
+	lowerWith(mode, termDesc(c), termBindings(c), false, baseParams)
+
+/**
+ * The most bytes the term's value can hold, as its parts' types and texts bound them: a literal's own bytes, a column's
+ * its bound's, the sum over the parts; none where a part's type bounds none.
+ */
+export const termBytes = (c: TermCase): number | undefined => {
+	const bytes = Arr.map(c.parts, (p) =>
+		p.kind === "literal"
+			? new TextEncoder().encode(p.text).length
+			: p.bound === "none"
+				? undefined
+				: textBoundsOf(boundTypes[p.bound])?.bytes
+	)
+	const known = Arr.filter(bytes, Predicate.isNotUndefined)
+	return known.length === bytes.length ? Arr.reduce(known, 0, (sum, b) => sum + b) : undefined
+}
+
+/** The term's plain meaning over a row: its parts' texts joined in order, NULL where any is. */
+export const termMeaningOf = (row: ReadonlyArray<string | null>): string | null => {
+	const texts = textsOf(row)
+	return texts === undefined ? null : Arr.join(texts, "")
+}
+
+/** A row's value of a term's column, NULL where it reads none. */
+const termColumnOf = (row: ReadonlyArray<string | null>, name: string): string | undefined => {
+	const at = Arr.findFirstIndex(
+		Array.from({ length: row.length }, (_, i) => i),
+		(i) => partColumn(i) === name
+	)
+	return Option.isSome(at) ? (row[at.value] ?? undefined) : undefined
+}
+
+/** The host's value of a lowered term over a row: its text or NULL (scalar/compute/evaluate.ts). */
+export const termHostValueOf = (
+	root: ScalarExpr,
+	row: ReadonlyArray<string | null>
+): string | null => {
+	const value = hostValue(root, (name) => termColumnOf(row, name))
+	return value === null ? null : textOf(value)
+}
+
+/** The reference evaluator's value of a lowered term over a row none of whose operands is NULL. */
+export const termReferenceValueOf = (root: ScalarExpr, row: ReadonlyArray<string | null>): string =>
+	textOf(referenceValue(root, (name) => termColumnOf(row, name)))
+
+export type TermFeature =
+	| "held by a query"
+	| "refused in a query over a part no type bounds"
+	| "refused in a query past the most bytes one varlena holds"
+	| "exactly the most bytes one varlena holds"
+	| "a concatenation nested in a concatenation"
+	| "a literal part"
+	| "a NULL operand"
+	| "a character beyond the Basic Multilingual Plane"
+	| "an empty part"
+
+/** The situations a term reaches, by its shape, its parts and its bound. */
+export const termFeatures = (c: TermCase): ReadonlyArray<TermFeature> => {
+	const bytes = termBytes(c)
+	return [
+		...(bytes === undefined
+			? ["refused in a query over a part no type bounds" as const]
+			: bytes > bytesMaxLength
+				? ["refused in a query past the most bytes one varlena holds" as const]
+				: ["held by a query" as const]),
+		...(bytes === bytesMaxLength ? ["exactly the most bytes one varlena holds" as const] : []),
+		...(depthOf(c.shape) >= 2 ? ["a concatenation nested in a concatenation" as const] : []),
+		...(Arr.some(c.parts, (p) => p.kind === "literal") ? ["a literal part" as const] : [])
+	]
+}
+
+/** The situations a term's row reaches. */
+export const termRowFeatures = (row: ReadonlyArray<string | null>): ReadonlyArray<TermFeature> => [
+	...(termMeaningOf(row) === null ? ["a NULL operand" as const] : []),
+	...(Arr.some(row, (r) => r !== null && Arr.some(Array.from(r), (ch) => ch.length > 1))
+		? ["a character beyond the Basic Multilingual Plane" as const]
+		: []),
+	...(Arr.some(row, (r) => r === "") ? ["an empty part" as const] : [])
+]

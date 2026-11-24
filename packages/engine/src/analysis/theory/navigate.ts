@@ -1950,10 +1950,11 @@ const minted = (name: string): boolean => name.startsWith("in.") || name.startsW
 
 /**
  * Whether `e` concatenates texts, at any depth: a term an import is never restricted inside to (`boundInside`). A
- * concatenation stands in a query only where it is compared (scalar/compute/typing.ts concat), and inside the import the
- * equality of its head with it may define the head's variable, which navigation then reads as the concatenation itself
- * (`Navigator.#defined`), a head no query delivers: a matched union read at a key a rule computes, pantry's
- * prefixingReferences at `scope.variable`, was refused so. Its comparison stays the reader's, outside the import.
+ * concatenation of texts no pattern bounds stands in a query only where it is compared (scalar/compute/typing.ts
+ * concat), and inside the import the equality of its head with it may define the head's variable, which navigation then
+ * reads as the concatenation itself (`Navigator.#defined`), a head no query delivers: a matched union read at a key a
+ * rule computes, pantry's prefixingReferences at `scope.variable`, was refused so. Its comparison stays the reader's,
+ * outside the import.
  */
 const concatenates = (e: InferredExpr): boolean =>
 	(e.kind === "compute" && e.fn === "concat") || exprChildren(e).some((c) => concatenates(c.term))

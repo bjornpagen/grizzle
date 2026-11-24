@@ -13,18 +13,29 @@
  *   reference evaluator's is too where no operand is NULL; and the lowering builds its concatenation, each one it
  *   builds standing in the ELSE of its bytes' guard, so no read allocates past the most bytes one varlena holds.
  *
+ * - Property: a concatenation as a term (scalar/compute/typing.ts concat), a tree of two to five parts of any
+ *   bracketing, each a text column whose type bounds its bytes narrowly, within either half of the most bytes one
+ *   varlena holds, or not at all, or, standing second, a bare literal: a check holds it always, and a query exactly where
+ *   every part's type bounds its bytes and their sum is within the most one varlena holds, since textcat allocates its
+ *   result and a read never fails on a value, the term then text within that sum; where it compiles, its value over
+ *   drawn rows is its parts' texts joined in order, NULL at a NULL operand, by the host and by the reference evaluator.
+ *
  * Oracle: the equation's plain meaning, the whole against the parts' texts joined in order, NULL at a NULL operand;
- * and, for what compiles, the two-part equation, whose lowering decides it.
+ * and, for what compiles, the two-part equation, whose lowering decides it. A term's: its parts' texts joined in order,
+ * and the bound its parts' types and texts give, summed.
  *
  * Features: two to five parts, a concatenation nested two deep and in a second operand, an equation that holds, one
  * whose lengths hold and whose middle part differs, a NULL operand, multibyte and empty parts, and a refusal in a query
- * alone and at every site.
+ * alone and at every site; a term a query holds, one it refuses over an unbounded part or past a varlena's bytes, one of
+ * exactly a varlena's bytes, a nested concatenation, a literal part, and characters beyond the BMP.
  */
 
 import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
+import { textBoundsOf } from "#compiler/ir/scalar.ts"
+import { bytesMaxLength } from "#compiler/scalar/values/fault.ts"
 import {
 	analogueDesc,
 	anyEquationGen,
@@ -37,7 +48,16 @@ import {
 	readsNull,
 	referenceValueOf,
 	rowFeatures,
-	shapeFeatures
+	shapeFeatures,
+	type TermFeature,
+	termBytes,
+	termFeatures,
+	termGen,
+	termHostValueOf,
+	termLoweredAt,
+	termMeaningOf,
+	termReferenceValueOf,
+	termRowFeatures
 } from "#test/unit/compute/concat-equation.fixtures.ts"
 
 /**
@@ -145,7 +165,7 @@ export const anEquationWithAConcatenationOfAnyNumberOfPartsCompilesExactlyWhereI
 					'\tif (desc.kind !== "compute" || desc.fn !== "concat") {\n\t\treturn [{ desc, at, concat, stands }]',
 				replacement:
 					'\tif (desc.kind !== "compute" || desc.fn !== "concat" || at === at) {\n\t\treturn [{ desc, at, concat, stands }]',
-				why: "Flattening is capped at two parts: a concatenation nested in an equation's side is one part, typed as a term, which a query refuses beside an equation (concat in a query), where every two-part analogue compiles."
+				why: "Flattening is capped at two parts: a concatenation nested in an equation's side is one part, typed as a term, which a query refuses over a part no type bounds (concat in a query), where every two-part analogue compiles."
 			},
 			{
 				file: "packages/engine/src/scalar/compute/typing.ts",
@@ -177,6 +197,101 @@ export const anEquationWithAConcatenationOfAnyNumberOfPartsCompilesExactlyWhereI
 					'\t\t\t: this.native(this.overload("not", [bool], here), [holds], bool, undefined, here, "not")\n\t}\n\n\t/** A part standing first',
 				replacement: "\t\t\t: holds\n\t}\n\n\t/** A part standing first",
 				why: "`<>` lowers as `=`, so every inequation means its equation."
+			}
+		]
+	})
+
+/**
+ * A concatenation as a term stands in a check always, and in a query exactly where its parts' types bound its bytes
+ * within the most one varlena holds, text within that bound; its value is its parts in order.
+ *
+ * Its budget is the runner's: a new property, with no suite before it to carry a count from.
+ */
+export const aConcatenationTermStandsInAQueryExactlyWhereItsPartsBoundItsBytesWithinAVarlenaAndIsItsPartsInOrder =
+	property.explore(termGen, {
+		needs: {},
+		situations: [
+			"held by a query",
+			"refused in a query over a part no type bounds",
+			"refused in a query past the most bytes one varlena holds",
+			"exactly the most bytes one varlena holds",
+			"a concatenation nested in a concatenation",
+			"a literal part",
+			"a NULL operand",
+			"a character beyond the Basic Multilingual Plane",
+			"an empty part"
+		] satisfies ReadonlyArray<TermFeature>,
+		check: (_, k: Case<TermFeature>) => (c) =>
+			Effect.sync(() => {
+				const label = Formatter.format({ parts: c.parts, shape: c.shape })
+				const bytes = termBytes(c)
+				const held = bytes !== undefined && bytes <= bytesMaxLength
+				for (const feature of termFeatures(c)) {
+					k.note(feature)
+				}
+				for (const mode of ["check", "query"] as const) {
+					const lowered = termLoweredAt(mode, c)
+					assert.equal(
+						lowered.ok,
+						mode === "check" || held,
+						`${mode}: holds the term exactly where ${mode === "check" ? "always" : `its bytes are bounded within ${bytesMaxLength}, here ${Formatter.format(bytes)}`}: ${label}`
+					)
+					if (!lowered.ok) {
+						assert.equal(
+							lowered.error.reason._tag,
+							"UnsupportedOperation",
+							`${mode}: refused as an operation the site does not hold: ${label}`
+						)
+						continue
+					}
+					assert.equal(
+						textBoundsOf(lowered.value.root.nominal)?.bytes,
+						bytes,
+						`${mode}: the term is text within its parts' bound: ${label}`
+					)
+					const root = lowered.value.root.expr
+					for (const row of c.rows) {
+						const meaning = termMeaningOf(row)
+						const where = `${Formatter.format(row)}: ${label}`
+						assert.equal(
+							termHostValueOf(root, row),
+							meaning,
+							`${mode}: the host's value is the parts in order over ${where}`
+						)
+						if (meaning !== null) {
+							assert.equal(
+								termReferenceValueOf(root, row),
+								meaning,
+								`${mode}: the reference evaluator's is the parts in order over ${where}`
+							)
+						}
+						for (const feature of termRowFeatures(row)) {
+							k.note(feature)
+						}
+					}
+				}
+			}),
+		oracle: {
+			kind: "specification",
+			name: "a concatenation's plain meaning, its parts' texts joined in order and NULL at a NULL operand, and its bound, the bytes its parts' types and texts bound summed, which a query holds within the most bytes one varlena holds"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/scalar/compute/typing.ts",
+				original:
+					'\t\tif (bytes === undefined || bytes > bytesMaxLength) {\n\t\t\tthis.refusedAt(\n\t\t\t\t"query",\n\t\t\t\tat,\n\t\t\t\t`concat in a query',
+				replacement:
+					'\t\tif (bytes === undefined) {\n\t\t\tthis.refusedAt(\n\t\t\t\t"query",\n\t\t\t\tat,\n\t\t\t\t`concat in a query',
+				why: "A query holds a concatenation whose parts' bounds sum past the most bytes one varlena holds, so a read of long enough texts fails on its value, where it must be refused where it compiles."
+			},
+			{
+				file: "packages/engine/src/scalar/compute/typing.ts",
+				original:
+					"\t\tconst bytes = aBytes === undefined || bBytes === undefined ? undefined : aBytes + bBytes\n",
+				replacement:
+					"\t\tconst bytes = aBytes === undefined || bBytes === undefined ? undefined : Math.max(aBytes, bBytes)\n",
+				why: "The term's bound is its widest part's, not their sum: a query holds a concatenation of two halves and more, and a derived relation's head is typed narrower than the texts it holds."
 			}
 		]
 	})

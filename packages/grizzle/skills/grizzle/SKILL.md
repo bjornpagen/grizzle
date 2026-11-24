@@ -800,7 +800,9 @@ to fix, or the compiler's refusal of a schema or login with its fix, and no line
   closed relation's text payload, `Text.matches(lexical, ValueDomain.at("pattern", domain))`, every value of which
   the compiler measures; a pattern held in an ordinary field or a parameter is refused. A `Text.pattern`'s match is a
   guard: `Logic.when(Text.matches(x, digits), (x) => …, otherwise)`. `Text.concat` builds text in checks,
-  generated fields and folds; in a query, compare a text with a concatenation (`Logic.eq(t, Text.concat(a, b))`)
+  generated fields and folds, and in a query over operands whose types bound its bytes within `bytesMaxLength`, a
+  head among them (`find({ module: Text.concat(path, ".js") })` over a `str.bytes`-bounded `path`); over texts of any
+  length, compare a text with a concatenation (`Logic.eq(t, Text.concat(a, b))`)
   and it is decided as t's equality with the concatenation built under its bytes' guard, so a probe reads t by its
   key's index, a concatenation nested in it read through as its parts
   (`Text.concat(Text.concat(a, b), c)` is a, b and c, built in order). Its first operand is a term: write a leading literal as
