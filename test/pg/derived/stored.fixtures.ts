@@ -89,7 +89,7 @@ const baseOf = (openness: Openness, name: string) =>
  * The stored relations, each over the document's unit: a projection, a count by document, a negation within it, and
  * the rows of a function each place's document and place are passed to, which a restriction to the written units
  * reads at the unit's channels (analysis/theory/unit.ts channelled); and, a level above them, Hops, the places a
- * document reaches from its place 0 along links to placed places, a recursion whose base and step read the stored
+ * document reaches from its place 0 back along links from placed places, a recursion whose base and step read the stored
  * Placed, which its upkeep reads through Placed's definition, the step's among them (analysis/theory/query.ts
  * liveQuery, theory.ts `maintained`), so it never reads Placed's table as phase A leaves it: Hops sorts before Placed,
  * so its upkeep runs first.
@@ -154,9 +154,9 @@ const topOf = (openness: Openness, name: string) => {
 					const l = v(Link, "l")
 					return r
 						.match(self, { doc: s.doc, at: s.at })
-						.match(Link, { doc: s.doc, at: s.at, to: l.to })
-						.match(Placed, { doc: s.doc, at: l.to })
-						.find({ doc: s.doc, at: l.to })
+						.match(Link, { doc: s.doc, at: l.at, to: s.at })
+						.match(Placed, { doc: s.doc, at: l.at })
+						.find({ doc: s.doc, at: l.at })
 				}
 			]
 		})

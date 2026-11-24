@@ -7,7 +7,7 @@
  * The box: a document's places and its links, both in the unit of the document, Doc closed or open; four stored
  * relations over them, a projection, a count by document, a negation within the document, and the rows of an immutable
  * function each place's document and place are passed to, which the judge reads at each written unit's channels, and a
- * level above them Hops, the places a document reaches from its place 0 along links to placed places, a recursion over
+ * level above them Hops, the places a document reaches from its place 0 back along links from placed places, a recursion over
  * the stored projection, which its upkeep reads through the projection's definition, Dense, the documents of two places
  * or more, over the stored count, kept in the COMMIT that keeps the count, and Weighted, each place with each heavy
  * weight, reading the closed Weight through a live derived relation, whose rows no write changes, so its upkeep holds
@@ -110,6 +110,12 @@ export const aStoredRelationEqualsItsDefinitionAfterEveryCommitOfEveryWriteOfIts
 					"readonly #maintained = liveReading((relation) => this.definitions.get(relation))",
 				replacement: "readonly #maintained = liveReading((relation) => this.#readLive(relation))",
 				why: "An upkeep reads a stored relation it names as its table, not through its definition: Dense's upkeep reads Counted by name, a stored relation no upkeep reads, and no installation compiles."
+			},
+			{
+				file: "packages/engine/src/analysis/theory/query.ts",
+				original: "\t\t\t\t\t\trec: mapNonEmpty(st.recursive.rec, rule)",
+				replacement: "\t\t\t\t\t\trec: st.recursive.rec",
+				why: "A stored relation's upkeep reads a recursion's steps as written, Hops's step reading the stored Placed by its table, which Hops's upkeep, kept before Placed's, finds as the transaction began: a place put with its link back to a reached place in one transaction is missing from Hops."
 			},
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
