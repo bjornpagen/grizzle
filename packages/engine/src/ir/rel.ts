@@ -469,22 +469,65 @@ export const closedCell = (row: ReadonlyArray<TypedLiteral>, position: number): 
 }
 
 /**
+ * The one primitive a literal of its kind is known by, which canonical equality compares as itself and a Set as
+ * itself: an integer, a finite float (whose -0 is a floatSpecial, so no float is -0 or NaN), a non-finite float's name,
+ * a boolean, a text, a uuid, a digest's text, a handle; undefined for a kind whose value is a record or a list, which
+ * its canonical text knows.
+ */
+const primitiveOf = (literal: TypedLiteral): bigint | number | boolean | string | undefined => {
+	switch (literal.kind) {
+		case "int":
+		case "float":
+		case "floatSpecial":
+		case "bool":
+		case "text":
+		case "uuid":
+		case "sha256":
+			return literal.value
+		case "handle":
+			return literal.handle
+		case "numeric":
+		case "money":
+		case "date":
+		case "inet":
+		case "cidr":
+		case "handles":
+		case "span":
+		case "vector":
+		case "pattern":
+			return undefined
+	}
+}
+
+/** Whether `set` lacked `item`, which it holds after. */
+const added = <A>(set: Set<A>, item: A): boolean => set.size !== set.add(item).size
+
+/**
  * The values of the column at `position` of closed facts' rows (a ClosedTheoryRelation's `values`, at its field's
- * position): each distinct literal once, by canonical equality, its canonical text read once a row, in the order the
- * rows first hold it. A closed relation's payload read takes one of them wherever it finds a row, so they are every
- * value it can take.
+ * position): each distinct literal once, by canonical equality, in the order the rows first hold it, a literal of a
+ * primitive kind known by its kind and its primitive (primitiveOf), any other by its canonical text. A closed relation's
+ * payload read takes one of them wherever it finds a row, so they are every value it can take. Each row costs a lookup
+ * of its primitive, where it cost its literal's canonical text: over edullm's QTI schema (qti-pie 1bf7dcc) 119,014
+ * cells, 112,745 of them handles, whose texts took 216 ms a lawsOf.
  */
 export const closedValues = (
 	rows: ReadonlyArray<ReadonlyArray<TypedLiteral>>,
 	position: number
 ): ReadonlyArray<TypedLiteral> => {
-	const seen = new Set<string>()
+	const primitives = new Map<TypedLiteral["kind"], Set<bigint | number | boolean | string>>()
+	const texts = new Set<string>()
 	const values: Array<TypedLiteral> = []
 	for (const row of rows) {
 		const literal = closedCell(row, position)
-		const text = canonicalTextOf(literal)
-		if (!seen.has(text)) {
-			seen.add(text)
+		const primitive = primitiveOf(literal)
+		const unseen =
+			primitive === undefined
+				? added(texts, canonicalTextOf(literal))
+				: added(
+						primitives.getOrInsertComputed(literal.kind, () => new Set()),
+						primitive
+					)
+		if (unseen) {
 			values.push(literal)
 		}
 	}

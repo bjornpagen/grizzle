@@ -278,7 +278,7 @@ const canonicalCidrs = ["10.0.0.0/8", "::/0", "1.2.3.4/32", "2001:db8::/32"] as 
 type DrawnKind = Exclude<TypedLiteral["kind"], "date" | "sha256">
 
 /** Each drawn kind's literals: the arms literalGen draws among, and the literals of a case aimed at that kind. */
-const literalArms: { readonly [K in DrawnKind]: Gen<TypedLiteral> } = {
+export const literalArms: { readonly [K in DrawnKind]: Gen<TypedLiteral> } = {
 	int: map(
 		oneOf([element([0n, ...powers]), bigint(-(2n ** 64n), 2n ** 64n)]),
 		(value): TypedLiteral => ({ kind: "int", value })
@@ -353,7 +353,7 @@ const literalArms: { readonly [K in DrawnKind]: Gen<TypedLiteral> } = {
 }
 
 /** The drawn kinds, in the order literalGen draws them. */
-const drawnKinds: Arr.NonEmptyReadonlyArray<DrawnKind> = [
+export const drawnKinds: Arr.NonEmptyReadonlyArray<DrawnKind> = [
 	"int",
 	"float",
 	"floatSpecial",

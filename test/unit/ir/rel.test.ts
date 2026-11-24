@@ -12,17 +12,25 @@
  *   keptRefs) copied every container and record of the node, which the one constructor then froze again (relNode).
  *   Oracle: the node itself, and an audit of every part of the rebuild (rel.fixtures.ts copiedApart).
  *
- * Features: every node kind; each kind that keeps rows, and one keeping every row.
+ * - Closed values: a closed column's values are its distinct literals by canonical text, in the order its rows first
+ *   hold them. Oracle: the dedupe by canonical text alone (second implementation).
+ *
+ * Features: every node kind; each kind that keeps rows, and one keeping every row; a closed literal held again, of a
+ * primitive kind and of a record's.
  */
 
-import { assert, contains } from "@bjornpagen/testing/assert"
+import { assert, contains, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
+import { array, element, type Gen, int, map } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
+import { canonicalTextOf } from "#compiler/core/canonical.ts"
 import { edgeValues, topoOrder } from "#compiler/ir/dag.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
+import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { drive } from "#compiler/ir/fold.ts"
 import {
+	closedValues,
 	deliveredInput,
 	edgesOf,
 	exprsOf,
@@ -36,6 +44,7 @@ import {
 	type RelNode
 } from "#compiler/ir/rel.ts"
 import { copiedApart, dags, type Keeping } from "#test/unit/ir/rel.fixtures.ts"
+import { drawnKinds, literalArms } from "#test/unit/ir/scalar.fixtures.ts"
 
 /**
  * The RelNode family lists a node's edges and expressions exactly as its structural map meets them, and restates it
@@ -192,6 +201,106 @@ export const aNodeReadWithItsEdgesReplacedIsTheNodeSharingEveryPartOfItThatHolds
 				original: "\t\t\treturn { ...n, input }\n",
 				replacement: "\t\t\treturn { ...n, input, meta: { ...n.meta } }\n",
 				why: "A one-input node's rebuild copies its metadata, which holds no edge: the audit finds it built anew, and the search fails."
+			}
+		]
+	})
+
+/** The kinds of literal whose value is a record or a list, as their canonical texts read it. */
+const recordKinds: ReadonlySet<TypedLiteral["kind"]> = new Set([
+	"numeric",
+	"money",
+	"date",
+	"inet",
+	"cidr",
+	"handles",
+	"span",
+	"vector",
+	"pattern"
+])
+
+/** What a closed column reaches: a literal held again, of a primitive kind or of a record's, and two values of one. */
+type ColumnFeature =
+	| "a primitive literal held again"
+	| "a record literal held again"
+	| "two values of a primitive kind"
+
+/**
+ * A closed column of one to twelve rows over a pool of one to four literals of one drawn kind, as a column's field types
+ * every value of it, each row its pool literal copied, an object of its own, so a literal held again is canonically,
+ * never referentially, the one before it. A closed relation admits well-formed text alone (closed.relation), so a
+ * text holds its value made well-formed.
+ */
+const columnGen: Gen<ReadonlyArray<ReadonlyArray<TypedLiteral>>> = (source) => {
+	const kind = source.draw(element(drawnKinds))
+	const pool = source.draw(
+		array(
+			map(literalArms[kind], (literal): TypedLiteral =>
+				literal.kind === "text" ? { kind: "text", value: literal.value.toWellFormed() } : literal
+			),
+			{ min: 1, max: 4 }
+		)
+	)
+	return Arr.map(source.draw(array(int(0, pool.length - 1), { min: 1, max: 12 })), (at) => [
+		{ ...defined(pool[at], "a pool literal") }
+	])
+}
+
+/** A closed column's values are its distinct literals by canonical text, in the order its rows first hold them. */
+export const aClosedColumnsValuesAreItsDistinctLiteralsByCanonicalTextInTheOrderItsRowsFirstHoldThem =
+	property.explore(columnGen, {
+		needs: {},
+		situations: [
+			"a primitive literal held again",
+			"a record literal held again",
+			"two values of a primitive kind"
+		] satisfies ReadonlyArray<Reached<ColumnFeature>>,
+		check: (_, c: Case<ColumnFeature>) => (rows) =>
+			Effect.sync(() => {
+				const texts = new Set<string>()
+				const expected = Arr.filter(
+					Arr.map(rows, (row) => defined(row[0], "a cell")),
+					(literal) => {
+						const text = canonicalTextOf(literal)
+						const unseen = !texts.has(text)
+						texts.add(text)
+						if (!unseen) {
+							c.note(
+								recordKinds.has(literal.kind)
+									? "a record literal held again"
+									: "a primitive literal held again"
+							)
+						}
+						return unseen
+					}
+				)
+				if (
+					expected.length > 1 &&
+					Arr.every(expected, (literal) => !recordKinds.has(literal.kind))
+				) {
+					c.note("two values of a primitive kind")
+				}
+				const values = closedValues(rows, 0)
+				assert.deepEqual(
+					Arr.map(values, canonicalTextOf),
+					Arr.map(expected, canonicalTextOf),
+					"the column's distinct literals by canonical text"
+				)
+				assert.ok(
+					values.length === expected.length && Arr.every(values, (v, i) => v === expected[i]),
+					"each value the row that first holds it"
+				)
+			}),
+		oracle: {
+			kind: "second-implementation",
+			name: "the column's literals deduplicated by canonical text alone"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/ir/rel.ts",
+				original: '\t\tcase "sha256":\n\t\t\treturn literal.value\n',
+				replacement: '\t\tcase "sha256":\n\t\t\treturn literal.kind\n',
+				why: "Every literal of a primitive kind with a value is known by its kind alone: a column of two integers, texts or booleans holds one value, and the search fails."
 			}
 		]
 	})
