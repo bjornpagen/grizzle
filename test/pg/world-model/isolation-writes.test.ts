@@ -32,6 +32,14 @@ export const isolationWrites = programProperty({
 			reason:
 				"an insert of {plan_via: 0} through View0, a query entry whose head names Org's plan plan_via, its Doc and Org matched at literal keys: the served member admitted its facts by the relation's key heads, read by Org's field names, which name none of the entry's, so the host refused every fact of it as factShape (main's red at 3e47c8f8a, from GENPK's 55fce798e; its token run on to the program's end past the refused apply)",
 			since: "2026-11-23"
+		},
+		{
+			token: ReplayToken(
+				"test/pg/world-model/isolation-writes.test.ts#isolationWrites:70085c15c6690073d0.33:1.0.0.0.0.1.1.1.1.1.1.0.1.1.0.0.0.0.1.0.0.1.1.0.1.1.1.1.1.0.0.0.0.2.1.1.2.0.0.0.0.0.0.0.0.0.0.mu8.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.1.0.0.0.1.2.2.0.0.0.0.0.0.0.0.1.0.0.2.1u.1.0.1.0.0.0.0.0.0.0.0.0.0.1.1.0.1.1.1.0.0.0.0.0.0.1.0.0.0.0.1.0.0.0.0.0.2.0.0.0.0.0.0.0.0.0.0.1.1.0.0.0.1.0.0.0.0.0.0.0.1.0.0.1.1.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.1.1.1.0.0.0.0.0.0.0.4.1.1.0.0.3.0.1.9.0.0.0"
+			),
+			reason:
+				"a PREPARE as beta, who holds the derived OrgDocs whole and HTTPRoute through a query entry alone, of alpha's whole view of HTTPRoute: OrgDocs's whole view stands in its own level's schema of whole views, so beta holds no USAGE on the base's, which PostgreSQL refuses as it resolves the name (42501), where the model read a whole entry of any level as USAGE on the base's schema and allowed it",
+			since: "2026-11-23"
 		}
 	],
 	kills: [
@@ -47,6 +55,13 @@ export const isolationWrites = programProperty({
 			original: "\trelation: facts.relation,\n",
 			replacement: "\trelation: facts.stated,\n",
 			why: 'Two facts of one key written through a query entry are refused as a key conflict named by the entry, where the key\'s constraint is on its stored relation\'s table, so the served refusal tables hold no table of it and the apply dies "grizzle internal invariant: the installation stores relation MyBooking, which a write statement wrote": the defect the isolation suite this property was split from met at the 26e3c15f pin (its "second cause", TODO at 153af6b60), which d5bd99bdd fixed.'
+		},
+		{
+			file: "packages/engine/src/physical/ddl/roles.ts",
+			original: "\t\t\t\tviewSchemas.set(view.schema.name, view.schema.node)\n",
+			replacement:
+				"\t\t\t\tfor (const w of whole.values()) {\n\t\t\t\t\tviewSchemas.set(w.schema.name, w.schema.node)\n\t\t\t\t}\n",
+			why: "A role holding any relation whole is granted USAGE on every level's schema of whole views (physical/ddl/roles.ts), where it holds USAGE only on the schemas of the whole views it reads, so beta, who holds only the derived OrgDocs whole, resolves a name in the base's schema of whole views: the kept case's PREPARE as beta of alpha's whole view of HTTPRoute is admitted, where the model refuses it 42501."
 		}
 	]
 })

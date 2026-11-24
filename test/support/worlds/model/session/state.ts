@@ -53,6 +53,52 @@ export const roleEntryOf = (role: RoleSpec, relation: string): EntrySpec | undef
 export const holdsWhole = (role: RoleSpec, relation: string): boolean =>
 	Arr.some(Record.values(role.entries), (e) => e.kind === "whole" && e.relation === relation)
 
+/** Whether a relation is a closed roster, whose whole entry has no view: every query reads its handles as codes. */
+export const isClosedRoster = (base: BaseSpec, relation: string): boolean =>
+	Arr.some(base.closed, (c) => c.name === relation)
+
+/**
+ * The level whose schema of whole views holds a relation's whole view (physical/ddl/roles.ts addWholeViews: each
+ * relation's in its own level's `__<schema>`): the base's for an ordinary relation, and a derived relation's own, each
+ * derived relation a level of its own (worlds/execute/build.ts, `schema.extend` once for each).
+ */
+export const wholeLevelOf = (base: BaseSpec, relation: string): string =>
+	Arr.some(base.derived, (d) => d.name === relation) ? `derived ${relation}` : "base"
+
+/**
+ * Whether a role holds USAGE on `level`'s schema of whole views: it holds some relation of that level whole, a closed
+ * roster aside, which has no view (physical/ddl/roles.ts addWholeViews grants USAGE to each holder of one of its views).
+ */
+export const readsWholesAt = (
+	install: InstallSpec,
+	role: RoleSpec | undefined,
+	level: string
+): boolean =>
+	role !== undefined &&
+	Arr.some(
+		Record.values(role.entries),
+		(e) =>
+			e.kind === "whole" &&
+			!isClosedRoster(install.base, e.relation) &&
+			wholeLevelOf(install.base, e.relation) === level
+	)
+
+/** Whether `level`'s schema of whole views stands: some installed role holds a relation of that level whole. */
+export const wholesStandAt = (install: InstallSpec, level: string): boolean =>
+	Arr.some(install.roles, (r) => readsWholesAt(install, r, level))
+
+/** The levels whose schemas of whole views stand, each once. */
+export const standingWholeLevels = (install: InstallSpec): ReadonlyArray<string> =>
+	Arr.dedupe(
+		Arr.flatMap(install.roles, (r) =>
+			Arr.flatMap(Record.values(r.entries), (e) =>
+				e.kind === "whole" && !isClosedRoster(install.base, e.relation)
+					? [wholeLevelOf(install.base, e.relation)]
+					: []
+			)
+		)
+	)
+
 /** The contexts a term reads. */
 const termContexts = (t: Term): ReadonlyArray<string> => (t.kind === "context" ? [t.context] : [])
 

@@ -7,7 +7,11 @@ import {
 	loginOf,
 	relationSpecOf,
 	roleOf,
-	samePlain
+	isClosedRoster,
+	samePlain,
+	standingWholeLevels,
+	wholeLevelOf,
+	wholesStandAt
 } from "#test/support/worlds/model/session/state.ts"
 
 import {
@@ -270,19 +274,9 @@ const sameObject = (
 	after: WorldObject
 ): boolean => samePlain(definitionOf(from, before), definitionOf(to, after))
 
-/** Whether a relation is a closed roster, which a whole entry of has no view: every query reads its handles as codes. */
-const closedRoster = (install: InstallSpec, relation: string): boolean =>
-	Arr.some(install.base.closed, (c) => c.name === relation)
-
 /** Whether a role holds a query entry: the installation creates its schema exactly then, of its query entries' views. */
 const holdsQuery = (install: InstallSpec, role: string): boolean =>
 	Arr.some(Rec.values(roleOf(install, role)?.entries ?? {}), (e) => e.kind === "query")
-
-/** Whether the base's schema of whole views stands: some role holds a relation whole, a closed roster aside. */
-const wholesStand = (install: InstallSpec): boolean =>
-	Arr.some(install.roles, (r) =>
-		Arr.some(Rec.values(r.entries), (e) => e.kind === "whole" && !closedRoster(install, e.relation))
-	)
 
 /**
  * The world objects of an installation (packages/engine/src/physical/ddl/roles.ts, names.ts), each by an identity that
@@ -304,7 +298,7 @@ const worldObjects = (install: InstallSpec): ReadonlyMap<string, WorldObject> =>
 		for (const entry of Rec.values(r.entries)) {
 			if (
 				entry.kind === "whole" &&
-				!closedRoster(install, entry.relation) &&
+				!isClosedRoster(install.base, entry.relation) &&
 				!wholes.has(`whole ${entry.relation}`)
 			) {
 				wholes.set(`whole ${entry.relation}`, {
@@ -389,15 +383,17 @@ const worldObjects = (install: InstallSpec): ReadonlyMap<string, WorldObject> =>
 
 /**
  * Whether a migration from `from` creates a world object anew in Structure (packages/engine/src/deploy/diff/diff.ts
- * worldWithin): a view where its schema stood before it, its role's schema for a query entry's, the schema of whole
- * views for a whole one; a policy where its role stood; and every world function, which names no role.
+ * worldWithin): a view where its schema stood before it, its role's schema for a query entry's, its level's schema of
+ * whole views for a whole one; a policy where its role stood; and every world function, which names no role.
  */
 const standsWithin = (from: InstallSpec, o: WorldObject): boolean => {
 	switch (o.kind) {
 		case "view":
 			return holdsQuery(from, o.role)
 		case "whole":
-			return wholesStand(from)
+			return (
+				o.locus.kind === "view" && wholesStandAt(from, wholeLevelOf(from.base, o.locus.relation))
+			)
 		case "policy":
 			return roleOf(from, o.role) !== undefined
 		case "function":
@@ -597,14 +593,14 @@ const revokedWith = (
 
 /**
  * What an installation revokes from PUBLIC (packages/engine/src/physical/ddl/roles.ts publicRevokes), as far as it
- * varies, each object by its kind and name: its schemas of views (the base's of whole views, where one stands, and one
- * per role holding a query entry), tables and views, enums and domains.
+ * varies, each object by its kind and name: its schemas of views (each level's of whole views, where one stands, and
+ * one per role holding a query entry), tables and views, enums and domains.
  */
 const publicRevoked = (install: InstallSpec): ReadonlyArray<string> => {
 	const base = install.base
 	return Arr.sort(
 		[
-			...(wholesStand(install) ? ["schema of whole views"] : []),
+			...Arr.map(standingWholeLevels(install), (level) => `schema of whole views ${level}`),
 			...Arr.flatMap(install.roles, (r) =>
 				holdsQuery(install, r.name) ? [`schema ${r.name}`] : []
 			),

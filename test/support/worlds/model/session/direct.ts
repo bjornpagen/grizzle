@@ -40,7 +40,11 @@ import {
 	occurrenceContexts,
 	relationSpecOf,
 	roleOf,
+	isClosedRoster,
+	readsWholesAt,
 	seenThrough,
+	wholeLevelOf,
+	wholesStandAt,
 	withSession
 } from "#test/support/worlds/model/session/state.ts"
 
@@ -469,7 +473,7 @@ const currentRole = (state: ModelState, session: DirectSessionState): RoleSpec |
 
 /** Whether an entry is a closed roster held whole, which has no view: every query reads its facts as literals. */
 const closedWhole = (install: InstallSpec, entry: EntrySpec): boolean =>
-	entry.kind === "whole" && Arr.some(install.base.closed, (c) => c.name === entry.relation)
+	entry.kind === "whole" && isClosedRoster(install.base, entry.relation)
 
 /** Whether a role holds a relation whole, as the grants of its whole view read: a whole entry of it, no closed
  * roster's, which has no view. */
@@ -479,17 +483,6 @@ const holdsWhole = (install: InstallSpec, role: RoleSpec | undefined, relation: 
 		Record.values(role.entries),
 		(e) => e.kind === "whole" && e.relation === relation && !closedWhole(install, e)
 	)
-
-/** Whether a role holds USAGE on the base's schema of whole views: it holds some relation whole, a closed roster's
- * aside. */
-const readsWholes = (install: InstallSpec, role: RoleSpec | undefined): boolean =>
-	role !== undefined &&
-	Arr.some(Record.values(role.entries), (e) => e.kind === "whole" && !closedWhole(install, e))
-
-/** Whether the base's schema of whole views stands: some installed role holds a relation whole, a closed roster's
- * aside (physical/ddl/roles.ts addWholeViews). */
-const wholesStand = (install: InstallSpec): boolean =>
-	Arr.some(install.roles, (r) => readsWholes(install, r))
 
 /**
  * When a judgment of a row reads the claims, as PostgreSQL plans it: never (the rule reads no context); first, before
@@ -1016,11 +1009,12 @@ export const directBranches = (
 	 * A role's view as PostgreSQL resolves its name when a statement is analyzed, for a select and a PREPARE alike, and
 	 * whether the current role may read it, which PostgreSQL judges as it executes one. A query entry's view stands in
 	 * its role's schema, which only the role itself holds USAGE on (42501), and only it reads. A whole entry's is its
-	 * relation's whole view, in the base's schema of whole views: the schema must stand (3F000 where no role holds a
-	 * relation whole), the current role must hold USAGE on it, which every role holding some relation whole does
-	 * (42501), and grizzle must install the view (42P01 for a closed roster held whole, which has none); then every role
-	 * holding the relation whole reads it, and any other is refused as it executes (42501). A role the installation does
-	 * not hold names no view (3F000).
+	 * relation's whole view, in its relation's level's schema of whole views (wholeLevelOf: the base's, or a derived
+	 * relation's own level's): the schema must stand (3F000 where no role holds a relation of that level whole), the
+	 * current role must hold USAGE on it, which every role holding some relation of that level whole does (42501), and
+	 * grizzle must install the view (42P01 for a closed roster held whole, which has none); then every role holding the
+	 * relation whole reads it, and any other is refused as it executes (42501). A role the installation does not hold
+	 * names no view (3F000).
 	 */
 	const viewNamed = (
 		owner: string,
@@ -1038,10 +1032,11 @@ export const directBranches = (
 				? { kind: "view", entry, readable: true }
 				: { kind: "refused", branch: refused("42501") }
 		}
-		if (!wholesStand(state.install)) {
+		const level = wholeLevelOf(state.install.base, entry.relation)
+		if (!wholesStandAt(state.install, level)) {
 			return { kind: "refused", branch: refused("other") }
 		}
-		if (!readsWholes(state.install, role)) {
+		if (!readsWholesAt(state.install, role, level)) {
 			return { kind: "refused", branch: refused("42501") }
 		}
 		return closedWhole(state.install, entry)
