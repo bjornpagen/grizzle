@@ -87,27 +87,8 @@ export const countedAfter = (c: StoredCase): Array<string> =>
 		return places === 0 ? [] : [`${doc}:${places}`]
 	})
 
-/** What a case reached: a document both calls put at, or each its own, and how many places each held before. */
-export type StoredFeature =
-	| "one document, B waited for A"
-	| "two documents, neither waited"
-	| "a document over no place"
-	| "a document over one place"
-	| "a document over two places"
-
-export const storedFeatures = (c: StoredCase): Array<StoredFeature> => [
-	c.a === c.b ? "one document, B waited for A" : "two documents, neither waited",
-	...Arr.map([1, 2] as const, (doc): StoredFeature =>
-		c.seeded[doc] === 0
-			? "a document over no place"
-			: c.seeded[doc] === 1
-				? "a document over one place"
-				: "a document over two places"
-	)
-]
-
 /** A call's answer, with how many times it ran before it ended other than in a TransientFailure. */
-export interface Answered {
+interface Answered {
 	readonly tries: number
 	readonly ran: Result.Result<WriteAnswer<WriteOutcome<unknown>>, CallError>
 }
