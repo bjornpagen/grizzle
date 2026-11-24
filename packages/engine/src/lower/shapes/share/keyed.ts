@@ -113,12 +113,20 @@ export const queryKeys = (dag: ValidDag, cte: CtePlan, fixed: FixedOf): Statemen
 }
 
 /**
- * Where a statement holds its key sets: its WITH entries, and each key set's CTE, defined at its first use; and which
- * nodes it reads by an index lookup at keys (keys.ts Lookups), those it computes once read where they stand.
+ * Where a statement holds its key sets: its WITH entries, and each key set's CTE, defined at its first use; the scope
+ * that lowers them; and which nodes it reads by an index lookup at keys (keys.ts Lookups), those it computes once read
+ * where they stand.
  */
 export interface KeyScope {
 	readonly ctes: Set<Cte>
 	readonly keySets: Map<Keys, DefinedCte>
+	/**
+	 * The statement's own scope, which lowers each WITH entry the statement computes at keys, its key sets and its nodes'
+	 * bodies at them: an entry every scope of the statement reads, which no scope of the read that first defines it
+	 * reaches, so a node a scope lowers its own way there (a fence's ordered stream or its search, LowerContext
+	 * withLowering) is read as itself in the entry, as every other read of the entry reads it.
+	 */
+	readonly statement: LowerContext
 	readonly lookups: Lookups
 	/**
 	 * Whether the statement lowers a node where it is read, neither a CTE nor a carrier of its, so a restriction placed
@@ -373,10 +381,10 @@ export class KeyedLowering {
 	body(
 		node: RelNode,
 		keys: Keys,
-		cx: LowerContext,
 		scope: KeyScope,
 		inner: (cx: LowerContext) => OperandSelect
 	): OperandSelect {
+		const cx = scope.statement
 		if (readAtKeys(node)) {
 			return this.atKeys(node, keys, cx, emptyEnv, scope)
 		}
@@ -384,7 +392,7 @@ export class KeyedLowering {
 			return inner(cx)
 		}
 		const origin = { kind: "node", node: node.id } as const
-		const keyRows = this.#keyRows(node, keys, cx, scope)
+		const keyRows = this.#keyRows(node, keys, scope)
 		const rows = cx.wrap(inner(cx), node.heading, origin)
 		const atKey = cx.wrapAs(
 			fencedRead(
@@ -423,7 +431,7 @@ export class KeyedLowering {
 		scope: KeyScope
 	): OperandSelect {
 		const origin = { kind: "node", node: node.id } as const
-		const keyRows = this.#keyRows(node, keys, cx, scope)
+		const keyRows = this.#keyRows(node, keys, scope)
 		const equalities: ColumnEqualities = keyRows.named.map((n) => ({
 			column: n.name,
 			value: col(keyRows.alias, n.column)
@@ -442,12 +450,11 @@ export class KeyedLowering {
 	 * A key set's rows, each key once, the statement's MATERIALIZED CTE of them, defined at its first use and read by
 	 * every use after: `SELECT DISTINCT k FROM (<source 1> UNION ALL ...)`, each source its atoms read where the key set
 	 * stands (a carried copy from its carrier, a stored relation at its constants, a key set it reads in turn), joined
-	 * where two bind one slot, its keys' slots selected.
+	 * where two bind one slot, its keys' slots selected, each lowered in the statement's scope (KeyScope `statement`).
 	 */
 	#keyRows(
 		node: RelNode,
 		keys: Keys,
-		cx: LowerContext,
 		scope: KeyScope
 	): {
 		readonly item: FromSource
@@ -456,11 +463,11 @@ export class KeyedLowering {
 	} {
 		const origin = { kind: "node", node: node.id } as const
 		const known = scope.keySets.get(keys)
-		const cte = known ?? this.#keySetCte(node, keys, cx, scope)
+		const cte = known ?? this.#keySetCte(node, keys, scope)
 		if (known === undefined) {
 			scope.keySets.set(keys, cte)
 		}
-		const alias = cx.relationAlias(origin)
+		const alias = scope.statement.relationAlias(origin)
 		return {
 			item: cteRefAs(cte.name, alias),
 			alias,
@@ -475,7 +482,8 @@ export class KeyedLowering {
 	 * The CTE of a key set's rows (#keyRows), entered in the statement's WITH past every CTE its sources read; or the CTE
 	 * of the one key set its one source reads, each key a column of it, which already holds those rows, each once.
 	 */
-	#keySetCte(node: RelNode, keys: Keys, cx: LowerContext, scope: KeyScope): DefinedCte {
+	#keySetCte(node: RelNode, keys: Keys, scope: KeyScope): DefinedCte {
+		const cx = scope.statement
 		const origin = { kind: "node", node: node.id } as const
 		const [first, ...rest] = distinctSources(this.#sameRows, keys.sources)
 		const [atom, ...others] = first.seeds
@@ -486,7 +494,7 @@ export class KeyedLowering {
 			first.fixed.length === 0 &&
 			atom?.kind === "keys"
 		) {
-			const inner = this.#keyRows(atom.of, atom.keys, cx, scope)
+			const inner = this.#keyRows(atom.of, atom.keys, scope)
 			const columns = keys.columns.map((c) => {
 				const slot = first.keys.find((k) => k.column === c)?.slot
 				const bound = atom.bindings.find((b) => b.slot === slot)?.column
@@ -506,7 +514,7 @@ export class KeyedLowering {
 			}
 		}
 		const arms = mapNonEmpty([first, ...rest], (source) =>
-			this.#sourceRows(source, keys.columns, cx, scope)
+			this.#sourceRows(source, keys.columns, scope)
 		)
 		const unionAlias = cx.relationAlias(origin)
 		const unionColumns = mapNonEmpty(keys.columns, () => cx.supply.column(origin))
@@ -539,9 +547,9 @@ export class KeyedLowering {
 	#sourceRows(
 		source: KeySource,
 		columns: NonEmptyReadonlyArray<string>,
-		cx: LowerContext,
 		scope: KeyScope
 	): ReturnType<typeof core> {
+		const cx = scope.statement
 		const from: Array<FromSource> = []
 		const where: Array<Expr> = []
 		const atSlot = new Map<string, { readonly expr: Expr; readonly type: ScalarType }>()
@@ -597,7 +605,7 @@ export class KeyedLowering {
 					return
 				}
 				case "keys": {
-					const rows = this.#keyRows(atom.of, atom.keys, cx, scope)
+					const rows = this.#keyRows(atom.of, atom.keys, scope)
 					from.push(rows.item)
 					bindAll(
 						atom,

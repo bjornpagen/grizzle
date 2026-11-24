@@ -44,7 +44,7 @@ import {
 	Lookups,
 	whole as wholeKeys
 } from "#compiler/lower/shapes/share/keys.ts"
-import type { FromSource, OperandSelect, Select } from "#compiler/sql/ast.ts"
+import type { Cte, FromSource, OperandSelect, Select } from "#compiler/sql/ast.ts"
 import { col, type DefinedCte, keyedSet, select, target } from "#compiler/sql/build.ts"
 import type { CarrierName } from "#compiler/sql/naming.ts"
 
@@ -865,8 +865,8 @@ export class StatementSharing {
 		return (node, cx, env) => {
 			const restriction = share.restriction
 			return node === share.node && restriction.kind === "keys"
-				? this.#statement(node, cx, share.key, restriction.keys, (root, scope) =>
-						this.#keyed.body(node, restriction.keys, root, scope, (within) =>
+				? this.#statement(node, cx, share.key, restriction.keys, (_, scope) =>
+						this.#keyed.body(node, restriction.keys, scope, (within) =>
 							this.#inner(node, within, emptyEnv)
 						)
 					)
@@ -937,8 +937,15 @@ export class StatementSharing {
 	): Q {
 		const carried = (n: RelNode): boolean => this.#carrierIn(n, filling) !== undefined
 		const materialize = statementCtes(this.index, node, carried)
+		const inScope: NodeDispatch = (n, ncx, nenv) =>
+			this.#readCarrier(n, ncx, filling) ?? this.#inPlace(n, ncx, nenv, scope)
+		const root = cx.withDispatch(inScope)
+		const ctes = new Set<Cte>()
+		const statement = root
+			.withEvaluations(statementEvaluations(ctes, root))
+			.withEvaluations(this.#carriedEvaluation)
 		const scope: StatementScope = {
-			ctes: new Set(),
+			ctes,
 			defined: new Map(),
 			materialize,
 			...statementKeys(
@@ -950,19 +957,11 @@ export class StatementSharing {
 				this.#fixed
 			),
 			keySets: new Map(),
+			statement,
 			lookups: new Lookups((n) => carried(n) || materialize.get(n.id) !== undefined),
 			inPlace: (n) => !carried(n) && materialize.get(n.id) === undefined
 		}
-		const inScope: NodeDispatch = (n, ncx, nenv) =>
-			this.#readCarrier(n, ncx, filling) ?? this.#inPlace(n, ncx, nenv, scope)
-		const root = cx.withDispatch(inScope)
-		const query = lower(
-			root
-				.withEvaluations(statementEvaluations(scope.ctes, root))
-				.withEvaluations(this.#carriedEvaluation),
-			scope
-		)
-		return withLeading(query, scope.ctes)
+		return withLeading(lower(statement, scope), scope.ctes)
 	}
 
 	/**
@@ -985,8 +984,8 @@ export class StatementSharing {
 		const keys = scope.keyed.get(key)
 		return cteAtFirstUse(cx, node, scope, key, "MATERIALIZED", () =>
 			keys === undefined
-				? this.#inner(node, cx, emptyEnv)
-				: this.#keyed.body(node, keys, cx, scope, (within) => this.#inner(node, within, emptyEnv))
+				? this.#inner(node, scope.statement, emptyEnv)
+				: this.#keyed.body(node, keys, scope, (within) => this.#inner(node, within, emptyEnv))
 		)
 	}
 }

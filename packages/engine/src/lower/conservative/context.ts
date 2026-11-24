@@ -805,6 +805,23 @@ export class LowerContext {
 		return this.#within({ ...this.#scope, dispatch })
 	}
 
+	/**
+	 * This lowering at the root of its statement, its nodes lowered through `dispatch`: inside no sublink, recursion,
+	 * share frame or evaluation host, the statement's own evaluations alone found (hostStatementEvaluations), and no node
+	 * lowered as a scope it is read in lowers it (withLowering). A WITH entry of the statement stands outside every
+	 * scope of the query that first reads it, and is lowered here.
+	 */
+	atStatementRoot(dispatch: NodeDispatch): LowerContext {
+		return this.#within({
+			sublinkDepth: 0,
+			feedback: new Map(),
+			dispatch,
+			sharing: undefined,
+			evaluations: undefined,
+			holding: this.#scope.holding
+		})
+	}
+
 	/** The scope whose node `node` lowers through `lower`, and every other node as this scope's dispatch lowers it. */
 	withLowering<K extends RelKind>(node: NodeOf<K>, lower: NodeLowerer<K>): LowerContext {
 		const dispatch = this.#scope.dispatch

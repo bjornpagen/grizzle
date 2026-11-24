@@ -456,8 +456,11 @@ export interface ShapeLog<I extends ChoiceInput> {
 	readonly record: (choice: ShapeChoice<I>) => void
 	/** The key sets the statement computes its nodes at (share/keyed.ts StatementKeys). */
 	readonly keys: StatementKeys
-	/** Where the statement being lowered holds its key sets: its WITH, and each key set's CTE once defined. */
-	readonly keyScope: KeyScope
+	/**
+	 * Where the statement being lowered holds its key sets: its WITH, and each key set's CTE once defined, lowered in
+	 * `statement`, the statement's own scope.
+	 */
+	keyScope(statement: LowerContext): KeyScope
 }
 
 /**
@@ -549,10 +552,11 @@ export class ShapeState<I extends ChoiceInput> implements ShapeLog<I> {
 		return log
 	}
 
-	get keyScope(): KeyScope {
+	keyScope(statement: LowerContext): KeyScope {
 		return {
 			ctes: this.#log.ctes,
 			keySets: this.#keySets,
+			statement,
 			lookups: this.#lookups,
 			inPlace: this.#inPlace
 		}
@@ -844,7 +848,9 @@ const cteMaterialization = (strategy: CteStrategy): NonNullable<Cte["materialize
  * The one dispatch, in the child of `attachment` or outside any attachment: a node to its kind's plug-in, or, for a node
  * the CTE policy shares, a read of its statement-level CTE, defined at its first use in the statement. The CTE policy
  * shares only uncorrelated nodes off every recursion's feedback (cte-policy rule 3), so the body is lowered outside any
- * outer scope: a reference to one would be refused rather than hoisted.
+ * outer scope: a reference to one would be refused rather than hoisted. Every entry the statement's WITH holds, such a
+ * body and each key set, is lowered at the statement's root (LowerContext atStatementRoot), never in a scope of the read
+ * that first defines it.
  */
 const dispatchIn = <I extends ChoiceInput>(
 	facts: ShapeFacts,
@@ -868,14 +874,14 @@ const dispatchIn = <I extends ChoiceInput>(
 				: keyedGroup(facts, node, cx, env, restriction),
 		(node) => node.id
 	)
-	return (node, cx, env) => {
+	const dispatch: NodeDispatch = (node, cx: LowerContext, env) => {
 		const shared = state.decision(node)
 		/** A node every read of which reads it at values is read inline at each (StatementKeys atValues). */
 		const decision = shared !== undefined && state.keys.atValues.has(node.id) ? undefined : shared
 		const materialized = decision === undefined ? undefined : cteMaterialization(decision.strategy)
 		const inPlace = decision === undefined ? state.keys.inPlace.get(node) : undefined
 		if (inPlace !== undefined && readAtKeys(node) && !cx.readsFeedback(node)) {
-			return keyed.atKeys(node, inPlace, cx, env, state.keyScope)
+			return keyed.atKeys(node, inPlace, cx, env, state.keyScope(cx.atStatementRoot(dispatch)))
 		}
 		if (decision === undefined || materialized === undefined || cx.readsFeedback(node)) {
 			const region = filteredRegion(node)
@@ -887,10 +893,13 @@ const dispatchIn = <I extends ChoiceInput>(
 		switch (scope.kind) {
 			case "statement": {
 				const keys = state.keys.once.get(node.id)
+				const statement = cx.atStatementRoot(dispatch)
 				return cteAtFirstUse(cx, node, state.log, node, materialized, () =>
 					keys === undefined
-						? plugIn(node, cx, emptyEnv)
-						: keyed.body(node, keys, cx, state.keyScope, (within) => plugIn(node, within, emptyEnv))
+						? plugIn(node, statement, emptyEnv)
+						: keyed.body(node, keys, state.keyScope(statement), (within) =>
+								plugIn(node, within, emptyEnv)
+							)
 				)
 			}
 			case "held": {
@@ -903,6 +912,7 @@ const dispatchIn = <I extends ChoiceInput>(
 			}
 		}
 	}
+	return dispatch
 }
 
 /**

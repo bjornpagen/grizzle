@@ -105,6 +105,14 @@ export const evidence = agreement(evidenceSpace, {
 			reason:
 				"ToneWeight matched with a flag fixing its tone by p0 or its weight by p1, its tone in the head: the engine proves at most one row under both readings, its weights distinct, where the types, which read its declared key, the tone, prove many under the weight's; the declared class, a closed relation's column of distinct constant values (TEST_SEED=669114265)",
 			since: "2026-11-18"
+		},
+		{
+			token: ReplayToken(
+				"test/types/evidence/agreement.test.ts#evidence:800002180008004000000000.33:0.0.0.1.1.0.1.0.0.0.0.0.0.1.0.0.0.0.0.0.1.0.0.0.0.0.0.0.3.0.0.0.0.0.3.1.3.1.0.0.0.0.0.0.0.0.0.0.1.1.0.0.0.0.0.0.0.1.1.0.0.3.0.3.1.0.1.0.2.0.2.0.2.0.2.0.0.0.0.2.0.0.0.1.0.2.0.0.0.0.0.0.0.1.p.0.0.0.0.0"
+			),
+			reason:
+				"an approximate search over a region of Item, a relation parameter, Owned bound and Slot that negates OwnerCounts at the parameter's id: OwnerCounts is computed at the keys the region reads, a key set of the statement's WITH that reads the region's own sources, Slot among them, which its first read defined inside the scope that reads Slot through the search's ordered stream, so the key set read that very stream again, its query spliced into the WITH a second time under a column list of Slot's heading, short of the stream's distance, and a second search that may find fewer rows than the region's, the negation then missing keys; the key set reads Slot itself (TEST_SEED=2219874524, trunk red since 7c0f2c554)",
+			since: "2026-11-24"
 		}
 	],
 	kills: [
@@ -150,6 +158,12 @@ export const evidence = agreement(evidenceSpace, {
 			original: "\t\tif (!meets(against.nominal, term.nominal) && !refinedPair(against, term)) {",
 			replacement: "\t\tif (!meets(against.nominal, term.nominal)) {",
 			why: "The engine refuses an equality of two refinements of one base carrier, where the types admit it: the program of the witness of an equality across refining types fails."
+		},
+		{
+			file: "packages/engine/src/lower/shapes/index.ts",
+			original: "\t\t\t\tconst statement = cx.atStatementRoot(dispatch)\n",
+			replacement: "\t\t\t\tconst statement = cx\n",
+			why: "A statement's CTE and the key set it is computed at are lowered in the scope of the read that first defines them (lower/shapes/index.ts dispatchIn), so the kept search's negation's key set reads Slot through the search's ordered stream, spliced into the WITH a second time; the lowering fails its audit."
 		}
 	]
 })
