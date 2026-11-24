@@ -480,15 +480,19 @@ export interface LawModel {
 }
 
 /**
- * The relations whose writes the rule judge captures (physical/ddl/rules.ts addRules): each ordinary relation a rule
- * over a query reads (RuleTrigger `tables`), in code point order. A session stands up the judge's tables a write of one
- * needs before its first such write (physical/ddl/rules.ts addStandUps), which a served write does in its session's
- * stand-up (runtime/write/flight.ts StandUp).
+ * The relations whose writes the rule judge captures (physical/ddl/rules.ts addRules, judgedTables): each relation a
+ * rule over a query reads (RuleTrigger `tables`) and each a stored derived relation's upkeep reads (StoredUpkeep
+ * `reads`), in code point order. A session stands up the judge's tables a write of one needs before its first such
+ * write (physical/ddl/rules.ts addStandUps), which a served write does in its session's stand-up (runtime/write/
+ * flight.ts StandUp).
  */
 export const judgedRelations = (model: LawModel): ReadonlyArray<string> =>
-	[...new Set(model.rules.flatMap((r) => r.tables.map((t) => t.relation.name)))].toSorted(
-		compareStrings
-	)
+	[
+		...new Set([
+			...model.rules.flatMap((r) => r.tables.map((t) => t.relation.name)),
+			...model.theory.upkeeps.flatMap((u) => u.reads.map((r) => r.relation))
+		])
+	].toSorted(compareStrings)
 
 /**
  * The admitted patterns the host's evaluation of a write reads over the model: the field types and generated

@@ -373,8 +373,10 @@ export interface Names extends LawNames {
 	/** A stored, closed or derived relation's table or view, schema-qualified and quoted. */
 	readonly table: (relation: AnyRelation | AnyDerived) => string
 	/**
-	 * Every stored relation's table, as `table` names it, and each head's table (physical/ddl/stamps.ts), whose rows its
-	 * relation's stamps wrote: the tables a reset empties together (substrate/replace.ts installationGroup).
+	 * Every stored relation's table, as `table` names it, each stored derived relation's, and each head's table
+	 * (physical/ddl/stamps.ts), whose rows its relation's stamps wrote: the tables a reset empties together
+	 * (substrate/replace.ts installationGroup), where a stored derived relation's rows left behind would be read as its
+	 * definition's over the rows the next case writes.
 	 */
 	readonly storedTables: ReadonlyArray<string>
 	/**
@@ -1093,7 +1095,9 @@ const namesOver = (installation: Installation, schema: string): Names => {
 		table,
 		storedTables: [
 			...Arr.flatMap(Rec.values(installation.owned.relations), (r) =>
-				r.kind === "relation" ? [table(r)] : []
+				r.kind === "relation" || (r.kind === "derived" && r.view.kind === "stored")
+					? [table(r)]
+					: []
 			),
 			...Arr.map(headsOf(installation.laws.theory.instants), (h) => {
 				const q = names.head(h.relation, h.field.name)
