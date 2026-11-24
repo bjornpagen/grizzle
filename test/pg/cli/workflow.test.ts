@@ -93,6 +93,13 @@ export const commandLineWorkflow = property.explore(
 					"\tconst mismatches = [...ledgerMismatches(snapshot, ledger), ...verdict.mismatches]",
 				replacement: "\tconst mismatches = [...ledgerMismatches(snapshot, ledger)]",
 				why: "The drift check compares no catalog fact, so drift passes while a table created behind grizzle's back stands in the schema."
+			},
+			{
+				file: "packages/grizzle/src/adapter/migrate/apply.ts",
+				original:
+					"\tfor (const p of planned) {\n\t\tconst verdict = yield* checkDrift(session, p.snapshot, p.statements, p.proofs, p.folders)\n\t\tyield* recordProofs(session, p.snapshot, p.proofs, verdict)\n\t}\n",
+				replacement: "",
+				why: "The runner skips its drift step: migrate applies its folders and succeeds while a table created behind grizzle's back stands in the schema, which only a later grizzle drift names."
 			}
 		]
 	}

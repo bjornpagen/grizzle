@@ -236,7 +236,8 @@ export default defineConfig({
 5. Run `grizzle check grizzle.config.ts` until it passes. It prints `<schema>: ok (<n> migrations, snapshot
    <fingerprint>)`.
 6. Commit the folder, `snapshot.json`, `manifest.json` and the `served` directory.
-7. Run `grizzle migrate grizzle.config.ts` from CI or the deploy, where its connection reaches the database. It prints
+7. Run `grizzle migrate grizzle.config.ts` from CI or the deploy, where its connection reaches the database. It ends
+   with the drift check, so no `grizzle drift` need follow it; `drift` is for a database not just migrated. It prints
    `<schema>: applied <n> migrations, now at <fingerprint>` and each folder's files, or `<schema>: up to date at
    <fingerprint>`.
 

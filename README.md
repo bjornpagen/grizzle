@@ -4894,9 +4894,9 @@ grizzle generate <config> --custom --name <name> [--schema <schema>]
 grizzle check <config>
     generated, resolved and untampered? (offline)
 grizzle migrate <config>
-    apply pending migrations
+    apply pending migrations, then check the database against the snapshot as drift does
 grizzle drift <config>
-    does the database match the snapshot? (applies nothing)
+    does the database match the snapshot? (applies nothing; migrate ends with this check)
 grizzle upgrade <config>
     rebase the live installation onto this grizzle's format: its snapshot again, or an
     upgrade migration (applies nothing)
@@ -5076,9 +5076,10 @@ deploy.
   and each around it, every control character escaped. A PL/pgSQL function is judged by its definition's header and
   by its source's SHA-256 apart: one whose source differs is reported with both digests and the committed statement
   that last defines it (`statement <n> of <folder>/<file>`), the text to compare the installed source with.
-  `drift` runs that check alone, for CI or a schedule. Both judge the database as it stands: a grant already held, or a revoke
-  of a privilege never held, changes nothing. Both refuse a process environment that
-  sets `PGOPTIONS` or `PGREPLICATION`, at stage `environment`.
+  It runs that check in the session that applied, also when nothing was pending, so no `drift` need follow it.
+  `drift` runs the same check alone, for a database not just migrated: from CI or a schedule. Both judge the database
+  as it stands: a grant already held, or a revoke of a privilege never held, changes nothing. Both refuse a process
+  environment that sets `PGOPTIONS` or `PGREPLICATION`, at stage `environment`.
 - **Names come from your code.** A declared name is ASCII letters, digits and underscores, starting with a letter.
   `TaskNote` becomes `task_note` for the schema, tables, derived tables, rosters' domains, contracts, columns, row
   checks, a table's whole view and a role's query entries' views; a contract's CHECK is `check`; a schema's schema of

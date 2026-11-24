@@ -26,9 +26,9 @@ export const helpText = `Usage:
   grizzle check <config> [--phases]
       generated, resolved and untampered? (offline)
   grizzle migrate <config>
-      apply pending migrations
+      apply pending migrations, then check the database against the snapshot as drift does
   grizzle drift <config>
-      does the database match the snapshot? (applies nothing)
+      does the database match the snapshot? (applies nothing; migrate ends with this check)
   grizzle upgrade <config>
       rebase the live installation onto this grizzle's format: its snapshot again, or an
       upgrade migration (applies nothing)
