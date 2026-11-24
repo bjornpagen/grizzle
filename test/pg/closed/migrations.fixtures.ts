@@ -316,7 +316,7 @@ export interface Built {
 /**
  * The model as a schema under `name`, the roster declared as `declaration`: Tier and Node; Allowed and Edge, closed
  * relations over Node under the closed-only law; Held, an id and a Tier; Sets, an id and a set over Tier, once added;
- * `writer` writing Held and Sets whole, `reader` reading them, both of the one login `desk`.
+ * `writer` adding to Held and Sets, which are closed, `reader` reading them, both of the one login `desk`.
  */
 export const builtOf = (name: string, m: Model, declaration: Declaration): Built => {
 	const Tier = closedBuilder(m.tier.closed, declaration, "ordered", [])
@@ -341,8 +341,8 @@ export const builtOf = (name: string, m: Model, declaration: Declaration): Built
 	}
 	const declared: Record<string, AnyRelation | AnyClosed> = { Tier, Node, Allowed, Edge, ...stored }
 	const base = schema(name, Rec.values(declared), [law])
-	const writer = role(base, "writer", stored, { write: Rec.keys(stored) })
-	const reader = role(base, "reader", stored, { write: [] })
+	const writer = role(base, "writer", stored, { insert: Rec.keys(stored) })
+	const reader = role(base, "reader", stored)
 	return {
 		version: { schema: base, logins: [login(base, "desk", [writer, reader])] },
 		writer,
