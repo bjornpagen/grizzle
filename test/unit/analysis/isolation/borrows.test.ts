@@ -17,7 +17,7 @@
 
 import { assert } from "@bjornpagen/testing/assert"
 import { aimed } from "@bjornpagen/testing/gen"
-import { type Case, property } from "@bjornpagen/testing/property"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Order } from "effect"
 import { memberBorrows } from "#compiler/analysis/isolation/borrows.ts"
 import {
@@ -78,7 +78,16 @@ export const aMembersBorrowsAndFaultsAreExactlyTheBorrowRulesOverItsFactsAndTheI
 				kind: "specification",
 				name: "the borrow rules restated over the drawn member: its faults by statement, relation and kind, and its borrows"
 			},
-			kept: [],
+			kept: [
+				{
+					token: ReplayToken(
+						"test/unit/analysis/isolation/borrows.test.ts#aMembersBorrowsAndFaultsAreExactlyTheBorrowRulesOverItsFactsAndTheInstallations:-:0.0.1.2.2.0.0.0.0.0.0.0.1.0.0.1.0.0.0.0.1"
+					),
+					reason:
+						"rotating seed 0x50a7f1e9, case 39: a write joined with the fact its own statement first reads, no statement reading one before it",
+					since: "2026-11-24"
+				}
+			],
 			kills: [
 				{
 					file: "packages/engine/src/analysis/isolation/borrows.ts",
@@ -92,6 +101,12 @@ export const aMembersBorrowsAndFaultsAreExactlyTheBorrowRulesOverItsFactsAndTheI
 						'\t\t} else if (p.mode === "negated" || p.mode === "counted" || p.mode === "arbiter") {\n',
 					replacement: "\t\t} else if (false) {\n",
 					why: "An absence outside every unit read as unborrowed and so the same fault, never the absence the help names; and a negated read of a whole key of an inserted relation read as an immutable fact."
+				},
+				{
+					file: "packages/engine/src/analysis/isolation/borrows.ts",
+					original: "\t\t\t\t...(statement > firstFact && !(joined?.own ?? false)\n",
+					replacement: "\t\t\t\t...(statement >= firstFact && !(joined?.own ?? false)\n",
+					why: "A write in the statement that first reads an immutable fact counted as after it (analysis/isolation/borrows.ts gateFaults): joined with that fact, it is refused as unowned, as though an earlier statement had read it."
 				}
 			]
 		}

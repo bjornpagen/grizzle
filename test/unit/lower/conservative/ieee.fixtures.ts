@@ -1,5 +1,6 @@
 /** What the properties of ieee.test.ts read: its spaces, models and helpers. */
 
+import { maxOf } from "@bjornpagen/grizzle-text/base/array"
 import { assert, assertVariant } from "@bjornpagen/testing/assert"
 import { boolean, constant, element, type Gen, recursive } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
@@ -165,7 +166,7 @@ const formCost = (carrier: Carrier): number => {
 			return bytes(operation(carrier, op, operands, 0).sql) - operands.length * bytes(operand)
 		})
 	)
-	return Arr.reduce(costs, 0, Math.max)
+	return maxOf(costs, 0)
 }
 
 export const costs: { readonly [C in Carrier]: number } = {

@@ -1,5 +1,6 @@
 /** What borrows.test.ts reads: its drawn members and installations, and the borrow rules restated over them. */
 
+import { maxOf } from "@bjornpagen/grizzle-text/base/array"
 import { boolean, constant, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import {
@@ -244,8 +245,10 @@ export const expectedOf = (d: Drawn): Expected => {
 			}
 		}
 	}
-	const firstFact = Arr.reduce([...firsts.values()], Number.POSITIVE_INFINITY, Math.min)
-	const lastFirst = Arr.reduce([...firsts.values()], Number.NEGATIVE_INFINITY, Math.max)
+	const firstFact = Arr.reduce([...firsts.values()], Number.POSITIVE_INFINITY, (least, s) =>
+		Math.min(least, s)
+	)
+	const lastFirst = maxOf(firsts.values(), Number.NEGATIVE_INFINITY)
 	for (const [statement, s] of d.statements.entries()) {
 		const w = s.write
 		if (w !== undefined) {
