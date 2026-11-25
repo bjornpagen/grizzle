@@ -235,11 +235,12 @@ const subject = str.regex("^u_[a-z]{1,8}$")
 
 /**
  * The worlds schema under `name`, for the drift suite: documents and the notes on them, and the session's subject;
- * `editor` reads Doc and writes Mine, the notes of the documents the session's subject owns, under row security through
- * a filter that reads Doc beside Note; `viewer` reads Doc; `keeper` holds Doc whole and writes it, and the login serves
- * it `keep`, a put of Doc from a query over the relation parameter `docs`, read back by its added facts, whose flight
- * creates a carrier: the put's displacing deletion and its insert both read the query's rows; all three in the login
- * `desk`. Each call builds a schema of its own.
+ * `editor` reads Doc and inserts into Mine, the notes of the documents the session's subject owns, under row security
+ * through a filter that reads Doc beside Note, named under insert since Note is closed; `viewer` reads Doc; `keeper`
+ * holds Doc whole and writes it, open and mutable inside the unit Document, and the login serves it `keep`, a put of
+ * Doc from a query over the relation parameter `docs`, read back by its added facts, whose flight creates a carrier:
+ * the put's displacing deletion and its insert both read the query's rows; all three in the login `desk`. Each call
+ * builds a schema of its own.
  */
 export const worlds = (name: string) => {
 	const Doc = relation("Doc", { id: Id, owner: subject, words: pg.integer }, ["id"])
@@ -259,7 +260,12 @@ export const worlds = (name: string) => {
 			.match(Session, { sub: owner })
 			.find({ id, doc, author })
 	})
-	const editor = role(base, "editor", { Doc, Mine: mine }, { write: ["Mine"], contexts: [Session] })
+	const editor = role(
+		base,
+		"editor",
+		{ Doc, Mine: mine },
+		{ insert: ["Mine"], contexts: [Session] }
+	)
 	const viewer = role(base, "viewer", { Doc })
 	const keeper = role(base, "keeper", { Doc }, { write: ["Doc"] })
 	const keep = ChangeSet.empty(keeper)

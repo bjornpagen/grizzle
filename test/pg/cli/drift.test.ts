@@ -3,11 +3,11 @@
  * passes on a fresh installation; once any set of objects is changed by hand it refuses with Drifted, a mismatch of
  * which names each changed object; once the changes are undone it passes again.
  *
- * The installation is the worlds fixture (fixture.ts): `editor` reads Doc and writes Mine, the notes of the documents
- * its session's subject owns, under row security, through a filter that reads Doc beside Note; `viewer` reads Doc;
- * `keeper` writes Doc through a put whose flight creates a carrier, so migrate grants it TEMPORARY on the database; all
- * in the login `desk`. It is generated and migrated through the command line once. Each case draws, for every
- * operator below, whether it plants a change and where, its target picked among what the installed catalog holds,
+ * The installation is the worlds fixture (fixture.ts): `editor` reads Doc and inserts into Mine, the notes of the
+ * documents its session's subject owns, under row security, through a filter that reads Doc beside Note; `viewer` reads
+ * Doc; `keeper` writes Doc through a put whose flight creates a carrier, so migrate grants it TEMPORARY on the
+ * database; all in the login `desk`. It is generated and migrated through the command line once. Each case draws, for
+ * every operator below, whether it plants a change and where, its target picked among what the installed catalog holds,
  * and makes every drawn change at once as the cluster's superuser:
  *
  * - a role's view loses or gains its security barrier;
