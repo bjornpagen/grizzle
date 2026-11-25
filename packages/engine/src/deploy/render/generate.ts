@@ -5,6 +5,7 @@ import { catchRefusal, Refusal, unwrap } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedArtifact } from "#compiler/core/errors.ts"
 import { TemporaryCensus } from "#compiler/core/identity.ts"
 import type { LawId, SchemaFingerprint } from "#compiler/core/ids.ts"
+import { recordedSources } from "#compiler/deploy/admission/manifest.ts"
 import { asidesOf, setAside } from "#compiler/deploy/diff/aside.ts"
 import { applyDeclarations } from "#compiler/deploy/diff/declared.ts"
 import type { Departure } from "#compiler/deploy/diff/departed.ts"
@@ -34,6 +35,7 @@ import {
 	writeMeta
 } from "#compiler/deploy/render/folder.ts"
 import { derivedMigrationName } from "#compiler/deploy/render/naming.ts"
+import { assertSourcesAsRecorded } from "#compiler/deploy/render/sources.ts"
 import { recordFile, renderFile, type SpelledFile, spellFile } from "#compiler/deploy/render/sql.ts"
 import {
 	derivedOf,
@@ -144,7 +146,8 @@ const folderLaws = (snapshot: DeploySnapshot, swaps: ReadonlyArray<Swap>): Folde
  * meta.json's decision record of every file built through the record's one constructor (provedRecord), which proves it
  * over every drafted statement's text before it records each statement that is no decision's and holds no placeholder
  * by its digest, and the meta sealed over it, so `grizzle check` and `grizzle migrate` read it (decisionRecord) without
- * proving it again. It returns the folder's contents and the new snapshot. It reads no file and no clock. The
+ * proving it again; every function the folder creates is held to the snapshot's record of its source by the text the
+ * folder writes (render/sources.ts assertSourcesAsRecorded), an internal compiler error where they differ. It returns the folder's contents and the new snapshot. It reads no file and no clock. The
  * installation is compiled under the codes drafted from `previous`'s (ir/codes.ts draftCodebook over snapshot/build.ts
  * codebookOf): codes that give a code `previous` recorded another meaning are a defect of the caller, never drafted.
  *
@@ -244,6 +247,7 @@ const draftOver = (
 			),
 			files: drafted
 		}).map((f) => unwrap(recordFile(spelledOf(f.file), f.locks.size)))
+		assertSourcesAsRecorded(draftedRecord, recordedSources(snapshot))
 		const recorded = unwrap(provedRecord(draftedRecord))
 		const record = decisionRecord(recorded)
 		const meta: DraftedMeta = {

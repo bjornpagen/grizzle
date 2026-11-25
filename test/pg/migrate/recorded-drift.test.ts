@@ -205,16 +205,16 @@ export const recordedDrift = property.exhaust(caseSpace, {
 	kills: [
 		{
 			file: "packages/engine/src/deploy/snapshot/recorded.ts",
-			original: "\tsourceDigest(sha256Hex(wellFormed(functionSource(block))))",
+			original: "\tsourceDigest(sha256Hex(wellFormed(functionSource(fn))))",
 			replacement:
-				'\tsourceDigest(sha256Hex(wellFormed(functionSource(block).replaceAll("\\t", "\\\\t"))))',
+				'\tsourceDigest(sha256Hex(wellFormed(functionSource(fn).replaceAll("\\t", "\\\\t"))))',
 			why: "A source's digest is taken over its text with each tab escaped, as a drafted file spells it, never as PostgreSQL stores it, so a body holding a tab drifts on every database."
 		},
 		{
 			file: "packages/engine/src/sql/print.ts",
-			original: `export const functionSource = (block: PlBlock): string => \`\\n\${blockLines(block).join("\\n")}\\n\``,
+			original: `export const functionSource = (fn: PlFunction): string => \`\\n\${sourceLines(fn).join("\\n")}\\n\``,
 			replacement:
-				'export const functionSource = (block: PlBlock): string => blockLines(block).join("\\n")',
+				'export const functionSource = (fn: PlFunction): string => sourceLines(fn).join("\\n")',
 			why: "A source's digest is taken over its block's lines without the line feeds its dollar quotes open and close, so every function drifts."
 		},
 		{

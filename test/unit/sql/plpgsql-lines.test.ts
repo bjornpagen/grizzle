@@ -26,7 +26,7 @@ import { boolean, element, finite, type Gen } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import type { PlBlock, PlStatement } from "#compiler/sql/ast.ts"
+import type { PlBlock, PlFunction, PlStatement } from "#compiler/sql/ast.ts"
 import { eq, lit, types } from "#compiler/sql/build.ts"
 import { lexemesOf } from "#compiler/sql/lexer.ts"
 import { functionSource, printCommands, sqlText, writeDoBlock } from "#compiler/sql/print.ts"
@@ -161,6 +161,19 @@ const blockOf = (shape: BlockShape): PlBlock => {
 	return { declare: [], body: [compound, raise(9)] }
 }
 
+/** A function of `block`, whose source functionSource reads. */
+const functionOf = (block: PlBlock): PlFunction => ({
+	kind: "createFunction",
+	language: "plpgsql",
+	name: { schema: "lines", name: "block" },
+	volatility: "VOLATILE",
+	parallel: "UNSAFE",
+	security: "DEFINER",
+	returns: "void",
+	params: [],
+	body: block
+})
+
 /** Every block of the space resolves its lines in one pass and one rescan of its declarations, in either form. */
 export const everyBlockOfCompoundStatementsResolvesItsLinesInOnePass = property.exhaust(
 	finite(blockShapeGen),
@@ -178,7 +191,7 @@ export const everyBlockOfCompoundStatementsResolvesItsLinesInOnePass = property.
 				const block = blockOf(shape)
 				const command = sqlText(SourceLoc("plpgsql-lines", []), (out) => writeDoBlock(out, block))
 				const sources = [
-					{ kind: "a function's body" as const, source: functionSource(block) },
+					{ kind: "a function's body" as const, source: functionSource(functionOf(block)) },
 					...blocksOf(command)
 				]
 				if (shape.lineFeed) {

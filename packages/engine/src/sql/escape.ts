@@ -1,3 +1,4 @@
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import { quoteString } from "#compiler/core/text.ts"
 import { lexemesOf } from "#compiler/sql/lexer.ts"
 
@@ -62,6 +63,53 @@ export const escaped = (text: string): string => {
 		}
 	}
 	return from === 0 ? text : out + text.slice(from)
+}
+
+/** What each named escape escapedValue reads stands for, as escapeOf writes it. */
+const namedEscapes: ReadonlyMap<string, string> = new Map([
+	["\\", "\\"],
+	["b", "\b"],
+	["t", "\t"],
+	["n", "\n"],
+	["f", "\f"],
+	["r", "\r"]
+])
+
+/**
+ * The value of an escape string's content, its quotes undoubled and its pieces joined as the lexer reads them
+ * (sql/lexer.ts, a `string` lexeme prefixed E): each escape escapeOf writes read back, a backslash doubled, \b \t \n \f
+ * \r by name and \uXXXX by its code unit, the inverse of `escaped`. An escape grizzle never writes is a defect, since
+ * only a text grizzle printed is read so.
+ */
+export const escapedValue = (content: string): string => {
+	let out = ""
+	let from = 0
+	let k = content.indexOf("\\")
+	while (k !== -1) {
+		out += content.slice(from, k)
+		const name = content.charAt(k + 1)
+		const named = namedEscapes.get(name)
+		if (named !== undefined) {
+			out += named
+			from = k + 2
+		} else if (name === "u") {
+			const digits = content.slice(k + 2, k + 2 + unicodeEscapeDigits)
+			const unit = Number.parseInt(digits, 16)
+			if (escapeOf(unit) !== `\\u${digits}`) {
+				throw defect(
+					`an escape string grizzle wrote holds the escape \\u${digits}, which it never writes`
+				)
+			}
+			out += String.fromCharCode(unit)
+			from = k + 2 + unicodeEscapeDigits
+		} else {
+			throw defect(
+				`an escape string grizzle wrote holds the escape \\${name}, which it never writes`
+			)
+		}
+		k = content.indexOf("\\", from)
+	}
+	return from === 0 ? content : out + content.slice(from)
 }
 
 /** One piece of an escape string: `value` escaped (escaped) and its quotes doubled, between quotes. */

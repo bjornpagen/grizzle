@@ -27,9 +27,9 @@ declare const sourceDigestBrand: unique symbol
 
 const sourceDigest = nominal<string, SourceDigest>()
 
-/** The digest of the source a PL/pgSQL block installs as. */
-const sourceDigestOf = (block: PlBlock): SourceDigest =>
-	sourceDigest(sha256Hex(wellFormed(functionSource(block))))
+/** The digest of the source a PL/pgSQL function installs as: of the body its CREATE FUNCTION writes (functionSource). */
+const sourceDigestOf = (fn: PlFunction): SourceDigest =>
+	sourceDigest(sha256Hex(wellFormed(functionSource(fn))))
 
 /** A function's CREATE FUNCTION without its body, one variant per form of what it returns. */
 type HeaderOf<F> = F extends unknown ? Omit<F, "body"> : never
@@ -219,7 +219,7 @@ const recordedStatement = (s: SqlStatement): RecordedStatement => {
 	if (s.kind !== "createFunction" || s.language === "sql") {
 		return s
 	}
-	return { kind: "recordedFunction", header: functionHeader(s), source: sourceDigestOf(s.body) }
+	return { kind: "recordedFunction", header: functionHeader(s), source: sourceDigestOf(s) }
 }
 
 /** Each compiled object's record, made once: a PL/pgSQL function's digests its whole source, which a draft compares

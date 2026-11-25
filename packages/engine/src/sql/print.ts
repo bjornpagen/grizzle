@@ -143,7 +143,7 @@ import {
 } from "#compiler/sql/catalog.ts"
 import { lineFeedsEscaped } from "#compiler/sql/escape.ts"
 import type { CarrierName } from "#compiler/sql/naming.ts"
-import { printedOnce } from "#compiler/sql/print-once.ts"
+import { printedFunction, printedOnce } from "#compiler/sql/print-once.ts"
 import { identityHooks, statementParams, Transform } from "#compiler/sql/transform.ts"
 
 /**
@@ -2681,13 +2681,33 @@ const blockLines = (block: PlBlock): ReadonlyArray<string> => {
 	return body
 }
 
+/** Each printed PL/pgSQL function's source lines (sourceLines), by its printed form. */
+const sourceLinesOf = new WeakMap<PlFunction, ReadonlyArray<string>>()
+
+/**
+ * A PL/pgSQL function's body as its CREATE FUNCTION holds it, line by line: the lines of its printed form's body
+ * (sql/print-once.ts printedFunction), made once per function. Its CREATE FUNCTION writes them between its dollar quotes
+ * (createFunctionBlock) and its record digests them (functionSource): one print, so no record digests a text its file
+ * does not hold.
+ */
+const sourceLines = (fn: PlFunction): ReadonlyArray<string> => {
+	const form = printedFunction(fn)
+	const known = sourceLinesOf.get(form)
+	if (known !== undefined) {
+		return known
+	}
+	const lines = blockLines(form.body)
+	sourceLinesOf.set(form, lines)
+	return lines
+}
+
 /**
  * The source PostgreSQL stores of a PL/pgSQL function this printer writes, its pg_proc.prosrc: the value of the
- * dollar-quoted string between `AS <tag>` and `<tag>`, each on a line of its own (dollarQuoted), so a line feed begins
- * and ends it around the block's lines. A drafted file that spells the body as an escape string (deploy/render/filed.ts)
- * spells this value too.
+ * dollar-quoted string between `AS <tag>` and `<tag>`, each on a line of its own (quotedLines), so a line feed begins
+ * and ends it around its body's lines, the very lines its CREATE FUNCTION writes (sourceLines). A drafted file that
+ * spells the body as an escape string (deploy/render/filed.ts) spells this value too.
  */
-export const functionSource = (block: PlBlock): string => `\n${blockLines(block).join("\n")}\n`
+export const functionSource = (fn: PlFunction): string => `\n${sourceLines(fn).join("\n")}\n`
 
 /** `<opener> <tag>`, the block's lines, and the tag: a function's `AS` body or a DO statement. */
 const dollarQuoted = (out: Lines, opener: "AS" | "DO", block: PlBlock): void =>
@@ -2776,7 +2796,7 @@ const createFunctionBlock = (out: Lines, fn: CreateFunction): void => {
 	)
 	switch (fn.language) {
 		case "plpgsql":
-			return dollarQuoted(out, "AS", fn.body)
+			return quotedLines(out, "AS", sourceLines(fn))
 		case "sql":
 			return out.line(`RETURN ${printExpr(fn.body)}`)
 	}

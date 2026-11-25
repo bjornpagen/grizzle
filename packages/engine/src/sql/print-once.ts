@@ -8,6 +8,7 @@ import {
 	type FromItem,
 	type FromSource,
 	type OperandSelect,
+	type PlFunction,
 	type SqlStatement,
 	type With
 } from "#compiler/sql/ast.ts"
@@ -15,6 +16,7 @@ import {
 	type AstHooks,
 	identityHooks,
 	inertVisitor,
+	Transform,
 	transformQuery,
 	transformStatement,
 	visitDml,
@@ -177,12 +179,38 @@ const queryPrintedOnce = (query: OperandSelect): OperandSelect => {
 
 /**
  * The statement as it is printed (the module header): every CTE PostgreSQL would inline printed in place, its
- * sub-queries' first, then its own WITH's, a data-modifying statement's among them. Held to assertPrintedOnce.
+ * sub-queries' first, then its own WITH's, a data-modifying statement's among them. Held to assertPrintedOnce. A
+ * PL/pgSQL function is its printed form (printedFunction), made once.
  */
 export const printedOnce = (statement: SqlStatement): SqlStatement => {
+	if (statement.kind === "createFunction" && statement.language === "plpgsql") {
+		return printedFunction(statement)
+	}
 	const nested = transformStatement(statement, { ...identityHooks, select: queryPrintedOnce })
 	const printed = isDmlWithWith(nested) ? dmlPrintedOnce(nested) : nested
 	assertPrintedOnce(printed)
+	return printed
+}
+
+/** Each PL/pgSQL function's printed form (printedFunction), by the function it prints and by itself. */
+const printedFunctions = new WeakMap<PlFunction, PlFunction>()
+
+/**
+ * A PL/pgSQL function as it is printed: every query of its body printed once (queryPrintedOnce), made once per
+ * function, a printed function its own form. The one form its text is printed from, so its CREATE FUNCTION's body and
+ * the source its snapshot records the digest of (sql/print.ts functionSource) are one print of one body, never a print
+ * of the body as it was lowered beside the printed one's.
+ */
+export const printedFunction = (fn: PlFunction): PlFunction => {
+	const known = printedFunctions.get(fn)
+	if (known !== undefined) {
+		return known
+	}
+	const body = new Transform({ ...identityHooks, select: queryPrintedOnce }).plBlock(fn.body)
+	const printed: PlFunction = body === fn.body ? fn : { ...fn, body }
+	assertPrintedOnce(printed)
+	printedFunctions.set(fn, printed)
+	printedFunctions.set(printed, printed)
 	return printed
 }
 
