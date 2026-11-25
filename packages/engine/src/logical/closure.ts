@@ -52,11 +52,15 @@ import {
  * its work grows with the keys it finds, and no key is dropped.
  */
 
-/** A dependency a node states, interned: its determinants as a set, and its targets that are attributes, in its order. */
+/**
+ * A dependency a node states, interned: its determinants as a set, and its targets that are attributes, in its order
+ * and as a set, the set a closure's visit reads to know in a few words that it has none left to reach.
+ */
 export interface Row {
 	readonly dependency: Dependency
 	readonly from: Bits
 	readonly to: ReadonlyArray<number>
+	readonly targets: Bits
 }
 
 /**
@@ -75,6 +79,21 @@ export interface Rows {
 	 */
 	readonly readersAt: Int32Array
 	readonly readers: Int32Array
+	/** The one set of buffers every closure over the rows runs in, one closure at a time (Closing). */
+	readonly buffers: ClosureBuffers
+}
+
+/**
+ * What a closure over a table keeps of each row while it runs, held by the table for every closure over it: each row's
+ * marks and its determinants not reached yet, the rows due, and the rows the closure touched. Between closures every
+ * mark is clear and every count is its row's determinants (Rows determinants), so a closure begins at once and, when it
+ * ends, sets back only the rows it touched: its work is what it reads, never the table's size twice over.
+ */
+interface ClosureBuffers {
+	readonly marks: Uint8Array
+	readonly missing: Int32Array
+	readonly due: PassQueue
+	readonly touched: Array<number>
 }
 
 /** Rows over `attributes`, indexed: each row's determinants counted, each position's readers packed. */
@@ -106,7 +125,13 @@ const indexed = (attributes: Attributes, rows: ReadonlyArray<Row>): Rows => {
 			filled[p] = at + 1
 		}
 	}
-	return { attributes, rows, determinants, readersAt, readers }
+	const buffers: ClosureBuffers = {
+		marks: new Uint8Array(rows.length),
+		missing: determinants.slice(),
+		due: new PassQueue(rows.length),
+		touched: []
+	}
+	return { attributes, rows, determinants, readersAt, readers, buffers }
 }
 
 /** The set of a dependency's determinants `columns`, every one an attribute of its node. */
@@ -143,11 +168,14 @@ const positionsIn = (
 export const rowsOf = (attributes: Attributes, dependencies: ReadonlyArray<Dependency>): Rows =>
 	indexed(
 		attributes,
-		dependencies.map((dependency) => ({
-			dependency,
-			from: determinantsAt(attributes, dependency.from),
-			to: positionsIn(attributes, dependency.to)
-		}))
+		dependencies.map((dependency) => {
+			const to = positionsIn(attributes, dependency.to)
+			const targets = noBits(attributes)
+			for (const p of to) {
+				addTo(targets, p)
+			}
+			return { dependency, from: determinantsAt(attributes, dependency.from), to, targets }
+		})
 	)
 
 /** The rows of a node's dependencies `kept` holds, in table order: a closure over some of its dependencies. */
@@ -294,6 +322,7 @@ export const closure = <V>(rows: Rows, start: Bits, naming: Naming<V>): Closure<
 		run.reach(naming)
 	}
 	run.reach(every)
+	run.release()
 	return run.closure()
 }
 
@@ -308,13 +337,17 @@ class Closing<V> {
 	/** The values named so far, by position: none until a step names one. */
 	#named: Map<number, V> | undefined
 	/**
-	 * Each row's marks: spent, every target it can reach reached; fired, a target reached by it; and asked, asked in the
-	 * round of namings since a value it copies was last named, so asking it again names nothing.
+	 * Each row's marks: spent, every target it can reach reached; fired, a target reached by it; asked, asked in the
+	 * round of namings since a value it copies was last named, so asking it again names nothing; and touched, set back
+	 * when the closure ends (release). The table's buffers (Rows buffers), as its count of each row's determinants not
+	 * reached yet and its rows due are.
 	 */
 	readonly #marks: Uint8Array
 	/** Each row's determinants not reached yet. */
 	readonly #missing: Int32Array
 	readonly #due: PassQueue
+	/** The rows whose mark or count this closure changed, each once: what release sets back. */
+	readonly #touched: Array<number>
 	/**
 	 * The positions a visit adds, one visit's at a time: in the round of namings, each one it names, since a visit there
 	 * adds only a target it names.
@@ -322,22 +355,50 @@ class Closing<V> {
 	readonly #added: Array<number> = []
 
 	constructor(rows: Rows, start: Bits) {
-		const { attributes, readersAt, readers } = rows
+		const { attributes, readersAt, readers, buffers } = rows
 		this.#rows = rows
 		this.#start = start
 		this.#reached = copyBits(start)
 		this.#sequence = positions(start)
 		this.#by = new Int32Array(attributes.names.length)
-		this.#marks = new Uint8Array(rows.rows.length)
-		const missing = rows.determinants.slice()
+		this.#marks = buffers.marks
+		this.#missing = buffers.missing
+		this.#due = buffers.due
+		this.#touched = buffers.touched
 		for (const p of this.#sequence) {
 			for (let r = readersAt[p] ?? 0; r < (readersAt[p + 1] ?? 0); r++) {
-				const i = readers[r] ?? 0
-				missing[i] = (missing[i] ?? 0) - 1
+				this.#count(readers[r] ?? 0)
 			}
 		}
-		this.#missing = missing
-		this.#due = new PassQueue(rows.rows.length)
+	}
+
+	/** A determinant of the row at `i` reached: one fewer missing, the row touched. */
+	#count(i: number): void {
+		this.#touch(i)
+		this.#missing[i] = (this.#missing[i] ?? 0) - 1
+	}
+
+	/** The row at `i` touched by this closure, once: set back when it ends (release). */
+	#touch(i: number): void {
+		const mark = this.#marks[i] ?? 0
+		if ((mark & touchedMark) === 0) {
+			this.#marks[i] = mark | touchedMark
+			this.#touched.push(i)
+		}
+	}
+
+	/**
+	 * The table's buffers as they were before the closure, once its rounds have run: each row it touched unmarked and
+	 * missing all its determinants again. No row is due, since every round runs until none is, so the next closure over
+	 * the table begins where this one did.
+	 */
+	release(): void {
+		const determinants = this.#rows.determinants
+		for (const i of this.#touched) {
+			this.#marks[i] = 0
+			this.#missing[i] = determinants[i] ?? 0
+		}
+		this.#touched.length = 0
 	}
 
 	/** The closure reached. */
@@ -372,8 +433,12 @@ class Closing<V> {
 		const { readersAt, readers } = this.#rows
 		const reached = this.#reached
 		const marks = this.#marks
-		const missing = this.#missing
 		const added = this.#added
+		this.#touch(i)
+		if (subsetOf(row.targets, reached)) {
+			marks[i] = (marks[i] ?? 0) | spentMark
+			return
+		}
 		added.length = 0
 		let unreached = 0
 		const targets = row.to
@@ -414,7 +479,7 @@ class Closing<V> {
 			this.#sequence.push(p)
 			for (let r = readersAt[p] ?? 0; r < (readersAt[p + 1] ?? 0); r++) {
 				const j = readers[r] ?? 0
-				missing[j] = (missing[j] ?? 0) - 1
+				this.#count(j)
 				if (this.visits(j, admission)) {
 					this.#due.add(j)
 				}
@@ -424,6 +489,7 @@ class Closing<V> {
 			for (const p of added) {
 				for (let r = admission.copiersAt[p] ?? 0; r < (admission.copiersAt[p + 1] ?? 0); r++) {
 					const j = admission.copiers[r] ?? 0
+					this.#touch(j)
 					marks[j] = (marks[j] ?? 0) & ~askedMark
 					if (this.visits(j, admission)) {
 						this.#due.add(j)
@@ -496,6 +562,7 @@ class PassQueue {
 		this.#at = -1
 	}
 
+
 	/** The least row of the pass at `base` at `from` or after, clearing it; none when it holds none there. */
 	#take(base: number, from: number): number | undefined {
 		const bits = this.#bits
@@ -520,6 +587,9 @@ const firedMark = 2
 
 /** A row's mark that it was asked in the round of namings since a value it copies was last named. */
 const askedMark = 4
+
+/** A row's mark that the closure running changed its mark or its count, so the closure sets it back when it ends. */
+const touchedMark = 8
 
 /** The values of a closure that named none. */
 const namedNothing: ReadonlyMap<number, never> = new Map<number, never>()

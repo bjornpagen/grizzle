@@ -8,6 +8,11 @@
  *   those counts.
  * - A naming closure (logical/closure.ts closure): it names, reaches and fires as the passes' round of namings and then
  *   of every row would, a row asked again once a value it copies is named. Oracle: the passes.
+ * - Closures over one table (logical/closure.ts Rows buffers): each runs in the table's one set of buffers and sets back
+ *   the rows it touched, so every closure of a sequence over one table, named or not, answers as one over a table of
+ *   its own. Oracle: the passes, each on a table of its own.
+ * - A closure's visit of a spent row (logical/closure.ts Row targets): decided by its targets' set in a few words, so
+ *   over n closed rows of n − 1 targets the target reads grow as n, never n². Oracle: that growth bound.
  * - The factor search's judging closures (logical/closure.ts irredundant, factorClosures): each stops as soon as it
  *   holds the targets it judges, so over m redundant dependencies beside m of no determinant its firings grow as m,
  *   never m². Oracle: that growth bound, and the factors each a_i and b_i alone.
@@ -87,6 +92,7 @@ import { callCounts, everyCallCount as callCountsIn } from "#test/support/kernel
 import {
 	type ClosureFeature,
 	closedMask,
+	closedTable,
 	columnsIn,
 	columnsOf,
 	type CyclePoint,
@@ -105,6 +111,9 @@ import {
 	type ReadingPoint,
 	readingQuery,
 	readings,
+	type SharedFeature,
+	sharedStartsGen,
+	targetSites,
 	redundantTable,
 	insideRecord,
 	type SharedPoint,
@@ -274,6 +283,160 @@ export const aNamingClosureNamesAndFiresAsPassesInTableOrderWould = property.exp
 		]
 	}
 )
+
+/**
+ * Every closure over one table answers as a closure of a table of its own: the table keeps one set of buffers for its
+ * closures (logical/closure.ts Rows buffers), each closure setting back the rows it touched when it ends, so over a
+ * table closed from several starts in turn, each with its naming or with none, every closure's columns, rows, order and
+ * values are the passes'.
+ */
+export const everyClosureOverOneTableAnswersAsAClosureOfATableOfItsOwn = property.explore(
+	sharedStartsGen,
+	{
+		needs: {},
+		budget: { runs: 300, steered: 300 },
+		situations: [
+			"a named closure after an unnamed one",
+			"a closure after one that reached every column",
+			"a closure that fires a row the one before it spent"
+		] satisfies ReadonlyArray<Reached<SharedFeature>>,
+		check:
+			(_, c: Case<SharedFeature>) =>
+			({ table, sources, starts }) =>
+				Effect.sync(() => {
+					const attributes = attributesOver(columnsOf(table), [])
+					const rows = rowsOf(attributes, dependenciesOf(table))
+					const naming = namingOf(rows, sources)
+					const every = 2 ** table.width - 1
+					let before:
+						| {
+								readonly named: boolean
+								readonly known: number
+								readonly fired: ReadonlyArray<number>
+						  }
+						| undefined
+					for (const [i, { start, named }] of starts.entries()) {
+						const reached = closure(
+							rows,
+							bitsOf(attributes, columnsIn(table, start)),
+							named ? naming : namesNothing
+						)
+						const passes = passClosure(table, start, named ? sources : undefined)
+						const at = `closure ${i} over the table, from ${start}${named ? ", named" : ""}`
+						assert.deepEqual<ReadonlyArray<number>>(
+							reached.sequence,
+							passes.sequence,
+							`${at}: the columns`
+						)
+						assert.deepEqual<ReadonlyArray<number>>(
+							[...reached.by],
+							passes.by,
+							`${at}: each column's row`
+						)
+						assert.deepEqual(reached.fired, passes.fired, `${at}: the rows that fired`)
+						assert.deepEqual(
+							Arr.sort(
+								[...reached.named],
+								Order.mapInput(Order.Number, ([p]: readonly [number, number]) => p)
+							),
+							Arr.sort(
+								[...passes.named],
+								Order.mapInput(Order.Number, ([p]: readonly [number, number]) => p)
+							),
+							`${at}: the values named`
+						)
+						if (before !== undefined) {
+							if (named && !before.named) {
+								c.note("a named closure after an unnamed one")
+							}
+							if (before.known === every) {
+								c.note("a closure after one that reached every column")
+							}
+							if (Arr.some(reached.fired, (r) => before?.fired.includes(r) === true)) {
+								c.note("a closure that fires a row the one before it spent")
+							}
+						}
+						before = { named, known: closedMask(table, start), fired: reached.fired }
+					}
+				}),
+		oracle: {
+			kind: "second-implementation",
+			name: "passes over the dependencies in table order, each closure on a table of its own"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/logical/closure.ts",
+				original: "\t\t\tthis.#missing[i] = determinants[i] ?? 0\n",
+				replacement: "",
+				why: "A closure leaves its table's counts as it ran them down (logical/closure.ts Closing release): the next closure over the table fires a row before its determinants are reached; the shared-table property fails."
+			},
+			{
+				file: "packages/engine/src/logical/closure.ts",
+				original: "\t\t\tthis.#marks[i] = 0\n",
+				replacement: "",
+				why: "A closure leaves its table's marks (logical/closure.ts Closing release): the next closure over the table never visits a row the last one spent; the shared-table property fails."
+			}
+		]
+	}
+)
+
+/**
+ * A closure's visit decides in a few words that a row has no target left to reach: each row holds its targets as a set
+ * (logical/closure.ts Row targets), so over n closed rows of n − 1 targets each, every column alone determining every
+ * other, the closure from one column reads each target it adds and none of a row it visits spent, and its reads grow
+ * no faster than n, where reading every target of every visited row grew as n².
+ */
+export const aClosureVisitDecidesARowWithNothingLeftToReachInAFewWordsReadsLinearInTheTable =
+	property.exhaust(finite(int(2, 3)), {
+		needs: {},
+		situations: ["from n = 4", "from n = 6"] satisfies ReadonlyArray<Reached<CyclePoint>>,
+		check: (_, c: Case<CyclePoint>) => (half) =>
+			Effect.gen(function* () {
+				c.note(half === 2 ? "from n = 4" : "from n = 6")
+				const counted = new Map<number, number>()
+				for (const n of [2 * half, 4 * half, 6 * half]) {
+					const table = closedTable(n)
+					const rows = rowsOf(table.attributes, table.dependencies)
+					const [reached, counts] = yield* callCounts(
+						Effect.sync(() => closure(rows, table.start, namesNothing)),
+						targetSites
+					)
+					assert.deepEqual(
+						namesOf(table.attributes, reached.reached),
+						Arr.map(indices(n), (i) => `c${i}`),
+						"every column"
+					)
+					assert.deepEqual(reached.fired, [0], "by the first row alone")
+					counted.set(n, counts.holdsAt)
+				}
+				incrementsDoNotGrow(
+					(n) => defined(counted.get(n), `the target reads at n = ${n}`),
+					half,
+					"a closure's reads of its rows' targets"
+				)
+			}),
+		oracle: {
+			kind: "universal",
+			name: "a count that grows no faster than linearly increments no more over its second equal step than over its first"
+		},
+		box: "n closed rows at 2h, 4h and 6h, h at 2 and 3",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/logical/closure.ts",
+				original: "\t\tif (subsetOf(row.targets, reached)) {\n",
+				replacement: "\t\tif (false) {\n",
+				why: "A visit reads every target of a row it finds spent (logical/closure.ts Closing step), as it did before rows held their targets as a set; the reads grow as n²."
+			},
+			{
+				file: "packages/engine/src/logical/closure.ts",
+				original: "\t\tif (subsetOf(row.targets, reached)) {\n",
+				replacement: "\t\tif (subsetOf(row.from, reached)) {\n",
+				why: "A visit finds spent a row that still has a target to reach, the shortcut citing its determinants for its targets (logical/closure.ts Closing step): the closure reaches no column past its start; this property and the order, naming and shared-table properties fail."
+			}
+		]
+	})
 
 /**
  * A key search tests each candidate against the keys it found by their set-trie, never one by one: over n columns each

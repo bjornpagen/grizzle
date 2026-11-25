@@ -260,6 +260,52 @@ export const visitSites = Object.freeze({
 	visits: { file: "packages/engine/src/logical/closure.ts", name: "visits" }
 } satisfies Readonly<Record<string, CountedFunction>>)
 
+/** A closure's test that a set holds an attribute, which its visit of a row reads once for each target it scans. */
+export const targetSites = Object.freeze({
+	holdsAt: { file: "packages/engine/src/logical/attributes.ts", name: "holdsAt" }
+} satisfies Readonly<Record<string, CountedFunction>>)
+
+/**
+ * A table of n columns c0, …, c(n − 1) whose every column alone determines every other, each row closed as a parent's
+ * carried row is (logical/props.ts carried: a determinant to the whole of its closure): a closure from c0 reaches every
+ * column by its first row, and every other row is then due and visited with no target left to reach.
+ */
+export const closedTable = (n: number) => {
+	const columns = Arr.map(indices(n), (i) => `c${i}`)
+	const attributes = attributesOver(columns, [])
+	const dependencies = Arr.map(columns, (c) =>
+		projectionCloses(
+			[c],
+			Arr.filter(columns, (o) => o !== c),
+			implication([c], [])
+		)
+	)
+	return { attributes, dependencies, start: bitsOf(attributes, ["c0"]) }
+}
+
+/**
+ * Closures over one table, one after another: a drawn table and its sources (namedStartGen), and two to four further
+ * starts, each closed with the table's naming or with none.
+ */
+export interface SharedStarts extends NamedStart {
+	readonly starts: ReadonlyArray<{ readonly start: number; readonly named: boolean }>
+}
+
+export const sharedStartsGen: Gen<SharedStarts> = (source) => {
+	const drawn = source.draw(namedStartGen)
+	const width = drawn.table.width
+	const starts = Arr.map(indices(source.draw(int(2, 4))), () => ({
+		start: source.draw(int(0, 2 ** width - 1)),
+		named: source.draw(boolean)
+	}))
+	return { ...drawn, starts: [{ start: drawn.start, named: true }, ...starts] }
+}
+
+export type SharedFeature =
+	| "a named closure after an unnamed one"
+	| "a closure after one that reached every column"
+	| "a closure that fires a row the one before it spent"
+
 export type NamingFeature =
 	| "a row asked again once a value is named"
 	| "a value named"
