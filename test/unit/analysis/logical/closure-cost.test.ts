@@ -13,6 +13,8 @@
  *   its own. Oracle: the passes, each on a table of its own.
  * - A closure's visit of a spent row (logical/closure.ts Row targets): decided by its targets' set in a few words, so
  *   over n closed rows of n − 1 targets the target reads grow as n, never n². Oracle: that growth bound.
+ * - A closure through an evidence stage (logical/closure.ts rowsThrough): it reads the rows of its stage and of the less
+ *   demanding ones alone, as passes over the table of those rows would. Oracle: the passes, over that table.
  * - The factor search's judging closures (logical/closure.ts irredundant, factorClosures): each stops as soon as it
  *   holds the targets it judges, so over m redundant dependencies beside m of no determinant its firings grow as m,
  *   never m². Oracle: that growth bound, and the factors each a_i and b_i alone.
@@ -81,6 +83,8 @@ import {
 import {
 	closure,
 	independentFactors,
+	rowsOver,
+	rowsThrough,
 	minimalKeys,
 	namesNothing,
 	rowsOf
@@ -113,6 +117,8 @@ import {
 	readings,
 	type SharedFeature,
 	sharedStartsGen,
+	type StagedFeature,
+	stagedStartGen,
 	targetSites,
 	redundantTable,
 	insideRecord,
@@ -124,6 +130,7 @@ import {
 	visitSites
 } from "#test/unit/analysis/logical/closure-cost.fixtures.ts"
 import { productOf } from "#test/unit/analysis/logical/join-cost.fixtures.ts"
+import type { Table } from "#test/unit/analysis/logical/keys.fixtures.ts"
 
 /**
  * A closure fires each row as passes over the table in table order would, and visits each at most once: each column by
@@ -376,6 +383,97 @@ export const everyClosureOverOneTableAnswersAsAClosureOfATableOfItsOwn = propert
 				original: "\t\t\tthis.#marks[i] = 0\n",
 				replacement: "",
 				why: "A closure leaves its table's marks (logical/closure.ts Closing release): the next closure over the table never visits a row the last one spent; the shared-table property fails."
+			}
+		]
+	}
+)
+
+/**
+ * A closure through an evidence stage reads the rows holding through it alone (logical/closure.ts rowsThrough): over a
+ * drawn table whose every row holds through one of three stages, a closure of the table through a stage reaches,
+ * fires and orders as the passes over the table of those rows alone, the rows of its stage or of a less demanding one,
+ * would, so a row of a more demanding stage never fires.
+ */
+export const aClosureThroughAStageReadsTheRowsHoldingThroughItAlone = property.explore(
+	stagedStartGen,
+	{
+		needs: {},
+		budget: { runs: 300, steered: 300 },
+		situations: [
+			"a row a stage does not admit that the whole table fires",
+			"a stage admitting every row",
+			"a row of the stage itself that fires"
+		] satisfies ReadonlyArray<Reached<StagedFeature>>,
+		check:
+			(_, c: Case<StagedFeature>) =>
+			({ table, start, stages, through }) =>
+				Effect.sync(() => {
+					const attributes = attributesOver(columnsOf(table), [])
+					const plain = dependenciesOf(table)
+					const rows = rowsOver(
+						attributes,
+						Arr.map(plain, (dependency, i) => ({
+							dependency,
+							from: bitsOf(attributes, dependency.from),
+							to: Arr.map(dependency.to, (n) => defined(attributes.at.get(n), n)),
+							stage: stages[i] ?? 0
+						}))
+					)
+					const admitted = Arr.filter(
+						indices(table.dependencies.length),
+						(i) => (stages[i] ?? 0) <= through
+					)
+					const reference: Table = {
+						width: table.width,
+						dependencies: Arr.map(admitted, (i) =>
+							defined(table.dependencies[i], "an admitted row")
+						)
+					}
+					const reached = closure(
+						rowsThrough(rows, through),
+						bitsOf(attributes, columnsIn(table, start)),
+						namesNothing
+					)
+					const passes = passClosure(reference, start, undefined)
+					assert.deepEqual<ReadonlyArray<number>>(
+						reached.sequence,
+						passes.sequence,
+						"the columns, in order"
+					)
+					assert.deepEqual<ReadonlyArray<number>>(
+						[...reached.by],
+						passes.by,
+						"each column by its row of the stage's table"
+					)
+					assert.deepEqual(reached.fired, passes.fired, "the rows that fired, in the passes' order")
+					const whole = passClosure(table, start, undefined)
+					if (Arr.some(whole.fired, (i) => (stages[i] ?? 0) > through)) {
+						c.note("a row a stage does not admit that the whole table fires")
+					}
+					if (admitted.length === table.dependencies.length) {
+						c.note("a stage admitting every row")
+					}
+					if (Arr.some(passes.fired, (i) => (stages[admitted[i] ?? -1] ?? -1) === through)) {
+						c.note("a row of the stage itself that fires")
+					}
+				}),
+		oracle: {
+			kind: "second-implementation",
+			name: "passes over the dependencies the stage admits, in table order, the others removed"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/logical/closure.ts",
+				original: "\t\t\t\t\t\trows.filter((row) => row.stage <= stage)\n",
+				replacement: "\t\t\t\t\t\trows.filter((row) => row.stage <= stage + 1)\n",
+				why: "A stage admits the rows of the stage more demanding than it (logical/closure.ts rowsThrough): a closure through it fires a row it does not hold through; the stages property fails."
+			},
+			{
+				file: "packages/engine/src/logical/closure.ts",
+				original: "\tstage >= rows.highest\n",
+				replacement: "\tstage >= 0\n",
+				why: "Every stage is the whole table (logical/closure.ts rowsThrough): a closure through the least demanding stage fires every row; the stages property fails."
 			}
 		]
 	}

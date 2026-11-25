@@ -53,14 +53,18 @@ import {
  */
 
 /**
- * A dependency a node states, interned: its determinants as a set, and its targets that are attributes, in its order
- * and as a set, the set a closure's visit reads to know in a few words that it has none left to reach.
+ * A dependency a table states, interned: the dependency itself, `D` (a node's logical dependency, ir/keys.ts, or a
+ * physical implication with its justification, analysis/physical/fds.ts), its determinants as a set, its targets that
+ * are attributes, in its order and as a set, the set a closure's visit reads to know in a few words that it has none
+ * left to reach, and the evidence stage it holds through: its index among its table's stages, 0 the least demanding,
+ * which every row of a table of one stage, a logical one among them, holds.
  */
-export interface Row {
-	readonly dependency: Dependency
+export interface Row<D = Dependency> {
+	readonly dependency: D
 	readonly from: Bits
 	readonly to: ReadonlyArray<number>
 	readonly targets: Bits
+	readonly stage: number
 }
 
 /**
@@ -68,9 +72,9 @@ export interface Row {
  * index a closure fires them by (Beeri and Bernstein's LINCLOSURE, below): each row's determinants counted, and each
  * position's rows reading it.
  */
-export interface Rows {
+export interface Rows<D = Dependency> {
 	readonly attributes: Attributes
-	readonly rows: ReadonlyArray<Row>
+	readonly rows: ReadonlyArray<Row<D>>
 	/** Each row's determinants, counted: the positions a closure waits for before the row fires. */
 	readonly determinants: Int32Array
 	/**
@@ -81,7 +85,28 @@ export interface Rows {
 	readonly readers: Int32Array
 	/** The one set of buffers every closure over the rows runs in, one closure at a time (Closing). */
 	readonly buffers: ClosureBuffers
+	/** The most demanding stage a row of the table holds through: 0 for a table of one stage, a logical one among them. */
+	readonly highest: number
+	/**
+	 * The table through each stage less demanding than its highest, by the stage's index: the rows holding through it,
+	 * those of its stage or of a less demanding one, in table order (rowsThrough); none for a table of one stage.
+	 */
+	readonly below: ReadonlyArray<Rows<D>>
 }
+
+/** The tables below a table of one stage: none. */
+const noneBelow: ReadonlyArray<never> = Object.freeze([])
+
+/**
+ * `rows` through the evidence stage at `stage`: the rows holding through it, those of its stage or of a less demanding
+ * one, in table order; the table itself through any stage at or past its rows' most demanding. A closure through a
+ * stage is a closure of its table (closure), so the rows the stage does not admit never fire, and those it admits fire
+ * as the passes over the table would fire them were the others not there.
+ */
+export const rowsThrough = <D>(rows: Rows<D>, stage: number): Rows<D> =>
+	stage >= rows.highest
+		? rows
+		: defined(rows.below[stage], "a table holds each stage below its highest")
 
 /**
  * What a closure over a table keeps of each row while it runs, held by the table for every closure over it: each row's
@@ -97,7 +122,7 @@ interface ClosureBuffers {
 }
 
 /** Rows over `attributes`, indexed: each row's determinants counted, each position's readers packed. */
-const indexed = (attributes: Attributes, rows: ReadonlyArray<Row>): Rows => {
+const indexed = <D>(attributes: Attributes, rows: ReadonlyArray<Row<D>>): Rows<D> => {
 	const size = attributes.names.length
 	const determinants = new Int32Array(rows.length)
 	const readersAt = new Int32Array(size + 1)
@@ -131,7 +156,17 @@ const indexed = (attributes: Attributes, rows: ReadonlyArray<Row>): Rows => {
 		due: new PassQueue(rows.length),
 		touched: []
 	}
-	return { attributes, rows, determinants, readersAt, readers, buffers }
+	const highest = rows.reduce((most, row) => Math.max(most, row.stage), 0)
+	const below =
+		highest === 0
+			? noneBelow
+			: Array.from({ length: highest }, (_, stage) =>
+					indexed(
+						attributes,
+						rows.filter((row) => row.stage <= stage)
+					)
+				)
+	return { attributes, rows, determinants, readersAt, readers, buffers, highest, below }
 }
 
 /** The set of a dependency's determinants `columns`, every one an attribute of its node. */
@@ -166,20 +201,43 @@ const positionsIn = (
  * every builder of a node's dependencies states them (logical/props.ts), and its targets among the attributes.
  */
 export const rowsOf = (attributes: Attributes, dependencies: ReadonlyArray<Dependency>): Rows =>
+	rowsOver(
+		attributes,
+		dependencies.map((dependency) => ({
+			dependency,
+			from: determinantsAt(attributes, dependency.from),
+			to: positionsIn(attributes, dependency.to),
+			stage: 0
+		}))
+	)
+
+/**
+ * A table of `entries` over `attributes`, each a dependency `D` with its determinants as a set, its targets among the
+ * attributes in its order and the evidence stage it holds through: the one table every closure reads, a node's logical
+ * dependencies (rowsOf) and a fragment's physical implications alike.
+ */
+export const rowsOver = <D>(
+	attributes: Attributes,
+	entries: ReadonlyArray<{
+		readonly dependency: D
+		readonly from: Bits
+		readonly to: ReadonlyArray<number>
+		readonly stage: number
+	}>
+): Rows<D> =>
 	indexed(
 		attributes,
-		dependencies.map((dependency) => {
-			const to = positionsIn(attributes, dependency.to)
+		entries.map((entry) => {
 			const targets = noBits(attributes)
-			for (const p of to) {
+			for (const p of entry.to) {
 				addTo(targets, p)
 			}
-			return { dependency, from: determinantsAt(attributes, dependency.from), to, targets }
+			return { ...entry, targets }
 		})
 	)
 
 /** The rows of a node's dependencies `kept` holds, in table order: a closure over some of its dependencies. */
-export const rowsAmong = (rows: Rows, kept: ReadonlyArray<Row>): Rows =>
+export const rowsAmong = <D>(rows: Rows<D>, kept: ReadonlyArray<Row<D>>): Rows<D> =>
 	indexed(rows.attributes, kept)
 
 /**
@@ -187,8 +245,8 @@ export const rowsAmong = (rows: Rows, kept: ReadonlyArray<Row>): Rows =>
  * the order its dependency states them, as the step fired; the row each step's targets were reached by; and the value
  * each column a step naming its value reached holds.
  */
-export interface Closure<V> {
-	readonly rows: Rows
+export interface Closure<V, D = Dependency> {
+	readonly rows: Rows<D>
 	/** The start, which the closure keeps: the caller never changes it. */
 	readonly start: Bits
 	readonly reached: Bits
@@ -233,8 +291,8 @@ export type Naming<V> =
  * read by every named closure over the rows, and the rows each attribute's value is copied by. Rows none of which names
  * a target are named by nothing (namesNothing), whose closure is the same; a row that names none holds no sources.
  */
-export const namingOver = <V>(
-	rows: Rows,
+export const namingOver = <V, D>(
+	rows: Rows<D>,
 	sources: ReadonlyArray<ReadonlyArray<NameSource<V>>>
 ): Naming<V> => {
 	const size = rows.attributes.names.length
@@ -316,8 +374,12 @@ const every: Admission<never> = Object.freeze({ kind: "every" })
  * for each of its determinants reached: its work is its rows, their determinants and targets, and a word of the due rows
  * for each 32 rows a pass reads past (test/unit/analysis/logical/closure-cost.test.ts).
  */
-export const closure = <V>(rows: Rows, start: Bits, naming: Naming<V>): Closure<V> => {
-	const run = new Closing<V>(rows, start)
+export const closure = <V, D = Dependency>(
+	rows: Rows<D>,
+	start: Bits,
+	naming: Naming<V>
+): Closure<V, D> => {
+	const run = new Closing<V, D>(rows, start)
 	if (naming.kind === "named") {
 		run.reach(naming)
 	}
@@ -327,8 +389,8 @@ export const closure = <V>(rows: Rows, start: Bits, naming: Naming<V>): Closure<
 }
 
 /** One closure's run (closure): what it has reached so far and how, and each row's standing. */
-class Closing<V> {
-	readonly #rows: Rows
+class Closing<V, D> {
+	readonly #rows: Rows<D>
 	readonly #start: Bits
 	readonly #reached: Bits
 	readonly #sequence: Array<number>
@@ -354,7 +416,7 @@ class Closing<V> {
 	 */
 	readonly #added: Array<number> = []
 
-	constructor(rows: Rows, start: Bits) {
+	constructor(rows: Rows<D>, start: Bits) {
 		const { attributes, readersAt, readers, buffers } = rows
 		this.#rows = rows
 		this.#start = start
@@ -402,7 +464,7 @@ class Closing<V> {
 	}
 
 	/** The closure reached. */
-	closure(): Closure<V> {
+	closure(): Closure<V, D> {
 		return {
 			rows: this.#rows,
 			start: this.#start,
@@ -429,7 +491,7 @@ class Closing<V> {
 	}
 
 	/** A visit of the row at `i`, adding the attributes it reaches, each row it makes due due. */
-	step(row: Row, i: number, admission: Admission<V>): void {
+	step(row: Row<D>, i: number, admission: Admission<V>): void {
 		const { readersAt, readers } = this.#rows
 		const reached = this.#reached
 		const marks = this.#marks
@@ -562,7 +624,6 @@ class PassQueue {
 		this.#at = -1
 	}
 
-
 	/** The least row of the pass at `base` at `from` or after, clearing it; none when it holds none there. */
 	#take(base: number, from: number): number | undefined {
 		const bits = this.#bits
@@ -595,21 +656,25 @@ const touchedMark = 8
 const namedNothing: ReadonlyMap<number, never> = new Map<number, never>()
 
 /** Whether a closure holds every attribute of `targets`. */
-export const covers = <V>(c: Closure<V>, targets: Bits): boolean => subsetOf(targets, c.reached)
+export const covers = <V, D>(c: Closure<V, D>, targets: Bits): boolean =>
+	subsetOf(targets, c.reached)
 
 /** Whether a closure holds the attribute named `column`: never a name its node lacks. */
-export const reaches = <V>(c: Closure<V>, column: string): boolean =>
+export const reaches = <V, D>(c: Closure<V, D>, column: string): boolean =>
 	holdsName(c.rows.attributes, c.reached, column)
 
 /** The positions a closure reached past its start, in the order reached. */
-export const stepsOf = <V>(c: Closure<V>): ReadonlyArray<number> =>
+export const stepsOf = <V, D>(c: Closure<V, D>): ReadonlyArray<number> =>
 	c.sequence.filter((p) => !holdsAt(c.start, p))
 
 /**
  * The rows that reached `targets` (positions of the closure's attributes), transitively, in the order they first fired:
  * a target the closure did not reach, or reached from the start, needs none.
  */
-export const derivationRows = <V>(c: Closure<V>, targets: Iterable<number>): ReadonlyArray<Row> => {
+export const derivationRows = <V, D>(
+	c: Closure<V, D>,
+	targets: Iterable<number>
+): ReadonlyArray<Row<D>> => {
 	const table = c.rows.rows
 	const used = new Uint8Array(table.length)
 	const seen = emptyLike(c.reached)
@@ -629,7 +694,7 @@ export const derivationRows = <V>(c: Closure<V>, targets: Iterable<number>): Rea
 		used[how - 1] = 1
 		pushPositions(stack, defined(table[how - 1], "a step's row is its closure's").from)
 	}
-	const rows: Array<Row> = []
+	const rows: Array<Row<D>> = []
 	for (const i of c.fired) {
 		if (used[i] === 1) {
 			rows.push(defined(table[i], "a fired row is its closure's"))

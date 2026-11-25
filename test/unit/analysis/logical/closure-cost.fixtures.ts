@@ -301,6 +301,29 @@ export const sharedStartsGen: Gen<SharedStarts> = (source) => {
 	return { ...drawn, starts: [{ start: drawn.start, named: true }, ...starts] }
 }
 
+/**
+ * A drawn table whose every dependency holds through an evidence stage of three, 0 the least demanding, a start, and
+ * the stage a closure is asked through.
+ */
+export interface StagedStart extends Started {
+	readonly stages: ReadonlyArray<number>
+	readonly through: number
+}
+
+export const stagedStartGen: Gen<StagedStart> = (source) => {
+	const drawn = source.draw(startedGen)
+	return {
+		...drawn,
+		stages: Arr.map(drawn.table.dependencies, () => source.draw(int(0, 2))),
+		through: source.draw(int(0, 2))
+	}
+}
+
+export type StagedFeature =
+	| "a row a stage does not admit that the whole table fires"
+	| "a stage admitting every row"
+	| "a row of the stage itself that fires"
+
 export type SharedFeature =
 	| "a named closure after an unnamed one"
 	| "a closure after one that reached every column"
