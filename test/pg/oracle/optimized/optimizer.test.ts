@@ -17,11 +17,18 @@
  * Oracle: the conservative lowering's raw text sets, no repeated row on the optimized side.
  *
  * Features: the population's required features (suite.ts and the file's own), "a fold key correlated with two parent
- * columns" among them, which a case whose turn aims at it reaches by the case built to (suite.ts foldKeyTwiceGen).
+ * columns" among them, which a case whose turn aims at it reaches by the case built to (suite.ts foldKeyTwiceGen). Its
+ * escaped counterexamples are recorded beside its population and kept by their tokens (optimizer.fixtures.ts
+ * optimizerCounterexamples).
  */
 import type { Reached } from "@bjornpagen/testing/features"
+import { recorded } from "@bjornpagen/testing/gen"
+import { ReplayToken } from "@bjornpagen/testing/property"
 import { Function } from "effect"
-import { optimizerSituations } from "#test/pg/oracle/optimized/optimizer.fixtures.ts"
+import {
+	optimizerCounterexamples,
+	optimizerSituations
+} from "#test/pg/oracle/optimized/optimizer.fixtures.ts"
 import {
 	differentialProperty,
 	optimizedSpace,
@@ -32,7 +39,7 @@ import { namedPlacement } from "#test/support/oracle/runner.ts"
 
 /** The optimized lowering agrees with the conservative on the optimizer's population, raw text sets, no repeated row. */
 export const optimizer = differentialProperty(
-	optimizedSpace(queryCaseGen(optimizerGenConfig)),
+	optimizedSpace(recorded(queryCaseGen(optimizerGenConfig), optimizerCounterexamples)),
 	Function.identity,
 	namedPlacement("opt"),
 	{
@@ -62,7 +69,11 @@ export const optimizer = differentialProperty(
 		 * @result runs 1250 (pre-conversion): the dedup/place.ts kill fails floor case 10, the shapes/attach kill floor
 		 *   case 35, its situations reached with 688 steered cases, 2,251 cases at f1bf91a2f's gate; runs 141: both killed,
 		 *   1,120 steered, 1,297 cases; runs 137: floor case 10 and steered case 19; runs 1: both killed, 1,216 steered,
-		 *   1,218 cases
+		 *   1,218 cases. 2026-11-24, lane KILLFIX, on grizzle 930b3243b: a counterexample its steered phase caught at
+		 *   case 411 (seed 0x97ccc399), recorded and kept, and its kill, the co-group keyed by each parent column's first
+		 *   pair, added; the kept case kills it at every budget. A per-key fold whose key two parent columns pair, built
+		 *   and kept beside it, kills the fold kill, which survived the whole steered phase once DECIDE8 co-grouped the
+		 *   aimed fold (suite.ts foldKeyTwiceCase)
 		 * @decision runs 1, the fewest that keeps a floor case and a fresh one each run and the fewest cases in all, since
 		 *   its 244 required situations are reached by the steered phase wherever the floor leaves them. steered 2500,
 		 *   about twice the 1,216 its situations took at runs 1 and past the 1,250 it had: the phase stops once every
@@ -73,7 +84,24 @@ export const optimizer = differentialProperty(
 		 *   survives
 		 */
 		budget: { runs: 1, steered: 2500 },
-		kept: [],
+		kept: [
+			{
+				token: ReplayToken(
+					"test/pg/oracle/optimized/optimizer.test.ts#optimizer:-:1.0.0.0.0.0.0.0.0.1.0"
+				),
+				reason:
+					"seed 0x97ccc399, steered case 411, shrunk by hand: a parent column paired with two child columns of a co-grouped attachment",
+				since: "2026-11-24"
+			},
+			{
+				token: ReplayToken(
+					"test/pg/oracle/optimized/optimizer.test.ts#optimizer:-:2.0.0.0.0.0.0.0.0.1.0"
+				),
+				reason:
+					"built by hand: a fold's key paired with two parent columns, read per key, which no drawn case reaches since DECIDE8 co-groups the aimed fold",
+				since: "2026-11-24"
+			}
+		],
 		kills: [
 			{
 				file: "packages/engine/src/lower/optimize/dedup/place.ts",
@@ -87,6 +115,13 @@ export const optimizer = differentialProperty(
 				replacement:
 					'\tconst correlation =\n\t\tchild.kind === "Group"\n\t\t\t? [...new Map(correlatedColumns(attach, parentMap).map((e) => [e.column, e])).values()]\n\t\t\t: correlatedColumns(attach, parentMap)\n',
 				why: "The fold an attachment restricts by its parent's values keeps one equality per key column (lower/shapes/attach/index.ts keyedRows), so a key paired with two parent columns is restricted by one of them and a parent whose two columns differ receives a group."
+			},
+			{
+				file: "packages/engine/src/lower/shapes/attach/index.ts",
+				original: "\tconst pairs = attach.correlation\n",
+				replacement:
+					"\tconst pairs = attach.correlation.filter(\n\t\t(p, i) => attach.correlation.findIndex((q) => q.parent === p.parent) === i\n\t)\n",
+				why: "The co-group keys each parent column by the first child column paired with it (lower/shapes/attach/index.ts coGroupedRows), so a parent column paired with two child columns drops the second pair's equality and a parent receives the child rows that equal it at one of them."
 			}
 		]
 	}

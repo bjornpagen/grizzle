@@ -368,15 +368,21 @@ const keyedRows = (
  * the child is O(N + P) whatever PostgreSQL estimates, and the child, whose correlation no index reads at a key, is
  * derived once for every parent where read per key it read every key's rows of an unkeyed range again for each
  * (read-once's terms: each term's items read through its purpose's value, every package's), and where joined beside
- * its parents' keys its join's method was the estimate's. A correlated column paired with two parent columns stands in
- * both keys, so its rows reach the parents whose two columns hold its value.
+ * its parents' keys its join's method was the estimate's.
+ *
+ * The co-group's key is the correlation itself, one column for each of its pairs: the parent's arm writes each pair's
+ * parent column there, the child's arm each pair's child column, so a group joins a parent key to the child rows that
+ * equal it at every pair, as the conservative lowering's equalities do, one a pair (context.ts correlationEqualities).
+ * A child column paired with two parent columns stands in two keys, so its rows reach the parents whose two columns
+ * hold its value; a parent column paired with two child columns writes its value into both, so only a child row whose
+ * two columns hold it reaches its parent, where a key of each parent column took one of its pairs and dropped the
+ * other's equality (the optimizer population's steered case 411 at seed 0x97ccc399, on[b=b, b=b_2]).
  */
 const coGroupedRows = (
 	cx: LowerContext,
 	attach: NodeOf<"Attach">,
 	env: Env,
-	parent: ReturnType<typeof parentKeysSource>,
-	parentColumns: Heading
+	parent: ReturnType<typeof parentKeysSource>
 ): {
 	readonly from: ReadonlyArray<FromItem>
 	readonly keys: ColumnMap
@@ -385,18 +391,14 @@ const coGroupedRows = (
 	const child = attach.child
 	const origin = { kind: "node", node: attach.id } as const
 	const rows = cx.source(child, env)
-	const childOf = (name: string): string =>
-		defined(
-			attach.correlation.find((c) => c.parent === name),
-			"a parent key column the attachment correlates"
-		).child
+	const pairs = attach.correlation
 	const empty = (c: Heading[number]): Expr =>
 		lit.text("{}", defined(arrayOf(cx.baseTypeRef(c.type)), "a base type's array"))
 	/** The child's rows at each correlation key, each of its columns an array of them (`c`). */
 	const groupedAlias = cx.relationAlias(origin)
-	const groupedKeys = parentColumns.map(() => cx.supply.column(origin))
+	const groupedKeys = pairs.map(() => cx.supply.column(origin))
 	const groupedArrays = child.heading.map(() => cx.supply.column(origin))
-	const correlated = parentColumns.map((c) => columnIn(rows.map, childOf(c.name)))
+	const correlated = pairs.map((p) => columnIn(rows.map, p.child))
 	const grouped = derived(
 		select({
 			...core(
@@ -416,7 +418,7 @@ const coGroupedRows = (
 	)
 	const parentArm = core(
 		[
-			...parentColumns.map((c) => target(parent.column(c.name))),
+			...pairs.map((p) => target(parent.column(p.parent))),
 			target(lit.bool(true)),
 			target(lit.bool(false)),
 			...child.heading.map((c) => target(empty(c)))
@@ -435,7 +437,7 @@ const coGroupedRows = (
 		undefined
 	)
 	const taggedAlias = cx.relationAlias(origin)
-	const taggedKeys = parentColumns.map(() => cx.supply.column(origin))
+	const taggedKeys = pairs.map(() => cx.supply.column(origin))
 	const taggedParent = cx.supply.column(origin)
 	const taggedChild = cx.supply.column(origin)
 	const taggedArrays = child.heading.map(() => cx.supply.column(origin))
@@ -447,7 +449,7 @@ const coGroupedRows = (
 	)
 	const keyExprs = taggedKeys.map((k) => col(taggedAlias, k))
 	const coGroupAlias = cx.relationAlias(origin)
-	const coGroupKeys = parentColumns.map(() => cx.supply.column(origin))
+	const coGroupKeys = pairs.map(() => cx.supply.column(origin))
 	const coGroupArrays = child.heading.map(() => cx.supply.column(origin))
 	const coGroup = derived(
 		select({
@@ -477,9 +479,13 @@ const coGroupedRows = (
 		array: col(coGroupAlias, defined(coGroupArrays[j], "a co-grouped array of each child column"))
 	}))
 	const [head, ...tail] = columns
+	/**
+	 * Each parent column read off a key of its pairs: in every group the HAVING keeps, the parent's arm wrote its value
+	 * into the key of each pair it stands in, which the group's every row equals there, so any of them reads it.
+	 */
 	const keys = new Map(
-		parentColumns.map(
-			(c, i) => [c.name, col(coGroupAlias, defined(coGroupKeys[i], "a co-grouped key"))] as const
+		pairs.map(
+			(p, i) => [p.parent, col(coGroupAlias, defined(coGroupKeys[i], "a co-grouped key"))] as const
 		)
 	)
 	/** Whether the child holds no column: its keys' existence, the co-group's keys alone, each a parent's with a child row. */
@@ -583,7 +589,7 @@ export const pipelinedAttachment = (
 				}
 			}
 			case "coGroup":
-				return { ...coGroupedRows(cx, attach, env, parent, parentColumns), where: [] }
+				return { ...coGroupedRows(cx, attach, env, parent), where: [] }
 		}
 	})()
 	const childUnique = facts.childUniquePerParent(attach)
