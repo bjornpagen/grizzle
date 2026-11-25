@@ -28,10 +28,23 @@ export class DeclarationTable {
 		contract: new Map(),
 		context: new Map()
 	}
-	/** The journals open on the table (`journaled`), innermost last: each takes every declaration made while it is open. */
-	readonly #journals: Array<Array<Declared>> = []
+	/**
+	 * The journals open on the table (`journaled`), innermost last: the innermost takes every declaration made while it
+	 * is open, and every closed import's declarations read inside it (`entered`), each once, in the order of its first.
+	 */
+	readonly #journals: Array<Set<Declared>> = []
 
+	/** Declares `name` (`#held`), journaled for the innermost journal open, if any. */
 	declare(kind: DeclarationKind, name: string, declaration: Declaration): void {
+		this.#held(kind, name, declaration)
+		this.#journals.at(-1)?.add({ kind, name, declaration })
+	}
+
+	/**
+	 * Holds `name`'s declaration: its first holds it, an equal one again is nothing, and another text is
+	 * DuplicateIdentity at the later declaration, naming the first.
+	 */
+	#held(kind: DeclarationKind, name: string, declaration: Declaration): void {
 		const table = this.#declared[kind]
 		const prior = table.get(name)
 		if (prior === undefined) {
@@ -43,29 +56,36 @@ export class DeclarationTable {
 				duplicate: { kind, name, earlier: prior.loc }
 			})
 		}
-		for (const journal of this.#journals) {
-			journal.push({ kind, name, declaration })
-		}
 	}
 
 	/**
-	 * `run`'s value, with every declaration made while it ran, in order, an equal one again among them: what a closed
-	 * import's check declares (check/checker.ts ClosedImport), which every query that reads the import declares again
-	 * (`replay`), as its own check of the import would. A refusal `run` throws ends the check that owns the table, so
-	 * the journal it leaves open is never read.
+	 * `run`'s value, with every declaration made while it ran, in order, an equal one again among them, and those of every
+	 * closed import read while it ran (`entered`): what a closed import's check declares (check/checker.ts ClosedImport),
+	 * which every query that reads the import declares again (`replay`), as its own check of the import would. A refusal
+	 * `run` throws ends the check that owns the table, so the journal it leaves open is never read.
 	 */
 	journaled<A>(run: () => A): { readonly value: A; readonly declared: ReadonlyArray<Declared> } {
-		const journal: Array<Declared> = []
+		const journal = new Set<Declared>()
 		this.#journals.push(journal)
 		const value = run()
 		this.#journals.pop()
-		return { value, declared: journal }
+		return { value, declared: [...journal] }
 	}
 
-	/** Declares each of `declared` again, in order, as its first declaration did. */
+	/** Holds each of `declared` again, in order, as its first declaration did (`#held`), journaling none (`entered`). */
 	replay(declared: ReadonlyArray<Declared>): void {
 		for (const d of declared) {
-			this.declare(d.kind, d.name, d.declaration)
+			this.#held(d.kind, d.name, d.declaration)
+		}
+	}
+
+	/** Journals each of `declared`, a closed import's read inside the innermost journal open, if any, for it. */
+	entered(declared: ReadonlyArray<Declared>): void {
+		const journal = this.#journals.at(-1)
+		if (journal !== undefined) {
+			for (const d of declared) {
+				journal.add(d)
+			}
 		}
 	}
 }

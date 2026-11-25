@@ -1090,6 +1090,30 @@ type ParamUse =
 	  }
 	| { readonly kind: "bound"; readonly name: string; readonly loc: SourceLoc }
 
+/** A use of `cell` recorded on it, which types it (ParamCell `use`, `relationUse`, `boundUse`). */
+const recordedUse = (cell: ParamCell, use: ParamUse): ParamId => {
+	switch (use.kind) {
+		case "scalar":
+			return cell.use(use.type, use.loc)
+		case "relation":
+			return cell.relationUse(use.heading, use.loc)
+		case "bound":
+			return cell.boundUse(use.loc)
+	}
+}
+
+/**
+ * What a closed import's check journals as it runs (Checker `#journals`): its uses of the reader's own parameters, the
+ * searches it holds and the closed imports it read by key, each read after every import that read's record read, its
+ * own and those of every record it read whole, so its record (ClosedImport) is its reading's whole. Each is a set, in
+ * the order of its first entry: a record read again journals what it journaled before, and nothing twice.
+ */
+interface ImportJournal {
+	readonly uses: Set<ParamUse>
+	readonly searches: Map<string, RelNode>
+	readonly reads: Map<string, RelNode>
+}
+
 /**
  * A closed import checked once for its compile (check/session.ts closedImports, Checker `#closedImport`): its root, its
  * own stated orders and merges completed over its own DAG (complete.ts), nothing outside it being in its scope, and
@@ -1166,7 +1190,7 @@ export class Checker {
 	 * every reader of it a reader of that node, where a node built at every import expanded the Description's sharing
 	 * into a tree (a bound query read at many places, a call's rows argument at every read of the call's fields).
 	 */
-	readonly #imported = new Map<string, RelNode>()
+	readonly #imported = new Map<string, ClosedImport>()
 	/** The imports bound to outer values, each built once by its key (`importedKey`), correlated to the values' node. */
 	readonly #regional = new Map<string, RelNode>()
 	/**
@@ -1196,18 +1220,15 @@ export class Checker {
 	/** The key of this check's closed imports among the compile's (`#closedImport`): its reading and its clock. */
 	readonly #reading: string
 	/**
-	 * The uses of the query's own parameters each closed import this check is checking made (`#checkedImport`), innermost
-	 * last: each journal takes every use made while it is open (`useParam`), an adopted import's among them.
+	 * The journal of each closed import this check is checking (`#checkedImport`), innermost last: what its own check makes
+	 * (`useParam`) and every record of a closed import it reads, however it obtains it (`#journal`), so its record is
+	 * whole whatever this check read before it.
 	 */
-	readonly #uses: Array<Array<ParamUse>> = []
-	/** The searches each closed import being checked holds, innermost last, an adopted import's among them. */
-	readonly #searchJournals: Array<Map<string, RelNode>> = []
+	readonly #journals: Array<ImportJournal> = []
 	/** The roots of the closed imports this check built that no other check may read (CheckedImport `shared`). */
 	readonly #private = new Set<RelNode>()
 	/** The root of each closed import this check read (`#imported`), which every completion keeps as it is. */
 	readonly #importRoots = new Set<RelNode>()
-	/** The closed imports each closed import being checked read, by key, innermost last (`#readImport`). */
-	readonly #importJournals: Array<Array<readonly [string, RelNode]>> = []
 
 	constructor(schema: SchemaReading, options: CheckOptions, params: ParamTable) {
 		this.schema = schema
@@ -1218,26 +1239,17 @@ export class Checker {
 		this.#reading = `${options.read} ${canonicalTextOf(options.clock)}`
 	}
 
-	/** Records a use of `cell` as a scalar of `type` (ParamCell `use`), journaled where it is one of the query's own. */
+	/**
+	 * Records a use of `cell` as a scalar of `type` (ParamCell `use`), journaled for the closed import being checked
+	 * around it where it is one of the query's own.
+	 */
 	useParam(cell: ParamCell, type: ScalarType, loc: SourceLoc): ParamId {
-		const id = cell.use(type, loc)
-		if (this.#params.owns(cell)) {
-			for (const journal of this.#uses) {
-				journal.push({ kind: "scalar", name: cell.name, type, loc })
-			}
-		}
-		return id
+		return this.#used(cell, { kind: "scalar", name: cell.name, type, loc })
 	}
 
 	/** Records a use of `cell` as a relation of `heading` (ParamCell `relationUse`), journaled as `useParam` journals. */
 	useRelationParam(cell: ParamCell, heading: Heading, loc: SourceLoc): ParamId {
-		const id = cell.relationUse(heading, loc)
-		if (this.#params.owns(cell)) {
-			for (const journal of this.#uses) {
-				journal.push({ kind: "relation", name: cell.name, heading, loc })
-			}
-		}
-		return id
+		return this.#used(cell, { kind: "relation", name: cell.name, heading, loc })
 	}
 
 	/**
@@ -1245,11 +1257,14 @@ export class Checker {
 	 * `useParam` journals.
 	 */
 	useBoundParam(cell: ParamCell, loc: SourceLoc): ParamId {
-		const id = cell.boundUse(loc)
+		return this.#used(cell, { kind: "bound", name: cell.name, loc })
+	}
+
+	/** Records `use` of `cell` on it (`recordedUse`), and journals it for the closed import being checked around it, if any. */
+	#used(cell: ParamCell, use: ParamUse): ParamId {
+		const id = recordedUse(cell, use)
 		if (this.#params.owns(cell)) {
-			for (const journal of this.#uses) {
-				journal.push({ kind: "bound", name: cell.name, loc })
-			}
+			this.#journals.at(-1)?.uses.add(use)
 		}
 		return id
 	}
@@ -3052,11 +3067,21 @@ export class Checker {
 	}
 
 	/**
-	 * The closed import of `key` (`importedKey`, `#closedCall`), one node for every read of it: the one this check read
-	 * at it; else the one a check of the compile built over this schema under this check's reading and clock, adopted
-	 * (`#adopt`); else `build`'s, checked here (`#checkedImport`), which every later check of the compile reads.
+	 * The closed import of `key` (`importedKey`, `#closedCall`), one node for every read of it, its record journaled for
+	 * the closed import being checked around the read however this check obtains it (`#journal`): the record this check
+	 * read at it before; else the one a check of the compile made over this schema under this check's reading and clock,
+	 * adopted (`#adopt`); else `build`'s, checked here (`#checkedImport`), which every later check of the compile reads.
+	 * So no read yields the node without its record, and a record holds its import's whole reading whatever the check
+	 * that made it read before it.
 	 */
 	#closedImport(key: string, build: () => RelNode): RelNode {
+		const imported = this.#importRecord(key, build)
+		this.#journal(key, imported)
+		return imported.node
+	}
+
+	/** The record of the closed import of `key` (`#closedImport`), this check's own from its first read on. */
+	#importRecord(key: string, build: () => RelNode): ClosedImport {
 		const known = this.#imported.get(key)
 		if (known !== undefined) {
 			return known
@@ -3068,23 +3093,43 @@ export class Checker {
 		if (prior !== undefined) {
 			this.#adopt(prior)
 		}
-		this.#readImport(key, imported.node)
-		return imported.node
+		this.#readImport(key, imported)
+		return imported
 	}
 
 	/**
-	 * Records `node` as the closed import this check read at `key`, journaled for every closed import being checked, and
-	 * keys it in the session (CheckSession `closed`): a write's DAG merges it by that key (write/frontend/dag.ts
-	 * QueryMerger), and every analysis of the compile shares its annotations by it (CheckSession `analyses`).
+	 * Journals a read of the closed import `imported` at `key` for the closed import being checked around it, if any:
+	 * the read itself after every closed import the record read, its declarations, its searches and its uses of the
+	 * reader's parameters, so the enclosing import's record holds them whether this read checked, adopted or found it.
 	 */
-	#readImport(key: string, node: RelNode): void {
-		this.#imported.set(key, node)
-		this.#importKeys.set(node, { text: key, closed: true })
-		this.#importRoots.add(node)
-		this.options.session.closed(node, key)
-		for (const journal of this.#importJournals) {
-			journal.push([key, node])
+	#journal(key: string, imported: ClosedImport): void {
+		this.#declarations.entered(imported.declared)
+		const journal = this.#journals.at(-1)
+		if (journal === undefined) {
+			return
 		}
+		for (const use of imported.uses) {
+			journal.uses.add(use)
+		}
+		for (const [identity, search] of imported.searches) {
+			journal.searches.set(identity, search)
+		}
+		for (const [read, node] of imported.imports) {
+			journal.reads.set(read, node)
+		}
+		journal.reads.set(key, imported.node)
+	}
+
+	/**
+	 * Records `imported` as the closed import this check read at `key`, and keys its node in the session (CheckSession
+	 * `closed`): a write's DAG merges it by that key (write/frontend/dag.ts QueryMerger), and every analysis of the compile
+	 * shares its annotations by it (CheckSession `analyses`).
+	 */
+	#readImport(key: string, imported: ClosedImport): void {
+		this.#imported.set(key, imported)
+		this.#importKeys.set(imported.node, { text: key, closed: true })
+		this.#importRoots.add(imported.node)
+		this.options.session.closed(imported.node, key)
 	}
 
 	/**
@@ -3119,16 +3164,11 @@ export class Checker {
 		const outer = { stated: this.#stated, merges: this.#merges }
 		this.#stated = new Map()
 		this.#merges = new Map()
-		const uses: Array<ParamUse> = []
-		const searches = new Map<string, RelNode>()
-		const reads: Array<readonly [string, RelNode]> = []
-		this.#uses.push(uses)
-		this.#searchJournals.push(searches)
-		this.#importJournals.push(reads)
+		const journal: ImportJournal = { uses: new Set(), searches: new Map(), reads: new Map() }
+		this.#journals.push(journal)
 		const checked = this.#declarations.journaled(build)
-		this.#uses.pop()
-		this.#searchJournals.pop()
-		this.#importJournals.pop()
+		this.#journals.pop()
+		const { uses, searches, reads } = journal
 		const built = checked.value
 		const stated = this.#stated
 		const merges = this.#merges
@@ -3162,12 +3202,12 @@ export class Checker {
 		const imported: ClosedImport = {
 			node,
 			...facts,
-			imports: reads.map(([key, n]) => [key, completed(n)] as const),
+			imports: [...reads].map(([key, n]) => [key, completed(n)] as const),
 			declared: checked.declared,
 			searches: [...new Map([...searches, ...own])].map(
 				([identity, n]) => [identity, completed(n)] as const
 			),
-			uses
+			uses: [...uses]
 		}
 		if (node !== built) {
 			this.#adoptNodes(imported)
@@ -3233,7 +3273,7 @@ export class Checker {
 	 * Adopts a closed import another check of the compile checked (`#closedImport`): records what its check recorded as
 	 * this check's own check of it would have, its nodes' facts (`#adoptNodes`), its declarations, its searches and its
 	 * uses of the parameters it is bound to, which are this query's own of the same names, in the order it made them,
-	 * each journaled for every closed import this check is checking around it.
+	 * each typing its parameter (`recordedUse`). Its read is journaled as every read is (`#journal`).
 	 */
 	#adopt(imported: ClosedImport): void {
 		this.#adoptNodes(imported)
@@ -3242,26 +3282,15 @@ export class Checker {
 			if (!this.#searches.has(identity)) {
 				this.#searches.set(identity, search)
 			}
-			for (const journal of this.#searchJournals) {
-				journal.set(identity, search)
-			}
 		}
 		for (const use of imported.uses) {
-			const cell = defined(
-				this.#params.cell(use.name),
-				"a parameter of the reader's own that an import of its key is bound to by name"
+			recordedUse(
+				defined(
+					this.#params.cell(use.name),
+					"a parameter of the reader's own that an import of its key is bound to by name"
+				),
+				use
 			)
-			switch (use.kind) {
-				case "scalar":
-					this.useParam(cell, use.type, use.loc)
-					break
-				case "relation":
-					this.useRelationParam(cell, use.heading, use.loc)
-					break
-				case "bound":
-					this.useBoundParam(cell, use.loc)
-					break
-			}
 		}
 	}
 
@@ -3282,15 +3311,16 @@ export class Checker {
 		for (const [node, attached] of imported.attached) {
 			this.#attached.set(node, attached)
 		}
-		for (const [key, node] of imported.imports) {
+		for (const [key] of imported.imports) {
 			if (this.#imported.has(key)) {
 				continue
 			}
-			this.#readImport(key, node)
-			const nested = this.options.session.closedImports(this.schema).get(`${this.#reading} ${key}`)
-			if (nested !== undefined) {
-				this.#adoptNodes(nested)
-			}
+			const nested = defined(
+				this.options.session.closedImports(this.schema).get(`${this.#reading} ${key}`),
+				"every closed import a shared record read is shared under its reading"
+			)
+			this.#readImport(key, nested)
+			this.#adoptNodes(nested)
 		}
 	}
 
