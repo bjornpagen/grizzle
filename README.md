@@ -6490,7 +6490,7 @@ pnpm check                        # before a release (turbo, cached): typecheck,
 
 Every script and test reaches one local cluster, `pg.config.ts`, whose members are the workbench's PostgreSQL units `postgres@grizzle-test-<key>-<i>`, a family a checkout: a run's workers hold the family and bring up the members they reach, each settled to the spec where it is not, its members spread over a run's workers, each admitting as many connections as the machine's memory holds of busy backends, and each member stops once the last process holding the family has ended, however it ended. Nothing admits or queues a run's connections.
 
-`pnpm pg:build` builds the PostgreSQL the machine's units run (the workbench's `machine/parts/postgresql` installs it); stop the units that run it (`systemctl --user stop 'postgres@*'`) before an exchange, and start them after.
+`pnpm pg:build` builds the PostgreSQL the machine's units run (the workbench's `machine/parts/postgresql` installs it); end what holds its clusters (a run's workers, a `pg-held` command) before an exchange: a cluster runs only while it is held, the workbench starts none unheld (beefy da1e9fc), and the next holder starts it on the new binaries.
 
 Every generated suite draws from one seed, `TEST_SEED`, which a run prints first. Setting it reproduces a run, and whether a suite reaches what it requires never depends on it. [CONTRIBUTING.md](CONTRIBUTING.md) has the code rules and how the tests are built on the testing library.
 

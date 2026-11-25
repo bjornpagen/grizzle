@@ -2,7 +2,9 @@
 # The ssi-summary experiment (README.md): a lone SERIALIZABLE writer fails with 40001 against its own earlier write
 # once PostgreSQL's SSI has summarized that write while another transaction holds the cluster's horizon. It runs on a
 # cluster of its own, the workbench's postgres@grizzle-ssi-summary (socket $XDG_RUNTIME_DIR/postgresql-grizzle-ssi-summary,
-# trust for the account), never the shared one: it fills the cluster's pool of finished SERIALIZABLE transactions.
+# trust for the account), never the shared one: it fills the cluster's pool of finished SERIALIZABLE transactions. The
+# cluster runs only while the script holds it: the script runs itself again under the account's pg-held, which keeps
+# the cluster up for exactly as long as the script runs (the workbench starts no cluster unheld, beefy da1e9fc).
 #   packages/experiments/ssi-summary/run.sh
 # Exits 0 when PostgreSQL behaves as README.md states (the shrink fails as a pivot with a conflict out to the write,
 # and the same sequence with no holder commits), 1 otherwise: the verdict that ends the experiment.
@@ -27,7 +29,9 @@ if [[ "${1:-}" == held ]]; then
 	sequence >"$SSI_HELD"
 	exit 0
 fi
-systemctl --user start "postgres@$cluster"
+if [[ "${1:-}" != holding ]]; then
+	exec "$HOME/.local/libexec/beefy/pg-held" "$cluster" -- "$(readlink -f "$0")" holding
+fi
 q postgres -qc "DROP DATABASE IF EXISTS $db WITH (FORCE)" -c "CREATE DATABASE $db"
 q $db -qc "CREATE TABLE o (id int PRIMARY KEY, n int NOT NULL)" -c "CREATE TABLE m (id int PRIMARY KEY, v int NOT NULL)" -c "CREATE TABLE f (x int)"
 # The pool of SERIALIZABLEXACTs: ten per backend slot and prepared transaction (predicate.c InitPredicateLocks).
@@ -54,7 +58,6 @@ released=$(sequence)
 echo "## with no transaction held open: $released"
 rm -f "$SSI_FILL" "$SSI_HALF" "$SSI_REST" "$SSI_HELD" "$holder"
 q postgres -qc "DROP DATABASE $db WITH (FORCE)"
-systemctl --user stop "postgres@$cluster"
 if grep -q "Canceled on identification as a pivot, with conflict out to old committed transaction" <<<"$held" && ! grep -q ERROR <<<"$released"; then
 	echo "PostgreSQL fails the lone writer as README.md states"
 	exit 0

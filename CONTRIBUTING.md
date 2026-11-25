@@ -93,7 +93,8 @@ release check proves the product right, the census that each test still catches 
   `.grizzle-build-<the tarball's SHA-256>`, is kept unless `--force` is given. While any postmaster runs from the
   installation, found by its executable wherever its data directory is, the rename is refused unless `--force` is
   given, since it would replace that postmaster's binaries under it: before the build, and again just before the
-  rename. Stop the units that run it first (`systemctl --user stop 'postgres@*'`), and start them after.
+  rename. End what holds them first (a run's workers, a `pg-held` command), since a cluster runs only while it is
+  held and the workbench starts none unheld (beefy da1e9fc); the next holder starts it on the new binaries.
 - **`pnpm pg:source`** puts the pin's source beside the installation, extracted from the release's tarball, and the
   build directory beside it, configured to install there, each made anew. `pnpm pg:build` runs it first. The tarball is
   fetched once, kept as `<version>.tar.bz2` only once its SHA-256 is the pin's, and verified again before every

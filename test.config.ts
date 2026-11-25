@@ -52,6 +52,7 @@ export default defineRunner({
 	include: ["test/**/*.test.ts", "packages/cli-generator/test/**/*.test.ts"],
 	smallStack: smallStackModules,
 	conditions: [],
+	environment: [],
 	layer: grizzleCluster,
 	mutation: () => import("#test/support/mutation/mutation.ts")
 })
