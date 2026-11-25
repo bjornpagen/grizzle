@@ -227,9 +227,10 @@ const leavesOf =
  *
  * - A projection holds an output whose expression is one once its inputs' columns are read as theirs.
  * - A filter holds its input's, and a column a conjunct equates with one.
- * - A region holds a variable its class holds at one (classValues).
- * - A semi-join holds its left's, and a left column paired with a right column that holds one; an anti-join, a set
- *   difference and an intersection hold their left's; a take its input's and the columns its correlation fixes at one; a
+ * - A region holds a variable its class holds at one (classValues); where only stated equalities hold (Holds), only
+ *   where every column bound to the class holds it itself (statedAtEveryBinding).
+ * - A semi-join holds its left's, and, where the joined equalities hold (Holds), a left column paired with a right
+ *   column that holds one; an anti-join, a set difference and an intersection hold their left's; a take its input's and the columns its correlation fixes at one; a
  *   fold and an ordered-set aggregate their input's at their grouping keys; a step, an ordered result, a window and a
  *   law's check their input's; an attachment its parent's.
  * - A union holds a column every arm holds at one value.
@@ -244,7 +245,8 @@ const valuesOf = (
 	cell: Cell,
 	of: (cell: Cell) => Values,
 	valueOf: ValueOf,
-	leaves: LeafValues
+	leaves: LeafValues,
+	holds: Holds
 ): Values => {
 	const node = cell.current
 	const out = new Map<string, ScalarExpr>()
@@ -284,7 +286,11 @@ const valuesOf = (
 			const { classOf, values } = classValues(ed, node, of, valueOf, none)
 			for (const v of node.vars) {
 				const value = values.get(classOf(v))
-				if (value !== undefined) {
+				if (
+					value !== undefined &&
+					(holds === "joined" ||
+						statedAtEveryBinding(ed, node, classOf, classOf(v), value, of, valueOf))
+				) {
 					put(v.name, value, !exactlyBound(node, v, of))
 				}
 			}
@@ -292,11 +298,13 @@ const valuesOf = (
 		}
 		case "SemiJoin": {
 			carry(node.left, undefined)
-			const right = of(node.right)
-			for (const p of node.on) {
-				const value = right.get(p.right)
-				if (value !== undefined) {
-					put(p.left, value, true)
+			if (holds === "joined") {
+				const right = of(node.right)
+				for (const p of node.on) {
+					const value = right.get(p.right)
+					if (value !== undefined) {
+						put(p.left, value, true)
+					}
 				}
 			}
 			break
@@ -377,6 +385,53 @@ const exactlyBound = (region: Region, v: VarDecl, of: (cell: Cell) => Values): b
 	)
 }
 
+/**
+ * Whether every column a region binds to the class `at` holds `value` itself: its source holds it, or its occurrence's
+ * own constant states it, so the value stands where each such column is read. A variable whose class holds a value only
+ * through a join, a column of a source that holds nothing equated with another occurrence's held one, holds no value:
+ * every row of the region holds it, but a reference reading the value in the variable's place would cut the column's
+ * lineage, which a keyed restriction follows to the column's read and the facts rule reads (edullm's take: a projection
+ * delivering `$98` for a fenced read's package, its join to the parameter then `$98 = $98` over every package's nodes).
+ * Where the restriction states the value at each bound stored column, every binding holds it. A class no occurrence
+ * binds is its correlation's value alone.
+ */
+const statedAtEveryBinding = (
+	ed: DagEditor,
+	region: Region,
+	classOf: (v: VarDecl) => VarId,
+	at: VarId,
+	value: ScalarExpr,
+	of: (cell: Cell) => Values,
+	valueOf: ValueOf
+): boolean =>
+	region.occurrences.every((o) =>
+		o.bindings.every((b) => {
+			if (classOf(b.var) !== at) {
+				return true
+			}
+			const held = of(o.source).get(b.column)
+			return (
+				(held !== undefined && sameValue(held, value)) ||
+				o.constants.some(
+					(k) =>
+						k.column === b.column &&
+						closes(k.expr, valueOf) &&
+						sameValue(readThrough(ed, k.expr, valueOf), value)
+				)
+			)
+		})
+	)
+
+/**
+ * Which equalities hold a column at a value, as a reading of the DAG asks: `joined`, every one, a join's and a
+ * semi-join's pair to another column held at it among them, since every row the node delivers holds the value, which
+ * is what a restriction reads (a restriction drops only rows no root reads); `stated`, only those stated on the column
+ * itself, a constant of its own read, a filter's conjunct, a projection of the value, a correlation, and the columns a
+ * node carries of its inputs' so held, which is what a substitution reads, since a reference read as the value no longer
+ * reads the column, whose lineage a keyed restriction and the facts rule follow.
+ */
+type Holds = "joined" | "stated"
+
 /** The values each node holds (valuesOf), and what a reference to a column reads through them. */
 interface Reading {
 	readonly of: (cell: Cell) => Values
@@ -403,7 +458,45 @@ const valuesAll = (ed: DagEditor, order: ReadonlyArray<Cell>, producers: Produce
 	for (let before = -1; size() > before;) {
 		before = size()
 		for (const cell of order) {
-			known.set(cell, valuesOf(ed, cell, of, valueOf, leaves))
+			known.set(cell, valuesOf(ed, cell, of, valueOf, leaves, "joined"))
+		}
+	}
+	return { of, valueOf }
+}
+
+/**
+ * The values of every column of the cells `order` holds by equalities stated on the column itself (Holds `stated`):
+ * from every value the joined equalities hold (valuesAll), each node's read again under the stated ones from what the
+ * others hold now, each value kept only where it is read again, until a round drops none. A value a join alone holds
+ * goes; a column a correlated source holds by its correlation with the region that reads it, which holds the value by
+ * another column's own, stays, since each is read again from the other's. Each round drops at least one value, so it
+ * ends within their count.
+ */
+const statedValues = (ed: DagEditor, order: ReadonlyArray<Cell>, producers: Producers): Reading => {
+	const joined = valuesAll(ed, order, producers)
+	const known = new Map<Cell, Values>(order.map((c) => [c, joined.of(c)]))
+	const byId = new Map<NodeId, Cell>(order.map((c) => [c.id, c]))
+	const of = (cell: Cell): Values => known.get(cell) ?? none
+	const valueOf: ValueOf = (ref) => {
+		const cell = byId.get(ref.node)
+		return cell === undefined ? undefined : of(cell).get(ref.name)
+	}
+	const leaves = leavesOf(ed, producers, of)
+	for (let dropped = true; dropped;) {
+		dropped = false
+		for (const cell of order) {
+			const before = of(cell)
+			const again = valuesOf(ed, cell, of, valueOf, leaves, "stated")
+			const still = new Map(
+				[...before].filter(([column, value]) => {
+					const now = again.get(column)
+					return now !== undefined && sameValue(now, value)
+				})
+			)
+			if (still.size < before.size) {
+				known.set(cell, still)
+				dropped = true
+			}
 		}
 	}
 	return { of, valueOf }
@@ -742,7 +835,7 @@ const propagate =
 		}
 
 		const restated = ed.topoOrder().filter((c) => !feedback.has(c))
-		const after = valuesAll(ed, restated, producers)
+		const after = statedValues(ed, restated, producers)
 		for (const cell of restated) {
 			const node = cell.current
 			const read: Array<NodeId> = []
@@ -755,16 +848,29 @@ const propagate =
 				return value
 			})
 			/**
-			 * A filter's conjunct that fixes its input's column at a value keeps the column, which reading it as the value would
-			 * leave a conjunct comparing the value with itself.
+			 * A filter's conjunct that fixes its input's column at a value keeps the column and reads the value as it is held,
+			 * so the equality that holds the column states the value on it, never the value compared with itself.
 			 */
 			const readFilter = (e: ScalarExpr): ScalarExpr =>
 				node.kind === "Filter" && e === node.pred
 					? conjunction(
 							ed,
-							conjuncts(e).map((c) =>
-								fixing(c, node.input, after.valueOf) === undefined ? copy.of(c) : c
-							),
+							conjuncts(e).map((c) => {
+								const f = fixing(c, node.input, after.valueOf)
+								return f === undefined
+									? copy.of(c)
+									: ed.copyExpr(c, (ref, expr) => {
+											if (ref.node === node.input.id && ref.name === f.column) {
+												return undefined
+											}
+											const value = after.valueOf(ref)
+											if (value === undefined || !sameScalarType(value.type, expr.type)) {
+												return undefined
+											}
+											read.push(ref.node)
+											return value
+										})
+							}),
 							e
 						)
 					: copy.of(e)

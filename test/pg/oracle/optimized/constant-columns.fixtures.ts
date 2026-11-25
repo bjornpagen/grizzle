@@ -16,10 +16,13 @@ const armsHolding = ["both", "first", "second"] as const
 
 export type ArmsHolding = (typeof armsHolding)[number]
 
-/** A case of the box: an arrangement of a union's arms, or `zero`, a double precision column equated with q. */
-export type ConstantColumnsCase = ArmsHolding | "zero"
+/**
+ * A case of the box: an arrangement of a union's arms; `zero`, a double precision column equated with q; or `fenced`, a
+ * fenced read of every mark whose key one reader joins to a session read at p.
+ */
+export type ConstantColumnsCase = ArmsHolding | "zero" | "fenced"
 
-export const constantColumnsCases = [...armsHolding, "zero"] as const
+export const constantColumnsCases = [...armsHolding, "zero", "fenced"] as const
 
 /** The pass's two rules, which a case rests on where both arms hold the key at p. */
 export const passRules = ["propagate.restrict", "propagate.substitute"] as const
@@ -175,22 +178,115 @@ const zeroCase = (): QueryCase => {
 	}
 }
 
-/** The case of `c`: a union's arrangement (unionCase), or `zero` (zeroCase). */
+/**
+ * The case `fenced`: a step reading every mark M(a, b), fenced, read by two readers. One joins it by a to the marks M
+ * read at a = p, whose b it delivers as c, and projects its a, b and c, and a region joins that projection by a to p
+ * projected; the other delivers every mark, its b as c. Every row of the join holds a at p, but only because
+ * the join equates it with the second read's a, which that read states at p: the fenced read of M states nothing, since its other reader reads every mark. So the projection
+ * delivers M's a, the join to p projected compares it with p, and the fenced read reads every mark; were the projection
+ * to deliver p in a's place, the join to p would compare p with p (edullm's take, 10x: `$98 = $98` over every package's
+ * nodes), and no keyed restriction could follow a's lineage into the step.
+ */
+const fencedCase = (): QueryCase => {
+	const q = new Q()
+	const marks = q.region([
+		{ source: q.base(M, conservativeMeta), bind: { a: "a", b: "b" }, constants: {} }
+	])
+	const fenced = q.node({
+		kind: "Step",
+		input: marks,
+		heading: marks.heading,
+		loc: undefined,
+		meta: conservativeMeta
+	})
+	const atP = q.region([
+		{ source: fenced, bind: { a: "a", b: "b" }, constants: {} },
+		{
+			source: q.base(M, conservativeMeta),
+			bind: { a: "a", b: "c" },
+			constants: { a: q.param("p", int4, "compare") }
+		}
+	])
+	const projected = q.project(
+		atP,
+		[
+			["a", "a"],
+			["b", "b"],
+			["c", "c"]
+		],
+		conservativeMeta
+	)
+	const p = q.project(
+		q.region([
+			{
+				source: q.base(S, conservativeMeta),
+				bind: {},
+				constants: { a: q.param("p", int4, "compare") }
+			}
+		]),
+		[["k", [q.param("p", int4, "emit"), int4]]],
+		conservativeMeta
+	)
+	const joined = q.region([
+		{ source: p, bind: { k: "a" }, constants: {} },
+		{ source: projected, bind: { a: "a", b: "b", c: "c" }, constants: {} }
+	])
+	const tagged = (input: RelNode, c: string, tag: number) =>
+		q.project(
+			input,
+			[
+				["a", "a"],
+				["b", "b"],
+				["c", c],
+				["tag", [q.int(tag, int4), int4]]
+			],
+			conservativeMeta
+		)
+	const every = q.region([{ source: fenced, bind: { a: "a", b: "b" }, constants: {} }])
+	return {
+		schema: {
+			name: "ConstantColumns",
+			relations: [
+				{ name: "S", columns: S.heading, primaryKey: ["a"], keys: [], mutable: false },
+				{ name: "M", columns: M.heading, primaryKey: ["a", "b"], keys: [], mutable: false }
+			],
+			closed: [],
+			containments: []
+		},
+		facts,
+		query: {
+			dag: normalQuery(q.build(q.union([tagged(joined, "c", 0), tagged(every, "b", 1)], [])).dag),
+			params: { p: { kind: "scalar", type: int4, value: int(2) } }
+		},
+		spelling: { mode: "drawn", edge: false }
+	}
+}
+
+/** The case of `c`: a union's arrangement (unionCase), `zero` (zeroCase), or `fenced` (fencedCase). */
 export const constantColumnsCase = (c: ConstantColumnsCase): QueryCase =>
-	c === "zero" ? zeroCase() : unionCase(c)
+	c === "zero" ? zeroCase() : c === "fenced" ? fencedCase() : unionCase(c)
 
 /**
  * The rows both lowerings deliver of a case, each its first two columns: M's mark at 2 where both arms hold k at 2,
- * every mark where one holds no value, and V's stored row, its -0, where x is equated with q.
+ * every mark where one holds no value, V's stored row, its -0, where x is equated with q, and where the fenced read is
+ * joined, the mark at 2 beside every mark.
  */
 export const deliveredRows = (c: ConstantColumnsCase): ReadonlyArray<ReadonlyArray<string>> =>
 	c === "zero"
 		? [["1", "-0"]]
-		: c === "both"
-			? [["2", "0"]]
-			: [
+		: c === "fenced"
+			? [
+					["2", "0"],
 					["1", "0"],
 					["1", "1"],
 					["2", "0"],
 					["3", "1"]
 				]
+			: c === "both"
+				? [["2", "0"]]
+				: [
+						["1", "0"],
+						["1", "1"],
+						["2", "0"],
+						["3", "1"]
+					]

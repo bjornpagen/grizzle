@@ -13,6 +13,9 @@
  *
  * Oracle: the conservative lowering on the same installation and facts, and the facts' own rows.
  *
+ * The case `fenced` holds its column at p only through joins (a region binding a fenced read's a beside a read stated at
+ * p, and an existence test against p projected): no reference there reads p, so the column keeps its lineage.
+ *
  * Features: each case, and each of the pass's two rules, which the case both of whose arms hold p rests on.
  */
 
@@ -64,14 +67,27 @@ export const aReferenceReadsAParameterInAColumnsPlaceOnlyWhereEveryRowHoldsThatV
 		 *   lanes' load beside it; lane PROPAGATE's in-memory family of PostgreSQL 19 members
 		 * @workload its run and its kill's, at TEST_SEED=2219874524
 		 * @result RESULT_LINE
-		 * @decision runs 3 and steered 12: its box is four cases, each drawn under a plan perturbation, and each
-		 *   situation is aimed at the case that reaches it, so the floor case and the steered phase reach all six within
+		 * @decision runs 3 and steered 12: its box is five cases, each drawn under a plan perturbation, and each
+		 *   situation is aimed at the case that reaches it, so the floor case and the steered phase reach all seven within
 		 *   as many steered cases as situations, and each kill fails the case it names
 		 * @revalidate a change of its box, its check or its kill's file, or of how the testing library draws a floor or
 		 *   steered case; the kill gate (toolchain-test kills, affected) reports a kill that survives
 		 */
 		budget: { runs: 3, steered: 12 },
 		kills: [
+			{
+				file: "packages/engine/src/lower/optimize/propagate/index.ts",
+				original:
+					'\t\t\t\t\t(holds === "joined" ||\n\t\t\t\t\t\tstatedAtEveryBinding(ed, node, classOf, classOf(v), value, of, valueOf))\n',
+				replacement: "\t\t\t\t\ttrue\n",
+				why: "A region variable holds its class's value wherever any binding holds it: the fenced read's a, held only through the join to the marks read at p, is read as p by the projection, and the join to p projected compares p with p, as edullm's take compared $98 with $98 over every package's nodes."
+			},
+			{
+				file: "packages/engine/src/lower/optimize/propagate/index.ts",
+				original: '\t\t\tif (holds === "joined") {\n\t\t\t\tconst right = of(node.right)\n',
+				replacement: "\t\t\tif (true) {\n\t\t\t\tconst right = of(node.right)\n",
+				why: "A semi-join's left column paired with a right column held at p holds p: the projection's a, held only through the existence test against p projected, is read as p above it, so the existence test compares p with p."
+			},
 			{
 				file: "packages/engine/src/lower/optimize/propagate/index.ts",
 				original: "\t\t\t\tfor (const [column, value] of rest.reduce(meet, first)) {\n",
@@ -107,6 +123,11 @@ export const aReferenceReadsAParameterInAColumnsPlaceOnlyWhereEveryRowHoldsThatV
 						Arr.map(rows, (r) => canonicalTextOf(r.slice(0, 2))),
 						Order.String
 					)
+				if (c === "fenced" && Arr.some(o.certificates, (x) => x.rule === "propagate.substitute")) {
+					return yield* new PropertyFailed({
+						report: `a reference read p where its column holds p only through a join\n${printDifferential(o)}`
+					})
+				}
 				const delivered = marks(Arr.flatMap(o.conservative.statements, (s) => s.rows))
 				if (!agrees(o) || canonicalTextOf(delivered) !== canonicalTextOf(marks(deliveredRows(c)))) {
 					return yield* new PropertyFailed({
