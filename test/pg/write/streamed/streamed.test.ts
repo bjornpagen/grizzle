@@ -33,7 +33,8 @@ export const aCallDrawnInSharesAnswersWhatOneExecutionOfEveryFactAnswers = prope
 			"a fact repeated across shares",
 			"a stored fact repeated across shares",
 			"a pair refused across shares",
-			"a later share the host refuses"
+			"a later share the host refuses",
+			"a COMMIT the deferred containment refuses"
 		] satisfies ReadonlyArray<StreamedFeature>,
 		check:
 			({ substrate }, c) =>
@@ -69,6 +70,12 @@ export const aCallDrawnInSharesAnswersWhatOneExecutionOfEveryFactAnswers = prope
 				replacement:
 					'\t\t\t\tcase "ShareRejected":\n\t\t\t\t\tyield* Effect.ignore(runFramedFlights(session, frame, shareFlights(session, entry, drawn), read, backs.statements))\n\t\t\t\t\treturn hostRejection<R>(failure.rejected)\n',
 				why: "A shared refusal is sent again before it answers: a second transaction, which under READ COMMITTED may commit where the first refused, the state having moved between them."
+			},
+			{
+				file: "packages/grizzle/src/adapter/apply/run.ts",
+				original: "\t\t\t\t? Effect.succeed(diagnosedWitness(unmatched, answer.closing))\n",
+				replacement: "\t\t\t\t? Effect.succeed(unreproduced)\n",
+				why: "A shared call's COMMIT refusal is answered with no witness, as though another commit had changed the state, where its shares drawn again leave the node unmatched whose key is the witness."
 			}
 		]
 	}
