@@ -52,8 +52,8 @@ export const aSubQueryEachRuleReadsAtItsOwnRowsValuesIsComputedOnceForEachRowTha
 			},
 			{
 				file: "packages/engine/src/lower/shapes/share/copies.ts",
-				original: "\t\t\tnode.heading.length === 0 ||\n",
-				replacement: "\t\t\tfalse ||\n",
+				original: "\t\t\tnode.heading.length > 0 &&\n",
+				replacement: "\t\t\ttrue &&\n",
 				why: "A copy of no column, the test of a sitting held each rule makes at its own row, is computed once: its evaluation has no column to read, and the judge is not lowered."
 			},
 			{

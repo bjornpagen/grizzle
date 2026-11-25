@@ -1,3 +1,4 @@
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { postorder } from "@bjornpagen/grizzle-text/base/graph"
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
@@ -6,7 +7,7 @@ import { outerOf } from "#compiler/analysis/physical/rules.ts"
 import { maxStringLength, unwrap } from "#compiler/core/canonical.ts"
 import { DagDigests, DagTemplates, type OuterRead } from "#compiler/ir/dag-digest.ts"
 import { nodesByLabel } from "#compiler/ir/dag.ts"
-import { inputsOf, type RelNode, type ValidDag } from "#compiler/ir/rel.ts"
+import { edgesOf, inputsOf, type RelNode, type ValidDag } from "#compiler/ir/rel.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import {
 	costClass,
@@ -94,6 +95,48 @@ interface CopyCandidate {
 	readonly node: RelNode
 	readonly driver: RelNode
 	readonly outer: NonEmptyReadonlyArray<{ readonly read: OuterRead; readonly driver: string }>
+}
+
+/**
+ * Each node's shape, numbered by first occurrence: its kind, its heading's column names and its data edges' shapes in
+ * structural order (rel.ts edgesOf), each node's read once for the whole statement. A node's form (ir/dag-digest.ts
+ * positional) holds its kind and its heading and names each data edge by its place, and two forms are one only where
+ * every node of one reach is a node of the other's of one form, so two copies whose forms are one have one shape. A
+ * candidate whose shape no other candidate holds is a class of one, which no plan takes, so its form, whose cost is its
+ * whole reach, is never written: only candidates that share a shape write theirs, and the shapes cost one read of each
+ * node, so a statement whose correlated sub-queries nest, no two alike, writes no form at all.
+ */
+class Shapes {
+	readonly #numbers = new Map<string, number>()
+	readonly #of = new Map<RelNode, number>()
+
+	/** The shape of `root`, each node under it numbered on its first read, children before the node that reads them. */
+	of(root: RelNode): number {
+		const pending: Array<RelNode> = [root]
+		for (let at = pending.at(-1); at !== undefined; at = pending.at(-1)) {
+			if (this.#of.has(at)) {
+				pending.pop()
+				continue
+			}
+			const edges = edgesOf(at)
+			const unread = edges.filter((e) => !this.#of.has(e))
+			if (unread.length > 0) {
+				appendAll(pending, unread)
+				continue
+			}
+			pending.pop()
+			const key = [
+				at.kind,
+				...at.heading.map((c) => c.name),
+				...edges.map((e) => this.#of.get(e))
+			].join("\u0000")
+			this.#of.set(
+				at,
+				this.#numbers.getOrInsertComputed(key, () => this.#numbers.size)
+			)
+		}
+		return defined(this.#of.get(root), "a shape is numbered once its edges' are")
+	}
 }
 
 /** Where a site reads one outer column: its driver, the driver's column, and the driver row it reads it off. */
@@ -193,18 +236,25 @@ export const copyPlan = (
 		string,
 		{ readonly driving: string; readonly sites: Array<CopyCandidate> }
 	>()
-	for (const node of order) {
-		if (
-			outerOf(node).length === 0 ||
-			node.heading.length === 0 ||
-			cte.decisions[node.id] !== undefined ||
-			costClass(node) === "scan" ||
-			node.kind === "Recursive" ||
-			node.kind === "SelfRef" ||
-			feedback.has(node) ||
-			demand.lateral(node) ||
-			heldOutside(node)
-		) {
+	const candidates = order.filter(
+		(node) =>
+			outerOf(node).length > 0 &&
+			node.heading.length > 0 &&
+			cte.decisions[node.id] === undefined &&
+			costClass(node) !== "scan" &&
+			node.kind !== "Recursive" &&
+			node.kind !== "SelfRef" &&
+			!feedback.has(node) &&
+			!demand.lateral(node)
+	)
+	const shapes = new Shapes()
+	const shared = new Set(
+		[...Map.groupBy(candidates, (node) => shapes.of(node)).values()].flatMap((nodes) =>
+			nodes.length > 1 ? nodes : []
+		)
+	)
+	for (const node of candidates) {
+		if (!shared.has(node) || heldOutside(node)) {
 			continue
 		}
 		const form = unwrap(digests.positional([node], "copies"))
