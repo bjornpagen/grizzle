@@ -23,7 +23,7 @@ import {
 	wholeWritesOf
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { ownBuilt, rostersOf } from "#compiler/schema/own.ts"
+import { rostersOf } from "#compiler/schema/own.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { changeLogin } from "#test/support/change-login.ts"
@@ -135,7 +135,7 @@ export const footprintsLoginOf = (drawn: NonEmptyReadonlyArray<ReadonlyArray<Pro
 		)
 	})
 	const built = defined(builtLogin(value), "a login built by login(...)")
-	const owned = succeeded(ownBuilt(built.base), "the login's base")
+	const owned = succeeded(built.base.content.owned(), "the login's base")
 	const basis = succeeded(
 		installBasis(owned, firstCodebook(rostersOf(owned)), everySlice(owned)),
 		"the base's basis"

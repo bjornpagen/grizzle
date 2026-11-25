@@ -29,7 +29,7 @@ import type { AnyLogin, AnyRole, AnySchema } from "#compiler/public/schema.ts"
 import { standUpTexts } from "#compiler/runtime/write/flight.ts"
 import { reachOf } from "#compiler/runtime/write/steps.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
-import { ownBuilt, rostersOf } from "#compiler/schema/own.ts"
+import { rostersOf } from "#compiler/schema/own.ts"
 import { servedFile } from "#compiler/served/json.ts"
 import type { ParamMap } from "#compiler/types/core/phantom.ts"
 import { defineConfig } from "#index.ts"
@@ -172,7 +172,7 @@ const draftOf = (shape: Shape) =>
 const certifying = (shape: Shape, roles: ReadonlyArray<RoleIsolation>) =>
 	Effect.gen(function* () {
 		const built = defined(builtLogin(shape.login), "a shape's login, built by login(...)")
-		const base = yield* fromEngine(ownBuilt(built.base))
+		const base = yield* fromEngine(built.base.content.owned())
 		const { plan } = yield* compiledInstallation(built, base, firstCodebook(rostersOf(base)))
 		return { ...servedWorkloadExtension(plan), certifies: roles } satisfies InstallExtension
 	})

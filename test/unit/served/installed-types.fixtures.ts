@@ -15,7 +15,6 @@ import type { ParamDecl } from "#compiler/ir/products.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { paramDomainIdentity, paramDomainUses } from "#compiler/physical/ddl/domains.ts"
 import { levelChain } from "#compiler/plan/common.ts"
-import { ownBuilt } from "#compiler/schema/own.ts"
 import type { CreateDomain } from "#compiler/sql/ast.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { compiledInstallation, compiledSnapshot } from "#test/support/compiled-served.ts"
@@ -180,7 +179,7 @@ export const castsInstalled = (
 			return
 		}
 		const built = defined(builtLogin(login), "the drawn login")
-		const base = succeeded(ownBuilt(built.base), "the login's base")
+		const base = succeeded(built.base.content.owned(), "the login's base")
 		const owned = succeeded(ownLoginOver(built, base), "the login over its base")
 		const needed = neededBy(
 			Arr.flatMap(rolesOf(full.success), (r) => declaredBy(r.served, r.compiled)),

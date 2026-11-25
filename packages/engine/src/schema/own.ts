@@ -2613,6 +2613,8 @@ const declaredOf = (built: BuiltLevels): DeclaredEntries => {
 /**
  * own() of a schema schema(...) or schema.extend built: each level's statements read in the canonical form and text
  * its level content carries from their build (levels.ts SchemaContent.canonical), none put in canonical form again.
+ * The value calls it once, at the first read of its Owned, and holds the result (levels.ts BuiltSchemaContent), which
+ * every reader takes: nothing owns a built schema twice.
  */
 export const ownBuilt = (built: BuiltLevels): Result.Result<Owned, CompileError> =>
 	ownWith(built.desc, writtenOf(built.content), () => declaredOf(built), hashedLevels)
@@ -2983,7 +2985,7 @@ const ownRoleOf = (desc: RoleDesc, base: Owned): OwnedRole => {
  * name kept to the declared-name rule (MalformedDescription), as each role's own is.
  */
 export const ownRole = (desc: RoleDesc): Result.Result<OwnedRole, CompileError> =>
-	Result.flatMap(own(desc.base), (base) => catchRefusal(() => ownRoleOf(desc, base)))
+	Result.flatMap(own(desc.base), (base) => ownBuiltRole(desc, base))
 
 /**
  * A login over its owned base and its roles, each owned over that base: the login's name and its roles' are one
@@ -3045,7 +3047,8 @@ export const ownBuiltLogin = (
 	catchRefusal(() => ownLoginOf(desc, base, () => desc.roles.map((r) => ownRoleOf(r, base))))
 
 /**
- * Owns the description of a role role(...) built over `base`, its base owned: role(...) built it over that base.
+ * Owns the description of a role role(...) built over `base`, its base owned: role(...) built it over that base, and
+ * the role's value owns it so, once, over the Owned its base schema's value carries (schema/world.ts BuiltRoleLevel).
  */
 export const ownBuiltRole = (desc: RoleDesc, base: Owned): Result.Result<OwnedRole, CompileError> =>
 	catchRefusal(() => ownRoleOf(desc, base))

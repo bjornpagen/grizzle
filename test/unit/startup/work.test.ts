@@ -7,10 +7,12 @@
  *   descriptions by name, compared by structure); roles, workloads and the login over it, and every level check they
  *   and every command and layer make, read it again never from a description (contentOfDesc).
  * - Each statement's canonical text is read once, where the statement is built (schema/statements.ts), and carried in
- *   the level's content: schema(...) reads none, and `grizzle generate` and `grizzle check` own the schema once,
- *   reading the texts its content carries (schema/own.ts ownBuilt), none again; they hash each level's fingerprint
- *   (core/fingerprint.ts schemaFingerprint), the snapshot's encoding of it; no level check or program they compile reads a
- *   description's text (descText). generate and check compile the installation's basis once (its law model and closed
+ *   the level's content: schema(...) reads none. A schema value is owned once per process, its Owned held by the value
+ *   from its first read (schema/schema.ts builtContent): `grizzle generate` owns it, reading the texts its content
+ *   carries (schema/own.ts ownBuilt), none again, and hashes each level's fingerprint (core/fingerprint.ts
+ *   schemaFingerprint), the snapshot's encoding of it; `grizzle check` after it in the same process owns and hashes
+ *   nothing more. No level check or program they compile reads a description's text (descText). generate and check
+ *   compile the installation's basis once (its law model and closed
  *   constants, physical/install/plan.ts installBasis), packing every closed relation's cells once
  *   (physical/ddl/constants.ts planClosed), plan the installation three times over it (commandPlans), and build the
  *   draft's DDL once; then they compile each login's programs once, into its served file (adapter/served/compile.ts
@@ -128,6 +130,14 @@ export const startupWorkReadsASchemasContentOnceCompilesItOncePerCommandNothingF
 				replacement:
 					"\t\tfingerprint: unwrap(\n\t\t\tResult.flatMap(schemaFingerprint(descIdentities, level), () => schemaFingerprint(descIdentities, level))\n\t\t)\n",
 				why: "generate and check hash each level's fingerprint twice; the count of fingerprints fails."
+			},
+			{
+				file: "packages/engine/src/schema/schema.ts",
+				original:
+					"\t\towned: once(() => ownBuilt({ desc: admitted.desc, content: admitted.content }))\n",
+				replacement:
+					"\t\towned: () => ownBuilt({ desc: admitted.desc, content: admitted.content })\n",
+				why: "A schema value holds no Owned, so check owns it again after generate; check's count of owns fails."
 			},
 			{
 				file: "packages/grizzle/src/cli/generate.ts",

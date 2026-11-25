@@ -1,9 +1,11 @@
 import { sameOrder } from "@bjornpagen/grizzle-text/base/array"
 import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import { isNonEmpty, mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { sameContent } from "#compiler/core/canonical.ts"
 import type { LoginRule, RoleRule, ScopeRule } from "#compiler/core/causes.ts"
 import { CompileError, ruleRefused } from "#compiler/core/errors.ts"
+import { once } from "#compiler/core/lazy.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { builtMark } from "#compiler/core/phantom.ts"
@@ -37,7 +39,7 @@ import {
 	type SchemaContent,
 	sameLevel
 } from "#compiler/schema/levels.ts"
-import { entryContextBreak } from "#compiler/schema/own.ts"
+import { entryContextBreak, type OwnedRole, ownBuiltRole } from "#compiler/schema/own.ts"
 import {
 	builderLoc,
 	frozenCopy,
@@ -124,6 +126,15 @@ export interface RoleLevel {
 	 * definition the scope's, which scopedEntriesOf made. No other query entry is scoped, whatever its shape.
 	 */
 	readonly scoped: ReadonlyMap<string, Scope>
+}
+
+/**
+ * A built role's level (role(...)): its RoleLevel, and the role owned once over its base's Owned, the one the base's
+ * value carries (levels.ts BuiltSchemaContent), or the refusal its ownership met, which the value holds from its first
+ * read. Every reader of a built role's OwnedRole reads this one: records(...) over the role, its artifacts and describe.
+ */
+export interface BuiltRoleLevel extends RoleLevel {
+	readonly owned: () => Result.Result<OwnedRole, CompileError>
 }
 
 export const loginDescOf = (value: unknown): LoginDesc | undefined => ownedDesc(value, "login")
@@ -318,7 +329,7 @@ interface AdmittedRole {
 	readonly desc: RoleDesc
 	/** The names of the whole and scoped entries, the relations it holds, which the kept statements name only. */
 	readonly held: ReadonlySet<string>
-	readonly level: RoleLevel
+	readonly level: BuiltRoleLevel
 }
 
 /** The names a statement's Descriptions name. */
@@ -642,13 +653,16 @@ export const admitRole = (
 		...entries.flatMap((e) => (e.kind === "whole" ? [e.name] : [])),
 		...scoped.keys()
 	])
-	const level: RoleLevel = Object.freeze({
+	const level: BuiltRoleLevel = Object.freeze({
 		desc,
 		base: baseEntry.content,
 		whole: wholeLevel(baseEntry.content, below, held),
 		relations: below,
 		entries: new Map(desc.relations.map((e) => [e.name, e])),
-		scoped
+		scoped,
+		owned: once(() =>
+			Result.flatMap(baseEntry.content.owned(), (owned) => ownBuiltRole(desc, owned))
+		)
 	})
 	return { desc, held, level }
 }

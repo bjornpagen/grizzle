@@ -55,7 +55,7 @@ import type { SchemaLaws } from "#compiler/program/laws.ts"
 import type { FamilyInserts } from "#compiler/program/preview.ts"
 import { sliceRefusal } from "#compiler/program/slice.ts"
 import type { DeclaredEntries } from "#compiler/schema/declared-entries.ts"
-import { type Owned, type OwnedRole, own, ownBuilt, ownRole } from "#compiler/schema/own.ts"
+import { type Owned, type OwnedRole, own } from "#compiler/schema/own.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
 import type { RecordedLaw } from "#compiler/types/changeset/changeset.ts"
 import { type UnmatchedQuery, unmatchedQueryOf } from "#compiler/write/unmatched.ts"
@@ -201,7 +201,8 @@ export interface CompiledSchema {
  */
 const built = new WeakMap<object, Result.Result<CompiledSchema, CompileError>>()
 
-/** The compiled state of a built schema (`built`): its owned schema's (ownBuilt) law model over every slice, planned. */
+/** The compiled state of a built schema (`built`): the law model, over every slice, planned, of the Owned the schema's
+ * value holds (levels.ts BuiltSchemaContent). */
 export const compiledSchema = (
 	schema: BuiltSchema
 ): Result.Result<CompiledSchema, CompileError> => {
@@ -209,8 +210,10 @@ export const compiledSchema = (
 	if (known !== undefined) {
 		return known
 	}
-	const made = Result.map(Result.flatMap(ownBuilt(schema), plannedModel), (model): CompiledSchema =>
-		Object.freeze({ model, inserts: new Lazy<FamilyInserts>(), laws: new Lazy<SchemaLaws>() })
+	const made = Result.map(
+		Result.flatMap(schema.content.owned(), plannedModel),
+		(model): CompiledSchema =>
+			Object.freeze({ model, inserts: new Lazy<FamilyInserts>(), laws: new Lazy<SchemaLaws>() })
 	)
 	built.set(schema.value, made)
 	return made
@@ -236,12 +239,13 @@ export const schemaArtifacts = (
 		case "built":
 			return Result.flatMap(builtLawModel(schema), over)
 		case "role":
-			return Result.flatMap(ownRole(schema.desc), (role) =>
+			return Result.flatMap(schema.level.owned(), (role) =>
 				Result.flatMap(Result.flatMap(plannedModel(role.base), over), (base) =>
 					Result.flatMap(namedRole(role, base.names.levels), (named) => roleArtifacts(named, base))
 				)
 			)
 		case "owned":
+			return Result.flatMap(plannedModel(schema.owned), over)
 		case "desc":
 			return Result.flatMap(Result.flatMap(own(schema.desc), plannedModel), over)
 	}

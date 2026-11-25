@@ -11,7 +11,7 @@ import { type RosterOrder, rosterOrders } from "#compiler/ir/scalar.ts"
 import { login, role, wholeEntriesOf, wholeWritesOf } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
-import { type Owned, ownBuilt } from "#compiler/schema/own.ts"
+import type { Owned } from "#compiler/schema/own.ts"
 import { closedBuilder, derivedBuilder } from "#compiler/schema/relation.ts"
 import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -133,7 +133,7 @@ export const compiledOverEachLevel = (
 ): Effect.Effect<ReadonlyArray<LevelCompiled>> =>
 	Effect.gen(function* () {
 		const installed = defined(builtLogin(installation.logins[3].login), "a login over the top")
-		const owned = succeeded(ownBuilt(installed.base), "the installation's top")
+		const owned = succeeded(installed.base.content.owned(), "the installation's top")
 		const snapshot = yield* Effect.orDie(
 			compiledSnapshot(installed, owned, installation.codes(owned))
 		)
@@ -143,7 +143,7 @@ export const compiledOverEachLevel = (
 				const input = {
 					login: built,
 					owned: succeeded(
-						ownLoginOver(built, succeeded(ownBuilt(built.base), "the login's level")),
+						ownLoginOver(built, succeeded(built.base.content.owned(), "the login's level")),
 						"the login over its level"
 					)
 				}

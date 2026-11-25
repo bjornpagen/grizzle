@@ -12,7 +12,7 @@ import type { WireFacts } from "#compiler/live/shape.ts"
 import type { WireScalar } from "#compiler/live/wire.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { login, role, wholeEntriesOf, wholeWritesOf } from "#compiler/public/schema.ts"
-import { ownBuilt, rostersOf } from "#compiler/schema/own.ts"
+import { rostersOf } from "#compiler/schema/own.ts"
 import { servedFile } from "#compiler/served/json.ts"
 import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -111,7 +111,7 @@ export const nestingHolds = (c: NestCase, note: (feature: Feature) => void): Eff
 			),
 			"a login built by login(...)"
 		)
-		const base = succeeded(ownBuilt(served.base), "the login's base")
+		const base = succeeded(served.base.content.owned(), "the login's base")
 		const owned = succeeded(ownLoginOver(served, base), "the login over its base")
 		const compiled = yield* Effect.result(
 			Effect.flatMap(compiledSnapshot(served, base, firstCodebook(rostersOf(base))), (snapshot) =>

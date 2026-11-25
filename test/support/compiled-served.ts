@@ -25,7 +25,7 @@ import {
 	type ServedWorkloadPlan,
 	servedWorkload
 } from "#compiler/program/workload/compile.ts"
-import { installationsOf, type Owned, ownBuilt, rostersOf } from "#compiler/schema/own.ts"
+import { installationsOf, type Owned, rostersOf } from "#compiler/schema/own.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
 import type { AnyLogin } from "#compiler/types/schema/world.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -158,7 +158,7 @@ const atLogin = (error: CompileError): ServedRefusal => ({ place: { kind: "login
  */
 export const compiledServedFile = (login: AnyLogin): unknown => {
 	const built = defined(builtLogin(login), "a login built by login(...)")
-	const owned = succeeded(ownBuilt(built.base), "the login's base")
+	const owned = succeeded(built.base.content.owned(), "the login's base")
 	return Effect.runSync(
 		Effect.flatMap(compiledSnapshot(built, owned, firstCodebook(rostersOf(owned))), (snapshot) =>
 			compileServed(login, snapshot, [...built.workload])

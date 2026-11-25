@@ -11,7 +11,7 @@ import type { RoleContext } from "#adapter/served/role.ts"
 import type { ApplyOutcome } from "#adapter/types/db.ts"
 import { lawsAbove } from "#adapter/witness/keylaw.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { Engine, levelChain, ownBuilt, type RowDecoder } from "#compiler/plan/common.ts"
+import { Engine, levelChain, type RowDecoder } from "#compiler/plan/common.ts"
 import { everySlice, servedSnapshot } from "#compiler/plan/serve.ts"
 import type { AnyLoginRole } from "#compiler/types/schema/world.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
@@ -45,7 +45,7 @@ export const servedRoleContext = (
 		if (login === undefined) {
 			return yield* new RoleSetupError({ what: "a role of no login login(...) built" })
 		}
-		const base = yield* fromEngine(ownBuilt(login.base))
+		const base = yield* fromEngine(login.base.content.owned())
 		const owned = yield* fromEngine(ownLoginOver(login, base))
 		const snapshot = yield* fromEngine(
 			servedSnapshot(

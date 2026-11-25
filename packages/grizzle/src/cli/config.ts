@@ -21,7 +21,6 @@ import {
 	levelChain,
 	longestRoleBytes,
 	maxIdentifierBytes,
-	ownBuilt,
 	type Owned,
 	type OwnedLogin,
 	parseBuiltSchema,
@@ -141,9 +140,10 @@ const rootOf = (desc: SchemaDesc): SchemaDesc => levelChain(desc)[0]
 
 /** Each level of a built schema, its declared name and its content, the schema itself first: a schema's content records
  * the level below it as its description does (schema/levels.ts SchemaContent). */
-const levelsOf = (
-	built: Pick<BuiltSchema, "desc" | "content">
-): ReadonlyArray<{ readonly name: string; readonly content: SchemaContent }> => {
+const levelsOf = (built: {
+	readonly desc: SchemaDesc
+	readonly content: SchemaContent
+}): ReadonlyArray<{ readonly name: string; readonly content: SchemaContent }> => {
 	const [base] = built.desc.bases
 	return [
 		{ name: built.desc.name, content: built.content },
@@ -243,7 +243,7 @@ const uncompiledSchema = (index: number) => (error: CompileError) =>
  */
 export const compileSchema = (schema: ConfiguredSchema): Result.Result<CompiledSchema, CliError> =>
 	Result.flatMap(
-		Result.mapError(toResult(ownBuilt(schema.built)), uncompiledSchema(schema.index)),
+		Result.mapError(toResult(schema.built.content.owned()), uncompiledSchema(schema.index)),
 		(owned) =>
 			Result.mapError(
 				Result.map(
@@ -254,7 +254,7 @@ export const compileSchema = (schema: ConfiguredSchema): Result.Result<CompiledS
 									Result.flatMap(
 										sameLevel(l.login.base.content, schema.built.content)
 											? Result.succeed(owned)
-											: toResult(ownBuilt(l.login.base)),
+											: toResult(l.login.base.content.owned()),
 										(base) => toResult(ownLoginOver(l.login, base))
 									),
 									(o) => ({ login: l.login, owned: o })

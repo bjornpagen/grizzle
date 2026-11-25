@@ -8,6 +8,7 @@ import { publicDesc, queryState } from "#compiler/query/build/state.ts"
 import { admitSchemaDesc } from "#compiler/schema/admit.ts"
 import { unheldOf } from "#compiler/schema/level.ts"
 import {
+	type BuiltSchemaContent,
 	contentOfDesc,
 	isLevelOf,
 	type SchemaContent,
@@ -16,7 +17,7 @@ import {
 import { type Owned, ownedOf } from "#compiler/schema/own.ts"
 import { ownedEntry } from "#compiler/schema/protocol.ts"
 import type { FragmentDesc } from "#compiler/schema/schema.ts"
-import type { RoleLevel } from "#compiler/schema/world.ts"
+import type { BuiltRoleLevel } from "#compiler/schema/world.ts"
 
 /**
  * What a program is given, parsed once where it is given: a schema, a role or a fragment its builders made, or a
@@ -38,7 +39,7 @@ export type SchemaInput =
 			readonly kind: "built"
 			readonly value: object
 			readonly desc: SchemaDesc
-			readonly content: SchemaContent
+			readonly content: BuiltSchemaContent
 	  }
 	| {
 			readonly kind: "owned"
@@ -51,7 +52,7 @@ export type SchemaInput =
 			readonly kind: "role"
 			readonly value: object
 			readonly desc: RoleDesc
-			readonly level: RoleLevel
+			readonly level: BuiltRoleLevel
 	  }
 
 /**

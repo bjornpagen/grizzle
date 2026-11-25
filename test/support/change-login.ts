@@ -14,14 +14,14 @@ import { namedLogin } from "#compiler/physical/ddl/names.ts"
 import { installBasis, unserved } from "#compiler/physical/install/plan.ts"
 import type { ChangeLogin } from "#compiler/program/workload/change.ts"
 import { planWorkload } from "#compiler/program/workload/compile.ts"
-import { ownBuilt, rostersOf } from "#compiler/schema/own.ts"
+import { rostersOf } from "#compiler/schema/own.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
 import { succeeded } from "#test/support/assert.ts"
 
 /** `value`, a login, as its change members compile (ChangeLogin). */
 export const changeLogin = (value: unknown): ChangeLogin => {
 	const built = defined(builtLogin(value), "a login built by login(...)")
-	const owned = succeeded(ownBuilt(built.base), "the login's base")
+	const owned = succeeded(built.base.content.owned(), "the login's base")
 	const basis = succeeded(
 		installBasis(owned, firstCodebook(rostersOf(owned)), everySlice(owned)),
 		"the base's basis"

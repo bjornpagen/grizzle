@@ -8,7 +8,7 @@ import type { LoweredProgram } from "#compiler/ir/products.ts"
 import { compileQuery, querySchema } from "#compiler/program/compile.ts"
 import { queryInput, type SchemaInput } from "#compiler/program/input.ts"
 import { schemaArtifacts } from "#compiler/program/schema.ts"
-import { type Owned, own, ownRole, rostersOf } from "#compiler/schema/own.ts"
+import { type Owned, own, rostersOf } from "#compiler/schema/own.ts"
 
 /**
  * describeQuery and lowerQuery: the inspection vocabulary over query values, internal to the engine (tests and the compile
@@ -37,8 +37,9 @@ const ownedOf = (input: SchemaInput): Result.Result<Owned, CompileError> => {
 		case "owned":
 			return Result.ok(input.owned)
 		case "role":
-			return Result.map(ownRole(input.desc), (role) => role.base)
+			return Result.map(input.level.owned(), (role) => role.base)
 		case "built":
+			return input.content.owned()
 		case "desc":
 			return own(input.desc)
 	}

@@ -46,7 +46,7 @@ import { isRecord } from "#compiler/core/record.ts"
 import { trusted, trustedJson } from "#compiler/core/trusted.ts"
 import { isolationGuardName } from "#compiler/physical/ddl/isolation.ts"
 import { snapshotGuardName } from "#compiler/physical/ddl/ledger.ts"
-import { Engine, levelChain, ownBuilt, type RowDecoder } from "#compiler/plan/common.ts"
+import { Engine, levelChain, type RowDecoder } from "#compiler/plan/common.ts"
 import { everySlice, servedSnapshot } from "#compiler/plan/serve.ts"
 import type { WriteStepResult } from "#compiler/runtime/write/steps.ts"
 import type { Insert, SqlStatement, With } from "#compiler/sql/ast.ts"
@@ -169,7 +169,7 @@ const servedRoleOf = (
 		if (login === undefined) {
 			return yield* new GateSetupError({ what: "openDb: a role of no login login(...) built" })
 		}
-		const base = yield* fromEngine(ownBuilt(login.base))
+		const base = yield* fromEngine(login.base.content.owned())
 		const owned = yield* fromEngine(ownLoginOver(login, base))
 		const snapshot = yield* fromEngine(
 			servedSnapshot(

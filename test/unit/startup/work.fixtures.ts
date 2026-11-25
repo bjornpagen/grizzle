@@ -287,7 +287,11 @@ const commandPlans = [
 	"the draft's installation"
 ] as const
 
-/** The counts a step must make exactly, whatever the size: each site it names, at its count. */
+/**
+ * The counts a step must make exactly, whatever the size: each site it names, at its count. The steps run in one
+ * process over one schema value, which holds its Owned from its first read (schema/schema.ts builtContent): generate
+ * owns it and hashes its fingerprint, and check, after it, owns nothing more and hashes nothing more.
+ */
 export const exactly: { readonly [S in keyof Steps]: Partial<Counts> } = {
 	schema: { levelContent: 1, contentOfDesc: 0, own: 0 },
 	builders: { descText: 0, levelContent: 0, contentOfDesc: 0, own: 0, compileLaws: 0 },
@@ -307,8 +311,8 @@ export const exactly: { readonly [S in keyof Steps]: Partial<Counts> } = {
 	check: {
 		levelContent: 0,
 		contentOfDesc: 0,
-		own: 1,
-		schemaFingerprint: 1,
+		own: 0,
+		schemaFingerprint: 0,
 		compileLaws: 1,
 		installBasis: 1,
 		planBasis: 0,

@@ -25,7 +25,7 @@ import {
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { workload } from "#compiler/public/workload.ts"
-import { ownBuilt, rostersOf } from "#compiler/schema/own.ts"
+import { rostersOf } from "#compiler/schema/own.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
 import { succeeded } from "#test/support/assert.ts"
 
@@ -135,7 +135,7 @@ export const policedLoginOf = ({ filter, write }: Drawn) => {
 				: ChangeSet.empty(writer).deleteWhere({ Mine: { number: param("number", natural) } })
 	const value = login(Policed, "app", [admin, writer], { workload: [workload(writer, { act })] })
 	const built = defined(builtLogin(value), "a login built by login(...)")
-	const owned = succeeded(ownBuilt(built.base), "the login's base")
+	const owned = succeeded(built.base.content.owned(), "the login's base")
 	const basis = succeeded(
 		installBasis(owned, firstCodebook(rostersOf(owned)), everySlice(owned)),
 		"the base's basis"

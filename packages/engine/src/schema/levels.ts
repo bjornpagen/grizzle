@@ -1,7 +1,9 @@
+import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import { sameContent } from "#compiler/core/canonical.ts"
+import type { CompileError } from "#compiler/core/errors.ts"
 import { levelChain, type RelationDesc, type SchemaDesc } from "#compiler/ir/desc.ts"
 import { type DeclaredEntries, noDeclaredEntries } from "#compiler/schema/declared-entries.ts"
-import { type CanonicalStatement, canonicalStatementOf } from "#compiler/schema/own.ts"
+import { type CanonicalStatement, canonicalStatementOf, type Owned } from "#compiler/schema/own.ts"
 import type { RoleLevel } from "#compiler/schema/world.ts"
 
 /**
@@ -40,6 +42,19 @@ export interface SchemaContent {
 	 * fragment's own content none.
 	 */
 	readonly fragments: ReadonlyArray<SchemaContent>
+}
+
+/**
+ * A built schema's content (schema.ts schema(...) and schema.extend(...)): its level's, and the schema owned once
+ * (own.ts ownBuilt), or the refusal ownership met, which the value holds from where it is first read: every reader of a
+ * built schema's Owned reads this one, shared by reference: records(...) over the schema, its compile
+ * (program/schema.ts compiledSchema), its artifacts, describe, a role over it and a login's compile, so no reader owns a
+ * built schema again, and a program of many records over one schema owns it once, not once a records. Ownership owns a
+ * level and every level below it whole, so it waits for its first reader: a schema.extend chain of 34 levels, metis's,
+ * whose records read 5, owns those 5 and not every level it built.
+ */
+export interface BuiltSchemaContent extends SchemaContent {
+	readonly owned: () => Result.Result<Owned, CompileError>
 }
 
 /** A relation a level declares: its name and its description, a derived relation's as the level holds it. */

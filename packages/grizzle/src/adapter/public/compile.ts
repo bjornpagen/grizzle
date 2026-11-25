@@ -16,7 +16,6 @@ import {
 	malformedArtifact,
 	malformedDescription,
 	defect,
-	ownBuilt,
 	SourceLoc
 } from "#compiler/plan/common.ts"
 import { type InstalledIndexes, snapshotIndexes } from "#compiler/plan/serve.ts"
@@ -54,7 +53,7 @@ const compiledJson = (
 				atLogin(malformedDescription(SourceLoc(caller, []), "a login built by login(...)"))
 			)
 		}
-		const base = yield* Effect.mapError(fromEngine(ownBuilt(built.base)), atLogin)
+		const base = yield* Effect.mapError(fromEngine(built.base.content.owned()), atLogin)
 		const owned = yield* Effect.mapError(fromEngine(ownLoginOver(built, base)), atLogin)
 		const compiled = yield* entry({ login: { ...built, workload: workloads }, owned }, snapshot)
 		const read = readJson(compiled.text)

@@ -16,7 +16,7 @@ import { contract, pg } from "#compiler/public/fields.ts"
 import { param, query, v } from "#compiler/public/query.ts"
 import { derived, fn, mutable, relation, row, rows, schema, unit } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { ownBuilt, rostersOf } from "#compiler/schema/own.ts"
+import { rostersOf } from "#compiler/schema/own.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { compiledInstallation, compiledSnapshot } from "#test/support/compiled-served.ts"
@@ -299,7 +299,7 @@ export const checkCase = (c: TextDomainCase) =>
 	Effect.gen(function* () {
 		const login = loginOf(c)
 		const built = defined(builtLogin(login), "the case's login")
-		const owned = succeeded(ownBuilt(built.base), "the case's base")
+		const owned = succeeded(built.base.content.owned(), "the case's base")
 		const codes = firstCodebook(rostersOf(owned))
 		const { installation, plan } = yield* compiledInstallation(built, owned, codes)
 		const snapshot = yield* compiledSnapshot(built, owned, codes)

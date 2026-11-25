@@ -53,12 +53,12 @@ import type { OpenExpr } from "#compiler/ir/open.ts"
 import type { Roster as TypedRoster, ScalarType } from "#compiler/ir/scalar.ts"
 import { registerPredicate, type TermCarrier } from "#compiler/scalar/compute/term.ts"
 import { type Described, refusedField, registeredField } from "#compiler/scalar/registry.ts"
-import type { SchemaContent } from "#compiler/schema/levels.ts"
+import type { BuiltSchemaContent } from "#compiler/schema/levels.ts"
 import type { CanonicalStatement } from "#compiler/schema/own.ts"
 import type { DerivedDraft, OrdinaryRelationDesc } from "#compiler/schema/relation.ts"
 import type { FragmentContent, FragmentDesc } from "#compiler/schema/schema.ts"
 import type { ExpansionDesc, SelectedDesc } from "#compiler/schema/statements.ts"
-import type { RoleLevel, WorldDraft } from "#compiler/schema/world.ts"
+import type { BuiltRoleLevel, WorldDraft } from "#compiler/schema/world.ts"
 import type { AnyDerived } from "#compiler/types/derived/derived.ts"
 import type { AnyFunction, AnyRow, AnyRows, FunctionBody } from "#compiler/types/schema/function.ts"
 import type { AnyClosedRelation, AnyRelation, AnyRoster } from "#compiler/types/schema/relation.ts"
@@ -221,8 +221,9 @@ export const querySchemaOf = (value: unknown): object | undefined =>
  * and the content it was built with, read once at its build: the roster a roster's handles type (relation.ts
  * closedBuilder), a statement's canonical form and text (own.ts CanonicalStatement) and the relations it was built over
  * (statements.ts relationsOver), a mirrors' its two containments' and its relations, a schema's content
- * (levels.ts SchemaContent), a fragment's content with its declarations and statements (schema.ts FragmentContent), a
- * role's level (world.ts RoleLevel), and nothing for any other kind: a relation's identity
+ * (levels.ts SchemaContent) and the schema owned once, at its build (BuiltSchemaContent), a fragment's content with its
+ * declarations and statements (schema.ts FragmentContent), a role's level and the role owned once, at its build
+ * (world.ts BuiltRoleLevel), and nothing for any other kind: a relation's identity
  * is its Description, compared by structure (core/canonical.ts sameContent). A mirrors is sugar, owned as an expansion,
  * the two containments it states, never as a statement.
  */
@@ -272,7 +273,7 @@ interface OwnedKinds {
 	readonly schema: {
 		readonly value: AnySchema
 		readonly desc: SchemaDesc
-		readonly content: SchemaContent
+		readonly content: BuiltSchemaContent
 	}
 	readonly fragment: {
 		readonly value: AnyFragment
@@ -294,7 +295,11 @@ interface OwnedKinds {
 		readonly desc: WorldDraft
 		readonly content: undefined
 	}
-	readonly role: { readonly value: AnyRole; readonly desc: RoleDesc; readonly content: RoleLevel }
+	readonly role: {
+		readonly value: AnyRole
+		readonly desc: RoleDesc
+		readonly content: BuiltRoleLevel
+	}
 	readonly login: {
 		readonly value: AnyLogin
 		readonly desc: LoginDesc

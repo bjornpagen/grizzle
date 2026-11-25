@@ -1,6 +1,7 @@
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { heldRelation, type RelationDesc, type SchemaDesc } from "#compiler/ir/desc.ts"
 import {
+	type BuiltSchemaContent,
 	isLevelOf,
 	levelRelations,
 	type SchemaContent,
@@ -9,7 +10,7 @@ import {
 } from "#compiler/schema/levels.ts"
 import { ownedEntryOf } from "#compiler/schema/protocol.ts"
 import type { FragmentDesc } from "#compiler/schema/schema.ts"
-import type { RoleLevel } from "#compiler/schema/world.ts"
+import type { BuiltRoleLevel, RoleLevel } from "#compiler/schema/world.ts"
 import type { AnyFragment, AnySchema } from "#compiler/types/schema/schema.ts"
 import type { AnyRole } from "#compiler/types/schema/world.ts"
 
@@ -24,7 +25,7 @@ export type Level =
 			readonly kind: "schema"
 			readonly value: AnySchema
 			readonly desc: SchemaDesc
-			readonly content: SchemaContent
+			readonly content: BuiltSchemaContent
 	  }
 	| {
 			readonly kind: "fragment"
@@ -32,7 +33,7 @@ export type Level =
 			readonly desc: FragmentDesc
 			readonly content: SchemaContent
 	  }
-	| ({ readonly kind: "role"; readonly value: AnyRole } & RoleLevel)
+	| ({ readonly kind: "role"; readonly value: AnyRole } & BuiltRoleLevel)
 
 /** The first relation of a fragment of content `fragment` that the role `role` does not hold whole or scoped under its
  * own name, a relation no role holds (ir/desc.ts heldRelation) aside: a program over the fragment reads or writes it, so

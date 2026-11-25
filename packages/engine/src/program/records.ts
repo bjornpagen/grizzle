@@ -62,7 +62,7 @@ import { defineField, type ScalarEnv } from "#compiler/scalar/registry.ts"
 import { fieldDescOf } from "#compiler/schema/field-desc.ts"
 import type { Level } from "#compiler/schema/level.ts"
 import { literalsField } from "#compiler/schema/literals.ts"
-import { type Owned, own, ownRole } from "#compiler/schema/own.ts"
+import type { Owned } from "#compiler/schema/own.ts"
 import {
 	builderLoc,
 	builderRefusal,
@@ -174,13 +174,14 @@ interface RecordsState {
 /** Each records value's state, by the value: a WeakMap, so it holds nothing alive and is never enumerated. */
 const states = new WeakMap<object, RecordsState>()
 
-/** The owned schema a query's level is over, whose contracts its contract columns are declared by. */
+/** The owned schema a query's level is over, whose contracts its contract columns are declared by: the Owned the
+ * level's value holds (levels.ts BuiltSchemaContent, world.ts BuiltRoleLevel), owned once for every reader. */
 const ownedOf = (level: Level, label: string): Result.Result<Owned, CompileError> => {
 	switch (level.kind) {
 		case "schema":
-			return own(level.desc)
+			return level.content.owned()
 		case "role":
-			return Result.map(ownRole(level.desc), (role) => role.base)
+			return Result.map(level.owned(), (role) => role.base)
 		case "fragment":
 			return Result.err(
 				malformed(label, "a query over a schema or a role, whose records a level lists")

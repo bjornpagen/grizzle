@@ -20,7 +20,7 @@ import { context, login, role, wholeEntriesOf } from "#compiler/public/schema.ts
 import { paged } from "#compiler/public/workload.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
-import { type Owned, ownBuilt } from "#compiler/schema/own.ts"
+import type { Owned } from "#compiler/schema/own.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
 import { contextDescOf } from "#compiler/schema/world.ts"
 import type { ServedFile, ServedRoleForm } from "#compiler/served/forms.ts"
@@ -546,7 +546,7 @@ export const compiledLogin = (
 ): Effect.Effect<CompiledLogin, ServedRefusal> =>
 	Effect.gen(function* () {
 		const built = defined(builtLogin(login), "a login built by login(...)")
-		const base = succeeded(ownBuilt(built.base), "the login's base")
+		const base = succeeded(built.base.content.owned(), "the login's base")
 		const owned = succeeded(ownLoginOver(built, base), "the login over its base")
 		const snapshot = yield* compiledSnapshot(built, base, codes(base))
 		const compiled = yield* snapshotCompiled({ login: built, owned }, snapshot, transactionClock)

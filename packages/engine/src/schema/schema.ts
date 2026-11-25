@@ -1,6 +1,7 @@
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { sameContent } from "#compiler/core/canonical.ts"
 import { CompileError, undeclaredRelation } from "#compiler/core/errors.ts"
+import { once } from "#compiler/core/lazy.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import { builtMark } from "#compiler/core/phantom.ts"
 import { hasProperties, isList } from "#compiler/core/record.ts"
@@ -22,8 +23,12 @@ import { fragmentName, fragmentReach } from "#compiler/schema/fragment.ts"
 import { functionDescOf } from "#compiler/schema/function.ts"
 import { declaredEntriesOf } from "#compiler/schema/law-entries.ts"
 import { isLevelOver, type Level, levelOf } from "#compiler/schema/level.ts"
-import { levelContent, type SchemaContent } from "#compiler/schema/levels.ts"
-import type { CanonicalStatement } from "#compiler/schema/own.ts"
+import {
+	type BuiltSchemaContent,
+	levelContent,
+	type SchemaContent
+} from "#compiler/schema/levels.ts"
+import { type CanonicalStatement, ownBuilt } from "#compiler/schema/own.ts"
 import {
 	builderLoc,
 	builderRefusal,
@@ -476,6 +481,16 @@ export const admitSchema = (
 }
 
 /**
+ * A built schema's content: its level's, and the schema owned once, held by the value from its first read (levels.ts
+ * BuiltSchemaContent), over the content of the levels below, each the content its own value carries.
+ */
+const builtContent = (admitted: AdmittedLevel): BuiltSchemaContent =>
+	Object.freeze({
+		...admitted.content,
+		owned: once(() => ownBuilt({ desc: admitted.desc, content: admitted.content }))
+	})
+
+/**
  * schema(name, relations, statements). The relations are a list, held by name (record.ts levelRecord), each name's one
  * declaration; the statements a frozen copy, held by name and read back whole (types/schema/schema.ts
  * StatementsReadBack), which is Statements for every tuple a call writes.
@@ -510,7 +525,7 @@ const rootSchema = <
 			bases: []
 		},
 		desc: admitted.desc,
-		content: admitted.content
+		content: builtContent(admitted)
 	})
 }
 
@@ -734,7 +749,7 @@ const extend = <
 			bases: [base]
 		},
 		desc: admitted.desc,
-		content: admitted.content
+		content: builtContent(admitted)
 	})
 }
 

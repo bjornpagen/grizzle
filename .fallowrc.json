@@ -258,7 +258,7 @@
 				// program over the entry to these zones and allows the printer by name.
 				"name": "dsl-core",
 				"patterns": [
-					"packages/engine/src/core/{allen,clock,decoder,fingerprint,function,hex,identity,ids,lines,page,phantom,set,sha256,stems,temporary,wire}.ts"
+					"packages/engine/src/core/{allen,clock,decoder,fingerprint,function,hex,identity,ids,lazy,lines,page,phantom,set,sha256,stems,temporary,wire}.ts"
 				]
 			},
 			{

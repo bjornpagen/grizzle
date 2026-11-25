@@ -209,7 +209,6 @@ export { type SchemaContent, sameLevel } from "#compiler/schema/levels.ts"
 export { levelChain } from "#compiler/ir/desc.ts"
 export {
 	own,
-	ownBuilt,
 	ownBuiltLogin,
 	ownServed,
 	type Owned,
