@@ -1012,3 +1012,40 @@ export const staleDerivedReadText = (read: {
 	const why = staleCauseText(read.member, read.cause)
 	return `${how}${carried}; ${derivedReaderText(read.reader)} reads it, a value grizzle draws again by refilling its family's groups, and ${why}`
 }
+
+/**
+ * Why a unit's column is not fixed at a scan of a call's statement (sql/unit-bound.ts): no equality of the scan's level
+ * states it (`unstated`), or only a join with columns no constant of the level fixes (`joined`), which PostgreSQL may
+ * plan as a hash join that reads the relation whole; or the walk reached no level that holds the scan (`unwalked`), a
+ * shape it does not model, which it never passes as bound.
+ */
+export type UnfixedReason = "unstated" | "joined" | "unwalked"
+
+/**
+ * A scan of a relation under a declared unit in a call's statement that reads it at no unit the call fixes
+ * (UnboundUnitRead): the statement, the relation, the alias it is scanned under and the path to the scan in the
+ * statement, the unit, and each column of the unit's key no value fixed for the scan holds, with why.
+ */
+export interface UnboundUnitReadCause {
+	readonly statement: string
+	readonly relation: string
+	readonly alias: string
+	readonly at: ReadonlyArray<string>
+	readonly unit: string
+	readonly missing: NonEmptyReadonlyArray<{
+		readonly column: string
+		readonly reason: UnfixedReason
+	}>
+}
+
+/**
+ * A closed derivation a call's statement computes whole (UnstoredDerivation): the statement, the relations it reads,
+ * where PostgreSQL computes it apart (a CTE's body, a FROM query no constant reaches, or a sub-link's query), and the
+ * path to it in the statement. Its rows are one set for every call.
+ */
+export interface UnstoredDerivationCause {
+	readonly statement: string
+	readonly reads: NonEmptyReadonlyArray<string>
+	readonly site: "body" | "from" | "sublink"
+	readonly at: ReadonlyArray<string>
+}

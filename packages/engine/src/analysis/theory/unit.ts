@@ -1089,6 +1089,11 @@ export interface RegionFacts {
 	 * unit a transaction writes are the transaction's own until it commits (`declaredOf`).
 	 */
 	readonly members: ReadonlyMap<string, DeclaredMember>
+	/**
+	 * Each stored derived relation whose rows are an open frontier (`frontierOf`), by name, with the relation whose facts
+	 * settle its rows: a read of it, whole or not, reads its open rows alone (sql/unit-bound.ts UnitReach `frontier`).
+	 */
+	readonly frontiers: ReadonlyMap<string, string>
 }
 
 /**
@@ -1144,6 +1149,56 @@ const definedOf = (
 		)
 		return isNonEmpty(pairs) ? [{ from: name, to: n, pairs, selection: [] }] : []
 	})
+}
+
+/**
+ * The relation whose facts settle derived relation `query`'s rows, where its rows are an open frontier: its definition is
+ * one rules stage of one rule, no interior, that matches one relation N and holds a row of N only while `absent` finds
+ * no fact of a relation S at the values its match binds at every field of one of N's declared keys (`keysOf`). Each row
+ * of N then leaves the relation when its own settlement arrives, as the upkeep of the COMMIT that writes the settling
+ * fact deletes it, so the relation holds N's rows no fact of S settles yet, never one S has settled: a read of it costs
+ * its open rows, whatever history S has settled. A negation that binds less than a key of N, a row of N superseded by
+ * another (the latest of each key), keeps a row for every value of what it binds, its history's, and is none; so is a
+ * definition of another stage, of two rules, or of a join, whose rows are no one relation's.
+ */
+export const frontierOf = (
+	query: QueryDesc,
+	keysOf: (relation: string) => ReadonlyArray<NonEmptyReadonlyArray<string>>
+): string | undefined => {
+	const stage = query.stage
+	if (stage.kind !== "rules" || stage.arms.length !== 1) {
+		return undefined
+	}
+	const [rule] = stage.arms
+	const [match, ...others] = rule.matches
+	if (
+		match === undefined ||
+		others.length > 0 ||
+		rule.interiors.length > 0 ||
+		match.source.kind !== "relation"
+	) {
+		return undefined
+	}
+	const keys = keysOf(match.source.name)
+	const conjuncts = rule.where.flatMap((w) => (w.kind === "and" ? w.args : [w]))
+	for (const w of conjuncts) {
+		if (w.kind !== "absent" || w.source.kind !== "relation") {
+			continue
+		}
+		const settles = new Set(
+			Object.values(w.bindings).flatMap((b) => (b.kind === "var" ? [b.var] : []))
+		)
+		const settledAtKey = keys.some((k) =>
+			k.every((field) => {
+				const b = match.bindings[field]
+				return b?.kind === "var" && settles.has(b.var)
+			})
+		)
+		if (settledAtKey) {
+			return w.source.name
+		}
+	}
+	return undefined
 }
 
 /** The containments one statement states between stored relations (`regionFactsOf`), each a FieldContainment. */
@@ -1237,14 +1292,15 @@ const pairedKey = (c: FieldContainment): string =>
  * states nothing and is not held. In statement order, then each composition in the order the closure meets it, each
  * containment once. Beside them, each tree statement's stored relation with its root fields (RegionFacts `roots`),
  * and each stored relation's keys, its primary key and each candidate key a statement states of it (RegionFacts
- * `keys`).
+ * `keys`). Which derived relations are frontiers the theory decides over these facts and the checked schema's holdings,
+ * which say which are stored (theory.ts), before any upkeep reads them.
  */
 export const regionFactsOf = (
 	statements: ReadonlyArray<OwnedStatement>,
 	relations: ReadonlyMap<string, TheoryRelation>,
 	definitions: ReadonlyMap<string, QueryDesc>,
 	members: ReadonlyMap<string, DeclaredMember>
-): RegionFacts => {
+): Omit<RegionFacts, "frontiers"> => {
 	const stored = (name: string): RelationInfo | undefined => {
 		const r = relations.get(name)
 		return r?.kind === "relation" ? r : undefined

@@ -58,6 +58,7 @@ import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import {
+	frontierOf,
 	type RegionFacts,
 	regionFactsOf,
 	type StoredUpkeep,
@@ -533,12 +534,26 @@ class Builder {
 		)
 		this.owned = checked.owned
 		const authored = sidesEnvOf(checked)
-		const facts = regionFactsOf(
+		const closure = regionFactsOf(
 			checked.closure.statements.map((s) => s.statement),
 			authored.relations,
 			this.definitions,
 			checked.owned.unitOf
 		)
+		/** The closure's facts with the stored derived relations whose rows are an open frontier (unit.ts frontierOf),
+		 * which the checked schema's holdings decide (analysis/derived/storage.ts DerivedHolding). */
+		const facts: RegionFacts = {
+			...closure,
+			frontiers: new Map(
+				[...this.definitions].flatMap(([name, definition]) => {
+					const settledBy =
+						checked.holdings.get(name)?.kind === "stored"
+							? frontierOf(definition, (n) => closure.keys.get(n) ?? [])
+							: undefined
+					return settledBy === undefined ? [] : [[name, settledBy] as const]
+				})
+			)
+		}
 		const { stored, upkeeps } = this.#stored(authored.relations, facts)
 		this.upkeeps = upkeeps
 		this.sides = {

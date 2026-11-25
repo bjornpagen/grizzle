@@ -26,7 +26,6 @@ import {
 import type { ParamId } from "#compiler/core/ids.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { compareStrings } from "#compiler/core/order.ts"
-import { temporarySchema } from "#compiler/core/temporary.ts"
 import { overRowsOf } from "#compiler/lower/conservative/expr/lateral.ts"
 import {
 	type Assignment,
@@ -55,7 +54,7 @@ import {
 	type With
 } from "#compiler/sql/ast.ts"
 import { col, derived, eq, simpleSelect, targetAs } from "#compiler/sql/build.ts"
-import { readerCarrier } from "#compiler/sql/naming.ts"
+import { carrierReadBy } from "#compiler/sql/naming.ts"
 import { printExpr, printObjectName } from "#compiler/sql/print.ts"
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
 
@@ -2211,7 +2210,7 @@ const modeOf = (c: Context, arbiter: boolean): ReadFact["mode"] => {
 
 /**
  * A statement with every FROM item that calls a carrier's reader, pg_temp."<carrier>_rows"() with no ordinality, read
- * as the carrier's table (write/carriers/carriers.ts carrierRead, sql/naming.ts readerCarrier): the reader returns every
+ * as the carrier's table (write/carriers/carriers.ts carrierRead, sql/naming.ts carrierReadBy): the reader returns every
  * row of the carrier, every column under its own name, which the item's alias list repeats, so its rows are the
  * carrier's, the call's own rows its fill states (Carriers), as a read of the carrier's table is.
  */
@@ -2219,17 +2218,10 @@ const carrierReads = (s: SqlStatement): SqlStatement =>
 	transformStatement(s, {
 		...identityHooks,
 		fromSource: (source) => {
-			if (
-				source.kind !== "function" ||
-				source.columns.kind !== "named" ||
-				source.columns.ordinality ||
-				source.call.args.length > 0 ||
-				source.call.fn.kind !== "qualified" ||
-				source.call.fn.schema !== temporarySchema
-			) {
+			if (source.kind !== "function") {
 				return source
 			}
-			const carrier = readerCarrier(source.call.fn.name)
+			const carrier = carrierReadBy(source)
 			return carrier === undefined ? source : { kind: "table", table: carrier, alias: source.alias }
 		}
 	})

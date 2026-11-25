@@ -2,6 +2,8 @@ import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import { isNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import {
 	builtinFunctions,
+	type Expr as SubqueryExpr,
+	type SelectCore,
 	type Cte,
 	type Dml,
 	type Expr,
@@ -212,6 +214,192 @@ export const printedFunction = (fn: PlFunction): PlFunction => {
 	printedFunctions.set(printed, printed)
 	return printed
 }
+
+/** Every sub-expression of `e` at its own level, `e` first, never entering a sub-link's query. */
+export const ownLevel = (e: SubqueryExpr, f: (x: SubqueryExpr) => void): void => {
+	f(e)
+	for (const c of childrenOf(e)) {
+		ownLevel(c, f)
+	}
+}
+
+/** The direct sub-expressions of `e`, a sub-link's query excluded but its operand included. */
+const childrenOf = (e: SubqueryExpr): ReadonlyArray<SubqueryExpr> => {
+	switch (e.kind) {
+		case "column":
+		case "excluded":
+		case "returning":
+		case "param":
+		case "clock":
+		case "literal":
+		case "exists":
+		case "subquery":
+		case "array":
+		case "mergeAction":
+		case "domainValue":
+		case "user":
+		case "plVar":
+		case "plSpecial":
+		case "field":
+		case "regclass":
+			return []
+		case "cast":
+		case "collate":
+		case "negate":
+		case "not":
+		case "isTrue":
+		case "complement":
+		case "lowerAscii":
+			return [e.expr]
+		case "binary":
+			return [e.left, e.right]
+		case "and":
+		case "or":
+		case "greatest":
+		case "least":
+		case "coalesce":
+			return e.args
+		case "between":
+			return [e.expr, e.low, e.high]
+		case "inList":
+			return [e.expr, ...e.list]
+		case "inQuery":
+			return [e.expr]
+		case "equalsAny":
+			return [e.expr, e.array]
+		case "row":
+			return e.items
+		case "case":
+			return [
+				...(e.operand === undefined ? [] : [e.operand]),
+				...e.whens.flatMap((w) => [w.when, w.result]),
+				e.else
+			]
+		case "call":
+			return e.star
+				? e.filter === undefined
+					? []
+					: [e.filter]
+				: [
+						...e.args,
+						...e.orderBy.map((o) => o.expr),
+						...e.withinGroup.map((o) => o.expr),
+						...(e.over === undefined
+							? []
+							: [...e.over.partitionBy, ...e.over.orderBy.map((o) => o.expr)])
+					]
+		case "nullif":
+			return [e.expr, e.absent]
+		case "subscript":
+			return [e.array, e.index]
+	}
+}
+
+/**
+ * The functions that return rows, which a query PostgreSQL pulls up into its reader may not call in its targets
+ * (prepjointree.c is_simple_subquery, hasTargetSRFs).
+ */
+const setReturningFunctions: ReadonlySet<string> = new Set([
+	"unnest",
+	"string_to_table",
+	"regexp_split_to_table",
+	"generate_subscripts",
+	"generate_series"
+])
+
+/**
+ * Whether a target calls, at its own level, an aggregate, a window function (OVER), a set-returning function or a
+ * VOLATILE one: any of them keeps its query from being pulled up (is_simple_subquery: hasAggs, hasWindowFuncs,
+ * hasTargetSRFs, contain_volatile_functions over the targets).
+ */
+export const fencingTarget = (e: SubqueryExpr): boolean => {
+	let fenced = false
+	ownLevel(e, (x) => {
+		if (x.kind === "call") {
+			fenced ||=
+				x.over !== undefined ||
+				(x.fn.kind === "qualified"
+					? x.fn.volatility === "VOLATILE"
+					: builtinFunctions[x.fn.name].reach === "rows" ||
+						builtinFunctions[x.fn.name].volatility === "VOLATILE" ||
+						setReturningFunctions.has(x.fn.name))
+		}
+	})
+	return fenced
+}
+
+/**
+ * Whether PostgreSQL pulls a FROM query up into the query that reads it (prepjointree.c is_simple_subquery): a plain
+ * core, no WITH, DISTINCT, grouping, HAVING, order, bound or set operation, and no target that folds, windows, returns
+ * rows or calls a VOLATILE function. Its scans then join their reader's, and its targets are their expressions there.
+ */
+export const pulledUp = (q: OperandSelect): q is OperandSelect & { readonly body: SelectCore } =>
+	q.with === undefined &&
+	q.orderBy.length === 0 &&
+	q.limit === undefined &&
+	q.offset === undefined &&
+	q.body.kind === "core" &&
+	q.body.distinct === false &&
+	q.body.groupBy.length === 0 &&
+	q.body.having === undefined &&
+	!q.body.targets.some((t) => fencingTarget(t.expr))
+
+/** Whether a target is plain: a column, a constant, a cast of one, or a row of them. */
+const plainTarget = (e: SubqueryExpr): boolean =>
+	e.kind === "column" || e.kind === "param" || e.kind === "literal" || e.kind === "clock"
+		? true
+		: e.kind === "cast" || e.kind === "collate"
+			? plainTarget(e.expr)
+			: e.kind === "row" && e.items.every(plainTarget)
+
+/**
+ * What a parenthesized query is (print once's taxonomy of derivations): a `read`, no derivation, of one relation as it
+ * stands, `SELECT [DISTINCT] <plain targets> FROM <a table, a CTE or such a read> AS <alias>`, or a constant row of no
+ * FROM; `pulled`, a query PostgreSQL pulls up into the query whose FROM reads it (pulledUp), each site's restriction
+ * entering it; else a `derivation`, which PostgreSQL computes where it stands: a VALUES list, a fold, a set operation, a
+ * bound, a DISTINCT over a join or a filter, any query a fence keeps apart. Where it stands (a FROM, a CTE's body, a
+ * sub-link) is its site's to say, never its form's.
+ */
+export const subqueryForm = (q: OperandSelect): "read" | "pulled" | "derivation" => {
+	const body = q.body
+	if (
+		q.with === undefined &&
+		q.orderBy.length === 0 &&
+		q.limit === undefined &&
+		q.offset === undefined &&
+		body.kind === "core" &&
+		body.where === undefined &&
+		body.groupBy.length === 0 &&
+		body.having === undefined &&
+		(body.distinct === false || body.distinct === true) &&
+		body.targets.every((t) => plainTarget(t.expr))
+	) {
+		const [only, ...more] = body.from
+		if (
+			more.length === 0 &&
+			(only === undefined ||
+				only.kind === "table" ||
+				only.kind === "cte" ||
+				(only.kind === "derived" && !only.lateral && subqueryForm(only.query) === "read"))
+		) {
+			return "read"
+		}
+	}
+	if (
+		body.kind === "core" &&
+		body.from.length === 0 &&
+		q.with === undefined &&
+		body.where === undefined &&
+		body.targets.every((t) => plainTarget(t.expr))
+	) {
+		return "read"
+	}
+	return pulledUp(q) ? "pulled" : "derivation"
+}
+
+/** A query as it is printed where it stands inside a statement (printedOnce): each CTE PostgreSQL would inline printed in place. */
+export const printedQueryOnce = (query: OperandSelect): OperandSelect =>
+	transformQuery(query, { ...identityHooks, select: queryPrintedOnce })
 
 /** A data-modifying statement whose own WITH holds no CTE printed in place: each printed at its reference. */
 const dmlPrintedOnce = (

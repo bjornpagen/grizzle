@@ -109,6 +109,11 @@ interface NodeKeys {
 	 * plan, which its parent runs once per evaluation of the expression; none on the root.
 	 */
 	readonly parentRelationship: Option.Option<string>
+	/**
+	 * A SubPlan's or an InitPlan's name, PostgreSQL 19's spelling of the kind of its sub-link and its number (`exists_1`,
+	 * `expr_2`, `array_3`), or a CTE's (`CTE r8`), after the relationship; none on every other node.
+	 */
+	readonly subplanName: Option.Option<string>
 	readonly operation: Option.Option<string>
 	readonly joinType: Option.Option<string>
 	/** An Aggregate's or a SetOp's strategy: Plain, Sorted, Hashed or Mixed. */
@@ -359,6 +364,7 @@ const joinFilterOf = (condition: Option.Option<string>): JoinFilter =>
 const nodeKeys = (o: Json): NodeKeys => ({
 	nodeType: str(o, "Node Type"),
 	parentRelationship: optStr(o, "Parent Relationship"),
+	subplanName: optStr(o, "Subplan Name"),
 	operation: optStr(o, "Operation"),
 	joinType: optStr(o, "Join Type"),
 	strategy: optStr(o, "Strategy"),

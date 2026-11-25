@@ -126,6 +126,22 @@ export const readerCarrier = (fn: string): CarrierName | undefined =>
 	fn.endsWith(carrierReaderTail) ? CarrierName(fn.slice(0, -carrierReaderTail.length)) : undefined
 
 /**
+ * The carrier a FROM item reads through its reader (`carrierReaderScan`), none where it reads none: pg_temp."<carrier>_rows"()
+ * of no argument and no ordinality, which returns every row of the carrier, every column under its own name, the call's
+ * own rows its fill states.
+ */
+export const carrierReadBy = (
+	source: Extract<FromSource, { readonly kind: "function" }>
+): CarrierName | undefined =>
+	source.columns.kind !== "named" ||
+	source.columns.ordinality ||
+	source.call.args.length > 0 ||
+	source.call.fn.kind !== "qualified" ||
+	source.call.fn.schema !== temporarySchema
+		? undefined
+		: readerCarrier(source.call.fn.name)
+
+/**
  * Whose session tables a program's carriers are: the role it runs as, or reality's. A login's pooled session runs every
  * role of the login, each transaction under one, and a carrier, a session table every COMMIT keeps (sql/ast.ts
  * CreateCarrier), is owned by the role whose stand-up made it, which alone may truncate it, as a use's emptying does
