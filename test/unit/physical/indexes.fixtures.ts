@@ -160,7 +160,27 @@ const nonEmptyKeys = <K>(keys: ReadonlyArray<K>): Arr.NonEmptyReadonlyArray<K> =
 	return first === undefined ? assert.fail("a drawn request has a key") : [first, ...rest]
 }
 
-export const requestOf = (s: RequestSketch, i: number): IndexRequest => {
+/**
+ * A law request's keys as blocks (ir/law.ts LawIndexRequest): one block of every key where `split` cuts none of them,
+ * else the keys before the cut and those from it, as a unit-local law's read states its unit's key first
+ * (physical/ddl/rules.ts requestsOf).
+ */
+const blocksOf = <K>(
+	keys: Arr.NonEmptyReadonlyArray<K>,
+	split: number
+): Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<K>> => {
+	const [first] = keys
+	const before = keys.slice(1, split)
+	const [cut, ...after] = keys.slice(split)
+	return split < 1 || cut === undefined
+		? [keys]
+		: [
+				[first, ...before],
+				[cut, ...after]
+			]
+}
+
+const requestOf = (s: RequestSketch, i: number, split: number): IndexRequest => {
 	if (s.vector === 0 && !s.law) {
 		return {
 			relation: "Event",
@@ -196,15 +216,16 @@ export const requestOf = (s: RequestSketch, i: number): IndexRequest => {
 	return s.law
 		? {
 				relation: rel,
-				blocks: [
+				blocks: blocksOf(
 					nonEmptyKeys(
 						Arr.map(keys, (k) => ({
 							column: fieldColumn(rel, k.expr),
 							dir: "asc" as const,
 							opclass: k.opclass
 						}))
-					)
-				],
+					),
+					split
+				),
 				reads: { kind: "rows" },
 				method: "btree",
 				role: "lawMaintenance",
@@ -386,18 +407,27 @@ export type IndexFeature =
 	| "a B-tree and a GiST index on one column list installed"
 	| "two indexes on one column list"
 	| "a GiST index on a column of few values stated before columns of many values installed"
+	| "a law request of two blocks"
+	| "a law request's blocks in another order than an index of its columns"
 
 interface EngineSketch {
 	readonly requests: ReadonlyArray<RequestSketch>
 	readonly arrival: ReadonlyArray<number>
 	readonly planted: Planted
+	/** Where each request's keys are cut into two blocks, a law request's (`blocksOf`), by its position. */
+	readonly splits: ReadonlyArray<number>
 }
 
 const engineGen: Gen<EngineSketch> = (source) => ({
 	requests: source.draw(array(requestGen, { min: 0, max: 6 })),
 	arrival: source.draw(array(int(0, 2 ** 31 - 1), { min: 6, max: 6 })),
-	planted: source.draw(plantedGen)
+	planted: source.draw(plantedGen),
+	splits: source.draw(array(int(0, 2), { min: 6, max: 6 }))
 })
+
+/** A sketch's requests, each law request's keys cut where its position's split cuts them. */
+export const requestsOf = (sketch: EngineSketch): ReadonlyArray<IndexRequest> =>
+	Arr.map(sketch.requests, (s, i) => requestOf(s, i, sketch.splits[i] ?? 0))
 
 /**
  * An HNSW request on Event's vector column under the default class and another under the cosine class, among up to four
@@ -418,10 +448,60 @@ const twoClassesGen: Gen<EngineSketch> = (source) => {
 	}
 }
 
-/** The drawn engines, aimed at two indexes on one column list. */
+/**
+ * An equality lookup on Event's (tenant, account), whose index holds them in the heading's order, and a law's probe of
+ * (account, tenant) whose blocks state account first, among up to four drawn requests: the probe's index leads with
+ * account, so the lookup's index, which holds its columns as one block, serves it in no order its blocks take.
+ */
+const reversedBlocksGen: Gen<EngineSketch> = (source) => {
+	const drawn = source.draw(engineGen)
+	const kept = Arr.take(drawn.requests, 4)
+	const on = (law: boolean, columns: readonly [string, string]): RequestSketch => ({
+		relation: "Event",
+		keys: Arr.map(columns, (column) => ({ column, desc: false })),
+		law,
+		use: "equality lookup",
+		vector: 1,
+		cosine: false
+	})
+	return {
+		...drawn,
+		requests: [...kept, on(false, ["tenant", "account"]), on(true, ["account", "tenant"])],
+		planted: { kind: "none" },
+		splits: [...Arr.take(drawn.splits, kept.length), 0, 1]
+	}
+}
+
+/** The drawn engines, aimed at two indexes on one column list and at a law's blocks no index of its columns holds in order. */
 export const engineSpace: Aimed<EngineSketch, IndexFeature> = aimed(engineGen, [
-	["two indexes on one column list", twoClassesGen]
+	["two indexes on one column list", twoClassesGen],
+	["a law request's blocks in another order than an index of its columns", reversedBlocksGen]
 ])
+
+/**
+ * The columns of each of a law request's blocks, in order, by their key texts, a suffix key's column none of them;
+ * an access request's leading `fixed` keys as one block.
+ */
+export const boundBlocks = (r: IndexRequest): ReadonlyArray<ReadonlyArray<string>> =>
+	r.role === "lawMaintenance"
+		? Arr.map(r.blocks, (block) =>
+				Arr.flatMap(block, (k) =>
+					k.column.kind === "suffix"
+						? []
+						: [k.column.kind === "field" ? k.column.field.name : k.column.column]
+				)
+			)
+		: [Arr.map(Arr.take(r.keys, r.fixed), (k) => String(k.expr))]
+
+/** Whether an index's keys lead with each block's columns in turn, each block's in any order among themselves. */
+export const leadsWithBlocks = (
+	keys: ReadonlyArray<string>,
+	blocks: ReadonlyArray<ReadonlyArray<string>>
+): boolean =>
+	Arr.reduce(blocks, { at: 0, leads: true }, ({ at, leads }, block) => ({
+		at: at + block.length,
+		leads: leads && sameColumns(keys.slice(at, at + block.length), block)
+	})).leads
 
 /** The columns a shelf's second key field is drawn from (`shelfGen`). */
 const shelfColumns = ["c", "d", "e", "f", "g", "h", "i", "j"] as const

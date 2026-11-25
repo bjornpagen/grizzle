@@ -313,10 +313,12 @@ interface ReadSketch {
  * - "added then removed": a fresh keyed fact inserted in one stratum and deleted in the next, so the change nets to
  *   none: the later stratum's removal cancels the earlier one's addition (core/zset.ts addInto);
  * - "twin replaces": a stratum replacing a stored parent fact, then one replacing a stored keyed fact, each a deletion
- *   and an insert of arrays of facts at the same key with another payload, in two statements. The parent and keyed
- *   relations share one heading, and a replace's additions are read twice, by the exact deletion that excepts them and
- *   by the insert, so each is staged into a carrier of its own beside slots of one heading, each carrier holding its
- *   own slot's facts (write/program/slot-carriers.ts).
+ *   described by its key (the relation's facts at a = p0) and an insert of an array of facts at the same key with
+ *   another payload, in two statements. The parent and keyed relations share one heading, and a described deletion
+ *   excepts every addition of its stratum (write/schedule/plan.ts exceptsOf), so a replace's additions are read twice,
+ *   by the exact deletion and by the insert, and each is staged into a carrier of its own beside a slot of its heading,
+ *   each carrier holding its own slot's facts (write/program/slot-carriers.ts). A deletion of an array's facts excepts
+ *   no array's additions, so arrays on both sides stage nothing.
  * The sequential realization of a stratum of several statements is "relation parameters", an insert and a deletion of
  * one relation.
  */
@@ -601,6 +603,9 @@ const described = (
 
 /** A head term reading the source's field `column`. */
 const own = (column: string): HeadTerm => ({ kind: "var", column })
+
+/** The head of a described member of a relation of fields a and b reading its source's own a and b. */
+const wholeFact: Readonly<Record<string, HeadTerm>> = { a: own("a"), b: own("b") }
 
 /**
  * A head term reading the source's numeric field `column` into the field `field` of `relation`, a numeric of another
@@ -931,16 +936,16 @@ export const plantedChangeSet = (group: WGroup, arm: PlantedArm): WChangeSet => 
 			return sequenced(
 				[
 					[
-						enumerated("delete", p.parent, [{ a: armKey, b: 0 }]),
+						described("delete", p.parent, p.parent, { column: "a", param: "p0" }, wholeFact),
 						enumerated("insert", p.parent, [{ a: armKey, b: 1 }])
 					],
 					[
-						enumerated("delete", p.keyed, [{ a: armKey, b: armKey }]),
+						described("delete", p.keyed, p.keyed, { column: "a", param: "p0" }, wholeFact),
 						enumerated("insert", p.keyed, [{ a: armKey, b: otherKey }])
 					]
 				],
 				[],
-				{}
+				{ p0: armKey }
 			)
 	}
 }

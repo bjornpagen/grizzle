@@ -123,12 +123,6 @@ export const aContainmentsReverseIndexIsABTreeOverTheLongestLeadingBoundedRunTha
 				why: "The reverse run is chosen by the law model's bound from below for a set, its roster's handles, so a run holding a set fits by it and the index engine refuses it at the most codes a roster numbers: the containment of A0(c0 uuid, c1 set) is refused."
 			},
 			{
-				file: "packages/engine/src/physical/indexes/engine.ts",
-				original: "\t\t\t\t? reversePlacements(blocks, keys, columns)",
-				replacement: "\t\t\t\t? equalityPlacements(keys, columns)",
-				why: "A law's reverse request is placed as a workload's equality lookup, so an index led by one of its columns that holds the rest further in serves it: the interleaved key (c0, x, c1) serves A0's foreign key on (c0, c1), which the structural property refuses."
-			},
-			{
 				file: "packages/engine/src/laws/model/plan.ts",
 				original: "\tfor (let n = Math.min(bounded.length, indexMaxKeys); n > 0; n--) {",
 				replacement: "\tfor (let n = 1; n <= Math.min(bounded.length, indexMaxKeys); n++) {",

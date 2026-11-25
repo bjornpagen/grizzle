@@ -226,6 +226,7 @@ export type WriteOracleFeature =
 	| "a member slot staged"
 	| "a staged slot an exact deletion excepts"
 	| "a staged slot beside another slot of its heading"
+	| "two staged slots of one heading"
 	| "a staged slot a put's halves read"
 	| "two members of one relation in one stratum"
 	| "a member reads a relation its stratum writes"
@@ -943,10 +944,30 @@ const stagedBesideItsHeading = (artifact: WriteArtifact): boolean => {
 }
 
 /**
+ * Whether two staged member slots of `artifact` have one heading's field names and types (the planted arm "twin
+ * replaces"): each carrier must hold its own slot's facts, which differ, so a fill from the other's slot is read back.
+ */
+const stagedTwins = (artifact: WriteArtifact): boolean => {
+	const staged = [...slotCarriers(artifact).values()]
+	return Arr.some(staged, (a) =>
+		Arr.some(
+			staged,
+			(b) =>
+				a.slot !== b.slot &&
+				a.columns.length === b.columns.length &&
+				Arr.every(b.columns, (c) =>
+					Arr.some(a.columns, (k) => k.name === c.name && sameScalarType(k.type, c.type))
+				)
+		)
+	)
+}
+
+/**
  * The realizations a program's optimized artifact chose (schedule/plan.ts): a stratum as one statement, a stratum of
  * several write statements in sequence, a deletion anchored on its own relation (write/delete/anchor.ts), and a member
  * slot two statements read staged into a carrier (write/program/slot-carriers.ts), one an exact deletion excepts beside
- * its insert or a put's both halves read among them, and one beside another slot of its heading.
+ * its insert or a put's both halves read among them, one beside another slot of its heading, and two staged slots of
+ * one heading.
  */
 const realizationsOf = (program: CompiledWrite): ReadonlyArray<WriteOracleFeature> => {
 	const artifact = program.artifact
@@ -978,7 +999,8 @@ const realizationsOf = (program: CompiledWrite): ReadonlyArray<WriteOracleFeatur
 		...(stagedBeside(artifact, "displacing") ? ["a staged slot a put's halves read" as const] : []),
 		...(stagedBesideItsHeading(artifact)
 			? ["a staged slot beside another slot of its heading" as const]
-			: [])
+			: []),
+		...(stagedTwins(artifact) ? ["two staged slots of one heading" as const] : [])
 	]
 }
 

@@ -353,6 +353,7 @@ export type NetFeature =
 	| "committed"
 	| "refused by a rule"
 	| "an image put, removed and put again in one transaction"
+	| "an image of governor 2 put and removed before its judge"
 	| "an image the transaction found removed and put back as it was"
 	| "a read column of a row the transaction put updated"
 	| "a column no rule reads updated"
@@ -364,6 +365,7 @@ export const netFeatures: Arr.NonEmptyReadonlyArray<NetFeature> = [
 	"committed",
 	"refused by a rule",
 	"an image put, removed and put again in one transaction",
+	"an image of governor 2 put and removed before its judge",
 	"an image the transaction found removed and put back as it was",
 	"a read column of a row the transaction put updated",
 	"a column no rule reads updated",
@@ -388,16 +390,28 @@ const netAims: ReadonlyArray<readonly [NetFeature, Gen<Schedule>]> = [
 		"an image put, removed and put again in one transaction",
 		(s) => {
 			const k = keyed(s)
-			const again: ReadonlyArray<Op> = s.draw(boolean)
-				? [{ kind: "put", ...k, governor: 1, note: s.draw(coordinateGen) }]
-				: []
 			return {
 				transactions: [
 					[
 						...(s.draw(boolean) ? [{ kind: "refer" as const, ...k }] : []),
 						{ kind: "put", ...k, governor: 1, note: s.draw(coordinateGen) },
 						{ kind: "remove", ...k },
-						...again
+						{ kind: "put", ...k, governor: 1, note: s.draw(coordinateGen) }
+					]
+				]
+			}
+		}
+	],
+	[
+		"an image of governor 2 put and removed before its judge",
+		(s) => {
+			const k = keyed(s)
+			return {
+				transactions: [
+					[
+						{ kind: "put", ...k, governor: 2, note: s.draw(coordinateGen) },
+						{ kind: "remove", ...k },
+						...(s.draw(boolean) ? [{ kind: "judge" as const }] : [])
 					]
 				]
 			}
@@ -575,6 +589,20 @@ const standingOf = (installed: Installed, session: CaseSession) =>
 type Moves = Map<string, Array<"put" | "removed">>
 
 /**
+ * The situation a judge reaches over how its transaction's images moved: an image of governor 2, which Named's rule
+ * reads from A's side of news, put by the transaction and removed since, so its puts and removals cancel there: read as
+ * standing where its package declares no name, as in the situation's aim, it would break the rule, so a netting that
+ * kept it refuses a transaction the rule's whole check finds kept.
+ */
+const reachedAtJudge = (moves: Moves): ReadonlyArray<NetFeature> =>
+	Arr.some(
+		[...moves.entries()],
+		([image, m]) => Str.endsWith(":2")(image) && m[0] === "put" && m[m.length - 1] === "removed"
+	)
+		? ["an image of governor 2 put and removed before its judge"]
+		: []
+
+/**
  * The situations one statement of a transaction reaches, from A's rows before and after it, the images the transaction
  * found when it began (`found`) and how its images moved before it (`moves`), which it extends.
  */
@@ -743,6 +771,7 @@ export const runSchedule = (
 			let judgedOnce = false
 			for (const op of ops) {
 				if (op.kind === "judge") {
+					c.noteAll(reachedAtJudge(moves))
 					yield* newsOnce(installed, session, where)
 					if (yield* judged(installed, session, where)) {
 						c.note("refused by a rule")
@@ -765,6 +794,7 @@ export const runSchedule = (
 			if (ended) {
 				continue
 			}
+			c.noteAll(reachedAtJudge(moves))
 			yield* newsOnce(installed, session, where)
 			if (yield* judged(installed, session, where)) {
 				c.note("refused by a rule")

@@ -18,7 +18,8 @@
  *   adds the rule runs (lawChecks), finds a row exactly when its whole check read as installed does
  *   (baselineRuleChecks), each reading the stored Media's table as the last COMMIT left it. That is the verdict the judge gave when its probes read every row they
  *   judged again from its table, so the two judges agree wherever either agrees with the whole check. Each situation of
- *   the net write is required, a constructed case aiming at each.
+ *   the net write is required, a constructed case aiming at each, among them an image of governor 2, which Named's rule
+ *   reads from A's side of news, put and removed before its judge: only the netting's cancellation keeps the transaction.
  * - **indexTie**: a database with no statistics, or analyzed, holding thousands of attributes of one package, name and
  *   governor, beside one row a transaction puts there: every statement the judge runs over that row reads the same
  *   rows whether a few thousand or twice as many share its (governor, name, package) (test/support/judge.ts judgeRun):
@@ -28,7 +29,7 @@
  *   (governor, name, package), which PostgreSQL prices at one row as it does the key's (selfuncs.c btcostestimate), and
  *   the shorter tree wins: the read takes every row of the prefix. Both statistics are required situations.
  */
-import { property } from "@bjornpagen/testing/property"
+import { property, ReplayToken } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import {
 	netFeatures,
@@ -63,7 +64,24 @@ export const aRuleOverAQueryJudgesTheTransactionsNetWriteAsTheRulesWholeCheckJud
 			kind: "postgresql",
 			name: "every rule's whole violation query, lowered by the oracle baseline, unseeded: the judge refuses exactly the states one finds broken, naming a rule it finds broken, and each rule's check over every row finds a row exactly where its whole check does"
 		},
-		kept: [],
+		kept: [
+			{
+				token: ReplayToken(
+					"test/pg/laws/rule-net-write.test.ts#aRuleOverAQueryJudgesTheTransactionsNetWriteAsTheRulesWholeCheckJudgesItsState:4.2:0.0.0.0.0.0"
+				),
+				reason:
+					"an attribute of governor 1 put, removed and put again in one transaction, referenced nowhere: A's side of news holds three rows of its image, two puts and a removal, which the netting leaves one of, and the rule refuses the row that stands",
+				since: "2026-11-25"
+			},
+			{
+				token: ReplayToken(
+					"test/pg/laws/rule-net-write.test.ts#aRuleOverAQueryJudgesTheTransactionsNetWriteAsTheRulesWholeCheckJudgesItsState:8.3:0.0.0.0.0"
+				),
+				reason:
+					"an attribute of governor 2 put and removed in one transaction, its name declared in no package: the netting cancels its image on A's side of news, so Named's rule finds nothing added and the transaction commits",
+				since: "2026-11-25"
+			}
+		],
 		kills: [
 			{
 				file: "packages/engine/src/physical/ddl/deltas.ts",

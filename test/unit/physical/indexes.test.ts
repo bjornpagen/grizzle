@@ -4,7 +4,9 @@
  * in a drawn order:
  *
  * - every request lands on exactly one planned index, of its relation, an installed one where its equalities bind every
- *   key of an installed unique B-tree;
+ *   key of an installed unique B-tree, that leads with the columns it binds by equality, a law's request of two blocks
+ *   (a unit-local law's, its unit's key first, physical/ddl/rules.ts requestsOf) with each block's in turn, never an
+ *   index that holds them in another block order;
  * - a created index is never unique, in the plan or in its CREATE INDEX;
  * - the plan is the same whatever order the requests arrive in, and whatever order each states the columns it binds by
  *   equality in, so every index that holds one block of columns holds it in one order, the relation's heading's
@@ -25,8 +27,8 @@
  * and the refusal each planted request names.
  *
  * Features: served by an installed or a created index, several requests on one created index, a GiST key serving a
- * B-tree probe, an ordered and a range request, each planted refusal, two methods on one column list, and two indexes on
- * one column list.
+ * B-tree probe, an ordered and a range request, each planted refusal, two methods on one column list, two indexes on
+ * one column list, a law request of two blocks, and one beside an index of its columns in another block order.
  */
 
 import { assert, defined } from "@bjornpagen/testing/assert"
@@ -42,10 +44,12 @@ import {
 	type IndexFeature,
 	install,
 	installShelf,
+	boundBlocks,
 	boundColumns,
 	keyField,
+	leadsWithBlocks,
 	plantedRequests,
-	requestOf,
+	requestsOf,
 	restated,
 	sameColumns,
 	shelfColumnsOf,
@@ -74,174 +78,190 @@ export const theIndexRequestEngineLandsEveryRequestOnExactlyOneIndexPlansAlikeIn
 			"an expression key refused",
 			"a B-tree and a GiST index on one column list installed",
 			"two indexes on one column list",
-			"a GiST index on a column of few values stated before columns of many values installed"
+			"a GiST index on a column of few values stated before columns of many values installed",
+			"a law request of two blocks",
+			"a law request's blocks in another order than an index of its columns"
 		] satisfies ReadonlyArray<Reached<IndexFeature>>,
-		check:
-			(_, c: Case<IndexFeature>) =>
-			({ requests: sketches, arrival, planted }) =>
-				Effect.sync(() => {
-					const requests = Arr.map(sketches, requestOf)
-					if (planted.kind === "a B-tree and a GiST index on one column list") {
-						const created = Arr.filter(
-							succeeded(install(plantedRequests(planted))).indexes,
-							(x) =>
-								x.index.kind === "created" &&
-								sameColumns(Arr.map(x.keys, keyField), planted.columns)
-						)
-						assert.deepEqual(
-							Arr.sort(
-								Arr.map(created, (x) => x.method),
-								Order.String
-							),
-							["btree", "gist"]
-						)
-						assert.equal(new Set(Arr.map(created, (x) => x.index.name)).size, 2, "two names")
-						c.note(`${planted.kind} installed`)
-						return
-					}
-					if (planted.kind === "a GiST index on columns of few and many values") {
-						const [gist] = Arr.filter(
-							succeeded(install(plantedRequests(planted))).indexes,
-							(x) => x.index.kind === "created" && x.method === "gist"
-						)
-						const keys = Arr.map(defined(gist, "the GiST request's created index").keys, keyField)
-						const classOf = (column: string) => defined(valueClass[column], column)
-						assert.ok(
-							Arr.every(
-								keys,
-								(k, at) =>
-									classOf(k) === "many" ||
-									Arr.every(keys.slice(at + 1), (l) => classOf(l) === "few")
-							),
-							`${Arr.join(keys, ", ")}: every column of few values follows every column of many values`
-						)
-						const few = Arr.findFirstIndex(planted.columns, (k) => classOf(k) === "few")
-						if (
-							Option.exists(few, (at) =>
-								Arr.some(planted.columns.slice(at + 1), (k) => classOf(k) === "many")
-							) &&
-							Arr.length(Arr.filter(planted.columns, (k) => classOf(k) === "many")) > 1
-						) {
-							c.note(
-								"a GiST index on a column of few values stated before columns of many values installed"
-							)
-						}
-						return
-					}
-					if (planted.kind !== "none") {
-						c.note(`${planted.kind} refused`)
-						refused(install(plantedRequests(planted)), expectedRefusal[planted.kind])
-						return
-					}
-					/** Created indexes are distinct objects of distinct names (identity.accessIndex). */
-					const installation: Installation = succeeded(install(requests))
-					const created = Arr.filter(installation.indexes, (x) => x.index.kind === "created")
-					assert.equal(
-						new Set(Arr.map(created, (x) => x.index.name)).size,
-						created.length,
-						"distinct names"
+		check: (_, c: Case<IndexFeature>) => (sketch) =>
+			Effect.sync(() => {
+				const { arrival, planted } = sketch
+				const requests = requestsOf(sketch)
+				if (planted.kind === "a B-tree and a GiST index on one column list") {
+					const created = Arr.filter(
+						succeeded(install(plantedRequests(planted))).indexes,
+						(x) =>
+							x.index.kind === "created" && sameColumns(Arr.map(x.keys, keyField), planted.columns)
 					)
-					const columnsOf = (x: PlannedIndex) => Arr.join(Arr.map(x.keys, keyField), " ")
-					if (
-						Arr.some(created, (a) =>
-							Arr.some(
-								created,
-								(b) => a !== b && a.relation === b.relation && columnsOf(a) === columnsOf(b)
-							)
-						)
-					) {
-						c.note("two indexes on one column list")
-					}
-					for (const r of requests) {
-						const serving = Arr.filter(installation.indexes, (x) => x.requests.includes(r))
-						assert.equal(
-							serving.length,
-							1,
-							`one index holds ${r.relation}(${Arr.join(
-								r.role === "lawMaintenance"
-									? Arr.map(r.blocks.flat(), (k) => k.column.kind)
-									: Arr.map(r.keys, (k) => String(k.expr)),
-								","
-							)})`
-						)
-						const index = defined(serving[0])
-						assert.equal(
-							index.relation,
-							r.relation,
-							`${index.index.name} is of the request's relation`
-						)
-						const bound = boundColumns(r)
-						const keys = Arr.map(index.keys, keyField)
-						assert.ok(
-							r.method === "gist" ||
-								bound.length === 0 ||
-								(index.unique && Arr.every(keys, (k) => bound.includes(k))) ||
-								(keys.length >= bound.length &&
-									Arr.every(Arr.take(keys, bound.length), (k) => bound.includes(k))),
-							`${index.index.name}(${Arr.join(keys, ", ")}) leads with exactly the columns ${r.relation}(${Arr.join(bound, ", ")}) binds by equality, or is a unique index all of whose keys it binds`
-						)
-						assert.ok(
-							r.method === "gist" ||
-								index.index.kind === "installed" ||
-								!Arr.some(
-									installation.indexes,
-									(x) =>
-										x.relation === r.relation &&
-										x.index.kind === "installed" &&
-										x.unique &&
-										x.method === "btree" &&
-										Arr.every(x.keys, (k) => bound.includes(keyField(k)))
-								),
-							`${r.relation}(${Arr.join(bound, ", ")}) binds a key and lands on an installed index, not on ${index.index.name}`
-						)
-						c.note(
-							index.index.kind === "created"
-								? "served by a created index"
-								: "served by an installed index"
-						)
-						if (index.method === "gist" && r.method === "btree") {
-							c.note("a GiST key serving a B-tree probe")
-						}
-						if (r.role === "access" && (r.use === "take seek" || r.use === "page seek")) {
-							c.note("an ordered request")
-						}
-						if (r.role === "access" && (r.use === "range" || r.use === "prefix search")) {
-							c.note("a range request")
-						}
-					}
-					for (const index of created) {
-						assert.equal(index.unique, false, `${index.index.name} is not unique`)
-						assert.ok(
-							Arr.every(
-								installation.statements,
-								(s) => s.kind !== "createIndex" || s.name !== index.index.name || !s.unique
-							),
-							`${index.index.name} is created by no CREATE UNIQUE INDEX`
-						)
-						if (index.requests.length > 1) {
-							c.note("a created index serving several requests")
-						}
-					}
-					const shuffled = Arr.map(
+					assert.deepEqual(
 						Arr.sort(
-							Arr.map(requests, (r, i) => ({ r, key: defined(arrival[i]) })),
-							Order.mapInput(Order.Number, (x: { readonly key: number }) => x.key)
+							Arr.map(created, (x) => x.method),
+							Order.String
 						),
-						({ r }) => r
+						["btree", "gist"]
 					)
-					const again = succeeded(install(shuffled))
-					assert.deepEqual(again.statements, installation.statements)
-					assert.deepEqual(
-						Arr.map(again.indexes, (x) => [x.object, x.keys, x.requests.length]),
-						Arr.map(installation.indexes, (x) => [x.object, x.keys, x.requests.length])
+					assert.equal(new Set(Arr.map(created, (x) => x.index.name)).size, 2, "two names")
+					c.note(`${planted.kind} installed`)
+					return
+				}
+				if (planted.kind === "a GiST index on columns of few and many values") {
+					const [gist] = Arr.filter(
+						succeeded(install(plantedRequests(planted))).indexes,
+						(x) => x.index.kind === "created" && x.method === "gist"
 					)
-					const reordered = succeeded(install(Arr.map(requests, restated)))
-					assert.deepEqual(
-						reordered.statements,
-						installation.statements,
-						"the plan is the same whatever order each request states the columns it binds by equality in"
+					const keys = Arr.map(defined(gist, "the GiST request's created index").keys, keyField)
+					const classOf = (column: string) => defined(valueClass[column], column)
+					assert.ok(
+						Arr.every(
+							keys,
+							(k, at) =>
+								classOf(k) === "many" || Arr.every(keys.slice(at + 1), (l) => classOf(l) === "few")
+						),
+						`${Arr.join(keys, ", ")}: every column of few values follows every column of many values`
 					)
-				}),
+					const few = Arr.findFirstIndex(planted.columns, (k) => classOf(k) === "few")
+					if (
+						Option.exists(few, (at) =>
+							Arr.some(planted.columns.slice(at + 1), (k) => classOf(k) === "many")
+						) &&
+						Arr.length(Arr.filter(planted.columns, (k) => classOf(k) === "many")) > 1
+					) {
+						c.note(
+							"a GiST index on a column of few values stated before columns of many values installed"
+						)
+					}
+					return
+				}
+				if (planted.kind !== "none") {
+					c.note(`${planted.kind} refused`)
+					refused(install(plantedRequests(planted)), expectedRefusal[planted.kind])
+					return
+				}
+				/** Created indexes are distinct objects of distinct names (identity.accessIndex). */
+				const installation: Installation = succeeded(install(requests))
+				const created = Arr.filter(installation.indexes, (x) => x.index.kind === "created")
+				assert.equal(
+					new Set(Arr.map(created, (x) => x.index.name)).size,
+					created.length,
+					"distinct names"
+				)
+				const columnsOf = (x: PlannedIndex) => Arr.join(Arr.map(x.keys, keyField), " ")
+				if (
+					Arr.some(created, (a) =>
+						Arr.some(
+							created,
+							(b) => a !== b && a.relation === b.relation && columnsOf(a) === columnsOf(b)
+						)
+					)
+				) {
+					c.note("two indexes on one column list")
+				}
+				for (const r of requests) {
+					const serving = Arr.filter(installation.indexes, (x) => x.requests.includes(r))
+					assert.equal(
+						serving.length,
+						1,
+						`one index holds ${r.relation}(${Arr.join(
+							r.role === "lawMaintenance"
+								? Arr.map(r.blocks.flat(), (k) => k.column.kind)
+								: Arr.map(r.keys, (k) => String(k.expr)),
+							","
+						)})`
+					)
+					const index = defined(serving[0])
+					assert.equal(
+						index.relation,
+						r.relation,
+						`${index.index.name} is of the request's relation`
+					)
+					const bound = boundColumns(r)
+					const blocks = boundBlocks(r)
+					const keys = Arr.map(index.keys, keyField)
+					assert.ok(
+						r.method === "gist" ||
+							bound.length === 0 ||
+							(index.unique && Arr.every(keys, (k) => bound.includes(k))) ||
+							leadsWithBlocks(keys, blocks),
+						`${index.index.name}(${Arr.join(keys, ", ")}) leads with the columns ${r.relation}(${Arr.join(
+							Arr.map(blocks, (b) => Arr.join(b, " ")),
+							"; "
+						)}) binds by equality, block by block, or is a unique index all of whose keys it binds`
+					)
+					if (r.role === "lawMaintenance" && blocks.length > 1) {
+						c.note("a law request of two blocks")
+						if (
+							Arr.some(
+								installation.indexes,
+								(x) =>
+									x.relation === r.relation &&
+									sameColumns(Arr.take(Arr.map(x.keys, keyField), bound.length), bound) &&
+									!leadsWithBlocks(Arr.map(x.keys, keyField), blocks)
+							)
+						) {
+							c.note("a law request's blocks in another order than an index of its columns")
+						}
+					}
+					assert.ok(
+						r.method === "gist" ||
+							index.index.kind === "installed" ||
+							!Arr.some(
+								installation.indexes,
+								(x) =>
+									x.relation === r.relation &&
+									x.index.kind === "installed" &&
+									x.unique &&
+									x.method === "btree" &&
+									Arr.every(x.keys, (k) => bound.includes(keyField(k)))
+							),
+						`${r.relation}(${Arr.join(bound, ", ")}) binds a key and lands on an installed index, not on ${index.index.name}`
+					)
+					c.note(
+						index.index.kind === "created"
+							? "served by a created index"
+							: "served by an installed index"
+					)
+					if (index.method === "gist" && r.method === "btree") {
+						c.note("a GiST key serving a B-tree probe")
+					}
+					if (r.role === "access" && (r.use === "take seek" || r.use === "page seek")) {
+						c.note("an ordered request")
+					}
+					if (r.role === "access" && (r.use === "range" || r.use === "prefix search")) {
+						c.note("a range request")
+					}
+				}
+				for (const index of created) {
+					assert.equal(index.unique, false, `${index.index.name} is not unique`)
+					assert.ok(
+						Arr.every(
+							installation.statements,
+							(s) => s.kind !== "createIndex" || s.name !== index.index.name || !s.unique
+						),
+						`${index.index.name} is created by no CREATE UNIQUE INDEX`
+					)
+					if (index.requests.length > 1) {
+						c.note("a created index serving several requests")
+					}
+				}
+				const shuffled = Arr.map(
+					Arr.sort(
+						Arr.map(requests, (r, i) => ({ r, key: defined(arrival[i]) })),
+						Order.mapInput(Order.Number, (x: { readonly key: number }) => x.key)
+					),
+					({ r }) => r
+				)
+				const again = succeeded(install(shuffled))
+				assert.deepEqual(again.statements, installation.statements)
+				assert.deepEqual(
+					Arr.map(again.indexes, (x) => [x.object, x.keys, x.requests.length]),
+					Arr.map(installation.indexes, (x) => [x.object, x.keys, x.requests.length])
+				)
+				const reordered = succeeded(install(Arr.map(requests, restated)))
+				assert.deepEqual(
+					reordered.statements,
+					installation.statements,
+					"the plan is the same whatever order each request states the columns it binds by equality in"
+				)
+			}),
 		oracle: {
 			kind: "specification",
 			name: "one index per request, invariance under arrival order, and each planted request's refusal"
@@ -249,20 +269,26 @@ export const theIndexRequestEngineLandsEveryRequestOnExactlyOneIndexPlansAlikeIn
 		kept: [
 			{
 				token: ReplayToken(
-					"test/unit/physical/indexes.test.ts#theIndexRequestEngineLandsEveryRequestOnExactlyOneIndexPlansAlikeInAnyArrivalOrderAndRefusesWhatItCannotCreate:-:2.0.2.0.0.2.0.0.6.1.0.0.2.0.0.2.1.0.6.1.0.0.1.2.3.4.5.0"
+					"test/unit/physical/indexes.test.ts#theIndexRequestEngineLandsEveryRequestOnExactlyOneIndexPlansAlikeInAnyArrivalOrderAndRefusesWhatItCannotCreate:-:2.0.2.0.0.2.0.0.6.1.0.0.2.0.0.2.1.0.6.1.0.0.1.2.3.4.5.0.0.0.0.0.0.0"
 				),
 				reason: "two seeks on (tenant, created) in directions no one index reads both ways",
 				since: "2026-10-29"
 			},
 			{
 				token: ReplayToken(
-					"test/unit/physical/indexes.test.ts#theIndexRequestEngineLandsEveryRequestOnExactlyOneIndexPlansAlikeInAnyArrivalOrderAndRefusesWhatItCannotCreate:-:0.0.1.2.3.4.5.5.3.4.0.0"
+					"test/unit/physical/indexes.test.ts#theIndexRequestEngineLandsEveryRequestOnExactlyOneIndexPlansAlikeInAnyArrivalOrderAndRefusesWhatItCannotCreate:-:0.0.1.2.3.4.5.5.3.4.0.0.0.0.0.0.0.0"
 				),
 				reason: "a GiST request on (live, tenant, account), live a boolean stated before two uuids",
 				since: "2026-11-15"
 			}
 		],
 		kills: [
+			{
+				file: "packages/engine/src/physical/indexes/engine.ts",
+				original: "\t\t\t\t? reversePlacements(blocks, keys, columns)",
+				replacement: "\t\t\t\t? equalityPlacements(keys, columns)",
+				why: "A law's request is placed as one block of every column it binds, as a workload's equality lookup is, so a probe of two blocks, a unit-local law's whose unit's key leads, lands on an index that holds its columns in another block order: the equality lookup's index of Event (tenant, account) serves the probe of (account; tenant), and the property fails."
+			},
 			{
 				file: "packages/engine/src/physical/indexes/engine.ts",
 				original: "\t\t\t\tif (!sameSet(keys.slice(at, at + block.length), block)) {",
