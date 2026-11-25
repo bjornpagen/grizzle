@@ -1,11 +1,5 @@
 import { type Restriction, standard } from "@bjornpagen/devtools/preset"
-import {
-	CASE_LISTS,
-	CLOCK_RULES,
-	EVERY_FILE_RULES,
-	MODULE_RULES,
-	TEST_RULES
-} from "@bjornpagen/testing/oxlint"
+import { CASE_LISTS } from "@bjornpagen/testing/oxlint"
 import { Array as Arr } from "effect"
 import { defineConfig } from "oxlint"
 import toolchain from "#toolchain.config.ts"
@@ -619,14 +613,7 @@ export default defineConfig(
 			"test-no-spelled-names": { markers: NAME_MARKERS }
 		},
 		ownPlugins: [],
-		tests: {
-			library: "installed",
-			jsPlugin: "@bjornpagen/testing/oxlint",
-			rules: TEST_RULES,
-			modules: MODULE_RULES,
-			everyFile: EVERY_FILE_RULES,
-			clock: { files: ["test/**", "packages/cli-generator/test/**"], rules: CLOCK_RULES }
-		},
+		tests: { library: "installed", clockFree: ["test/**", "packages/cli-generator/test/**"] },
 		overrides: [
 			{
 				files: ["packages/cli-generator/test/support/capture-server.ts"],
