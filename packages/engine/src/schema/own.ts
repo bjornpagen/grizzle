@@ -58,6 +58,7 @@ import {
 	type CompareOp,
 	conjunctsOf,
 	type ContextDesc,
+	type ContractFieldDesc,
 	decodeRoleOver,
 	descIdentities,
 	descIdentity,
@@ -236,7 +237,7 @@ export type OwnedRelation =
  */
 export interface OwnedContract {
 	readonly name: DeclaredName
-	readonly desc: FieldDesc & { readonly kind: "contract" }
+	readonly desc: ContractFieldDesc
 	readonly loc: SourceLoc
 	readonly level: number
 }
@@ -673,7 +674,7 @@ const textOf = (value: unknown): WellFormedText => unwrap(descText(value))
  * where the module loads, so no schema's ownership encodes it again.
  */
 const naturalOwned = ((): {
-	readonly desc: FieldDesc & { readonly kind: "contract" }
+	readonly desc: ContractFieldDesc
 	readonly text: string
 	readonly loc: SourceLoc
 } => {
@@ -683,6 +684,9 @@ const naturalOwned = ((): {
 	}
 	return { desc, text: textOf(desc), loc: SourceLoc("natural", []) }
 })()
+
+/** natural's contract descriptor, which every schema holds whatever its fields (Owner #collectFields). */
+export const naturalContract: ContractFieldDesc = naturalOwned.desc
 
 const scopeOf = (side: SideDesc): SideScope => ({
 	relation: side.relation,
@@ -751,7 +755,9 @@ const rosterHeading = (desc: RosterDesc): Readonly<Record<string, FieldDesc>> =>
 })
 
 /** A stored relation's heading: an ordinary or closed relation's fields' types, a roster's handle. */
-const headingOf = (desc: StoredRelationDesc): Readonly<Record<string, FieldDesc>> => {
+const headingOf = (
+	desc: Exclude<RelationDesc, { readonly kind: "derived" }>
+): Readonly<Record<string, FieldDesc>> => {
 	switch (desc.kind) {
 		case "relation":
 			return fieldTypes(desc.fields)
@@ -759,6 +765,24 @@ const headingOf = (desc: StoredRelationDesc): Readonly<Record<string, FieldDesc>
 			return rosterHeading(desc)
 		case "closedRelation":
 			return desc.fields
+	}
+}
+
+/**
+ * Visits every descriptor a relation's declaration types a field by, field by field in heading order, each at any depth
+ * (ir/desc.ts nestedFields) with its field's name and its field's own descriptor: the one walk ownership checks a
+ * schema's fields and collects its contracts by (Owner #collectFields) and a level's content collects the contracts it
+ * holds by (levels.ts levelContent). A derived relation's declaration types none: its fields are its definition's.
+ */
+export const visitDeclaredFields = (
+	desc: RelationDesc,
+	visit: (field: string, nested: FieldDesc, declared: FieldDesc) => void
+): void => {
+	if (desc.kind === "derived") {
+		return
+	}
+	for (const [field, declared] of Object.entries(headingOf(desc))) {
+		nestedFields(declared, (nested) => visit(field, nested, declared))
 	}
 }
 
@@ -1272,7 +1296,7 @@ class Owner {
 	readonly #contracts = new Map<
 		string,
 		{
-			readonly desc: FieldDesc & { readonly kind: "contract" }
+			readonly desc: ContractFieldDesc
 			readonly text: string
 			readonly loc: SourceLoc
 			readonly level: number
@@ -1474,36 +1498,39 @@ class Owner {
 			if (entry.desc.kind === "derived") {
 				continue
 			}
-			const heading = headingOf(entry.desc)
-			for (const [field, desc] of Object.entries(heading)) {
-				const loc = labeledChildLoc(entry.desc.loc, field, `field ${entry.desc.name}.${field}`)
-				nestedFields(desc, (d) => {
-					if (d.kind === "closedId" || d.kind === "bits") {
-						this.#rosterAt(d.roster, entry, loc, d.kind === "closedId" ? "closedId" : "bits")
+			const locOf = (field: string): SourceLoc =>
+				labeledChildLoc(entry.desc.loc, field, `field ${entry.desc.name}.${field}`)
+			visitDeclaredFields(entry.desc, (field, d, desc) => {
+				if (d.kind === "closedId" || d.kind === "bits") {
+					this.#rosterAt(d.roster, entry, locOf(field), d.kind === "closedId" ? "closedId" : "bits")
+				}
+				if (d.kind === "pattern" && (entry.desc.kind !== "closedRelation" || d !== desc)) {
+					fail(
+						"MalformedDescription",
+						locOf(field),
+						"str.pattern as a closed relation's own field: its values are patterns admitted where the schema compiles, which only a closed relation's rows state"
+					)
+				}
+				if (d.kind === "contract") {
+					const prior = this.#contracts.get(d.name)
+					if (prior === undefined) {
+						this.#contracts.set(d.name, {
+							desc: d,
+							text: textOf(d),
+							loc: locOf(field),
+							level: entry.level
+						})
+					} else if (prior.text !== textOf(d)) {
+						failWith({
+							_tag: "DuplicateIdentity",
+							at: locOf(field),
+							duplicate: { kind: "contract", name: d.name, earlier: prior.loc }
+						})
+					} else if (entry.level < prior.level) {
+						this.#contracts.set(d.name, { ...prior, level: entry.level })
 					}
-					if (d.kind === "pattern" && (entry.desc.kind !== "closedRelation" || d !== desc)) {
-						fail(
-							"MalformedDescription",
-							loc,
-							"str.pattern as a closed relation's own field: its values are patterns admitted where the schema compiles, which only a closed relation's rows state"
-						)
-					}
-					if (d.kind === "contract") {
-						const prior = this.#contracts.get(d.name)
-						if (prior === undefined) {
-							this.#contracts.set(d.name, { desc: d, text: textOf(d), loc, level: entry.level })
-						} else if (prior.text !== textOf(d)) {
-							failWith({
-								_tag: "DuplicateIdentity",
-								at: loc,
-								duplicate: { kind: "contract", name: d.name, earlier: prior.loc }
-							})
-						} else if (entry.level < prior.level) {
-							this.#contracts.set(d.name, { ...prior, level: entry.level })
-						}
-					}
-				})
-			}
+				}
+			})
 			switch (entry.desc.kind) {
 				case "relation":
 					this.#checkDecodedColumns(entry, entry.desc)

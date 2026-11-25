@@ -1,6 +1,6 @@
 import { defined } from "@bjornpagen/testing/assert"
 import { element, finite } from "@bjornpagen/testing/gen"
-import { Array as Arr } from "effect"
+import { Array as Arr, Effect } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { parseBuiltSchema } from "#compiler/program/input.ts"
 import { recordsBuilder } from "#compiler/program/records.ts"
@@ -14,6 +14,7 @@ import type { Owned } from "#compiler/schema/own.ts"
 import { wholeEntriesOf } from "#compiler/schema/world.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { callCounts } from "#test/support/kernel/calls.ts"
 
 /**
  * The programs the owned-once property draws (owned-once.test.ts), each built fresh, the shape of metis's schema import
@@ -132,3 +133,31 @@ export const readsOf = (shape: Shape) => {
 		roleOverTop
 	}
 }
+
+/** The one entry of ownership (own.ts ownWith), whose calls ownsOf counts: each owns a level and its whole chain. */
+const owning = Object.freeze({
+	own: { file: "packages/engine/src/schema/own.ts", name: "ownWith" }
+})
+
+/**
+ * The ownings a fresh program of the shape makes (own.ts ownWith, counted by V8, test/support/kernel/calls.ts): as it is
+ * built, its records over every level among it, and then as each of its schemas compiles (program/schema.ts
+ * compiledSchema), beside how many schemas it holds.
+ */
+export const ownsOf = (shape: Shape) =>
+	Effect.gen(function* () {
+		const [built, building] = yield* callCounts(
+			Effect.sync(() => builtOf(shape)),
+			owning
+		)
+		const [, compiling] = yield* callCounts(
+			Effect.sync(() => {
+				for (const [at, s] of built.schemas.entries()) {
+					const what = `schema ${String(at)}`
+					succeeded(compiledSchema(succeeded(parseBuiltSchema(s, SourceLoc(what, [])), what)), what)
+				}
+			}),
+			owning
+		)
+		return { building: building.own, compiling: compiling.own, schemas: built.schemas.length }
+	})

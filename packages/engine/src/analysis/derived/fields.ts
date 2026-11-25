@@ -4,8 +4,7 @@ import { type CompileError, derivedRefused } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
-import { fieldDescOf } from "#compiler/schema/field-desc.ts"
-import type { OwnedContract } from "#compiler/schema/own.ts"
+import { type ContractsByName, fieldDescOf } from "#compiler/schema/field-desc.ts"
 
 /**
  * The inferred field descriptors of a definition's heading, by field name in heading order.
@@ -37,7 +36,7 @@ import type { OwnedContract } from "#compiler/schema/own.ts"
 export const inferredFields = <C extends HeadingColumn>(
 	relation: string,
 	heading: NonEmptyReadonlyArray<C>,
-	contracts: Readonly<Record<string, OwnedContract>>
+	contracts: ContractsByName
 ): Result.Result<NonEmptyReadonlyArray<C & { readonly desc: FieldDesc }>, CompileError> => {
 	const [first, ...rest] = heading
 	const head = describedColumn(relation, first, contracts)
@@ -61,7 +60,7 @@ export const inferredFields = <C extends HeadingColumn>(
 const describedColumn = <C extends HeadingColumn>(
 	relation: string,
 	c: C,
-	contracts: Readonly<Record<string, OwnedContract>>
+	contracts: ContractsByName
 ): Result.Result<C & { readonly desc: FieldDesc }, CompileError> => {
 	const desc = fieldDescOf(c.type, contracts)
 	if (!desc.ok) {

@@ -100,7 +100,7 @@ export const anExactFieldIsArithmeticsExactTypeAtNumericsOwnLimitAndHoldsEveryVa
 					)
 					const computed = exactType(carrier, digits)
 					const written = succeeded(
-						fieldDescOf(computed, {}),
+						fieldDescOf(computed, () => undefined),
 						`${shown}: the computed column's descriptor`
 					)
 					assert.deepEqual(

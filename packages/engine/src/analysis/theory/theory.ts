@@ -69,6 +69,7 @@ import type { Refused } from "#compiler/core/refusals.ts"
 import { type LabelledDag, LabelSupply, topoOrder } from "#compiler/ir/dag.ts"
 import { noneWritten, servedQuery } from "#compiler/ir/derived.ts"
 import {
+	type ContractFieldDesc,
 	type FieldDesc,
 	fieldTermsOf,
 	type InferredQuery,
@@ -455,7 +456,7 @@ export const typingEnv = (
 ): {
 	readonly fieldType: (desc: FieldDesc, loc: SourceLoc) => Result.Result<ScalarType, CompileError>
 	readonly contractInfo: (
-		desc: Extract<FieldDesc, { readonly kind: "contract" }>,
+		desc: ContractFieldDesc,
 		loc: SourceLoc
 	) => Result.Result<ContractInfo, CompileError>
 	readonly patterns: PatternAutomata

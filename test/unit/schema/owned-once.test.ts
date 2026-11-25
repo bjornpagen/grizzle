@@ -13,7 +13,7 @@
 import { assert } from "@bjornpagen/testing/assert"
 import { property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
-import { readsOf, shapes } from "#test/unit/schema/owned-once.fixtures.ts"
+import { ownsOf, readsOf, shapes } from "#test/unit/schema/owned-once.fixtures.ts"
 
 /** Every reader of a built schema's Owned reads the one its build made: one Owned per schema value, however many read. */
 export const aBuiltSchemaIsOwnedOnce = property.exhaust(shapes, {
@@ -50,6 +50,38 @@ export const aBuiltSchemaIsOwnedOnce = property.exhaust(shapes, {
 			replacement:
 				"Result.flatMap(baseEntry.content.owned(), (owned) => ownBuiltRole(desc, { ...owned }))",
 			why: "A role is owned over a base Owned other than its base's own: its base is a second Owned, as ownRole's own(desc.base) made one."
+		}
+	]
+})
+
+/**
+ * Building a program owns no level, however many records it builds over each: a records value types its contract
+ * columns by its level's contracts, a fact of the level's content (schema/levels.ts SchemaContent contracts), not by an
+ * owning of the level (metis's den worker: 136 owns of 5 descriptions by records alone, 48.9 s of its 68.4 s import).
+ * Each schema's compile then owns it once: as many ownings as schemas. Counted, not timed (ownWith's calls).
+ */
+export const aProgramsRecordsOwnNoLevelAndEachSchemasCompileOwnsItOnce = property.exhaust(shapes, {
+	box: "a schema alone or extended, with a role over its top level or none, and 1, 3 or 12 records over each level",
+	needs: {},
+	situations: [],
+	check: () => (shape) =>
+		Effect.map(ownsOf(shape), (owns) =>
+			assert.deepEqual(
+				{ building: owns.building, compiling: owns.compiling },
+				{ building: 0, compiling: owns.schemas }
+			)
+		),
+	oracle: {
+		kind: "specification",
+		name: "no owning at build; one per schema at its compile (SchemaContent contracts, BuiltSchemaContent)"
+	},
+	kept: [],
+	kills: [
+		{
+			file: "packages/engine/src/program/records.ts",
+			original: "\t\t\treturn Result.ok(level.content.contracts)",
+			replacement: "\t\t\treturn Result.map(level.content.owned(), () => level.content.contracts)",
+			why: "Records own their level again to type its contract columns, as they did: building the program owns each level its records read."
 		}
 	]
 })

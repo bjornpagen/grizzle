@@ -145,7 +145,7 @@ const fieldDescFor = (t: ScalarType): FieldDesc => {
 	if (s?.endpoint.contract !== undefined) {
 		return { kind: "span", endpoint: fieldDescFor(s.endpoint), width: s.width }
 	}
-	return succeeded(declaredDescOf(t, {}))
+	return succeeded(declaredDescOf(t, () => undefined))
 }
 
 /**

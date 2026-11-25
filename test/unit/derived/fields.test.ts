@@ -31,7 +31,7 @@ import { relation, schema } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
-import { fieldDescOf } from "#compiler/schema/field-desc.ts"
+import { fieldDescOf, ownedContractsByName } from "#compiler/schema/field-desc.ts"
 import {
 	derivedBuilder as runtimeDerived,
 	closedBuilder,
@@ -120,7 +120,9 @@ export const derivedFieldInferenceGivesBackTheDescriptorOfEveryDeclarableFieldTy
 					c.note(sketch.kind === "pg" ? `pg ${sketch.member}` : `kind ${sketch.kind}`)
 					const declared = defined(line.fields[`f${i}`], `Line.f${i}`).type
 					assert.deepEqual(
-						succeeded(fieldDescOf(scalarOf(declared, handles), owned.contracts)),
+						succeeded(
+							fieldDescOf(scalarOf(declared, handles), ownedContractsByName(owned.contracts))
+						),
 						declared,
 						`Line.f${i}`
 					)
@@ -218,7 +220,7 @@ export const derivedFieldInferenceRefusesAContractTheSchemaDeclaresOnNoRelationI
 					contract: `Cents${k.target}`
 				})
 				const typeOf = scalarOf(field.contract(`Cents${k.target}`, field.bigint, undefined), {})
-				const out = fieldDescOf(typeOf, owned.contracts)
+				const out = fieldDescOf(typeOf, ownedContractsByName(owned.contracts))
 				assert.deepEqual(!out.ok && out.error, {
 					kind: "undeclared",
 					contract: `Cents${k.target}`
@@ -309,7 +311,7 @@ export const aStoredFieldOfEachKindARecordsRelationKeepsIsOfItsColumnsTypeAgainI
 					"the database's instant is the database's clock's"
 				)
 				const type = scalarOf(declared.type, {})
-				const described = succeeded(fieldDescOf(type, owned.contracts))
+				const described = succeeded(fieldDescOf(type, ownedContractsByName(owned.contracts)))
 				assert.deepEqual(described, declared.type, "the column's type describes the field")
 				assert.deepEqual(scalarOf(described, {}), type, "the descriptor types the column again")
 			}),

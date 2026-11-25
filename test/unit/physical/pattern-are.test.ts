@@ -290,8 +290,8 @@ export const onlyAClosedRelationsOwnStrPatternFieldHoldsPatternsAndEachOfItsValu
 				{
 					file: "packages/engine/src/schema/own.ts",
 					original:
-						'\t\t\t\t\tif (d.kind === "pattern" && (entry.desc.kind !== "closedRelation" || d !== desc)) {',
-					replacement: "\t\t\t\t\tif (false) {",
+						'\t\t\t\tif (d.kind === "pattern" && (entry.desc.kind !== "closedRelation" || d !== desc)) {',
+					replacement: "\t\t\t\tif (false) {",
 					why: "A stored relation's str.pattern is owned, a text of patterns no closed relation states and no match can read by key."
 				},
 				{

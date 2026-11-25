@@ -205,8 +205,8 @@ export const eachLevelRecordsTheLawsItsSchemaAloneStatesThatTheLevelBelowDoesNot
 			},
 			{
 				file: "packages/engine/src/schema/own.ts",
-				original: "\t\t\t\t\t\t} else if (entry.level < prior.level) {",
-				replacement: "\t\t\t\t\t\t} else if (false) {",
+				original: "\t\t\t\t\t} else if (entry.level < prior.level) {",
+				replacement: "\t\t\t\t\t} else if (false) {",
 				why: "A contract is at the level of the first relation by name that uses it, A's above Z's: Cents, which Z at the root uses, is recorded among the level's laws."
 			},
 			{

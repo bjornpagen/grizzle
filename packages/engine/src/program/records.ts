@@ -41,6 +41,7 @@ import { CompileError, unsupported } from "#compiler/core/errors.ts"
 import { maxIdentifierBytes, parseDeclaredName } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
+import type { ContractFieldDesc } from "#compiler/ir/desc.ts"
 import { arm } from "#compiler/query/build/attach.ts"
 import {
 	decodedBy,
@@ -62,7 +63,6 @@ import { defineField, type ScalarEnv } from "#compiler/scalar/registry.ts"
 import { fieldDescOf } from "#compiler/schema/field-desc.ts"
 import type { Level } from "#compiler/schema/level.ts"
 import { literalsField } from "#compiler/schema/literals.ts"
-import type { Owned } from "#compiler/schema/own.ts"
 import {
 	builderLoc,
 	builderRefusal,
@@ -174,14 +174,20 @@ interface RecordsState {
 /** Each records value's state, by the value: a WeakMap, so it holds nothing alive and is never enumerated. */
 const states = new WeakMap<object, RecordsState>()
 
-/** The owned schema a query's level is over, whose contracts its contract columns are declared by: the Owned the
- * level's value holds (levels.ts BuiltSchemaContent, world.ts BuiltRoleLevel), owned once for every reader. */
-const ownedOf = (level: Level, label: string): Result.Result<Owned, CompileError> => {
+/**
+ * The contracts a query's level declares, by name, which its contract columns are declared by: those its content holds
+ * from its build (levels.ts SchemaContent contracts), a role's its base's. Read off the content, so records own no
+ * level: ownership is the compile's, which refuses two declarations of a contract that differ.
+ */
+const contractsOf = (
+	level: Level,
+	label: string
+): Result.Result<ReadonlyMap<string, ContractFieldDesc>, CompileError> => {
 	switch (level.kind) {
 		case "schema":
-			return level.content.owned()
+			return Result.ok(level.content.contracts)
 		case "role":
-			return Result.map(level.owned(), (role) => role.base)
+			return Result.ok(level.base.contracts)
 		case "fragment":
 			return Result.err(
 				malformed(label, "a query over a schema or a role, whose records a level lists")
@@ -203,7 +209,7 @@ const headColumn = (
 	name: string,
 	typing: HeadingTyping,
 	carrier: Carrier | undefined,
-	owned: Owned,
+	contracts: ReadonlyMap<string, ContractFieldDesc>,
 	env: ScalarEnv,
 	label: string
 ): HeadColumn => {
@@ -220,7 +226,7 @@ const headColumn = (
 	}
 	const { scalar } = typing
 	const column = typing.carrier.column
-	const desc = fieldDescOf(scalar, owned.contracts)
+	const desc = fieldDescOf(scalar, (contract) => contracts.get(contract))
 	if (!desc.ok) {
 		throw unsupported(
 			SourceLoc(at, []),
@@ -235,14 +241,18 @@ const headColumn = (
 }
 
 /** The columns of a query's or an attachment child's heading as its records hold them (headColumn). */
-const columnsOf = (state: QueryState, owned: Owned, label: string): ReadonlyArray<HeadColumn> => {
+const columnsOf = (
+	state: QueryState,
+	contracts: ReadonlyMap<string, ContractFieldDesc>,
+	label: string
+): ReadonlyArray<HeadColumn> => {
 	const carriers = headingOf(state.carriers)
 	return [...headingTypings(state)].map(([column, typing]) =>
 		headColumn(
 			column,
 			typing,
 			Object.hasOwn(carriers, column) ? carriers[column] : undefined,
-			owned,
+			contracts,
 			state.schema.env,
 			label
 		)
@@ -399,7 +409,7 @@ interface Building {
 	readonly stem: string
 	readonly occurrences: ReadonlyMap<string, number>
 	readonly names: ReadonlyMap<string, string>
-	readonly owned: Owned
+	readonly contracts: ReadonlyMap<string, ContractFieldDesc>
 	readonly level: Level
 	readonly label: string
 }
@@ -476,7 +486,7 @@ const attachmentRecords = (
 	built: Built
 ): AttachmentRecords => {
 	const label = `${building.label} attachment ${a.name}`
-	const columns = columnsOf(a.child, building.owned, label)
+	const columns = columnsOf(a.child, building.contracts, label)
 	const taken = new Set<string>([
 		...columns.map((c) => c.name),
 		...a.child.attached.map((c) => c.name)
@@ -559,7 +569,7 @@ interface Admitted {
 	readonly owner: RecordOwner
 	readonly key: ReadonlyArray<string>
 	readonly names: ReadonlyMap<string, string>
-	readonly owned: Owned
+	readonly contracts: ReadonlyMap<string, ContractFieldDesc>
 	readonly label: string
 }
 
@@ -607,8 +617,8 @@ const admitRecords = (
 		}
 		return k
 	})
-	const owned = orThrow(ownedOf(state.schema.over, label))
-	const columns = columnsOf(state, owned, label)
+	const contracts = orThrow(contractsOf(state.schema.over, label))
+	const columns = columnsOf(state, contracts, label)
 	for (const n of [...columns.map((c) => c.name), ...state.attached.map((a) => a.name)]) {
 		if (Object.hasOwn(owner, n)) {
 			throw malformed(
@@ -624,7 +634,7 @@ const admitRecords = (
 		owner: recordFields<RecordOwner>(Object.entries(owner)),
 		key,
 		names: admitNames(options, state.attached, label),
-		owned,
+		contracts,
 		label
 	}
 }
@@ -684,7 +694,7 @@ export const recordsBuilder = <
 			stem: admitted.stem,
 			occurrences,
 			names: admitted.names,
-			owned: admitted.owned,
+			contracts: admitted.contracts,
 			level: state.schema.over,
 			label: admitted.label
 		},

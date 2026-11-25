@@ -187,6 +187,9 @@ export type FieldDesc =
 			readonly configuration: TextSearchConfiguration
 	  }
 
+/** A contract's descriptor, as a field declares it: its name, its base, its predicate and the facts it proves. */
+export type ContractFieldDesc = Extract<FieldDesc, { readonly kind: "contract" }>
+
 /** Visits every descriptor inside `desc`: itself, then a contract's base's and a span's endpoint's, depth first. */
 export const nestedFields = (desc: FieldDesc, visit: (d: FieldDesc) => void): void => {
 	visit(desc)

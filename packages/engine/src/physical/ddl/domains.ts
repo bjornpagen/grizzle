@@ -24,7 +24,7 @@ import type { ConstraintName, DomainName, Identifier } from "#compiler/core/ids.
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
-import { descText, type FieldDesc } from "#compiler/ir/desc.ts"
+import { type ContractFieldDesc, descText, type FieldDesc } from "#compiler/ir/desc.ts"
 import { exprClosure, predicateTree } from "#compiler/ir/expr.ts"
 import type { DomainCheck, DomainCheckTerm, LawField, TableRelation } from "#compiler/ir/law.ts"
 import {
@@ -939,8 +939,6 @@ const inNoSchema = (
 		check: definition.check === undefined ? undefined : t.expr(definition.check)
 	}
 }
-
-type ContractFieldDesc = Extract<FieldDesc, { readonly kind: "contract" }>
 
 /** The contracts outside the base an installation gives a domain (OutsideContracts), each once with its CHECK, in
  * base-first order (a contract after the contracts its base chain names): every contract the context fields of

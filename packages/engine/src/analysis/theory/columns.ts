@@ -12,7 +12,7 @@ import { unwrap } from "#compiler/core/canonical.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import type { InferredQuery } from "#compiler/ir/desc.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
-import { fieldDescOf } from "#compiler/schema/field-desc.ts"
+import { fieldDescOf, ownedContractsByName } from "#compiler/schema/field-desc.ts"
 
 /**
  * The descriptor each column of `query`, read as the definition of `relation` (a derived relation, or the query a
@@ -36,7 +36,7 @@ const definitionColumns = (
 		if (type === undefined) {
 			return refuse("MalformedDescription", loc, `a column ${column} of ${relation}'s definition`)
 		}
-		const desc = fieldDescOf(type, checked.owned.contracts)
+		const desc = fieldDescOf(type, ownedContractsByName(checked.owned.contracts))
 		return desc.ok
 			? desc.value
 			: refuse("MalformedDescription", loc, `a declared type of ${relation}.${column}`)

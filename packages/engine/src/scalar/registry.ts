@@ -19,7 +19,7 @@ import {
 	fieldMark
 } from "#compiler/core/phantom.ts"
 import { deepFreeze, hasProperties } from "#compiler/core/record.ts"
-import type { ExprDesc, FieldDesc, PgScalarName } from "#compiler/ir/desc.ts"
+import type { ContractFieldDesc, ExprDesc, FieldDesc, PgScalarName } from "#compiler/ir/desc.ts"
 import type { ExprTable } from "#compiler/ir/expr.ts"
 import type { Fact } from "#compiler/ir/proof.ts"
 import {
@@ -1000,7 +1000,7 @@ const contractOver = (
  * refused as its base, its predicate or `contractType` refuses.
  */
 export const contractInfoOf = (
-	desc: Extract<FieldDesc, { readonly kind: "contract" }>,
+	desc: ContractFieldDesc,
 	env: ScalarEnv,
 	loc: SourceLoc
 ): Result.Result<ContractInfo, CompileError> => {

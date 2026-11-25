@@ -50,6 +50,7 @@ import {
 	queryEvidence
 } from "#compiler/logical/annotate.ts"
 import { derivedKeyPremise } from "#compiler/logical/props.ts"
+import { ownedContractsByName } from "#compiler/schema/field-desc.ts"
 import type { OwnedRelation } from "#compiler/schema/own.ts"
 
 export interface DerivedRelationAnalysis {
@@ -395,7 +396,7 @@ export const analyzeDerivedRelation = (
 	const declared = declaredResult.value
 	const props = defined(analyzed.props.get(root), "a definition's root, kept")
 	const all = mapNonEmpty(heading, (c) => c.name)
-	const described = inferredFields(name, declared, schema.owned.contracts)
+	const described = inferredFields(name, declared, ownedContractsByName(schema.owned.contracts))
 	if (!described.ok) {
 		return described
 	}

@@ -1,9 +1,20 @@
 import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import { sameContent } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { levelChain, type RelationDesc, type SchemaDesc } from "#compiler/ir/desc.ts"
+import {
+	type ContractFieldDesc,
+	levelChain,
+	type RelationDesc,
+	type SchemaDesc
+} from "#compiler/ir/desc.ts"
 import { type DeclaredEntries, noDeclaredEntries } from "#compiler/schema/declared-entries.ts"
-import { type CanonicalStatement, canonicalStatementOf, type Owned } from "#compiler/schema/own.ts"
+import {
+	type CanonicalStatement,
+	canonicalStatementOf,
+	naturalContract,
+	type Owned,
+	visitDeclaredFields
+} from "#compiler/schema/own.ts"
 import type { RoleLevel } from "#compiler/schema/world.ts"
 
 /**
@@ -42,6 +53,15 @@ export interface SchemaContent {
 	 * fragment's own content none.
 	 */
 	readonly fragments: ReadonlyArray<SchemaContent>
+	/**
+	 * Every contract a relation of the level or of a level below declares a field by, by name, natural's in every level's:
+	 * its descriptor (own.ts visitDeclaredFields, the walk ownership collects a schema's contracts by), the one ownership
+	 * holds for it (own.ts OwnedContract), since ownership refuses two declarations of one name whose descriptors differ
+	 * (DuplicateIdentity). Read once, at the build, over the level below's: what records(...) types a contract column by
+	 * (program/records.ts), so no reader owns a level to look a contract up. No part of the level's identity (sameLevel):
+	 * it is its relations'.
+	 */
+	readonly contracts: ReadonlyMap<string, ContractFieldDesc>
 }
 
 /**
@@ -85,6 +105,28 @@ const writtenBelow = (below: SchemaContent | undefined, text: string): boolean =
 }
 
 /**
+ * The contracts of a level that declares `relations` over the level `below` (SchemaContent contracts): the level below's,
+ * natural alone at a root, and each contract the level's relations declare that none below does, each relation's in
+ * name order, its fields' in heading order, the first declaration's descriptor. The level below's own map where the
+ * level declares no new one.
+ */
+const contractsOver = (
+	relations: ReadonlyArray<LevelRelation>,
+	below: SchemaContent | undefined
+): ReadonlyMap<string, ContractFieldDesc> => {
+	const held = below?.contracts ?? new Map([[naturalContract.name, naturalContract]])
+	const added = new Map<string, ContractFieldDesc>()
+	for (const r of relations.toSorted((a, b) => (a.name < b.name ? -1 : 1))) {
+		visitDeclaredFields(r.desc, (_field, nested) => {
+			if (nested.kind === "contract" && !held.has(nested.name) && !added.has(nested.name)) {
+				added.set(nested.name, nested)
+			}
+		})
+	}
+	return added.size === 0 ? held : new Map([...held, ...added])
+}
+
+/**
  * The content of a level that declares `relations` and writes `statements`, each in canonical form with its text
  * (own.ts CanonicalStatement), over the level `below`, its list holding the fragments of content `fragments`; a
  * fragment's own content is a root level's that lists none.
@@ -106,7 +148,8 @@ export const levelContent = (
 		canonical: Object.freeze(statements),
 		below,
 		fragments: Object.freeze([...fragments]),
-		entries
+		entries,
+		contracts: contractsOver(relations, below)
 	})
 }
 
