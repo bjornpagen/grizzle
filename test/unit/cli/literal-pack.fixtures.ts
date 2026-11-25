@@ -107,7 +107,8 @@ export const foundOf = (f: CheckFinding): Found =>
 /**
  * The fault of the grid's array of `fn` over `layout` edited from `before` to `after`, read by the oracle: the layout
  * fault it makes, or the first cell whose entry it changes, with that cell's key, a payloads literal's cell the one the
- * grid's cells `cells` hold at the place it changes.
+ * grid's cells `cells` hold at the place it changes, and none where that place lies past every cell, a payload the edit
+ * added after the last, which pairs with no cell (the last entry written twice, or an element past every other added).
  */
 export const faultOf = (
 	fn: string,
@@ -124,21 +125,20 @@ export const faultOf = (
 	if (was.kind === "fault") {
 		throw new Error(`the drafted literal ${before} is one the oracle reads`)
 	}
-	const place = firstPlaceApart(was.elements, now.elements)
-	const cell = Number(
-		defined(
-			layout.kind === "cells"
-				? firstCellApart(was.elements, now.elements)
-				: place === undefined
-					? undefined
-					: cells[place],
-			"an edit changes a cell"
-		)
-	)
+	const cell =
+		layout.kind === "cells"
+			? defined(firstCellApart(was.elements, now.elements), "an edit changes a cell")
+			: cells[defined(firstPlaceApart(was.elements, now.elements), "an edit changes a payload")]
 	return {
 		kind: "content",
 		function: fn,
 		relation: "Grid",
-		differs: { cell: BigInt(cell), key: [rowAt(Math.floor(cell / 2)), colAt(cell % 2)] }
+		differs:
+			cell === undefined
+				? undefined
+				: {
+						cell,
+						key: [rowAt(Math.floor(Number(cell) / 2)), colAt(Number(cell) % 2)]
+					}
 	}
 }

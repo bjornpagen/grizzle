@@ -23,7 +23,7 @@
 import { headNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
-import { type Case, property } from "@bjornpagen/testing/property"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, FileSystem, Option, Order, String as Str } from "effect"
 import { check } from "#cli/check.ts"
 import { silentPhases } from "#compiler/core/phase.ts"
@@ -178,8 +178,25 @@ export const grizzleCheckOverAClosedRelationsLiteralPassesADraftedLiteralAndRefu
 			name: "the grid's cells row-major, read off the oracle's reading of each literal"
 		},
 		budget: { runs: 2, steered: 12 },
-		kept: [],
+		kept: [
+			{
+				token: ReplayToken(
+					"test/unit/cli/literal-pack.test.ts#grizzleCheckOverAClosedRelationsLiteralPassesADraftedLiteralAndRefusesAnyEditAtItsFileAndStatementNamingWhatItChanges:-:0.2.1.2.2.2.0.8y"
+				),
+				reason:
+					"rotating seed 0x5046cf55, case 0, shrunk: the payloads' last entry written twice, a payload past every cell, which pairs with none",
+				since: "2026-11-24"
+			}
+		],
 		kills: [
+			{
+				file: "packages/engine/src/physical/ddl/literal.ts",
+				original:
+					"\treturn position === undefined || indexes === undefined ? undefined : indexes[position]\n",
+				replacement:
+					"\treturn position === undefined || indexes === undefined\n\t\t? undefined\n\t\t: indexes[Math.min(position, indexes.length - 1)]\n",
+				why: "A payload past every cell read as the last cell's (physical/ddl/literal.ts cellApart): the finding names a cell the edit left alone."
+			},
 			{
 				file: "packages/grizzle/src/cli/check.ts",
 				original: "\t\t\t\t\tpacks.push({ where, statement, ordinal: i + 1 })",
