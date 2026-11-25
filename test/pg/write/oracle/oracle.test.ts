@@ -128,9 +128,8 @@ export const writeOracle = property.explore(perturbedRunGen, {
 		},
 		{
 			file: "packages/grizzle/src/adapter/apply/run.ts",
-			original:
-				"\t\t\t\treturn Effect.succeed(detail === undefined ? unreproduced : unmatchedKey(unmatched, detail))",
-			replacement: "\t\t\t\treturn Effect.succeed(unreproduced)",
+			original: "\treturn detail === undefined ? unreproduced : unmatchedKey(unmatched, detail)",
+			replacement: "\treturn unreproduced",
 			why: "The diagnosis of a refusal at COMMIT reads no row: a deferred containment the final state breaks is refused at COMMIT with an unreproduced witness, where the expectation is the primary key of a source fact naming no target fact."
 		},
 		{

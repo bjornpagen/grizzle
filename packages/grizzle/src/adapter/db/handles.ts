@@ -7,6 +7,7 @@ import {
 	drawnCall,
 	type HostCall,
 	hostInputs,
+	hostRejection,
 	inputApplyError,
 	runWrite,
 	runWriteShares
@@ -23,7 +24,6 @@ import type { CallInputRefused } from "#adapter/errors/failures.ts"
 import { applyCallError, outcomeReading, readCallError } from "#adapter/live/call-error.ts"
 import { routeKeys } from "#adapter/live/router.ts"
 import type { Live, LiveAnswer } from "#adapter/live/subscriptions.ts"
-import { applyOutcome } from "#adapter/outcomes/index.ts"
 import { windowIntake, windowStatement } from "#adapter/page/execute.ts"
 import { windowCall } from "#adapter/page/window.ts"
 import type { ExecutionInputs } from "#adapter/reader/execution.ts"
@@ -48,7 +48,6 @@ import type {
 } from "#adapter/served/load.ts"
 import type { ApplyOutcome, ExecutedStatement, StatementPlan } from "#adapter/types/db.ts"
 import { takenRows } from "#adapter/wire/batch.ts"
-import type { Session } from "#adapter/wire/session.ts"
 import {
 	type AnswerFailure,
 	callError,
@@ -530,35 +529,17 @@ const applyChange = (
 			drawnCall(change.entry, host, change.reads),
 			inputApplyError
 		)
-		/** The call bound whole, every fact at once, and run in its one transaction on `session`. */
-		const whole = (session: Session) =>
-			Effect.gen(function* () {
-				const inputs = yield* Effect.mapError(
-					hostInputs(change.entry, drawn.whole),
-					inputApplyError
-				)
-				if (inputs.kind === "rejected") {
-					return applyOutcome.invariantRejected(
-						{ kind: "every", laws: [inputs.refused] },
-						inputs.witness
-					)
-				}
-				return yield* runWrite(session, frame, change.entry, inputs, change.reads)
-			})
 		const shared = drawn.shared
 		if (shared !== undefined) {
 			return yield* Effect.scoped(
 				Effect.flatMap(lease, (session) =>
-					runWriteShares(session, frame, change.entry, shared, change.reads, whole)
+					runWriteShares(session, frame, change.entry, shared, change.reads)
 				)
 			)
 		}
 		const inputs = yield* Effect.mapError(hostInputs(change.entry, drawn.whole), inputApplyError)
 		if (inputs.kind === "rejected") {
-			return applyOutcome.invariantRejected(
-				{ kind: "every", laws: [inputs.refused] },
-				inputs.witness
-			)
+			return hostRejection(inputs)
 		}
 		return yield* Effect.scoped(
 			Effect.flatMap(lease, (session) =>

@@ -4,8 +4,11 @@
  * adapter/wire/batch.ts runFramedFlights), so the host holds one share's facts at a time (test/unit/write/shares holds
  * the heap to it), and answers what one execution of every fact answers: on PostgreSQL 19, every distinct fact added
  * and stored once, a fact repeated across shares once, every area's counted members counted though its members are
- * facts of their own, and a pair across shares refused with nothing stored, its refusal the whole call's (the call sent
- * again whole).
+ * facts of their own, and a pair across shares refused with nothing stored, its refusal the call's answer as the
+ * shared attempt classifies it, and so a later share the host refuses as it binds it: the shares sent before it are rolled back, never
+ * committed (adapter/wire/batch.ts runFramedFlights), and a refused call is its one transaction, its refusal judged on
+ * the shared attempt and never sent again (adapter/apply/run.ts runWriteShares), counted by pg_stat_statements' calls
+ * of the Db prologue's guard.
  */
 import { property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
@@ -29,7 +32,8 @@ export const aCallDrawnInSharesAnswersWhatOneExecutionOfEveryFactAnswers = prope
 			"every fact once",
 			"a fact repeated across shares",
 			"a stored fact repeated across shares",
-			"a pair refused across shares"
+			"a pair refused across shares",
+			"a later share the host refuses"
 		] satisfies ReadonlyArray<StreamedFeature>,
 		check:
 			({ substrate }, c) =>
@@ -41,7 +45,7 @@ export const aCallDrawnInSharesAnswersWhatOneExecutionOfEveryFactAnswers = prope
 				),
 		oracle: {
 			kind: "universal",
-			name: "accepted with every distinct fact added and stored once and every area's members counted, or a pair across shares refused storing nothing"
+			name: "accepted with every distinct fact added and stored once and every area's members counted, or a pair across shares, or a share the host refuses, refused storing nothing"
 		},
 		kept: [],
 		kills: [
@@ -50,6 +54,21 @@ export const aCallDrawnInSharesAnswersWhatOneExecutionOfEveryFactAnswers = prope
 				original: "\t\t\taddCounts(\n\t\t\t\tcounts,",
 				replacement: "\t\t\tcounts.clear()\n\t\t\taddCounts(\n\t\t\t\tcounts,",
 				why: "The outcome counts the last share's facts alone, where every share's add to it."
+			},
+			{
+				file: "packages/grizzle/src/adapter/wire/batch.ts",
+				original:
+					'\t\t\t\t\t\tsendPlan(session, [], principal, [], { ...frame, end: "ROLLBACK" }, "closing")',
+				replacement: '\t\t\t\t\t\tsendPlan(session, [], principal, [], frame, "closing")',
+				why: "A transaction a failure decided ends with its frame's COMMIT: after a share the host refused, every share sent before it commits."
+			},
+			{
+				file: "packages/grizzle/src/adapter/apply/run.ts",
+				original:
+					'\t\t\t\tcase "ShareRejected":\n\t\t\t\t\treturn hostRejection<R>(failure.rejected)\n',
+				replacement:
+					'\t\t\t\tcase "ShareRejected":\n\t\t\t\t\tyield* Effect.ignore(runFramedFlights(session, frame, shareFlights(session, entry, drawn), read, backs.statements))\n\t\t\t\t\treturn hostRejection<R>(failure.rejected)\n',
+				why: "A shared refusal is sent again before it answers: a second transaction, which under READ COMMITTED may commit where the first refused, the state having moved between them."
 			}
 		]
 	}

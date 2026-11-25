@@ -580,9 +580,8 @@ export const deletingAGroupWholeAndReplacingItOnPostgreSQL19EveryChangeSetStores
 			},
 			{
 				file: "packages/grizzle/src/adapter/apply/run.ts",
-				original:
-					"\t\t\t\treturn Effect.succeed(detail === undefined ? unreproduced : unmatchedKey(unmatched, detail))",
-				replacement: "\t\t\t\treturn Effect.succeed(unreproduced)",
+				original: "\treturn detail === undefined ? unreproduced : unmatchedKey(unmatched, detail)",
+				replacement: "\treturn unreproduced",
 				why: "The diagnosis of a refusal at COMMIT reads no row: a crossing group a test's or an assembly's delete leaves partial, which the family's deferred predecessor or last key refuses at COMMIT, is refused with an unreproduced witness, as though another commit had changed the state, where the write's statements sent again leave the row that key leaves unmatched, whose key is the witness."
 			}
 		]

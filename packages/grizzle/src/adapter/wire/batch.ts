@@ -1639,9 +1639,9 @@ export interface FlightBatch<A> {
  * flight of its own, the transaction open before and after it; then `closing` and the frame's end, once `next` makes
  * none. Each batch's outcomes are handed to `read` as its flight drains, before `next` makes the batch after it, so a
  * sender holds one batch's statements and outcomes at a time. A flight that fails is answered at its batch, and the
- * transaction's end is sent alone behind it, drained, so the server holds no transaction of the session; a COMMIT the
- * closing flight sent is decided as runFramed decides it. A failure of `next` itself ends the transaction alone, then
- * fails the call with it.
+ * transaction is rolled back alone behind it, a ROLLBACK drained, so the server holds no transaction of the session and
+ * commits none of it; a COMMIT the closing flight sent is decided as runFramed decides it. A failure of `next` itself
+ * rolls the transaction back alone, then fails the call with it: every flight it sent before commits nothing.
  */
 export const runFramedFlights = <A, E>(
 	session: Session,
@@ -1653,10 +1653,16 @@ export const runFramedFlights = <A, E>(
 	onSession(session, (restore) =>
 		Effect.gen(function* () {
 			const principal = asDb(frame)
-			/** The transaction's end sent alone and drained, its answer read by no one: a failure decided the call. */
+			/**
+			 * The transaction rolled back alone and drained, its answer read by no one: a failure decided the call, so nothing
+			 * of its flights commits, whichever failed, the server's refusal of a flight or `next`'s own, which the server never
+			 * saw, where its frame's end, COMMIT, would commit every flight sent before.
+			 */
 			const endAlone = Effect.gen(function* () {
 				const ending = yield* Effect.result(
-					onSession(session, () => sendPlan(session, [], principal, [], frame, "closing"))
+					onSession(session, () =>
+						sendPlan(session, [], principal, [], { ...frame, end: "ROLLBACK" }, "closing")
+					)
 				)
 				if (Result.isSuccess(ending)) {
 					yield* Deferred.await(ending.success.sent.drained)

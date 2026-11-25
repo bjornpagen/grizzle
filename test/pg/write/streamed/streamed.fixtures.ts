@@ -5,12 +5,15 @@ import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import { installWrites, openFull } from "#bench/write/support/writes.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import { drawn, natural, pg } from "#compiler/public/fields.ts"
 import { counted, fin, key, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { writeAnswerOf } from "#test/support/calls.ts"
+import { pgCluster } from "#test/support/env.ts"
 import { member } from "#test/support/served-db.ts"
+import { openSession } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 const Text = str.bytes(512, str.regex("^.*$", "su"))
@@ -40,15 +43,18 @@ const build = (name: string) =>
 /**
  * A case: how many wide facts one call inserts and how wide each body is, how many areas and members each, and what the
  * call states besides: every fact once, its first fact again as its last (a repeat across shares), its first fact
- * stored before the call and stated again as its last (a stored fact repeated across shares), or its last fact at its
- * first's seq with its own key (a pair across shares, refused on the seq key).
+ * stored before the call and stated again as its last (a stored fact repeated across shares), its last fact at its
+ * first's seq with its own key (a pair across shares, refused on the seq key), or two last facts of one key and two
+ * bodies, which the host's key law refuses as it binds the last share that holds them, after every share before it
+ * was sent (a share the host refuses): the call's one read of its facts judges each fact alone, and a share's bind its
+ * facts' keys.
  */
 export interface Streamed {
 	readonly facts: number
 	readonly body: number
 	readonly areas: number
 	readonly members: number
-	readonly shape: "distinct" | "repeated" | "stored" | "paired"
+	readonly shape: "distinct" | "repeated" | "stored" | "paired" | "hostRefused"
 }
 
 export const streamedGen: Gen<Streamed> = (s) => ({
@@ -56,7 +62,7 @@ export const streamedGen: Gen<Streamed> = (s) => ({
 	body: s.draw(int(200, 400)),
 	areas: s.draw(int(20, 60)),
 	members: s.draw(int(1, 40)),
-	shape: s.draw(element(["distinct", "repeated", "stored", "paired"] as const))
+	shape: s.draw(element(["distinct", "repeated", "stored", "paired", "hostRefused"] as const))
 })
 
 export type StreamedFeature =
@@ -64,6 +70,13 @@ export type StreamedFeature =
 	| "a fact repeated across shares"
 	| "a stored fact repeated across shares"
 	| "a pair refused across shares"
+	| "a later share the host refuses"
+
+/**
+ * The settings that turn pg_stat_statements on in the case's database alone, every statement a backend that connects
+ * after them runs (warm-pool.fixtures.ts `tracked`), so a case counts the Db transactions a call begins.
+ */
+const tracked = ["compute_query_id = 'on'", "pg_stat_statements.track = 'all'"] as const
 
 /** Wide fact `i`: document i mod 7, a long path, at i, seq i. */
 const wideOf = (c: Streamed, i: number) => ({
@@ -88,6 +101,12 @@ const widesOf = (c: Streamed) => {
 			return [...facts, wideOf(c, 0)]
 		case "paired":
 			return [...facts, { ...wideOf(c, c.facts), seq: 0n }]
+		case "hostRefused":
+			return [
+				...facts,
+				{ ...wideOf(c, c.facts), body: "first" },
+				{ ...wideOf(c, c.facts), body: "second" }
+			]
 	}
 }
 
@@ -101,6 +120,33 @@ const widesOf = (c: Streamed) => {
 export const runStreamed = (c: Streamed, k: Case<StreamedFeature>) =>
 	Effect.scoped(
 		Effect.gen(function* () {
+			const substrate = yield* Substrate
+			for (const setting of tracked) {
+				yield* substrate.admin.query(
+					`ALTER DATABASE ${quoteIdent(substrate.database)} SET ${setting}`,
+					[]
+				)
+			}
+			/**
+			 * How many Db transactions the case's database began so far: its prologue's calls, each the guard's, read on the
+			 * owner database, which holds pg_stat_statements' view, as every role's statements' reader.
+			 */
+			const statistics = yield* openSession(substrate.cluster, {
+				database: pgCluster.owner,
+				credentials: substrate.owner,
+				label: "streamed statistics"
+			})
+			yield* statistics.values(
+				"SELECT pg_catalog.set_config('role', 'pg_read_all_stats', false)",
+				[]
+			)
+			const transactions = Effect.map(
+				statistics.values(
+					"SELECT coalesce(sum(s.calls), 0)::int8::text FROM public.pg_stat_statements AS s JOIN pg_catalog.pg_database AS d ON d.oid = s.dbid WHERE d.datname = $1::text AND s.toplevel AND s.query LIKE '%__snapshot_guard%'",
+					[substrate.database]
+				),
+				(rows) => Number(rows[0]?.[0] ?? 0)
+			)
 			const fx = yield* installWrites(build("Streamed"), "streamed", { programs: {}, logins: [] })
 			const S = build(fx.installed.declared)
 			const db = yield* openFull(fx, S)
@@ -141,23 +187,31 @@ export const runStreamed = (c: Streamed, k: Case<StreamedFeature>) =>
 				const first = yield* load({ Wide: [wideOf(c, 0)], Area: [], Member: [] })
 				assert.ok("kind" in first && first.kind === "accepted", "the stored fact is stored first")
 			}
+			const before = yield* transactions
 			const outcome = yield* load({ Wide: wides, Area: areas, Member: members })
-			const substrate = yield* Substrate
+			const sent = (yield* transactions) - before
 			const stored = yield* substrate.admin.queryValues(
 				`SELECT (SELECT count(*) FROM ${fx.table("Wide")})::text, (SELECT count(*) FROM ${fx.table("Member")})::text, (SELECT coalesce(sum(members), 0) FROM ${fx.table("Area")})::text, (SELECT count(*) FROM ${fx.table("Area")} a WHERE a.members <> (SELECT count(*) FROM ${fx.table("Member")} m WHERE m.area = a.area))::text`,
 				[]
 			)
-			if (c.shape === "paired") {
+			if (c.shape === "paired" || c.shape === "hostRefused") {
 				assert.ok(
-					"kind" in outcome && outcome.kind === "refused",
-					`${Formatter.format({ ...c })}: a pair at one seq across shares is refused, ${Formatter.format(outcome)}`
+					"kind" in outcome && outcome.kind !== "accepted" && outcome.kind !== "unchanged",
+					`${Formatter.format({ ...c })}: the call is refused, ${Formatter.format(outcome)}`
 				)
 				assert.deepEqual(
 					stored,
 					[["0", "0", "0", "0"]],
-					`${Formatter.format({ ...c })}: the refused call stores nothing`
+					`${Formatter.format({ ...c })}: the refused call stores nothing, none of the shares sent before its refusal`
 				)
-				k.note("a pair refused across shares")
+				assert.equal(
+					sent,
+					1,
+					`${Formatter.format({ ...c })}: the refused call is its one transaction, its refusal its answer, never sent again`
+				)
+				k.note(
+					c.shape === "paired" ? "a pair refused across shares" : "a later share the host refuses"
+				)
 				return
 			}
 			const counts = "counts" in outcome ? outcome.counts : []

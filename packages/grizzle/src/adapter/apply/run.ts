@@ -413,29 +413,40 @@ const unmatchedWitness = (
 				oneShotStatement(unmatched.sql, [])
 			])
 		),
-		(ran): Effect.Effect<Witness, ApplyError> => {
-			if (Result.isSuccess(ran)) {
-				const detail = ran.success.at(-1)?.rows[0]?.[0]
-				return Effect.succeed(detail === undefined ? unreproduced : unmatchedKey(unmatched, detail))
-			}
-			const failure = ran.failure
-			switch (failure._tag) {
-				case "BatchRefused":
-				case "PrologueRefused":
-				case "StaleSnapshot":
-					return Effect.succeed(unreproduced)
-				case "ConnectionLost":
-				case "DriverFailure":
-					return Effect.fail(new TransportFailure({ reason: failure }))
-				case "UnreadableAnswer":
-				case "InputTooLarge":
-					return Effect.fail(new ExecutionFailure({ reason: failure }))
-				case "CommitRefused":
-				case "CommitLost":
-					return Effect.die(defect(`a COMMIT in the diagnosis flight, which ends ROLLBACK`))
-			}
-		}
+		(ran): Effect.Effect<Witness, ApplyError> =>
+			Result.isSuccess(ran)
+				? Effect.succeed(diagnosedWitness(unmatched, ran.success))
+				: diagnosisFailure(ran.failure)
 	)
+
+/** The witness a diagnosis's outcomes name: its last statement's, the witness query's, one row, or none. */
+const diagnosedWitness = (unmatched: Unmatched, outcomes: ReadonlyArray<BatchOutcome>): Witness => {
+	const detail = outcomes.at(-1)?.rows[0]?.[0]
+	return detail === undefined ? unreproduced : unmatchedKey(unmatched, detail)
+}
+
+/**
+ * What a diagnosis's failure makes of its witness (unmatchedWitness): a refusal of its flight, its fence's or a
+ * statement's, met a state another commit changed, `unreproduced`; a lost connection or an answer grizzle cannot read
+ * fails the call as the write's own flight would.
+ */
+const diagnosisFailure = (failure: FlightFailure): Effect.Effect<Witness, ApplyError> => {
+	switch (failure._tag) {
+		case "BatchRefused":
+		case "PrologueRefused":
+		case "StaleSnapshot":
+			return Effect.succeed(unreproduced)
+		case "ConnectionLost":
+		case "DriverFailure":
+			return Effect.fail(new TransportFailure({ reason: failure }))
+		case "UnreadableAnswer":
+		case "InputTooLarge":
+			return Effect.fail(new ExecutionFailure({ reason: failure }))
+		case "CommitRefused":
+		case "CommitLost":
+			return Effect.die(defect(`a COMMIT in the diagnosis flight, which ends ROLLBACK`))
+	}
+}
 
 /** The key a witness query's one row names (write/unmatched.ts), its DETAIL as the installation's encoding reads it. */
 const unmatchedKey = (unmatched: Unmatched, detail: OutputText): Witness => {
@@ -631,8 +642,19 @@ export const runWrite = <R>(
 		return applyOutcome.committed(changes.counts, reads.read(readsRow(delivered)))
 	})
 
-/** A share of a streamed write a host normalization refused within it, which the whole call judges (runWriteShares). */
-class ShareRejected extends Data.TaggedError("ShareRejected") {}
+/**
+ * A call's rejection by the laws its host judges as it binds it (hostInputs `rejected`): the law and the witness, the
+ * call's answer as it stands.
+ */
+export const hostRejection = <R>(
+	rejected: Extract<HostInputs, { readonly kind: "rejected" }>
+): ApplyOutcome<R> =>
+	applyOutcome.invariantRejected({ kind: "every", laws: [rejected.refused] }, rejected.witness)
+
+/** A share of a streamed write whose bind the laws its host judges refused, with that rejection (runWriteShares). */
+class ShareRejected extends Data.TaggedError("ShareRejected")<{
+	readonly rejected: Extract<HostInputs, { readonly kind: "rejected" }>
+}> {}
 
 /** A call drawn in shares (shares.ts drawShares), and the inputs of its call of no facts, which its read-backs read. */
 export interface SharedCall {
@@ -709,18 +731,31 @@ const addCounts = (
  * share bound on the host (hostInputs) only once the flight of the share before it has drained, its statements sent
  * as one flight, cut into executions within PostgreSQL's default work_mem (bind.ts batchedExecutions), and its rows read
  * at once into the outcome's counts, which every share's add to, so the host holds one share's facts, parameters and
- * rows at a time; then the read-backs and COMMIT. A refusal, a statement's or COMMIT's, or a share's host refusal, sends
- * the call again whole, in a transaction of its own, the first having changed nothing, so the outcome and its witness
- * are the whole call's (`whole`); that path alone holds every fact. The session's stand-up of the write runs first, as
- * for a whole call (runWrite).
+ * rows at a time; then the read-backs and COMMIT. The session's stand-up of the write runs first, as for a whole call
+ * (runWrite).
+ *
+ * A refusal is the call's answer, judged where it is met, and every share sent before it is rolled back
+ * (runFramedFlights): the call is never sent again, so no second attempt can commit what the first refused, the state
+ * having moved between them.
+ *
+ * - A share the laws its host judges refuse as it binds it: that rejection (hostRejection). drawShares draws whole
+ *   groups, so every count, end and fresh group the host judges reads one share's facts as it reads the call's
+ *   (shares.ts); a key's duplicate across two shares, which no share's bind meets, the key's UNIQUE constraint refuses
+ *   at the later share, the same law.
+ * - A statement a share's flight refused: classified as a whole call's is (flightFailure), by the server's error, the
+ *   statement's place in its share, and the host's judgement over the call's stated values, which reads no fact.
+ * - COMMIT refused: classified at COMMIT (commitRefusal), the witness of a deferred foreign key's unmatched row read by
+ *   one more draw of the shares in a transaction of `frame` that ends ROLLBACK, the key's witness query its closing
+ *   flight (unmatchedShares): the row is one the state every share leaves holds, which exists only once the last share
+ *   ran, and the refusal is known only at COMMIT, which rolled that state back. The draw is the refusal's alone, and
+ *   commits nothing.
  */
 export const runWriteShares = <R>(
 	session: Session,
 	frame: Frame,
 	entry: WriteEntry,
 	drawn: SharedCall,
-	reads: BoundReads<R>,
-	whole: (session: Session) => Effect.Effect<ApplyOutcome<R>, ApplyError>
+	reads: BoundReads<R>
 ): Effect.Effect<ApplyOutcome<R>, ApplyError> =>
 	Effect.gen(function* () {
 		const flight = entry.program
@@ -740,28 +775,7 @@ export const runWriteShares = <R>(
 			inputApplyError
 		)
 		const backs = joinFlights(readBackFlights)
-		const batched: Transport = { ...sessionTransport(session), batching: writeBatching }
-		const shares = drawn.shares[Symbol.iterator]()
 		const counts = new Map<string, RelationCounts>()
-		const next = (): Effect.Effect<
-			FlightBatch<ReadonlyArray<SentStatement>> | undefined,
-			InputFailure | ShareRejected
-		> =>
-			Effect.gen(function* () {
-				const step = shares.next()
-				if (step.done === true) {
-					return undefined
-				}
-				const inputs = yield* hostInputs(entry, step.value)
-				if (inputs.kind !== "bound") {
-					return yield* new ShareRejected()
-				}
-				const writes = writeStatements(flight, inputs, inputs.bound.chunks, () => batched)
-				if (Result.isFailure(writes)) {
-					return yield* Effect.fail(writes.failure)
-				}
-				return { statements: writes.success.statements, batch: writes.success.sent }
-			})
 		const read = (
 			sent: ReadonlyArray<SentStatement>,
 			outcomes: ReadonlyArray<BatchOutcome>
@@ -779,12 +793,14 @@ export const runWriteShares = <R>(
 				interpretRows(flight.outcome, flight.statements, (i) => raws.get(i) ?? noRows).counts
 			)
 		}
-		const ran = yield* Effect.result(runFramedFlights(session, frame, next, read, backs.statements))
+		const ran = yield* Effect.result(
+			runFramedFlights(session, frame, shareFlights(session, entry, drawn), read, backs.statements)
+		)
 		if (Result.isFailure(ran)) {
 			const failure = ran.failure
 			switch (failure._tag) {
 				case "ShareRejected":
-					return yield* whole(session)
+					return hostRejection<R>(failure.rejected)
 				case "ConnectionLost":
 					return yield* new TransportFailure({ reason: failure })
 				case "EncodingFailure":
@@ -794,9 +810,18 @@ export const runWriteShares = <R>(
 		}
 		const answer = ran.success
 		if (answer.kind === "failed") {
-			return answer.failure._tag === "BatchRefused" || answer.failure._tag === "CommitRefused"
-				? yield* whole(session)
-				: yield* flightFailure<R>(answer.failure, answer.at ?? [], context)
+			const failure = answer.failure
+			if (failure._tag !== "CommitRefused") {
+				return yield* flightFailure<R>(failure, answer.at ?? [], context)
+			}
+			const unmatched = entry.witness.unmatched(failure.failure)
+			return yield* commitRefusal<R>(
+				failure.failure,
+				context,
+				unmatched === undefined
+					? undefined
+					: unmatchedShares(session, frame, entry, drawn, unmatched)
+			)
 		}
 		const sentRows = yield* Effect.mapError(
 			backs.read(answer.closing),
@@ -811,3 +836,76 @@ export const runWriteShares = <R>(
 		)
 		return applyOutcome.committed(total, reads.read(readsRow(sentRows)))
 	})
+
+/**
+ * The batches of a call's shares as runFramedFlights draws them (`next`), one per share, from the first share each time
+ * it is made: each share bound on the host (hostInputs) only as its batch is drawn, its statements cut into executions
+ * within PostgreSQL's default work_mem (bind.ts batchedExecutions), and a share the host's laws refuse ShareRejected.
+ */
+const shareFlights = (session: Session, entry: WriteEntry, drawn: SharedCall) => {
+	const batched: Transport = { ...sessionTransport(session), batching: writeBatching }
+	const shares = drawn.shares[Symbol.iterator]()
+	return (): Effect.Effect<
+		FlightBatch<ReadonlyArray<SentStatement>> | undefined,
+		InputFailure | ShareRejected
+	> =>
+		Effect.gen(function* () {
+			const step = shares.next()
+			if (step.done === true) {
+				return undefined
+			}
+			const inputs = yield* hostInputs(entry, step.value)
+			if (inputs.kind !== "bound") {
+				return yield* new ShareRejected({ rejected: inputs })
+			}
+			const writes = writeStatements(entry.program, inputs, inputs.bound.chunks, () => batched)
+			if (Result.isFailure(writes)) {
+				return yield* Effect.fail(writes.failure)
+			}
+			return { statements: writes.success.statements, batch: writes.success.sent }
+		})
+}
+
+/**
+ * The witness of a COMMIT a deferred foreign key refused, for a call drawn in shares (runWriteShares): every share drawn
+ * again and sent as the call's were, in a transaction of `frame` that ends ROLLBACK, the key's witness query its closing
+ * flight, so the query reads the state the write leaves, one share's facts held at a time, and nothing of it lasts, as
+ * unmatchedWitness reads a whole call's. A share its host refuses now, or a statement's refusal, met a state another
+ * commit changed: `unreproduced`.
+ */
+const unmatchedShares = (
+	session: Session,
+	frame: Frame,
+	entry: WriteEntry,
+	drawn: SharedCall,
+	unmatched: Unmatched
+): Effect.Effect<Witness, ApplyError> =>
+	Effect.flatMap(
+		Effect.result(
+			runFramedFlights(
+				session,
+				{ ...frame, end: "ROLLBACK" },
+				shareFlights(session, entry, drawn),
+				() => undefined,
+				[oneShotStatement(unmatched.sql, [])]
+			)
+		),
+		(ran): Effect.Effect<Witness, ApplyError> => {
+			if (Result.isFailure(ran)) {
+				const failure = ran.failure
+				switch (failure._tag) {
+					case "ShareRejected":
+						return Effect.succeed(unreproduced)
+					case "ConnectionLost":
+						return Effect.fail(new TransportFailure({ reason: failure }))
+					case "EncodingFailure":
+					case "InputTooLarge":
+						return Effect.fail(inputApplyError(failure))
+				}
+			}
+			const answer = ran.success
+			return answer.kind === "committed"
+				? Effect.succeed(diagnosedWitness(unmatched, answer.closing))
+				: diagnosisFailure(answer.failure)
+		}
+	)
