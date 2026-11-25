@@ -2,7 +2,10 @@
  * R01 fusion (lower/optimize/fuse): an imported stage written as a region under filters and renames is inlined into the
  * region that matches it, preserving the complete bound tuple and every aggregate boundary, with the (account, amount)
  * versus (id, account, amount) counterexample held to the reference; a boundary, a correlated stage, two constants on
- * one inner variable, or a constant reading a column on a variable the stage's filter reads is never fused. Every
+ * one inner variable, a constant reading a column on a variable the stage's filter reads, or a variable of the stage's
+ * region that the reader neither binds nor fixes and that a filter, an equality or a second occurrence reads is never
+ * fused: the fused region would hold it as a hidden variable under a projection restoring its heading, a derived table
+ * its readers read it through (lower/optimize/fuse shapedFusion). Every
  * fusion delivers what its original does, by the reference evaluator, on every database of the candidate facts, alone
  * and composed with the rewrite phases, and lowers conservatively.
  *
@@ -20,9 +23,9 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Record as Rec } from "effect"
 import { nodesByLabel } from "#compiler/ir/dag.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
-import { conservativeMeta } from "#compiler/ir/rel.ts"
+import { conservativeMeta, type RelNode } from "#compiler/ir/rel.ts"
 import { fusePass } from "#compiler/lower/optimize/fuse/index.ts"
-import { Posting, Q, T } from "#test/unit/lower/conservative/fixtures.ts"
+import { Account, plainRegion, Posting, Q, T } from "#test/unit/lower/conservative/fixtures.ts"
 import {
 	type Bound,
 	fused,
@@ -117,8 +120,8 @@ export const theCompleteBoundTupleSurvivesFusionAFoldOverAnImportedStageKeepsIts
 		}
 	)
 
-/** Fixed columns in R01 fusion two columns carrying one inner variable fuse unless one is fixed and the other fixed or bound, or a read fixes a filtered one. */
-export const fixedColumnsInR01FusionTwoColumnsCarryingOneInnerVariableFuseUnlessOneIsFixedAndTheOtherFixedOrBoundOrAReadFixesAFilteredOne =
+/** Fixed columns in R01 fusion two columns carrying one inner variable fuse unless one is fixed and the other fixed or bound, a read fixes a filtered one, or neither column binds or fixes the variable the filter reads. */
+export const fixedColumnsInR01FusionTwoColumnsCarryingOneInnerVariableFuseUnlessOneIsFixedAndTheOtherFixedOrBoundAReadFixesAFilteredOneOrNeitherBindsTheFilteredOne =
 	property.exhaust(
 		finite(
 			(source) =>
@@ -182,29 +185,138 @@ export const fixedColumnsInR01FusionTwoColumnsCarryingOneInnerVariableFuseUnless
 							(isFixed(first) && second !== "existential") ||
 							(isFixed(second) && first !== "existential") ||
 							(stage === "filtered" &&
-								(first === "fixed to a read" || second === "fixed to a read"))
+								(first === "fixed to a read" ||
+									second === "fixed to a read" ||
+									(first === "existential" && second === "existential")))
 						c.note(refused ? "refused" : "fused")
 						assert.equal(rulesOf(ran.certificates).includes("R01.fusion"), !refused)
 					}),
 			oracle: {
 				kind: "specification",
-				name: "fused unless one column is fixed and the other fixed or bound, or a read fixes a filtered one"
+				name: "fused unless one column is fixed and the other fixed or bound, a read fixes a filtered one, or the filter reads a variable neither column binds nor fixes, which a fused region could hold only as a hidden variable under a projection"
 			},
 			box: "every use of each of two columns carrying one inner variable, over a filtered or an unfiltered stage",
 			kept: [],
 			kills: [
 				{
 					file: "packages/engine/src/lower/optimize/fuse/index.ts",
-					original:
-						'\t\t\tif (hidden.length > 0) {\n\t\t\t\tconst input = top\n\t\t\t\ttop = ed.add({\n\t\t\t\t\tkind: "ProjectSet",\n\t\t\t\t\tinput,\n\t\t\t\t\tout: original.heading.map((c) => ({ name: c.name, expr: ed.column(input, c) })),\n\t\t\t\t\theading: original.heading,\n\t\t\t\t\tmeta: original.meta,\n\t\t\t\t\tloc: undefined\n\t\t\t\t})\n\t\t\t\toutputs.push(top.id)\n\t\t\t}\n',
-					replacement: "",
-					why: "A fused region delivers the hidden variables its import hid, no projection restoring its heading; the fuse-fixed-columns search fails where a column is left existential."
-				},
-				{
-					file: "packages/engine/src/lower/optimize/fuse/index.ts",
 					original: "\t\tif (x === undefined || fixed.has(x)) {",
 					replacement: "\t\tif (x === undefined) {",
 					why: "A stage is fused where two fixed columns carry one inner variable; the fuse-fixed-columns search fails."
+				}
+			]
+		}
+	)
+
+/** How a stage's region reads a variable beyond one binding: a second occurrence joins on it, its filter reads it, or a region equality equates it. */
+type Read = "a join" | "a filter" | "an equality"
+
+/** Whether the stage's import delivers that variable, so its reader binds it, or not. */
+type Delivered = "delivered" | "undelivered"
+
+/** The stage's region, over the postings and, where it joins or equates, the accounts, and the variables it reads beyond one binding. */
+const stageOf = (
+	q: Q,
+	read: Read
+): { readonly stage: RelNode; readonly reads: ReadonlyArray<string> } => {
+	switch (read) {
+		case "a join":
+			return {
+				stage: q.region([
+					{
+						source: q.base(Posting, conservativeMeta),
+						bind: { id: "id", account: "account", amount: "amount" },
+						constants: {}
+					},
+					{ source: q.base(Account, conservativeMeta), bind: { id: "account" }, constants: {} }
+				]),
+				reads: ["account"]
+			}
+		case "a filter": {
+			const inner = postings(q)
+			return {
+				stage: q.filter(inner, q.op("int8gt", [q.col(inner, "amount"), q.int(6, T.int8)], T.bool)),
+				reads: ["amount"]
+			}
+		}
+		case "an equality":
+			return {
+				stage: q.regionWith(
+					[
+						{
+							source: q.base(Posting, conservativeMeta),
+							bind: { id: "id", account: "account", amount: "amount" },
+							constants: {}
+						},
+						{ source: q.base(Account, conservativeMeta), bind: { id: "owner" }, constants: {} }
+					],
+					{ ...plainRegion, equalities: [["account", "owner"]] }
+				),
+				reads: ["account", "owner"]
+			}
+	}
+}
+
+/** Fusion keeps the region's heading a stage whose region reads a variable beyond one binding fuses only where its reader binds that variable, and fusion adds no projection. */
+export const fusionKeepsTheRegionsHeadingAStageWhoseRegionReadsAVariableBeyondOneBindingFusesOnlyWhereItsReaderBindsThatVariableAndFusionAddsNoProjection =
+	property.exhaust(
+		finite(
+			(source) =>
+				[
+					source.draw(element<Read>(["a join", "a filter", "an equality"])),
+					source.draw(element<Delivered>(["delivered", "undelivered"]))
+				] as const
+		),
+		{
+			needs: {},
+			situations: ["fused", "refused"] satisfies ReadonlyArray<Reached<"fused" | "refused">>,
+			check:
+				(_, c: Case<"fused" | "refused">) =>
+				([read, delivered]) =>
+					Effect.sync(() => {
+						const q = new Q()
+						const { stage, reads } = stageOf(q, read)
+						const columns = delivered === "delivered" ? ["id", ...reads] : ["id"]
+						const imported = q.project(
+							stage,
+							Arr.map(columns, (col) => [col, col] as const),
+							conservativeMeta
+						)
+						const input = q.build(
+							q.region([
+								{
+									source: imported,
+									bind: Rec.fromEntries(Arr.map(columns, (col) => [col, col])),
+									constants: {}
+								}
+							])
+						).dag
+						const ran = fused(input)
+						const fusedNow = rulesOf(ran.certificates).includes("R01.fusion")
+						c.note(fusedNow ? "fused" : "refused")
+						assert.equal(
+							fusedNow,
+							delivered === "delivered",
+							"fused exactly where the reader binds the variable"
+						)
+						const before = nodesByLabel(input)
+						for (const p of nodesOf(ran.query.dag, "ProjectSet")) {
+							assert.ok(before.has(p.id), `a projection ${p.id} fusion added`)
+						}
+					}),
+			oracle: {
+				kind: "specification",
+				name: "fused exactly where the reader binds every variable the stage reads beyond one binding; no projection added; the reference's delivery on every database"
+			},
+			box: "a stage that joins, filters or equates a variable, its import delivering it or not",
+			kept: [],
+			kills: [
+				{
+					file: "packages/engine/src/lower/optimize/fuse/index.ts",
+					original:
+						"\t\tinner.vars.every(\n\t\t\t(x) =>\n\t\t\t\timaged.has(x.name) ||\n\t\t\t\t((bindings.get(x.name) ?? 0) === 1 && !predVars.has(x.name) && !equated.has(x.name))\n\t\t)\n",
+					replacement: "\t\ttrue\n",
+					why: "Fusion admits a stage whose region reads a variable its reader leaves unbound, as it did when it held such a variable hidden under a restoring projection: the fused region drops the join, filter or equality on it and delivers other rows than the stage."
 				}
 			]
 		}

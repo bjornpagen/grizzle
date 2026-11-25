@@ -72,7 +72,34 @@ const shapedFusion = (cx: RewriteCx, cell: Cell, o: Occurrence, chain: RegionCha
 			return false
 		}
 	}
-	return o.bindings.every((b) => innerOf(b.column) !== undefined)
+	/**
+	 * Every inner variable the occurrence's image, bound or fixed by it, or an existential witness: bound by one
+	 * occurrence of the region alone, read by no predicate and in no equality. A variable of neither kind would widen the
+	 * fused region by a hidden variable of its own, and a projection above it would restore the region's heading: a
+	 * derived table its readers read the fused rows through, which a semi-join the existence pass leaves below it holds
+	 * apart from the keys a reader binds (metis's liftProctored, its union arms' reads of the learner's visits and
+	 * sessions unbound by any value of the call). Fused so, the region keeps its heading and fusion adds no projection.
+	 */
+	const imaged = new Set(
+		[...o.bindings, ...o.constants].flatMap((x) => {
+			const v = innerOf(x.column)
+			return v === undefined ? [] : [v]
+		})
+	)
+	const bindings = new Map<string, number>()
+	for (const io of inner.occurrences) {
+		for (const b of io.bindings) {
+			bindings.set(b.var.name, (bindings.get(b.var.name) ?? 0) + 1)
+		}
+	}
+	return (
+		o.bindings.every((b) => innerOf(b.column) !== undefined) &&
+		inner.vars.every(
+			(x) =>
+				imaged.has(x.name) ||
+				((bindings.get(x.name) ?? 0) === 1 && !predVars.has(x.name) && !equated.has(x.name))
+		)
+	)
 }
 
 /**
@@ -100,6 +127,9 @@ type Image =
 	| { readonly kind: "var"; readonly v: VarDecl }
 	| { readonly kind: "const"; readonly e: ScalarExpr }
 	| { readonly kind: "exist" }
+
+/** An existential witness's image: its column left unbound. */
+const existential: Image = { kind: "exist" }
 
 /** A variable whose image is existential leaves its column unbound: an existential witness. */
 const fuse = (
@@ -134,41 +164,11 @@ const fuse = (
 		const x = innerVar(c.column)
 		image.set(x.id, { kind: "const", e: c.expr })
 	}
-	/** Inner variables that must stay variables: joins, equalities, predicate operands. */
-	const bindingCount = new Map<VarId, number>()
-	for (const io of inner.occurrences) {
-		for (const b of io.bindings) {
-			bindingCount.set(b.var.id, (bindingCount.get(b.var.id) ?? 0) + 1)
-		}
-	}
-	const predVars = predicateVars(chain)
-	const equated = new Set(inner.equalities.flatMap((e) => [e.a.id, e.b.id]))
-	const names = new Set(region.vars.map((v) => v.name))
-	const hidden: Array<VarDecl> = []
 	/**
-	 * What an inner variable becomes: its image from the occurrence, else an existential witness where only one binding
-	 * reads it, else a fresh hidden variable. Each inner variable gets its image once, in declared order.
+	 * What an inner variable becomes: its image from the occurrence, else an existential witness, since shapedFusion admits
+	 * only a chain each other inner variable of which one binding alone reads.
 	 */
-	const imageOf = (x: VarDecl): Image => {
-		const known = image.get(x.id)
-		if (known !== undefined) {
-			return known
-		}
-		const live = (bindingCount.get(x.id) ?? 0) !== 1 || predVars.has(x.name) || equated.has(x.id)
-		if (!live) {
-			const exist: Image = { kind: "exist" }
-			image.set(x.id, exist)
-			return exist
-		}
-		const h: VarDecl = { id: ed.freshVar(), name: DagEditor.freshName(names, x.name), type: x.type }
-		hidden.push(h)
-		const img: Image = { kind: "var", v: h }
-		image.set(x.id, img)
-		return img
-	}
-	for (const x of inner.vars) {
-		imageOf(x)
-	}
+	const imageOf = (x: VarDecl): Image => image.get(x.id) ?? existential
 	/** The inner occurrences, copied: fresh occurrence ids, a stored source rescanned under a fresh occurrence. */
 	const copies: Array<Occurrence> = []
 	for (const io of inner.occurrences) {
@@ -213,14 +213,12 @@ const fuse = (
 	}
 	const fused: Region = {
 		...region,
-		vars: [...region.vars, ...hidden],
 		occurrences: [...region.occurrences.filter((x) => x.id !== o.id), ...copies],
-		equalities,
-		heading: [...region.heading, ...hidden.map((h) => ({ name: h.name, type: h.type }))]
+		equalities
 	}
 	const original = region
-	const widened = hidden.length > 0 || chain.preds.length > 0
-	ed.set(cell, widened ? { ...fused, meta: derivedMeta(original.meta) } : fused)
+	const filtered = chain.preds.length > 0
+	ed.set(cell, filtered ? { ...fused, meta: derivedMeta(original.meta) } : fused)
 	/** The chain's predicates over R's variables. */
 	const preds = chain.preds.map((p) =>
 		ed.copyExpr(p.pred, (ref) => {
@@ -238,33 +236,18 @@ const fuse = (
 		})
 	)
 	const outputs: Array<NodeId> = [cell.id]
-	if (widened) {
+	const [first] = preds
+	if (first !== undefined) {
 		ed.insertAbove(cell, (rid) => {
-			let top = rid
-			const [first] = preds
-			if (first !== undefined) {
-				top = ed.add({
-					kind: "Filter",
-					input: rid,
-					pred: conjunction(ed, preds, first),
-					heading: fused.heading,
-					meta: hidden.length > 0 ? derivedMeta(original.meta) : original.meta,
-					loc: undefined
-				})
-				outputs.push(top.id)
-			}
-			if (hidden.length > 0) {
-				const input = top
-				top = ed.add({
-					kind: "ProjectSet",
-					input,
-					out: original.heading.map((c) => ({ name: c.name, expr: ed.column(input, c) })),
-					heading: original.heading,
-					meta: original.meta,
-					loc: undefined
-				})
-				outputs.push(top.id)
-			}
+			const top = ed.add({
+				kind: "Filter",
+				input: rid,
+				pred: conjunction(ed, preds, first),
+				heading: fused.heading,
+				meta: original.meta,
+				loc: undefined
+			})
+			outputs.push(top.id)
 			return top
 		})
 	}
