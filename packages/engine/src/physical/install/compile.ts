@@ -1,5 +1,6 @@
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
+import { isNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { isAsciiDigit } from "@bjornpagen/grizzle-text/text"
 import type { CheckedSchema } from "#compiler/analysis/schema.ts"
@@ -21,6 +22,7 @@ import { type Codebook, firstCodebook } from "#compiler/ir/codes.ts"
 import type { LibraryFn } from "#compiler/ir/physical.ts"
 import type { IndexRequest, InstallationManifest } from "#compiler/ir/products.ts"
 import type { RegexRef } from "#compiler/ir/scalar.ts"
+import { undischargedLaws } from "#compiler/laws/model/model.ts"
 import type { LivePlan } from "#compiler/live/notify.ts"
 import { addClosedRelations, addRosters } from "#compiler/physical/ddl/constants.ts"
 import { InstallBuilder, type InstallSettings } from "#compiler/physical/ddl/context.ts"
@@ -423,6 +425,12 @@ export const installationOver = (
 	options: Omit<InstallOptions, "codes">,
 	phases: Phases
 ): Result.Result<Installation, CompileError> => {
+	const undischarged = undischargedLaws(basis.model)
+	if (isNonEmpty(undischarged)) {
+		throw defect(
+			`an installation discharges every law of its theory: no native object holds, no migration checks and no rule trigger judges ${undischarged.join(", ")}`
+		)
+	}
 	const keys = new KeyLedger(basis.model.unrepresentable)
 	return keys.settle(installationIn(basis, options, keys, phases))
 }

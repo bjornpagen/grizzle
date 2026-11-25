@@ -500,16 +500,21 @@ export interface LawModel {
 
 /**
  * The relations a transaction that writes `written` changes by its COMMIT: they, and each stored derived relation the
- * rule judge's phase A keeps from them in the same COMMIT, whose upkeep reads one of them, a stored relation over a
- * stored one in turn (physical/ddl/rules.ts, each upkeep a stratum after those it reads). A write of a holder meets the
- * native objects of the stored relations kept from it, their UNIQUE and their CHECK, as surely as its own table's: what
- * a role's writes can raise (program/schema.ts raisableOf) is read over these.
+ * rule judge's phase A keeps from them in the same COMMIT, whose upkeep, one of `upkeeps` (Theory `upkeeps`), reads one
+ * of them, a stored relation over a stored one in turn (physical/ddl/rules.ts, each upkeep a stratum after those it
+ * reads). A write of a holder meets the native objects of the stored relations kept from it, their UNIQUE and their
+ * CHECK, as surely as its own table's, and breaks a rule over them as surely as one over its own rows: what a role's
+ * writes can raise (program/schema.ts raisableOf) and which rules a model's judge holds at every COMMIT (Specializer
+ * `changed`) are read over these.
  */
-export const changedBy = (model: LawModel, written: ReadonlySet<string>): ReadonlySet<string> => {
+export const changedBy = (
+	upkeeps: ReadonlyArray<StoredUpkeep>,
+	written: ReadonlySet<string>
+): ReadonlySet<string> => {
 	const changed = new Set(written)
 	for (let grew = true; grew;) {
 		grew = false
-		for (const upkeep of model.theory.upkeeps) {
+		for (const upkeep of upkeeps) {
 			if (!changed.has(upkeep.relation) && upkeep.reads.some((r) => changed.has(r.relation))) {
 				changed.add(upkeep.relation)
 				grew = true
@@ -517,6 +522,22 @@ export const changedBy = (model: LawModel, written: ReadonlySet<string>): Readon
 		}
 	}
 	return changed
+}
+
+/**
+ * The laws of `model`'s theory nothing of the model discharges, in law order: no native object holds it, no migration
+ * checks it and no rule trigger judges it. An installation's model, over every write any program may make, has none:
+ * a law nothing holds accepts every state that breaks it (physical/install/compile.ts installationOver).
+ */
+export const undischargedLaws = (model: LawModel): ReadonlyArray<LawId> => {
+	const discharged = new Set<LawId>([
+		...model.natives.flatMap((n) => n.object.lawIds),
+		...model.migrationLaws,
+		...model.rules.map((r) => r.law.id)
+	])
+	return [...model.theory.primaryKeys.map((pk) => pk.law), ...model.theory.laws].flatMap((law) =>
+		discharged.has(law.id) ? [] : [law.id]
+	)
 }
 
 /**
@@ -1097,6 +1118,9 @@ class Specializer {
 	readonly owned: Owned
 	/** The ordinary relations whose writes the model serves (schema/reach.ts Slice.writes). */
 	readonly writes: ReadonlySet<string>
+	/** The relations those writes change by their COMMIT (`changedBy`): they and every stored derived relation kept from
+	 * them, whose rules the judge holds as it holds a rule over their own rows. */
+	readonly changed: ReadonlySet<string>
 	/** The laws the model plans (`plannedLaws`), in law order. */
 	readonly planned: ReadonlyArray<TheoryLaw>
 	readonly cycles: CycleSource
@@ -1123,6 +1147,7 @@ class Specializer {
 		this.checked = checked
 		this.owned = checked.owned
 		this.writes = slice.writes
+		this.changed = changedBy(theory.upkeeps, slice.writes)
 		this.planned = plannedLaws(theory.laws, slice, cycles)
 		this.cycles = cycles
 		this.recognizer = new Recognizer(
@@ -1333,7 +1358,7 @@ class Specializer {
 		}
 
 		const rules = plans.flatMap((plan) =>
-			plan.discharge === "trigger" && !plan.law.reads.isDisjointFrom(this.writes)
+			plan.discharge === "trigger" && !plan.law.reads.isDisjointFrom(this.changed)
 				? [this.#ruleTrigger(plan.law, plan.rule)]
 				: []
 		)

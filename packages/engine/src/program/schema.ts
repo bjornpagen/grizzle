@@ -444,7 +444,7 @@ export const raisableOf = (
 ): Raisable => {
 	/** The relations the writes change by their COMMIT: those their statements change, and each stored derived relation
 	 * the judge's phase A keeps from them (laws/model/model.ts changedBy), whose UNIQUE and CHECK refuse there. */
-	const written = changedBy(artifacts.laws, judged.written)
+	const written = changedBy(artifacts.laws.theory.upkeeps, judged.written)
 	const relations = [...artifacts.derived.schema.relations.values()].filter((r) =>
 		written.has(r.name)
 	)
