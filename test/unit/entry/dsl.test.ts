@@ -6,8 +6,8 @@
  * @bjornpagen/grizzle/compile's.
  *
  * Oracle: the architecture's zones (.fallowrc.json), which classify every module: the DSL's are dsl-<zone>, each the
- * part of <zone> the entry loads, whose rules let them load only each other, browser-core, values and grizzle-text. A
- * program loads no module of the packages outside them, of the compiler's SQL only the printer (dsl.fixtures.ts
+ * part of <zone> the entry loads, whose rules let them load only each other, browser-core, credential, values and
+ * grizzle-text. A program loads no module of the packages outside them, of the compiler's SQL only the printer (dsl.fixtures.ts
  * printer states why), and every module the DSL's zones name, so the zones are the entry's closure and no more. Read off
  * a load hook in the child (test/support/load-probe.ts).
  */
@@ -30,7 +30,7 @@ import {
 
 /**
  * A program over the authoring entry loads the DSL alone: no module of the packages outside the DSL's zones,
- * browser-core, values and grizzle-text, the SQL printer alone of the compiler's SQL, and every module the DSL's zones
+ * browser-core, credential, values and grizzle-text, the SQL printer alone of the compiler's SQL, and every module the DSL's zones
  * name.
  */
 export const aProgramOverTheAuthoringEntryLoadsTheDslAloneNoCompilerInstallOrRuntimeModuleAndEveryModuleTheDslZonesName =
@@ -77,7 +77,7 @@ export const aProgramOverTheAuthoringEntryLoadsTheDslAloneNoCompilerInstallOrRun
 			}),
 		oracle: {
 			kind: "specification",
-			name: "the architecture's DSL zones (.fallowrc.json dsl-*), browser-core, values and grizzle-text, and the SQL printer the DSL loads"
+			name: "the architecture's DSL zones (.fallowrc.json dsl-*), browser-core, credential, values and grizzle-text, and the SQL printer the DSL loads"
 		},
 		kept: [],
 		kills: [

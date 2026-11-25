@@ -84,7 +84,10 @@
 			{
 				// What a served login's runtime loads (@bjornpagen/grizzle/runtime): the shell modules the runtime entry reaches,
 				// each importing the engine's values through the runtime facade alone, so the entry loads no schema builder, law
-				// model, lowering, checker or install code. Their types may come from anywhere.
+				// model, lowering, checker or install code. Their types may come from anywhere. The runtime's zones, each zone a
+				// module the runtime entries (runtime-entry, http) load lies in, allow by value only each other, so no module the
+				// runtime loads imports the compiler or the DSL's builders, even in one step: test/unit/entry/runtime.test.ts
+				// holds their rules and a program over each entry to them (runtime.fixtures.ts runtimeZones).
 				"name": "adapter-runtime",
 				"patterns": [
 					"packages/grizzle/src/adapter/apply/readback.ts",
@@ -245,10 +248,10 @@
 			},
 			{
 				// The authoring DSL: @bjornpagen/grizzle (packages/grizzle/src/index.ts, dsl-index) and every module it loads
-				// beside browser-core, values and grizzle-text, so a schema module or a grizzle.config.ts evaluates its builders
-				// and nothing that compiles, installs or runs them. Each dsl-<zone> holds the DSL's part of <zone> (all of text/
-				// and of the two index modules), and its rule allows by value only what <zone>'s did of the DSL, browser-core,
-				// values and grizzle-text, naming every other zone by type alone; a zone that allowed <zone> allows dsl-<zone> as
+				// beside browser-core, credential, values and grizzle-text, so a schema module or a grizzle.config.ts evaluates
+				// its builders and nothing that compiles, installs or runs them. Each dsl-<zone> holds the DSL's part of <zone>
+				// (all of text/ and of the two index modules), and its rule allows by value only what <zone>'s did of the DSL,
+				// browser-core, credential, values and grizzle-text, naming every other zone by type alone; a zone that allowed <zone> allows dsl-<zone> as
 				// it did. The SQL printer (dsl-sql) is the one part of the compiler here: a str.regex descriptor's admission
 				// analyzes its patterns once (text/refinement.ts analyzeText) and chooses its CHECK, `VALUE IN (...)` or
 				// `VALUE ~ 'ARE'`, by which prints shorter, which only the printer measures. test/unit/entry/dsl.test.ts holds a
@@ -323,9 +326,15 @@
 				"name": "dsl-adapter",
 				"patterns": [
 					"packages/grizzle/src/adapter/config/define.ts",
-					"packages/grizzle/src/adapter/errors/credential.ts",
 					"packages/grizzle/src/adapter/public/config.ts"
 				]
+			},
+			{
+				// The CredentialError a password Effect fails with, a configuration's and a session's alike, so both the authoring
+				// entry and the runtime load it: its module imports nothing of grizzle's, and it is a zone of its own beside the
+				// DSL's and the runtime's, so neither reaches the other's through it.
+				"name": "credential",
+				"patterns": ["packages/grizzle/src/adapter/errors/credential.ts"]
 			},
 			{
 				"name": "dsl-engine-index",
@@ -346,6 +355,13 @@
 			{
 				"name": "allen",
 				"patterns": ["packages/engine/src/allen/**"]
+			},
+			{
+				// The IR that spells SQL: an installation's physical model (ir/physical.ts) and the comparison of two values
+				// (ir/compare.ts), each building its types and terms with the SQL printer's builders (sql/build.ts). The
+				// compiler's alone, so ir, which the runtime loads, reaches no SQL.
+				"name": "ir-sql",
+				"patterns": ["packages/engine/src/ir/{compare,physical}.ts"]
 			},
 			{
 				"name": "ir",
@@ -410,6 +426,13 @@
 			{
 				"name": "public",
 				"patterns": ["packages/engine/src/public/**"]
+			},
+			{
+				// A served read-back's spine, worked out from its query by the checker's scan (check/scan.ts parentUse) as the
+				// compile serves a program (program/served.ts, write/program/served.ts, plan/read.ts): the compile's alone, so
+				// served, which the runtime loads, reaches no checker.
+				"name": "served-spine",
+				"patterns": ["packages/engine/src/served/spine.ts"]
 			},
 			{
 				// A login's served workload as data and its file's JSON form, which generate writes and a layer reads.
@@ -674,33 +697,20 @@
 			{
 				"from": "decode",
 				"allow": [
-					"analysis",
 					"browser-core",
-					"check",
 					"codec",
 					"core",
 					"dsl-core",
 					"dsl-ir",
-					"dsl-query",
 					"dsl-scalar",
-					"dsl-schema",
-					"dsl-sql",
-					"dsl-write",
 					"grizzle-text",
 					"ir",
-					"laws",
-					"logical",
-					"lower",
-					"query",
 					"reader",
 					"runtime",
 					"scalar",
-					"schema",
-					"sql",
-					"types",
-					"values",
-					"write"
-				]
+					"values"
+				],
+				"allowTypeOnly": ["types", "write"]
 			},
 			{
 				"from": "install",
@@ -723,6 +733,7 @@
 					"dsl-write",
 					"grizzle-text",
 					"ir",
+					"ir-sql",
 					"laws",
 					"live",
 					"live-model",
@@ -820,13 +831,13 @@
 			},
 			{
 				"from": "dsl-ir",
-				"allow": ["browser-core", "dsl-core", "dsl-sql", "grizzle-text", "values"],
+				"allow": ["browser-core", "dsl-core", "grizzle-text", "values"],
 				"allowTypeOnly": ["core", "ir", "sql"]
 			},
 			{
 				"from": "dsl-scalar",
 				"allow": ["browser-core", "dsl-core", "dsl-ir", "grizzle-text", "values"],
-				"allowTypeOnly": ["core", "ir", "scalar"]
+				"allowTypeOnly": ["core", "ir", "ir-sql", "scalar"]
 			},
 			{
 				"from": "dsl-text",
@@ -1013,13 +1024,19 @@
 				]
 			},
 			{
+				// CredentialError imports nothing of grizzle's, so the DSL and the runtime both load it and reach neither each
+				// other nor anything else through it.
+				"from": "credential",
+				"allow": []
+			},
+			{
 				"from": "dsl-engine-index",
 				"allow": ["dsl-public", "grizzle-text"],
 				"allowTypeOnly": ["public"]
 			},
 			{
 				"from": "dsl-index",
-				"allow": ["dsl-adapter", "dsl-engine-index", "grizzle-text"],
+				"allow": ["credential", "dsl-adapter", "dsl-engine-index", "grizzle-text"],
 				"allowTypeOnly": ["adapter", "adapter-runtime"]
 			},
 			{
@@ -1035,7 +1052,7 @@
 				"allow": ["browser-core", "core", "dsl-allen", "dsl-core", "dsl-sql", "grizzle-text", "sql"]
 			},
 			{
-				"from": "ir",
+				"from": "ir-sql",
 				"allow": [
 					"browser-core",
 					"core",
@@ -1043,9 +1060,15 @@
 					"dsl-ir",
 					"dsl-sql",
 					"grizzle-text",
+					"ir",
 					"sql",
 					"values"
 				]
+			},
+			{
+				"from": "ir",
+				"allow": ["browser-core", "core", "dsl-core", "dsl-ir", "grizzle-text", "values"],
+				"allowTypeOnly": ["dsl-sql", "ir-sql", "sql"]
 			},
 			{
 				"from": "scalar",
@@ -1101,7 +1124,6 @@
 					"grizzle-text",
 					"ir",
 					"scalar",
-					"types",
 					"values"
 				]
 			},
@@ -1222,6 +1244,7 @@
 					"dsl-sql",
 					"grizzle-text",
 					"ir",
+					"ir-sql",
 					"logical",
 					"runtime",
 					"scalar",
@@ -1247,6 +1270,7 @@
 					"dsl-write",
 					"grizzle-text",
 					"ir",
+					"ir-sql",
 					"laws",
 					"logical",
 					"lower",
@@ -1255,6 +1279,7 @@
 					"scalar",
 					"schema",
 					"served",
+					"served-spine",
 					"sql",
 					"types",
 					"values"
@@ -1276,6 +1301,7 @@
 					"dsl-write",
 					"grizzle-text",
 					"ir",
+					"ir-sql",
 					"laws",
 					"live",
 					"live-model",
@@ -1310,6 +1336,7 @@
 					"dsl-write",
 					"grizzle-text",
 					"ir",
+					"ir-sql",
 					"laws",
 					"live",
 					"live-model",
@@ -1321,6 +1348,7 @@
 					"scalar",
 					"schema",
 					"served",
+					"served-spine",
 					"sql",
 					"types",
 					"values",
@@ -1339,6 +1367,7 @@
 					"dsl-text",
 					"grizzle-text",
 					"ir",
+					"ir-sql",
 					"laws",
 					"live",
 					"live-model",
@@ -1382,7 +1411,6 @@
 				"from": "served",
 				"allow": [
 					"browser-core",
-					"check",
 					"core",
 					"dsl-core",
 					"dsl-ir",
@@ -1426,6 +1454,7 @@
 					"dsl-write",
 					"grizzle-text",
 					"ir",
+					"ir-sql",
 					"live",
 					"live-model",
 					"live-served",
@@ -1438,6 +1467,7 @@
 					"scalar",
 					"schema",
 					"served",
+					"served-spine",
 					"sql",
 					"types",
 					"values",
@@ -1446,8 +1476,8 @@
 				"allowTypeOnly": ["laws"]
 			},
 			{
-				// A session's password Effect fails with the config's CredentialError, which the DSL defines
-				// (adapter/errors/credential.ts) so a grizzle.config.ts names it without loading the runtime.
+				// A session's password Effect fails with the config's CredentialError (credential), which a grizzle.config.ts
+				// names without loading the runtime.
 				"from": "adapter-runtime",
 				"allow": [
 					"adapter-decode",
@@ -1455,8 +1485,8 @@
 					"browser-core",
 					"codec",
 					"core",
+					"credential",
 					"decode",
-					"dsl-adapter",
 					"dsl-core",
 					"dsl-ir",
 					"dsl-scalar",
@@ -1564,7 +1594,7 @@
 			},
 			{
 				"from": "live",
-				"allow": ["browser-core", "core", "dsl-core", "grizzle-text", "live-model", "types"]
+				"allow": ["browser-core", "core", "dsl-core", "grizzle-text", "live-model"]
 			},
 			{
 				"from": "live-wire",
@@ -1672,6 +1702,7 @@
 					"check",
 					"codec",
 					"core",
+					"credential",
 					"decode",
 					"deploy",
 					"dsl-adapter",
@@ -1697,6 +1728,7 @@
 					"scalar",
 					"schema",
 					"served",
+					"served-spine",
 					"sql",
 					"types",
 					"values",
@@ -1747,6 +1779,7 @@
 					"cli-generator-runtime",
 					"cli-generator-suites",
 					"client",
+					"credential",
 					"dsl-adapter",
 					"dsl-index",
 					"dsl-program",

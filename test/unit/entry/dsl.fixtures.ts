@@ -34,11 +34,17 @@ interface Zone {
 	readonly patterns: ReadonlyArray<string>
 }
 
+/** A rule of the checkout's .fallowrc.json: the zone it is from, and the zones it allows a value import of. */
+interface Rule {
+	readonly from: string
+	readonly allow: ReadonlyArray<string>
+}
+
 /**
- * The zones of the checkout's .fallowrc.json, in its order. Its comments are whole lines, each `//` after its indent,
- * which no JSON line is.
+ * The architecture of the checkout's .fallowrc.json: its zones, in its order, and its rules. Its comments are whole
+ * lines, each `//` after its indent, which no JSON line is.
  */
-export const zonesOf = (checkout: string) =>
+const architectureOf = (checkout: string) =>
 	Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
 		const text = yield* fs.readFileString(`${checkout}/.fallowrc.json`)
@@ -46,9 +52,19 @@ export const zonesOf = (checkout: string) =>
 			Arr.filter(Str.split(text, "\n"), (line) => !Str.startsWith("//")(Str.trimStart(line))),
 			"\n"
 		)
-		return trustedJson<{ readonly boundaries: { readonly zones: ReadonlyArray<Zone> } }>(json)
-			.boundaries.zones
+		return trustedJson<{
+			readonly boundaries: {
+				readonly zones: ReadonlyArray<Zone>
+				readonly rules: ReadonlyArray<Rule>
+			}
+		}>(json).boundaries
 	}).pipe(Effect.orDie)
+
+/** The zones of the checkout's .fallowrc.json, in its order. */
+export const zonesOf = (checkout: string) => Effect.map(architectureOf(checkout), (a) => a.zones)
+
+/** The rules of the checkout's .fallowrc.json, in its order. */
+export const rulesOf = (checkout: string) => Effect.map(architectureOf(checkout), (a) => a.rules)
 
 /** The zone fallow classifies `file` (a path in the checkout) into: the first whose glob matches, or none. */
 export const zoneOf = (zones: ReadonlyArray<Zone>, file: string): string =>
@@ -63,8 +79,16 @@ export const zoneOf = (zones: ReadonlyArray<Zone>, file: string): string =>
 /** The DSL's zones: dsl-<zone>, each the part of <zone> the authoring entry loads. */
 export const isDslZone: (zone: string) => boolean = Str.startsWith("dsl-")
 
-/** The zones the DSL loads beside its own: the browser-safe core, the value core and grizzle-text. */
-export const besideTheDsl: ReadonlyArray<string> = ["browser-core", "grizzle-text", "values"]
+/**
+ * The zones the DSL loads beside its own: the browser-safe core, the CredentialError a configuration's password
+ * Effect fails with, the value core and grizzle-text.
+ */
+export const besideTheDsl: ReadonlyArray<string> = [
+	"browser-core",
+	"credential",
+	"grizzle-text",
+	"values"
+]
 
 /**
  * The one part of the compiler the DSL loads, the SQL printer, in code point order: a str.regex descriptor's admission
