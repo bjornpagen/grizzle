@@ -213,11 +213,16 @@ export type Installed<O extends AnyObject = ManifestObject> =
 			readonly create: CreateTable
 	  }
 	| {
-			/** A head's table and its stamp function, one object (physical/ddl/stamps.ts): the table's CREATE TABLE and its
-			 * revoke, then the function's CREATE FUNCTION and its revoke. */
+			/** A head's table (physical/ddl/stamps.ts): its CREATE TABLE and its revoke. */
 			readonly kind: "head"
 			readonly object: O
 			readonly create: CreateTable
+	  }
+	| {
+			/** A head's stamp function (physical/ddl/stamps.ts), an object of its own after its head's table: its CREATE
+			 * FUNCTION and its revoke. */
+			readonly kind: "headStamp"
+			readonly object: O
 			readonly stamp: FunctionHeader
 	  }
 	| {
@@ -530,17 +535,15 @@ export const installed = <O extends AnyObject>(o: O): Installed<O> => {
 			return o.ddl.length === 2 && s?.kind === "createTable" && o.ddl[1]?.kind === "revoke"
 				? { kind: o.kind, object: o, create: s }
 				: malformed("a founding table's CREATE TABLE and its revoke")
-		case "head": {
-			const stamp = functionHeaderOf(o.ddl[2])
-			return o.ddl.length === 4 &&
-				s?.kind === "createTable" &&
-				o.ddl[1]?.kind === "revoke" &&
-				stamp !== undefined &&
-				o.ddl[3]?.kind === "revoke"
-				? { kind: o.kind, object: o, create: s, stamp }
-				: malformed(
-						"a head's CREATE TABLE and its revoke, then its stamp function's CREATE FUNCTION and its revoke"
-					)
+		case "head":
+			return o.ddl.length === 2 && s?.kind === "createTable" && o.ddl[1]?.kind === "revoke"
+				? { kind: o.kind, object: o, create: s }
+				: malformed("a head's CREATE TABLE and its revoke")
+		case "headStamp": {
+			const stamp = functionHeaderOf(s)
+			return o.ddl.length === 2 && stamp !== undefined && o.ddl[1]?.kind === "revoke"
+				? { kind: o.kind, object: o, stamp }
+				: malformed("a head's stamp function's CREATE FUNCTION and its revoke")
 		}
 		case "schema":
 		case "extension":
@@ -584,6 +587,7 @@ export const objectTable = (o: AnyObject): ObjectName | undefined => {
 		case "domain":
 		case "refusalFunction":
 		case "borrowFunction":
+		case "headStamp":
 		case "isolationFunction":
 		case "snapshotGuard":
 		case "ruleJudge":
@@ -741,6 +745,7 @@ export const builtOver = <O extends AnyObject>(
 		case "extension":
 		case "ledger":
 		case "head":
+		case "headStamp":
 		case "founding":
 		case "validation":
 			return undefined
@@ -852,6 +857,7 @@ const objectParts = <O extends AnyObject>(
 		case "extension":
 		case "ledger":
 		case "head":
+		case "headStamp":
 		case "founding":
 		case "validation":
 			return []

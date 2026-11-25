@@ -307,17 +307,19 @@ const stampFunction = (
 }
 
 /**
- * Every head's table and stamp function, one object of both, after the head's relation's table, in Structure: the
- * function returns the table's rows, so PostgreSQL drops neither before the other, and a migration creates, replaces
- * and drops them together, the table filled from its relation as it is created (deploy/diff/diff.ts). Each stamp
- * function by the head's relation, every head over it, for the grants of the roles that insert into it.
+ * Every head's table and stamp function, each an object of its own, as every catalog object is (physical/obligations/created.ts):
+ * the table after the head's relation's table, in Structure, and the function after the table, whose rows it returns,
+ * so PostgreSQL drops the function before the table; a migration creates, replaces and drops them together, the table
+ * filled from its relation as it is created (deploy/diff/diff.ts). Each stamp function by the head's relation, every
+ * head over it, for the grants of the roles that insert into it.
  */
 export const addStamps = (b: InstallBuilder): ReadonlyMap<string, ReadonlyArray<StampFunction>> => {
 	const out = new Map<string, Array<StampFunction>>()
 	for (const head of headsOf(b.model.theory.instants)) {
 		const tableNamed = identity.head(head.relation, head.field.name)
 		b.name(tableNamed)
-		b.name(identity.stamp(head.relation, head.field.name))
+		const stampNamed = identity.stamp(head.relation, head.field.name)
+		b.name(stampNamed)
 		const tableName = b.names.head(head.relation, head.field.name)
 		const fnName = b.names.stamp(head.relation, head.field.name)
 		const key = b.name(identity.headKey(head.relation, head.field.name))
@@ -335,15 +337,25 @@ export const addStamps = (b: InstallBuilder): ReadonlyMap<string, ReadonlyArray<
 			on: { kind: "FUNCTION", names: [functionNameOf(fn)] },
 			from: [{ kind: "PUBLIC" }]
 		}
-		const node = b.add(
+		const headNode = b.add(
 			{
 				kind: "head",
 				ident: b.qualifiedOf("table", head.relation, tableNamed),
-				ddl: [headTable(b, head, tableName, key), revokeTable, fn, revokeFunction],
+				ddl: [headTable(b, head, tableName, key), revokeTable],
 				reasons: [enforcement(`the head of ${headText(head)}`)],
 				phase: "structure"
 			},
 			[b.levelNode(head.relation), b.table(head.relation)]
+		)
+		const node = b.add(
+			{
+				kind: "headStamp",
+				ident: b.qualifiedOf("function", head.relation, stampNamed),
+				ddl: [fn, revokeFunction],
+				reasons: [enforcement(`the stamp of ${headText(head)}`)],
+				phase: "structure"
+			},
+			[b.levelNode(head.relation), headNode]
 		)
 		out
 			.getOrInsertComputed(head.relation, () => [])

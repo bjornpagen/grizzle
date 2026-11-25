@@ -846,6 +846,7 @@ const snapshotTablesOf = (installation: Installation): SnapshotTables => {
 			case "refusalFunction":
 			case "borrowFunction":
 			case "head":
+			case "headStamp":
 			case "founding":
 			case "isolationFunction":
 			case "snapshotGuard":

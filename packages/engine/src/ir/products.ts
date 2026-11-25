@@ -518,6 +518,7 @@ export const physicalKinds = [
 	"refusalFunction",
 	"borrowFunction",
 	"head",
+	"headStamp",
 	"isolationFunction",
 	"snapshotGuard",
 	"isolationTrigger",

@@ -432,7 +432,7 @@ export const installedScope = (
 				...functionsOf("immutableGuard", { kind: "immutableGuard" }),
 				...functionsOf("snapshotGuard", { kind: "snapshotGuard" }),
 				...functionsOf("worldFunction", { kind: "world" }),
-				...functionsOf("head", { kind: "stamp" }),
+				...functionsOf("headStamp", { kind: "stamp" }),
 				...constantsOf(installation),
 				...Arr.flatMap(snapshot.manifest.objects, (o) =>
 					o.kind === "declaredFunction"

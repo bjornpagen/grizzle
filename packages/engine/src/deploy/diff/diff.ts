@@ -91,6 +91,7 @@ import {
 import {
 	type ConstantHeader,
 	type DeclaredHeader,
+	type FunctionHeader,
 	type RecordedManifest,
 	type RecordedObject,
 	type RecordedStatement,
@@ -244,6 +245,7 @@ export const staleReplaced: { readonly [K in PhysicalKind]: boolean } = {
 	refusalFunction: true,
 	borrowFunction: true,
 	head: true,
+	headStamp: true,
 	isolationFunction: true,
 	snapshotGuard: true,
 	isolationTrigger: false,
@@ -386,7 +388,8 @@ const dropOrder: { readonly [K in Dropped]: number } = {
 	isolationTrigger: 3,
 	refusalFunction: 11,
 	borrowFunction: 11,
-	head: 11,
+	head: 14,
+	headStamp: 11,
 	isolationFunction: 11,
 	snapshotGuard: 11,
 	lawFunction: 11,
@@ -946,6 +949,8 @@ class Differ {
 	/** The declared functions this migration drops and creates again under another signature, by name key: their
 	 * privileges went with their drop. */
 	readonly recreatedFunctions = new Set<NameKey>()
+	/** Each head's stamp function, by its identity, its head's change dropped (`head`), which its visit creates again. */
+	readonly headsDropped = new Set<string>()
 	/** Every object of the previous installation, in its install order, with its fate. */
 	readonly previous: ReadonlyArray<Previous>
 	/** Every object of the target, in its install order, with what it is to this migration. */
@@ -2131,6 +2136,9 @@ class Differ {
 					this.head(before, v.create.table, o.ddl)
 				}
 				return
+			case "headStamp":
+				this.headStamp(o, v.stamp, before)
+				return
 			case "founding":
 				if (before === undefined) {
 					this.sql("structure.foundings", [...o.ddl, ...this.foundingFillOf(v.create.table)])
@@ -2322,23 +2330,66 @@ class Differ {
 	/** A login's or a theory role's CREATE ROLE, in Publish. grizzle never sets a password, so a login dropped and created
 	 * again under another name has none until its operator sets one. */
 	/**
-	 * A head whose table or stamp function changes (physical/ddl/stamps.ts): dropped, its function first, which returns
-	 * its table's rows, then its table, and created again and filled from its relation in structure.heads, after every
-	 * data step, so its children's heads start above every row the migration leaves stored, as a new head's do; the
-	 * function's grants went with it, so they are granted again (recreatedFunctions).
+	 * A head whose table changes (physical/ddl/stamps.ts): dropped, the stamp functions created after it first, which
+	 * return its table's rows, then its table, and created again and filled from its relation in structure.heads, after
+	 * every data step, so its children's heads start above every row the migration leaves stored, as a new head's do;
+	 * each stamp function it dropped is created again by its own object's visit after it (headStamp), its grants with it.
 	 */
 	head(before: RecordedObject, table: ObjectName, ddl: ManifestObject["ddl"]): void {
 		const previous = installed(before)
 		if (previous.kind !== "head") {
 			throw defect(`the head ${before.ident} was recorded as a head`)
 		}
-		this.recreatedFunctions.add(nameKey(previous.stamp.name))
+		const stamps = this.input.previous.manifest.edges.flatMap((e) => {
+			const stamp = e.from === before.ident ? this.prev.get(e.to) : undefined
+			const v = stamp === undefined ? undefined : installed(stamp)
+			return v?.kind === "headStamp" ? [{ ident: e.to, stamp: v.stamp }] : []
+		})
+		for (const s of stamps) {
+			this.headsDropped.add(s.ident)
+		}
 		this.sql("structure.heads", [
-			{ kind: "dropFunction", name: functionNameOf(previous.stamp), ifExists: false },
+			...stamps.map((s): SqlStatement => ({
+				kind: "dropFunction",
+				name: functionNameOf(s.stamp),
+				ifExists: false
+			})),
 			{ kind: "drop", object: "TABLE", name: previous.create.table, ifExists: false },
 			...ddl,
 			...this.headFillOf(table)
 		])
+	}
+
+	/**
+	 * A head's stamp function (physical/ddl/stamps.ts), after its head's table in structure.heads: created where it is new
+	 * or its head's change dropped it (`head`), dropped and created again where its definition changes, its grants
+	 * granted again (recreatedFunctions); left as it stands otherwise.
+	 */
+	headStamp(o: ManifestObject, stamp: FunctionHeader, before: RecordedObject | undefined): void {
+		if (before === undefined) {
+			this.sql("structure.heads", o.ddl)
+			return
+		}
+		const dropped = this.headsDropped.has(before.ident)
+		if (dropped || !this.unchanged(before, o)) {
+			const previous = installed(before)
+			if (previous.kind !== "headStamp") {
+				throw defect(`the stamp ${before.ident} was recorded as a head's stamp`)
+			}
+			this.recreatedFunctions.add(nameKey(stamp.name))
+			this.sql("structure.heads", [
+				...(dropped
+					? []
+					: [
+							{
+								kind: "dropFunction",
+								name: functionNameOf(previous.stamp),
+								ifExists: false
+							} satisfies SqlStatement
+						]),
+				...o.ddl
+			])
+		}
 	}
 
 	/**
@@ -3505,11 +3556,13 @@ class Differ {
 			case "head":
 				drop(
 					v.kind,
-					statement({ kind: "dropFunction", name: functionNameOf(v.stamp), ifExists: false })
+					statement({ kind: "drop", object: "TABLE", name: v.create.table, ifExists: false })
 				)
+				return
+			case "headStamp":
 				drop(
 					v.kind,
-					statement({ kind: "drop", object: "TABLE", name: v.create.table, ifExists: false })
+					statement({ kind: "dropFunction", name: functionNameOf(v.stamp), ifExists: false })
 				)
 				return
 			case "founding":
@@ -4705,10 +4758,9 @@ const grantObjectsOf = (v: Installed<AnyObject>): ReadonlyArray<GrantObject> => 
 		case "founding":
 			return [{ kind: "TABLE", name: v.create.table }]
 		case "head":
-			return [
-				{ kind: "TABLE", name: v.create.table },
-				{ kind: "FUNCTION", name: functionNameOf(v.stamp) }
-			]
+			return [{ kind: "TABLE", name: v.create.table }]
+		case "headStamp":
+			return [{ kind: "FUNCTION", name: functionNameOf(v.stamp) }]
 		case "view":
 		case "storedTable":
 			return [{ kind: "TABLE", name: v.create.name }]

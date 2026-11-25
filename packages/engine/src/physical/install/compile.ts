@@ -67,6 +67,7 @@ import {
 	type ParamSource,
 	planInstallation
 } from "#compiler/physical/install/plan.ts"
+import { assertCreatesOwned } from "#compiler/physical/obligations/created.ts"
 import { refinedConstantsExtension } from "#compiler/physical/refined/constants.ts"
 import { addSpanStorage } from "#compiler/physical/span/storage.ts"
 import { planDeclarations } from "#compiler/physical/statistics/statistics.ts"
@@ -533,6 +534,7 @@ const installationIn = (
 					roleDefaults: worlds.roleDefaults,
 					publicRevokes: worlds.publicRevokes
 				})
+				assertCreatesOwned(ordered.objects)
 				const created = ordered.objects.flatMap((o) => o.ddl)
 				const comments = commentsOf(created, census)
 				const manifest = { ...ordered, comments }

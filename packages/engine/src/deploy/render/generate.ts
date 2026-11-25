@@ -13,6 +13,7 @@ import { diff } from "#compiler/deploy/diff/diff.ts"
 import {
 	type AbandonedSchema,
 	type Declarations,
+	type Draft,
 	type MigrationPlan,
 	noDeclarations,
 	type Swap
@@ -57,6 +58,8 @@ import type {
 import { lawChecks } from "#compiler/deploy/snapshot/violation.ts"
 import { hashedNames } from "#compiler/physical/install/comments.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
+import { assertFolderCreatesHeld } from "#compiler/physical/obligations/created.ts"
+import type { SqlStatement } from "#compiler/sql/ast.ts"
 import { tableMaxColumns } from "#compiler/write/carriers/carriers.ts"
 
 /** What a schema's draft is drafted from: `grizzle check`'s, and `grizzle generate`'s before it names the folder. */
@@ -232,8 +235,13 @@ const draftOver = (
 			withAttnums(withInstalledViews(state, plan), applied.previous, plan, tableMaxColumns)
 		)
 		const snapshot = unwrap(finishSnapshot(content))
+
 		const changed = plan.steps.length > 0 || snapshot.fingerprint !== previous.fingerprint
 		const drafted = changed ? planFiles(plan) : []
+		assertFolderCreatesHeld(
+			drafted.flatMap((f) => f.drafts.flatMap(draftedStatements)),
+			new Set(state.manifest.objects.map((o) => o.ident))
+		)
 		/** Each drafted file's statements, each printed and filed once for its text and for meta.json. */
 		const spelled = new Map(drafted.map((f) => [f, unwrap(spellFile(f))] as const))
 		const spelledOf = (f: (typeof drafted)[number]): SpelledFile =>
@@ -437,3 +445,21 @@ export const customMigration = (input: {
 		}
 		return { name, meta, metaText: unwrap(writeMeta(meta)), files: [] }
 	})
+
+/** The statements a drafted step runs, a loss's among them, which runs once its reviewer writes it in, and an
+ * alteration's ALTER TABLE; none for a fill, a law's violation report or a roster's zones, which create nothing. */
+const draftedStatements = (draft: Draft): ReadonlyArray<SqlStatement> => {
+	switch (draft.kind) {
+		case "statement":
+		case "loss":
+			return [draft.statement]
+		case "confirm":
+			return draft.keep
+		case "alteration":
+			return [{ kind: "alterTable", table: draft.table, actions: draft.actions }]
+		case "fill":
+		case "violation":
+		case "zones":
+			return []
+	}
+}
