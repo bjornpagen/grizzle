@@ -27,7 +27,7 @@
 
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
-import { type Case, property } from "@bjornpagen/testing/property"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import {
 	agreed,
@@ -71,17 +71,22 @@ export const boundedUnion = property.explore(aimed(caseGen, aims), {
 	 *   property's witnesses, its kept cases, floor and steered phase, are fixed by its identity, the same on every
 	 *   seed), each killed kill's failing witness printed by an uncommitted line in vendor/toolchain's
 	 *   mutate/commands.ts; the logs kills0.log (the pre-conversion budgets), run1.log, kills2.log, run3.log, kills4.log,
-	 *   v1at5.log, fs5.log, fs9.log, fs13.log and run5.log in ~/.cache/grizzle/CULL-ORACLE-out on cassowary, uncommitted
-	 * @observed 2026-11-23 03:12 to 04:36 UTC
+	 *   v1at5.log, fs5.log, fs9.log, fs13.log and run5.log in ~/.cache/grizzle/CULL-ORACLE-out on cassowary, uncommitted;
+	 *   its revalidation once the kept case and the annotate.ts kill were added, utake-red.log (the property red at
+	 *   58fc1a9a2), utake-run.log and utake-kills.log, `toolchain-test run` and `toolchain-test kills` of this module, in
+	 *   ~/.cache/grizzle/PAGEORDER-notes, uncommitted
+	 * @observed 2026-11-23 03:12 to 04:36 UTC; revalidated 2026-11-25 00:47 to 02:30 UTC
 	 * @environment cassowary, Ubuntu 26.04 on arm64 in AWS, 64 cores and 247 GiB, load average 130 to 410 from other
 	 *   lanes; vendor/toolchain 2cc48172; the budgets measured on grizzle f87b2aaab with 47748474c's change and verified
 	 *   on dff9200ef (run5.log, every property green and every kill killed); lane CULL-ORACLE's in-memory family of two
-	 *   PostgreSQL 19 members
+	 *   PostgreSQL 19 members; revalidated on 46dd3d8a0 with lane PAGEORDER's two changes, vendor/toolchain 0f61f2e, load
+	 *   average 380 to 640, lane PAGEORDER's family
 	 * @workload its witnesses with its kill applied, on workers of its own, and its full run, at runs 24, 13, 9 and 1,
 	 *   steered 16
 	 * @result runs 24 (pre-conversion): the lower/shapes/index.ts kill fails floor case 3; runs 13: killed; runs 9:
 	 *   steered case 2; runs 1: killed, its situations reached within one steering window of 16 cases, 18 cases in all
-	 *   where f1bf91a2f's gate ran 30
+	 *   where f1bf91a2f's gate ran 30. Revalidated at runs 1, steered 16: green in 19 cases, the kept case among them, and
+	 *   2 of 2 kills killed, the annotate.ts kill on the kept case
 	 * @decision runs 1, the fewest that keeps a floor case and a fresh one each run. steered stays its pre-conversion 16,
 	 *   one steering window, which a green run spends whole
 	 * @revalidate a change of its generator, its check or a kill's file, a kill added, or a change of how the testing
@@ -161,13 +166,26 @@ export const boundedUnion = property.explore(aimed(caseGen, aims), {
 		kind: "second-implementation",
 		name: "the bounded union computed by definition, and the conservative artifact"
 	},
-	kept: [],
+	kept: [
+		{
+			token: ReplayToken("test/pg/oracle/union-take.test.ts#boundedUnion:-:0.0.0"),
+			reason:
+				"no task, a take of one: the match that narrows the bounded union to its done arm read the arm a closed import holds, which the importer's completion restated as a second node of its label (logical/annotate.ts withLogicalMeta), and the optimized lowering's copy plan read a column its first node lost",
+			since: "2026-11-25"
+		}
+	],
 	kills: [
 		{
 			file: "packages/engine/src/lower/shapes/index.ts",
 			original: "\t\t\t\t\torderBy,\n",
 			replacement: "",
 			why: "A heading group's statement of a union take drops its ORDER BY (lower/shapes/index.ts groupSpec), so the group's LIMIT takes rows as stored."
+		},
+		{
+			file: "packages/engine/src/logical/annotate.ts",
+			original: "\tconst settled = new Set(postorder(imports, inputsOf))\n",
+			replacement: "\tconst settled = kept\n",
+			why: "A completion keeps a closed import's root alone and restates the nodes under it (logical/annotate.ts withLogicalMeta): the narrowing match reads the done arm the import holds, which it restates beside the one the take reads, two nodes of one label, and the optimized lowering's copy plan reads a column the take's arm no longer holds; the memo texts fail to compile."
 		}
 	]
 })

@@ -1,4 +1,5 @@
 import { appendAll, sameOrder } from "@bjornpagen/grizzle-text/base/array"
+import { postorder } from "@bjornpagen/grizzle-text/base/graph"
 import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
@@ -806,7 +807,13 @@ export const analyzeLogical = <R extends Roots>(
  * attachment's delivered type among them, so a reader of the logical metadata (a node's keys and cardinality) reads the
  * DAG it was given. A node whose own body it keeps, over the inputs the analysis annotated, and of which the analysis
  * restated nothing is the analysis's annotated node itself (AnnotatedNode restated), never built again.
-
+ *
+ * Each node of `dag` that `kept` holds, a closed import's root, stands as it is with every node it reads, the import's
+ * own, which its own completion settled (check/complete.ts): a reader outside the import that reads one of them itself,
+ * a match that narrows a bounded union to its arms (check/checker.ts #narrow), reads the node the import holds, so the
+ * DAG holds one node of each label, where restating it there gave the label a second node beside the one the import's
+ * root reads. Only the imports `dag` holds are walked, each node once, so a completion walks no import a check read
+ * outside it.
  */
 export const withLogicalMeta = <R extends Roots>(
 	dag: ValidDag<R>,
@@ -814,8 +821,10 @@ export const withLogicalMeta = <R extends Roots>(
 	bodyOf: (node: RelNode) => RelNode,
 	kept: ReadonlySet<RelNode>
 ): ValidDag<R> => {
+	const imports = topoOrder(dag).filter((node) => kept.has(node))
+	const settled = new Set(postorder(imports, inputsOf))
 	const restated = new Fold<RelNode, RelNode>(function* (node) {
-		if (kept.has(node)) {
+		if (settled.has(node)) {
 			return node
 		}
 		const source = bodyOf(node)
