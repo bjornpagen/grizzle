@@ -19,6 +19,7 @@ import {
 	type SidesEnv,
 	type TheoryLaw
 } from "#compiler/analysis/theory/laws.ts"
+import { typedHeads } from "#compiler/analysis/theory/leaves.ts"
 import {
 	type LawSide,
 	liveReading,
@@ -678,12 +679,13 @@ class Builder {
 			stored.push(admitted)
 			/** Its upkeep at COMMIT, none for one frozen at the installation, whose rows no COMMIT changes (ir/unit.ts
 			 * FrozenUnit). */
+			const definition = this.#live.query(r.desc.query)
 			const upkeep =
 				admitted.unit.kind === "unit"
 					? [
 							storedUpkeep(
 								r.name,
-								this.#live.query(r.desc.query),
+								typedHeads(definition, this.#columns(r.name, definition, r.desc.loc)),
 								admitted.unit,
 								known,
 								facts,

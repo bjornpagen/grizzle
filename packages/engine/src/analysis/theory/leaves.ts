@@ -1,7 +1,12 @@
+import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import {
+	type FieldDesc,
 	type InferredBindings,
 	type InferredExpr,
-	type FieldDesc,
+	type InferredHead,
+	type InferredQuery,
+	type InferredRule,
+	type InferredStage,
 	mapBindingTerms,
 	mapExprChildren
 } from "#compiler/ir/desc.ts"
@@ -32,6 +37,53 @@ export const typedAs = (e: BareLiteral, type: FieldDesc): InferredExpr => ({ ...
  */
 export const atColumn = (e: InferredExpr, column: string, columns: ColumnTypes): InferredExpr =>
 	isBare(e) ? typedAs(e, columns(column)) : e
+
+/**
+ * A rule whose head delivers columns of `columns`, each bare literal of its head typed at the column it stands for
+ * (`atColumn`).
+ */
+const typedRuleHead = (r: InferredRule, columns: ColumnTypes): InferredRule => ({
+	...r,
+	head: Object.fromEntries(
+		Object.entries(r.head).map(([field, h]): readonly [string, InferredHead] => [
+			field,
+			h.kind === "literal" ? atColumn(h, field, columns) : h
+		])
+	)
+})
+
+/**
+ * `query`, the checked definition of a relation whose columns the checker types at `columns`, with each bare literal of
+ * a head that delivers its rows typed at the column it stands for: the type its position in its union proved it at
+ * (check/checker.ts #positionedTypes), which a rule read apart from that union keeps (analysis/theory/unit.ts
+ * unitStep), where alone it would take its JavaScript default, a bigint where the union delivered a natural. Every rule
+ * of its rules and union stages, through a name, an attachment, an order, a take or an approximation, whose input's
+ * heads deliver columns of the query; a recursion's rows are its declared row's, at which its seeds' bare literals are
+ * typed where it is read per unit (unit.ts typedSeed), and it is never read apart.
+ */
+export const typedHeads = (query: InferredQuery, columns: ColumnTypes): InferredQuery => {
+	const stage = (st: InferredStage): InferredStage => {
+		switch (st.kind) {
+			case "rules":
+				return { ...st, arms: mapNonEmpty(st.arms, (r) => typedRuleHead(r, columns)) }
+			case "union":
+				return {
+					...st,
+					input: stage(st.input),
+					arms: mapNonEmpty(st.arms, (r) => typedRuleHead(r, columns))
+				}
+			case "named":
+			case "attach":
+			case "order":
+			case "take":
+			case "approx":
+				return { ...st, input: stage(st.input) }
+			case "recursive":
+				return st
+		}
+	}
+	return { ...query, stage: stage(query.stage) }
+}
 
 /**
  * `left` = `right` in the order the checker reads it: as written, but a bare literal second. A binding of a definition

@@ -73,6 +73,7 @@ import {
 } from "#compiler/ir/clock.ts"
 import { deliverySpine, groupHeadings, relNode } from "#compiler/ir/dag.ts"
 import {
+	bareHeadField,
 	bindTerms,
 	exprChildren,
 	descText,
@@ -2264,6 +2265,12 @@ export class Checker {
 			case "query":
 				return this.#importSource(src, loc, bind)
 			case "step": {
+				const bare = bareHeadField(src.query)
+				if (bare !== undefined) {
+					throw defect(
+						`a step grizzle wrote delivers ${bare} by a bare literal at ${loc.label}: a rule read apart from the union it was written in holds each head literal typed at the column it stands for (analysis/theory/leaves.ts typedHeads), the type its position there proved`
+					)
+				}
 				const input = this.#importSource(src, loc, bind)
 				return this.node({ kind: "Step", input, heading: input.heading }, loc)
 			}

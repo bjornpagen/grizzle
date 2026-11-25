@@ -1356,6 +1356,42 @@ export const definitionFields = <L>(query: QueryDesc<L>): ReadonlyArray<string> 
 }
 
 /**
+ * The first field of a head of `query`'s own rules, those of its rules and union stages through every stage that keeps
+ * their heads' columns, that a bare literal delivers (a literal of no type of its own, which the checker types by its
+ * position in the union it stands in, check/checker.ts #positionedTypes); none where every such literal is typed. A
+ * recursion's rows are its declared row's, and it is read whole.
+ */
+export const bareHeadField = <L, R extends Refs>(query: QueryDesc<L, R>): string | undefined => {
+	const inRules = (arms: ReadonlyArray<RuleDesc<L, R>>): string | undefined => {
+		for (const r of arms) {
+			for (const [field, h] of Object.entries(r.head)) {
+				if (h.kind === "literal" && h.type === undefined) {
+					return field
+				}
+			}
+		}
+		return undefined
+	}
+	const inStage = (stage: QueryStageDesc<L, R>): string | undefined => {
+		switch (stage.kind) {
+			case "rules":
+				return inRules(stage.arms)
+			case "union":
+				return inStage(stage.input) ?? inRules(stage.arms)
+			case "named":
+			case "attach":
+			case "order":
+			case "take":
+			case "approx":
+				return inStage(stage.input)
+			case "recursive":
+				return undefined
+		}
+	}
+	return inStage(query.stage)
+}
+
+/**
  * Whether a query is an Ordered (orderBy without take), which only attach, read-backs, readers and the workload accept.
  */
 export const isOrderedQuery = <L>(q: QueryDesc<L>): boolean => q.stage.kind === "order"
