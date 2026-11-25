@@ -38,48 +38,40 @@ const countProbe = testSql(
 /**
  * Each object the backend holds locked (heldLocks), named as deploy/locks/demand.ts lockTargetText names its targets:
  * a relation by its schema and name, a TOAST relation by its table's, a system catalog's by its own, a type, function,
- * constraint, schema, role or language by its names; a dropped relation or type as `transient`, which no name is left
- * of; anything else by its lock type. Beside its name, the LOCKTAG's parts that keep two objects of one name apart (two
- * transient ones), each as text, '' where the lock type has none: a session reads no NULL cell and no cell that is not
- * text (adapter/errors/failures.ts UnreadableAnswer).
+ * constraint, schema, role or language by its names; anything else by its lock type; and every object the catalog no
+ * longer holds, one the transaction dropped (a relation, a type, a function, a role, a schema), as `transient`, which no
+ * name is left of: one COALESCE over the whole name, so no branch reads NULL where a dropped object leaves no row. Beside
+ * its name, the LOCKTAG's parts that keep two objects of one name apart (two transient ones), each as text, '' where the
+ * lock type has none: a session reads no NULL cell and no cell that is not text (adapter/errors/failures.ts
+ * UnreadableAnswer).
  */
-const namesProbe = testSql(`SELECT DISTINCT CASE
+const namesProbe = testSql(`SELECT DISTINCT COALESCE(CASE
   WHEN "l"."locktype" = 'relation' THEN CASE
-    WHEN "c"."oid" IS NULL THEN 'transient'
     WHEN "c"."relkind" = 't' THEN 'toast ' || ('"' || "pg_catalog"."replace"("own_n"."nspname", '"', '""') || '"') || '.' || ('"' || "pg_catalog"."replace"("own"."relname", '"', '""') || '"')
     WHEN "ti"."indrelid" IS NOT NULL AND "tt"."relkind" = 't' THEN 'toastIndex ' || ('"' || "pg_catalog"."replace"("towner_n"."nspname", '"', '""') || '"') || '.' || ('"' || "pg_catalog"."replace"("towner"."relname", '"', '""') || '"')
     WHEN "n"."nspname" = 'pg_catalog' THEN 'catalog "' || "c"."relname" || '"'
     ELSE 'relation ' || ('"' || "pg_catalog"."replace"("n"."nspname", '"', '""') || '"') || '.' || ('"' || "pg_catalog"."replace"("c"."relname", '"', '""') || '"') END
   WHEN "l"."locktype" = 'object' AND "l"."classid" = 'pg_catalog.pg_type'::"pg_catalog"."regclass" THEN CASE
-    WHEN "t"."oid" IS NULL THEN 'transient'
     WHEN "t"."typcategory" = 'A' AND "t"."typelem" <> 0 THEN 'arrayType ' || ('"' || "pg_catalog"."replace"("en"."nspname", '"', '""') || '"') || '.' || ('"' || "pg_catalog"."replace"("et"."typname", '"', '""') || '"')
     ELSE 'type ' || ('"' || "pg_catalog"."replace"("tn"."nspname", '"', '""') || '"') || '.' || ('"' || "pg_catalog"."replace"("t"."typname", '"', '""') || '"') END
-  WHEN "l"."locktype" = 'object' AND "l"."classid" = 'pg_catalog.pg_proc'::"pg_catalog"."regclass" AND "p"."oid" IS NULL THEN 'transient'
   WHEN "l"."locktype" = 'object' AND "l"."classid" = 'pg_catalog.pg_proc'::"pg_catalog"."regclass" THEN 'function ' || ('"' || "pg_catalog"."replace"("pn"."nspname", '"', '""') || '"') || '.' || ('"' || "pg_catalog"."replace"("p"."proname", '"', '""') || '"')
   WHEN "l"."locktype" = 'object' AND "l"."classid" = 'pg_catalog.pg_constraint'::"pg_catalog"."regclass" THEN CASE
-    WHEN "k"."oid" IS NULL THEN 'transient'
     WHEN "k"."contypid" <> 0 THEN 'domainConstraint ' || ('"' || "pg_catalog"."replace"("kdn"."nspname", '"', '""') || '"') || '.' || ('"' || "pg_catalog"."replace"("kd"."typname", '"', '""') || '"') || '.' || ('"' || "pg_catalog"."replace"("k"."conname", '"', '""') || '"')
     ELSE 'constraint ' || ('"' || "pg_catalog"."replace"("krn"."nspname", '"', '""') || '"') || '.' || ('"' || "pg_catalog"."replace"("kr"."relname", '"', '""') || '"') || '.' || ('"' || "pg_catalog"."replace"("k"."conname", '"', '""') || '"') END
   WHEN "l"."locktype" = 'object' AND "l"."classid" = 'pg_catalog.pg_namespace'::"pg_catalog"."regclass" THEN 'namespace ' || ('"' || "pg_catalog"."replace"("s"."nspname", '"', '""') || '"')
   WHEN "l"."locktype" = 'object' AND "l"."classid" = 'pg_catalog.pg_authid'::"pg_catalog"."regclass" THEN CASE
     WHEN "r"."rolname" = CURRENT_USER THEN 'role ""' ELSE 'role ' || ('"' || "pg_catalog"."replace"("r"."rolname", '"', '""') || '"') END
   WHEN "l"."locktype" = 'object' AND "l"."classid" = 'pg_catalog.pg_language'::"pg_catalog"."regclass" THEN 'language ' || ('"' || "pg_catalog"."replace"("g"."lanname", '"', '""') || '"')
-  WHEN "l"."locktype" = 'object' AND "l"."classid" = 'pg_catalog.pg_attrdef'::"pg_catalog"."regclass" THEN CASE
-    WHEN "ad"."oid" IS NULL THEN 'transient' ELSE 'columnDefault ' || ('"' || "pg_catalog"."replace"("adn"."nspname", '"', '""') || '"') || '.' || ('"' || "pg_catalog"."replace"("adc"."relname", '"', '""') || '"') || '.' || ('"' || "pg_catalog"."replace"("ada"."attname", '"', '""') || '"') END
-  WHEN "l"."locktype" = 'object' AND "l"."classid" = 'pg_catalog.pg_rewrite'::"pg_catalog"."regclass" THEN CASE
-    WHEN "rw"."oid" IS NULL THEN 'transient' ELSE 'rule ' || ('"' || "pg_catalog"."replace"("rwn"."nspname", '"', '""') || '"') || '.' || ('"' || "pg_catalog"."replace"("rwc"."relname", '"', '""') || '"') END
-  WHEN "l"."locktype" = 'object' AND "l"."classid" = 'pg_catalog.pg_trigger'::"pg_catalog"."regclass" THEN CASE
-    WHEN "tg"."oid" IS NULL THEN 'transient' ELSE 'trigger ' || ('"' || "pg_catalog"."replace"("tgn"."nspname", '"', '""') || '"') || '.' || ('"' || "pg_catalog"."replace"("tgc"."relname", '"', '""') || '"') || '.' || ('"' || "pg_catalog"."replace"("tg"."tgname", '"', '""') || '"') END
-  WHEN "l"."locktype" = 'object' AND "l"."classid" = 'pg_catalog.pg_policy'::"pg_catalog"."regclass" THEN CASE
-    WHEN "pl"."oid" IS NULL THEN 'transient' ELSE 'policy ' || ('"' || "pg_catalog"."replace"("pln"."nspname", '"', '""') || '"') || '.' || ('"' || "pg_catalog"."replace"("plc"."relname", '"', '""') || '"') || '.' || ('"' || "pg_catalog"."replace"("pl"."polname", '"', '""') || '"') END
-  WHEN "l"."locktype" = 'object' AND "l"."classid" = 'pg_catalog.pg_statistic_ext'::"pg_catalog"."regclass" THEN CASE
-    WHEN "st"."oid" IS NULL THEN 'transient' ELSE 'statistics ' || ('"' || "pg_catalog"."replace"("stn"."nspname", '"', '""') || '"') || '.' || ('"' || "pg_catalog"."replace"("st"."stxname", '"', '""') || '"') END
+  WHEN "l"."locktype" = 'object' AND "l"."classid" = 'pg_catalog.pg_attrdef'::"pg_catalog"."regclass" THEN 'columnDefault ' || ('"' || "pg_catalog"."replace"("adn"."nspname", '"', '""') || '"') || '.' || ('"' || "pg_catalog"."replace"("adc"."relname", '"', '""') || '"') || '.' || ('"' || "pg_catalog"."replace"("ada"."attname", '"', '""') || '"')
+  WHEN "l"."locktype" = 'object' AND "l"."classid" = 'pg_catalog.pg_rewrite'::"pg_catalog"."regclass" THEN 'rule ' || ('"' || "pg_catalog"."replace"("rwn"."nspname", '"', '""') || '"') || '.' || ('"' || "pg_catalog"."replace"("rwc"."relname", '"', '""') || '"')
+  WHEN "l"."locktype" = 'object' AND "l"."classid" = 'pg_catalog.pg_trigger'::"pg_catalog"."regclass" THEN 'trigger ' || ('"' || "pg_catalog"."replace"("tgn"."nspname", '"', '""') || '"') || '.' || ('"' || "pg_catalog"."replace"("tgc"."relname", '"', '""') || '"') || '.' || ('"' || "pg_catalog"."replace"("tg"."tgname", '"', '""') || '"')
+  WHEN "l"."locktype" = 'object' AND "l"."classid" = 'pg_catalog.pg_policy'::"pg_catalog"."regclass" THEN 'policy ' || ('"' || "pg_catalog"."replace"("pln"."nspname", '"', '""') || '"') || '.' || ('"' || "pg_catalog"."replace"("plc"."relname", '"', '""') || '"') || '.' || ('"' || "pg_catalog"."replace"("pl"."polname", '"', '""') || '"')
+  WHEN "l"."locktype" = 'object' AND "l"."classid" = 'pg_catalog.pg_statistic_ext'::"pg_catalog"."regclass" THEN 'statistics ' || ('"' || "pg_catalog"."replace"("stn"."nspname", '"', '""') || '"') || '.' || ('"' || "pg_catalog"."replace"("st"."stxname", '"', '""') || '"')
   WHEN "l"."locktype" = 'object' AND "l"."classid" = 'pg_catalog.pg_opclass'::"pg_catalog"."regclass" THEN 'operatorClass ' || ('"' || "pg_catalog"."replace"("ocn"."nspname", '"', '""') || '"') || '.' || ('"' || "pg_catalog"."replace"("oc"."opcname", '"', '""') || '"')
-  WHEN "l"."locktype" = 'object' AND "l"."classid" = 'pg_catalog.pg_publication'::"pg_catalog"."regclass" THEN CASE
-    WHEN "pb"."oid" IS NULL THEN 'transient' ELSE 'publication ' || ('"' || "pg_catalog"."replace"("pb"."pubname", '"', '""') || '"') END
+  WHEN "l"."locktype" = 'object' AND "l"."classid" = 'pg_catalog.pg_publication'::"pg_catalog"."regclass" THEN 'publication ' || ('"' || "pg_catalog"."replace"("pb"."pubname", '"', '""') || '"')
   WHEN "l"."locktype" = 'object' AND "l"."classid" = 'pg_catalog.pg_database'::"pg_catalog"."regclass" THEN 'database '
   WHEN "l"."locktype" = 'object' THEN 'object ' || "l"."classid"::"pg_catalog"."regclass"::"pg_catalog"."text"
-  ELSE "l"."locktype" END,
+  ELSE "l"."locktype" END, 'transient'),
   "l"."locktype", COALESCE("l"."database"::"pg_catalog"."text", ''), COALESCE("l"."relation"::"pg_catalog"."text", ''), COALESCE("l"."classid"::"pg_catalog"."text", ''), COALESCE("l"."objid"::"pg_catalog"."text", ''), COALESCE("l"."objsubid"::"pg_catalog"."text", ''), COALESCE("l"."transactionid"::"pg_catalog"."text", '')
 ${fromLocks}
 LEFT JOIN "pg_catalog"."pg_class" AS "c" ON "l"."locktype" = 'relation' AND "c"."oid" = "l"."relation"

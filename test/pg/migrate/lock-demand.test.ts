@@ -21,7 +21,7 @@
 
 import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
-import { type Case, property } from "@bjornpagen/testing/property"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Record } from "effect"
 import { fileLockSets, lockTargetText, migrationCatalog } from "#compiler/deploy/locks/demand.ts"
 import { planFiles } from "#compiler/deploy/phases/files.ts"
@@ -169,7 +169,16 @@ export const statedLocksBoundTheHeld = property.explore(renamedDrawGen, {
 		kind: "specification",
 		name: "PostgreSQL's pg_locks of the backend each file's transaction runs on"
 	},
-	kept: [],
+	kept: [
+		{
+			token: ReplayToken(
+				"test/pg/migrate/lock-demand.test.ts#statedLocksBoundTheHeld:-:0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.1.1.0.0.0.0.0.0.0.1.0.0.1.1.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0"
+			),
+			reason:
+				"R0 renamed to Q0 beside an added column and a toggled read, then back to R0 beside another: step 2's publish drops the reader role, whose lock the transaction holds after DROP ROLE with no pg_roles row left, and the probe named it NULL ('role ' || NULL), a cell no session reads (main d9a51ea25 and fd2316a2, rotating seed 0x05b7b736)",
+			since: "2026-11-25"
+		}
+	],
 	kills: [
 		{
 			file: "packages/engine/src/deploy/locks/demand.ts",
