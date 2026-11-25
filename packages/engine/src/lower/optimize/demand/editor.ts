@@ -647,8 +647,14 @@ export class DagEditor<R extends Roots = Roots> {
 	/** The version at which each cell's references, and each label's count of scope names, last moved (Reach). */
 	readonly #movedAt = new Map<Cell, number>()
 	readonly #namedAt = new Map<NodeId, number>()
-	/** What the last finish folded each cell into, which the next one keeps where the cell is as it was (finishCells). */
-	#folded: ReadonlyMap<Cell, FoldedCell> = new Map()
+	/**
+	 * What the last finish folded each cell into, which the next one keeps where the cell is as it was (finishCells):
+	 * before any finish, each cell of the base folded into the base's own node, so a finish keeps every node of the base
+	 * whose cell and inputs are as they were, the same object, as it keeps a node an earlier finish built. A part of the
+	 * DAG no rewrite changed is the base's own nodes, which every reader keyed by a node (logical/annotate.ts
+	 * SharedAnalyses) reads as the nodes it met, where the first finish built each of them again.
+	 */
+	#folded: ReadonlyMap<Cell, FoldedCell>
 
 	/** The DAG the editor started from. */
 	readonly base: ValidDag<R>
@@ -666,6 +672,9 @@ export class DagEditor<R extends Roots = Roots> {
 			this.#readers.created(cell)
 			this.#note(cell, cell.current)
 		})
+		this.#folded = new Map(
+			Array.from(this.#cellOf, ([node, cell]) => [cell, { current: cell.current, node }] as const)
+		)
 		for (const e of exprClosure(cells.flatMap((c) => exprsOf(c.current)))) {
 			this.#fresh.expr.note(e.id)
 		}

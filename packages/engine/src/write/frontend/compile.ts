@@ -33,7 +33,7 @@ import { closedChangeRefusals } from "#compiler/core/refusals.ts"
 import type { ClockBinding, ClockSource } from "#compiler/ir/clock.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { rooted } from "#compiler/ir/dag.ts"
-import { type ServedDag, servedDag } from "#compiler/ir/derived.ts"
+import { type DerivedRows, servedDag } from "#compiler/ir/derived.ts"
 import {
 	bindRelationParams,
 	boundRowsLoc,
@@ -70,14 +70,7 @@ import {
 	type RelationInfo
 } from "#compiler/ir/law.ts"
 import type { LogicalQuery, ParamDecl } from "#compiler/ir/products.ts"
-import type {
-	DeltaSide,
-	Heading,
-	HeadingColumn,
-	RelNode,
-	Roots,
-	ValidDag
-} from "#compiler/ir/rel.ts"
+import type { DeltaSide, Heading, HeadingColumn, RelNode, ValidDag } from "#compiler/ir/rel.ts"
 import { sameScalarType } from "#compiler/ir/scalar.ts"
 import { reservedSlot } from "#compiler/ir/slots.ts"
 import { type StratumAt, strataAt } from "#compiler/ir/stratum.ts"
@@ -576,17 +569,20 @@ const queriesIn = (drafted: Drafted, dag: ValidDag, at: Counterpart): WriteQueri
 /**
  * The queries `drafted` names over a write's analyzed DAG, each attachment judged at the delivered type the analysis
  * restated it to (rel.ts Attach judged), which the read-backs' reader delivers, each node the frontend built read as its
- * annotated counterpart, and that DAG. The analysis is made here and is this function's alone, in no frame or scope of
- * its caller's, so it is unreachable once the queries are read, before the restatement analyzes the DAG again (made by
- * the caller and passed in, it stayed in the caller's frame as long as the compile ran): a write's compile holds one analysis at a time, where the first,
- * held by the compile's own scope, lived beside the second, each every node's properties (a write of edullm's endTest,
- * 35K nodes, held two of 540 MB each).
+ * annotated counterpart, and that DAG. The DAG served (ir/derived.ts servedDag) and its analysis are made here and are
+ * this function's alone, in no frame or scope of its caller's, so they are unreachable once the queries are read,
+ * before the restatement analyzes the DAG again (made by the caller and passed in, each stayed in the caller's frame as
+ * long as the compile ran): a write's compile holds one analysis at a time, where the first, held by the compile's own
+ * scope, lived beside the second, each every node's properties (a write of edullm's endTest, 35K nodes, held two of
+ * 540 MB each), and the served DAG's folds, every node of the write's, lived to the compile's end.
  */
 const analyzedQueries = (
 	drafted: Drafted,
-	structural: ServedDag<Roots>,
+	written: ValidDag,
+	rows: DerivedRows,
 	analyzed: (structure: ValidDag) => LogicalAnalysis
 ): { readonly dag: ValidDag; readonly queries: WriteQueries } => {
+	const structural = servedDag(written, rows)
 	const analysis = analyzed(structural.dag)
 	const judged = judgedAsDelivered(analysis.dag)
 	return {
@@ -595,6 +591,12 @@ const analyzedQueries = (
 			judged.of(analysis.of(structural.of(node)).node)
 		)
 	}
+}
+
+/** A write's DAG restated (restatedRoots): the DAG, and each node the write names at its place there. */
+interface Restated {
+	readonly dag: ValidDag
+	readonly at: ReadonlyMap<RelNode, RelNode>
 }
 
 /** The queries over another form of the write DAG, and the node standing there in the place of each node they name. */
@@ -3654,15 +3656,19 @@ const compile = (
 		params: Object.freeze([...userParams.map((p) => p.id), ...slotParams]),
 		bound: boundInputs
 	}
-	/** The queries over the analyzed DAG, each node the frontend built read as its annotated counterpart. */
 	/**
-	 * The write DAG as its lowering reads it (ir/derived.ts servedDag): every derived relation a member, a read-back or a
-	 * fill reads from its table where this schema reads its table (analysis/schema.ts CheckedSchema serves) and its
-	 * definition reads none of the relations the ChangeSet writes, through its definition otherwise, whose rows the
-	 * write's own earlier statements change before its COMMIT's upkeep replaces that table.
+	 * The queries over the analyzed DAG, each node the frontend built read as its annotated counterpart, over the write
+	 * DAG as its lowering reads it (ir/derived.ts servedDag): every derived relation a member, a read-back or a fill reads
+	 * from its table where this schema reads its table (analysis/schema.ts CheckedSchema serves) and its definition reads
+	 * none of the relations the ChangeSet writes, through its definition otherwise, whose rows the write's own earlier
+	 * statements change before its COMMIT's upkeep replaces that table.
 	 */
-	const served = servedDag(structural, checked.rows(writtenRelations))
-	const { dag, queries } = analyzedQueries(drafted, served, analyzed)
+	const { dag, queries } = analyzedQueries(
+		drafted,
+		structural,
+		checked.rows(writtenRelations),
+		analyzed
+	)
 	/** The DAG the optimized artifact lowers: every take correlated through bind restated with its correlation explicit,
 	 * as a query's is, so the take policy sees its parent set, and analyzed alike. The rewrite reads the analyzed DAG's
 	 * roots, every described source and read-back, and keeps every node's label; each node the queries name is read as
@@ -3675,13 +3681,36 @@ const compile = (
 	 * (lower/optimize/propagate propagatedWrite), its leaves through the write's producers (writeProducers), which leaves
 	 * a DAG it edits nothing of as it is. The conservative realization lowers `dag`, as checked, so the write oracle reads
 	 * the pass's restrictions and substitutions against the DAG without them. */
+	/**
+	 * The DAG the write's statements are restated in, its takes correlated through bind restated over every parent
+	 * (lower/shapes/take/decorrelate.ts everyParentTakes) and analyzed, and each root of the analyzed DAG, every node the
+	 * write names, at its place there, as data: the rewrite, the restatement's analysis and its judged twin are read in
+	 * this frame alone, so none is alive once it returns, nor any fold of theirs, where the counterpart the restated
+	 * queries were read through held all three until the compile's end. Where the rewrite restates no take, the DAG is
+	 * the analyzed one and each root its own.
+	 */
+	const restatedRoots = (analyzedRoots: NonEmptyReadonlyArray<RelNode>): Restated => {
+		const input = { dag: rooted(analyzedRoots), params: userParams }
+		const takes = unwrap(everyParentTakes(input))
+		if (takes.query === input) {
+			return { dag, at: new Map(analyzedRoots.map((root) => [root, root] as const)) }
+		}
+		const again = analyzed(takes.query.dag)
+		const againJudged = judgedAsDelivered(again.dag)
+		return {
+			dag: againJudged.dag,
+			at: new Map(
+				analyzedRoots.map(
+					(root) => [root, againJudged.of(again.of(takes.node(root)).node)] as const
+				)
+			)
+		}
+	}
 	const roots = dag.roots
 	const restatement = ((): Restatement => {
 		if (!isNonEmpty(roots)) {
 			return { restated: queries, restate: new Map() }
 		}
-		const input = { dag: rooted(roots), params: userParams }
-		const takes = unwrap(everyParentTakes(input))
 		const named: Drafted = {
 			strata: queries.ir.strata,
 			reads: queries.ir.reads,
@@ -3693,16 +3722,13 @@ const compile = (
 		 * reference to a column holding a parameter reading it (lower/optimize/propagate propagatedWrite), as a query's
 		 * optimized lowering binds them: each node the queries name read as the node standing in its place there.
 		 */
-		const propagated = (restated: ValidDag, counterpart: Counterpart): Restatement => {
-			const done = propagatedWrite(restated, writeProducers(named.strata, counterpart))
-			return restatedIn(named, done.dag, (node) => done.node(counterpart(node)))
+		const propagated = (restated: Restated): Restatement => {
+			const through = (node: RelNode): RelNode =>
+				defined(restated.at.get(node), "a node a write names, a root of its analyzed DAG")
+			const done = propagatedWrite(restated.dag, writeProducers(named.strata, through))
+			return restatedIn(named, done.dag, (node) => done.node(through(node)))
 		}
-		if (takes.query === input) {
-			return propagated(dag, (node) => node)
-		}
-		const again = analyzed(takes.query.dag)
-		const againJudged = judgedAsDelivered(again.dag)
-		return propagated(againJudged.dag, (node) => againJudged.of(again.of(takes.node(node)).node))
+		return propagated(restatedRoots(roots))
 	})()
 
 	return Object.freeze({

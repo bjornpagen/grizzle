@@ -36,6 +36,7 @@ import {
 } from "#compiler/analysis/physical/analyze.ts"
 import { encode, everyProperty } from "#compiler/core/canonical.ts"
 import { makeCertificate } from "#compiler/ir/certificate.ts"
+import { topoOrder } from "#compiler/ir/dag.ts"
 import { columnReads } from "#compiler/ir/expr.ts"
 import {
 	type Cell,
@@ -339,7 +340,11 @@ export const determinismAPassComputedColdFromAFreshCopyOfADAGEqualsThePassComput
 	})
 
 /**
- * A finish after an edit keeps the node of every cell the edit left as it was (ir/dag.ts finishCells): with the cell at
+ * A finish keeps the node of every cell no edit changed (ir/dag.ts finishCells): an editor's first finish, before any
+ * edit, delivers the very DAG it was given, each cell's node the base's own (lower/optimize/demand/editor.ts `#folded`,
+ * seeded with them), so every reader keyed by a node (logical/annotate.ts SharedAnalyses) meets the nodes it met, where
+ * the first finish built each of them again; a finish with no edit since the last delivers every node the last built.
+ * And with the cell at
  * each position of a generated query's topological order redefined under another cardinality claim, a finish reads
  * structure and never its claims' truth, so the editor's finish is the
  * DAG a finish with no memory of the last gives, the redefined cell and every cell above it fold into new nodes, every
@@ -382,6 +387,21 @@ export const aFinishAfterAnEditKeepsTheNodeOfEveryCellTheEditLeftAsItWasAndFolds
 					}
 					const editor = new DagEditor(query.dag)
 					const before = editor.finished()
+					assert.equal(
+						before.dag.roots.length,
+						query.dag.roots.length,
+						"the first finish keeps the roots"
+					)
+					for (const [i, root] of query.dag.roots.entries()) {
+						assert.equal(
+							before.dag.roots[i],
+							root,
+							"the first finish keeps each root, the base's own"
+						)
+					}
+					for (const node of topoOrder(query.dag)) {
+						assert.equal(before.node(editor.cellOf(node)), node, `${node.id} is the base's own`)
+					}
 					const props = propsUnder(env)
 					for (const n of analyzePhysical(before.dag, env).order) {
 						props.of(n)
@@ -407,6 +427,14 @@ export const aFinishAfterAnEditKeepsTheNodeOfEveryCellTheEditLeftAsItWasAndFolds
 							assert.equal(after.node(cell), before.node(cell), `${cell.id} keeps its node`)
 							c.note("a cell an edit kept")
 						}
+					}
+					const again = editor.finished()
+					for (const cell of editor.topoOrder()) {
+						assert.equal(
+							again.node(cell),
+							after.node(cell),
+							`${cell.id} keeps the node the last finish built`
+						)
 					}
 					const scratch = analyzePhysical(after.dag, env)
 					assert.deepEqual(
@@ -438,6 +466,13 @@ export const aFinishAfterAnEditKeepsTheNodeOfEveryCellTheEditLeftAsItWasAndFolds
 				original: "\t\t\t\t? before.node\n",
 				replacement: "\t\t\t\t? relNode(cell.id, spec)\n",
 				why: "A finish folds every cell anew; a cell the edit left loses its node."
+			},
+			{
+				file: "packages/engine/src/lower/optimize/demand/editor.ts",
+				original:
+					"\t\tthis.#folded = new Map(\n\t\t\tArray.from(this.#cellOf, ([node, cell]) => [cell, { current: cell.current, node }] as const)\n\t\t)\n",
+				replacement: "\t\tthis.#folded = new Map()\n",
+				why: "The editor's first finish builds every node again, each cell of the base folded into a node of its content but not the base's own."
 			},
 			{
 				file: "packages/engine/src/lower/optimize/demand/editor.ts",
