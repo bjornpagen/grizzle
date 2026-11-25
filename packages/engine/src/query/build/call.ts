@@ -17,6 +17,7 @@ import {
 	restHeading,
 	separatorPoint,
 	seriesHeading,
+	splitLastHeading,
 	tokensHeading
 } from "#compiler/ir/rel.ts"
 import { tokenPattern, wildcardPattern } from "#compiler/ir/scalar.ts"
@@ -335,6 +336,24 @@ export const tokensRows = (text: unknown): Built & Headed<typeof tokenCarriers> 
 }
 
 /**
+ * A split's separator (piecesRows, splitLastRows): a JavaScript string of one Unicode scalar value but U+0000
+ * (separatorPoint), the split's own constant, and its code point; refused as anything else.
+ */
+const separatorOf = (
+	separator: unknown,
+	label: string
+): { readonly separator: string; readonly point: number } => {
+	const point = typeof separator === "string" ? separatorPoint(separator) : undefined
+	if (typeof separator !== "string" || point === undefined) {
+		throw malformed(
+			`${label} separator`,
+			"a string of one Unicode scalar value but U+0000, the character the text is split at"
+		)
+	}
+	return { separator, point }
+}
+
+/**
  * A piece's descriptor as the builder types a separator split's `piece` over a separator of code point `point`
  * (piecesRows): a stretch of any characters but the separator, the pattern the checker types it by over any text
  * (scalar/regex/stretch.ts stretchSource), which types it within its text's byte bound and alphabet too.
@@ -355,18 +374,12 @@ export const piecesRows = (
 	separator: unknown
 ): Built & Headed<{ readonly at: typeof naturalDescriptor; readonly piece: RegexText<string> }> => {
 	const label = "r.split"
-	const point = typeof separator === "string" ? separatorPoint(separator) : undefined
-	if (typeof separator !== "string" || point === undefined) {
-		throw malformed(
-			`${label} separator`,
-			"a string of one Unicode scalar value but U+0000, the character the text is split at"
-		)
-	}
+	const { separator: written, point } = separatorOf(separator, label)
 	const piece = pieceField(point)
 	return callSourceValue(
 		{
 			kind: "split",
-			split: { kind: "pieces", separator },
+			split: { kind: "pieces", separator: written },
 			args: { text: valueArgument(text, `${label} text`) }
 		},
 		heading(
@@ -410,6 +423,41 @@ export const restRows = (text: unknown, prefix: unknown): Built & Headed<typeof 
 		restCarriers,
 		[],
 		"the rest of a text"
+	)
+}
+
+/**
+ * r.splitLast(text, separator): the text split at the last occurrence of its separator, a source a rule matches as it
+ * matches a call's rows, of `splitLastHeading`: one fact, `before`, the text before that occurrence, any text, and
+ * `after`, the text after it, a text that holds no separator, where the text holds the separator, and none where it
+ * does not (ir/rel.ts TextSplit `splitLast`), so a rule that matches it keeps only the bindings whose text holds the
+ * separator. `text` is a term, a parameter or a JavaScript value, as a call's value argument is (`valueArgument`), which
+ * the checker holds to a text; `separator` is a JavaScript string of one Unicode scalar value but U+0000
+ * (separatorOf), the split's own constant, never an argument.
+ */
+export const splitLastRows = (
+	text: unknown,
+	separator: unknown
+): Built & Headed<{ readonly before: typeof restField; readonly after: RegexText<string> }> => {
+	const label = "r.splitLast"
+	const { separator: written, point } = separatorOf(separator, label)
+	const after = pieceField(point)
+	return callSourceValue(
+		{
+			kind: "split",
+			split: { kind: "splitLast", separator: written },
+			args: { text: valueArgument(text, `${label} text`) }
+		},
+		heading(
+			[
+				[splitLastHeading.before, typed(describedField(restField, `${label} before`).scalar)],
+				[splitLastHeading.after, typed(describedField(after, `${label} after`).scalar)]
+			],
+			[]
+		),
+		Object.freeze({ before: restField, after }),
+		[],
+		"a text split at its last separator"
 	)
 }
 

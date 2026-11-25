@@ -127,6 +127,7 @@ import {
 	piecesHeading,
 	resolvedWithinHeading,
 	restHeading,
+	splitLastHeading,
 	separatorPoint,
 	splitArguments,
 	type TakeBound,
@@ -343,6 +344,12 @@ type ScalarBinding =
 
 /** How a scope reads the terms of a bind map written in it: each term, by the parameter it binds, at its location. */
 type Binder = (term: ResolvedBound, param: string, loc: SourceLoc) => BindValue
+
+/**
+ * How a scope computes a term written in it at its location: a split's computed argument, which reads the scope's
+ * variables, parameters and constants, lowered there as any of its terms is.
+ */
+type TermLowerer = (term: ResolvedExpr, loc: SourceLoc) => Lowered
 
 /**
  * What an imported query's parameter is bound to: a scalar binding, one of the importer's own relation parameters
@@ -718,7 +725,8 @@ const splitBuilders: { readonly [K in TextSplit["kind"]]: string } = {
 	pieces: "r.split",
 	rest: "r.rest",
 	decodedPath: "r.decodedPath",
-	resolvedWithin: "r.resolvedWithin"
+	resolvedWithin: "r.resolvedWithin",
+	splitLast: "r.splitLast"
 }
 
 /** Each split as a source of a rule, as a refusal of a match of it names it (sourceLabel). */
@@ -727,7 +735,8 @@ const splitSources: { readonly [K in TextSplit["kind"]]: string } = {
 	pieces: "the pieces of a text between its separators",
 	rest: "the rest of a text after a prefix",
 	decodedPath: "the path a percent-encoded path spells",
-	resolvedWithin: "a reference's target within its base"
+	resolvedWithin: "a reference's target within its base",
+	splitLast: "a text split at its last separator"
 }
 
 /** The lowering environment of a query expression, whose parameters are its rule's scope. */
@@ -2219,7 +2228,8 @@ export class Checker {
 		scope: Scope,
 		interiors: ReadonlyArray<ResolvedInterior>,
 		loc: SourceLoc,
-		bind: Binder
+		bind: Binder,
+		lower: TermLowerer
 	): RelNode {
 		switch (src.kind) {
 			case "relation": {
@@ -2367,7 +2377,7 @@ export class Checker {
 			case "callField":
 				return this.#callFieldSource(src, loc, bind)
 			case "split":
-				return this.#splitSource(src, loc, bind)
+				return this.#splitSource(src, loc, bind, lower)
 			case "series":
 				return fail(
 					"UnsupportedOperation",
@@ -2389,7 +2399,7 @@ export class Checker {
 	series(
 		src: Extract<ResolvedSource, { readonly kind: "series" }>,
 		loc: SourceLoc,
-		lower: (e: ResolvedExpr, at: SourceLoc) => Lowered
+		lower: TermLowerer
 	): { readonly node: RelNode; readonly element: Bounds } {
 		const end = (e: ResolvedExpr, name: string): Lowered => {
 			const at = childLoc(loc, name)
@@ -2651,14 +2661,16 @@ export class Checker {
 
 	/**
 	 * A split of a text (ir/rel.ts TextSplit), a call of one of grizzle's splits (CallFunction `split`). Its arguments
-	 * are its kind's (splitArguments), every one and none other, each bound as a call's value argument is (`bind`), a
-	 * text: a variable at its own type, a parameter or a constant at any text's. Its heading is its split's over its
-	 * text, the first of them (#splitHeading).
+	 * are its kind's (splitArguments), every one and none other, each a text term of the scope the split stands in: a
+	 * variable, a parent variable, a parameter or a constant bound as a call's value argument is (`bind`), a variable at
+	 * its own type, a parameter or a constant at any text's; any other term computed in that scope (`lower`), as a
+	 * series' end is, at the type it computes. Its heading is its split's over its texts (#splitHeading).
 	 */
 	#splitSource(
 		src: Extract<ResolvedSource, { readonly kind: "split" }>,
 		loc: SourceLoc,
-		bind: Binder
+		bind: Binder,
+		lower: TermLowerer
 	): RelNode {
 		const builder = splitBuilders[src.split.kind]
 		const names: NonEmptyReadonlyArray<string> = splitArguments[src.split.kind]
@@ -2674,21 +2686,21 @@ export class Checker {
 		}
 		const args = mapNonEmpty(names, (name) => {
 			const at = childLoc(loc, name)
-			const value = bind(src.args[name] ?? named(`${name} is missing`), name, at)
-			const type = value.kind === "column" ? value.type : wildcardText
+			const { expr, type } = this.#splitArgument(
+				src.args[name] ?? named(`${name} is missing`),
+				name,
+				at,
+				bind,
+				lower
+			)
 			const text =
 				textOf(type) ??
 				fail(
 					"MalformedDescription",
 					at,
-					`a text for ${builder}'s ${name}; the variable bound to it is ${typeLabel(type)}`
+					`a text for ${builder}'s ${name}; the term given it is ${typeLabel(type)}`
 				)
-			const arg: CallArg<LiveRefs> = {
-				kind: "value",
-				name,
-				expr: this.#boundArgument(value, type, name, at),
-				type
-			}
+			const arg: CallArg<LiveRefs> = { kind: "value", name, expr, type }
 			return { arg, text }
 		})
 		return this.node(
@@ -2709,6 +2721,57 @@ export class Checker {
 	}
 
 	/**
+	 * A split's argument `name` (#splitSource), the term `term` of the scope the split stands in, as an expression there
+	 * and its type: a leaf, a variable, a parent variable, a parameter or a constant, bound as a call's value argument is
+	 * (#boundArgument), a variable at its own type and a parameter or a constant at any text's; any other term computed
+	 * in the scope (`lower`) at the type it computes, its byte bound among it.
+	 */
+	#splitArgument(
+		term: ResolvedExpr,
+		name: string,
+		at: SourceLoc,
+		bind: Binder,
+		lower: TermLowerer
+	): { readonly expr: ScalarExpr; readonly type: ScalarType } {
+		switch (term.kind) {
+			case "var":
+			case "parent":
+			case "field":
+			case "value":
+			case "param":
+			case "literal": {
+				const value = bind(term, name, at)
+				const type = value.kind === "column" ? value.type : wildcardText
+				return { expr: this.#boundArgument(value, type, name, at), type }
+			}
+			case "compute":
+			case "closedRow":
+			case "and":
+			case "or":
+			case "closedAt":
+			case "closedHas":
+			case "cast":
+			case "base":
+			case "retype":
+			case "guarded":
+			case "not":
+			case "in":
+			case "cond":
+			case "when":
+			case "compare":
+			case "allen":
+			case "between":
+			case "pointIn":
+			case "call":
+			case "absent":
+			case "exists": {
+				const computed = lower(term, at)
+				return { expr: computed.expr, type: computed.nominal }
+			}
+		}
+	}
+
+	/**
 	 * A split's heading over a text of refinement `text`, its kind's:
 	 *
 	 * - a token split's (`tokensHeading`): `at`, a token's place, the count of the tokens before it, of a count's type,
@@ -2719,7 +2782,10 @@ export class Checker {
 	 * - a rest's (`restHeading`): `rest`, a stretch of the text's characters (#stretchType);
 	 * - a decoded path's (`decodedPathHeading`): `path`, any text within the text's byte bound, since each escape, three
 	 *   bytes, decodes to one byte of its character, and an escape may spell any character;
-	 * - a target within a base's (`resolvedWithinHeading`): `target` (#targetType).
+	 * - a target within a base's (`resolvedWithinHeading`): `target` (#targetType);
+	 * - a split at the last separator's (`splitLastHeading`): `before`, a stretch of the text's characters, the separator
+	 *   among them, and `after`, a stretch of the text's characters but the separator, each within the text's byte bound
+	 *   (#stretchType), the separator refused as a separator split's is.
 	 */
 	#splitHeading(split: TextSplit, texts: (name: string) => TextInfo, loc: SourceLoc): Heading {
 		switch (split.kind) {
@@ -2728,19 +2794,14 @@ export class Checker {
 					{ name: tokensHeading.at, type: countOverload().result },
 					{ name: tokensHeading.token, type: this.#tokenType(texts("text"), loc) }
 				]
-			case "pieces": {
-				const point =
-					separatorPoint(split.separator) ??
-					fail(
-						"MalformedDescription",
-						childLoc(loc, "separator"),
-						`a separator of r.split, one Unicode scalar value but U+0000; ${JSON.stringify(split.separator)} is not one`
-					)
+			case "pieces":
 				return [
 					{ name: piecesHeading.at, type: countOverload().result },
-					{ name: piecesHeading.piece, type: this.#stretchType(texts("text"), single(point), loc) }
+					{
+						name: piecesHeading.piece,
+						type: this.#stretchType(texts("text"), single(this.#separator(split, loc)), loc)
+					}
 				]
-			}
 			case "rest":
 				return [{ name: restHeading.rest, type: this.#stretchType(texts("text"), [], loc) }]
 			case "decodedPath":
@@ -2752,7 +2813,30 @@ export class Checker {
 				]
 			case "resolvedWithin":
 				return [{ name: resolvedWithinHeading.target, type: this.#targetType(texts, loc) }]
+			case "splitLast":
+				return [
+					{ name: splitLastHeading.before, type: this.#stretchType(texts("text"), [], loc) },
+					{
+						name: splitLastHeading.after,
+						type: this.#stretchType(texts("text"), single(this.#separator(split, loc)), loc)
+					}
+				]
 		}
+	}
+
+	/**
+	 * The code point a split at a separator splits at (ir/rel.ts TextSplit `pieces`, `splitLast`), one Unicode scalar
+	 * value but U+0000 (separatorPoint), refused as any other.
+	 */
+	#separator(split: Extract<TextSplit, { readonly separator: string }>, loc: SourceLoc): number {
+		return (
+			separatorPoint(split.separator) ??
+			fail(
+				"MalformedDescription",
+				childLoc(loc, "separator"),
+				`a separator of ${splitBuilders[split.kind]}, one Unicode scalar value but U+0000; ${JSON.stringify(split.separator)} is not one`
+			)
+		)
 	}
 
 	/**
@@ -4242,7 +4326,8 @@ class RuleCheck {
 					this.scope,
 					this.rule.interiors,
 					loc,
-					(term, param, at) => this.#bindValue(term, param, at, this.region)
+					(term, param, at) => this.#bindValue(term, param, at, this.region),
+					(term, at) => unwrap(lowerTerm(term, this.env(this.region, at, "value")))
 				)
 			const narrowed = this.#narrow(source, match.bindings, loc)
 			const heading = narrowed.heading
@@ -5159,7 +5244,8 @@ class RuleCheck {
 				this.scope,
 				this.rule.interiors,
 				loc,
-				(term, param, at) => this.#bindValue(term, param, at, left.id)
+				(term, param, at) => this.#bindValue(term, param, at, left.id),
+				(term, at) => unwrap(lowerTerm(term, this.env(left.id, at, "value")))
 			),
 			filter.bindings,
 			loc

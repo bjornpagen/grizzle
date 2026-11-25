@@ -188,9 +188,16 @@ const calledName = (called: CallFunction): string => {
 		case "field":
 			return `${called.name}.${called.field}`
 		case "split":
-			return called.split.kind === "pieces"
-				? `pieces ${jsonText(called.split.separator)}`
-				: called.split.kind
+			switch (called.split.kind) {
+				case "pieces":
+				case "splitLast":
+					return `${called.split.kind} ${jsonText(called.split.separator)}`
+				case "tokens":
+				case "rest":
+				case "decodedPath":
+				case "resolvedWithin":
+					return called.split.kind
+			}
 		case "series":
 			return "series"
 	}

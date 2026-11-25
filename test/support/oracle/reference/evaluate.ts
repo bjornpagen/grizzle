@@ -29,6 +29,7 @@ import {
 	type RelNode,
 	piecesHeading,
 	seriesArguments,
+	splitLastHeading,
 	type TextSplit,
 	tokensHeading,
 	type VarDecl,
@@ -127,8 +128,10 @@ export const decodedPathOf = (text: string): Option.Option<string> => {
  * whiteSpace collapse, §3.3.10's lists), each maximal run of no XML whitespace (S: tab, LF, CR, space) a token, at its
  * place among them from 0, none of a text of whitespace alone; a separator split's by JavaScript's own split at its
  * separator, n occurrences n + 1 pieces, the empty text one empty piece; a rest's, the text's code points past the
- * prefix's where the text starts with it, none where it does not; a decoded path's (decodedPathOf); and a target
- * within a base's, the oracle's own resolution where its walk climbs nowhere (oracle/evaluate/uri.ts).
+ * prefix's where the text starts with it, none where it does not; a decoded path's (decodedPathOf); a target within a
+ * base's, the oracle's own resolution where its walk climbs nowhere (oracle/evaluate/uri.ts); and a split at the last
+ * separator's, the text before JavaScript's lastIndexOf of the separator and the text after it, none where the text
+ * holds no separator.
  */
 const splitRows = (
 	split: TextSplit,
@@ -165,6 +168,19 @@ const splitRows = (
 			return climbsOf(base, reference) === 0
 				? [Arr.map(heading, (): Value => resolvedReference(base, reference))]
 				: []
+		}
+		case "splitLast": {
+			const text = args("text")
+			return Option.match(Str.lastIndexOf(split.separator)(text), {
+				onNone: () => [],
+				onSome: (at) => [
+					Arr.map(heading, (c): Value =>
+						c.name === splitLastHeading.before
+							? Str.slice(0, at)(text)
+							: Str.slice(at + split.separator.length)(text)
+					)
+				]
+			})
 		}
 	}
 }

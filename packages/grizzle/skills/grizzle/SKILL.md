@@ -820,7 +820,12 @@ to fix, or the compiler's refusal of a schema or login with its fix, and no line
   `Text.replace(x, from, to)` (`Text.replace(name, "%", "%25")`), in a query over texts whose patterns bound it. Split a
   text at a separator character in a rule with `r.split(path, "/")` (`{ at, piece }`, the empty text one empty piece)
   and take the text after a prefix with `r.rest(x, prefix)` (`{ rest }`, a row only where `x` starts with `prefix`;
-  `r.not(r.rest(x, prefix), {})` for the others); percent-decode a URI path with `r.decodedPath(x)` (`{ path }`, a
+  `r.not(r.rest(x, prefix), {})` for the others); split a text at the last occurrence of a separator character with
+  `r.splitLast(x, ".")` (`{ before, after }`, a row only where `x` holds it, either side possibly empty), so a path's
+  extension as Node's `path.posix.extname` reads it is `r.splitLast(Text.concat(Type.literal(Slash, "/"), path), "/")`'s
+  `after` as `segment`, then `r.splitLast(segment, ".")`'s `{ before: stem, after: extension }` where
+  `r.ne(stem, "")` and `r.ne(extension, "")`; a split's text may be any text term of the rule, computed or not;
+  percent-decode a URI path with `r.decodedPath(x)` (`{ path }`, a
   row only where `x` is well-formed UTF-8 escapes with no escaped `/`, U+0000 or `%2E` dot segment), and resolve a
   reference within a base with `r.resolvedWithin(base, reference)` (`{ target }`, none where a `..` climbs above the
   base's root, an href outside a package), never a stored copy of the pieces or a host decode or resolution. For XML Schema's whiteSpace facets use `Text.replaceWhitespace(x)` (tab, LF and CR to spaces)

@@ -17,6 +17,7 @@ import {
 	restHeading,
 	seriesArguments,
 	seriesHeading,
+	splitLastHeading,
 	type TextSplit,
 	tokensHeading
 } from "#compiler/ir/rel.ts"
@@ -799,6 +800,53 @@ const lowerResolvedWithin = (node: NodeOf<"Call">, cx: LowerContext, env: Env): 
 	)
 }
 
+/**
+ * A split at the last separator's call (r.splitLast): the text before the last occurrence of its separator and the text
+ * after it, one row where the text holds the separator, none where it does not.
+ *
+ *   SELECT pg_catalog."left"(<the text>, - r3.c3), pg_catalog."right"(<the text>, r3.c3 - 1)
+ *     FROM pg_catalog.strpos(pg_catalog.reverse(<the text>), <separator>) AS r3(c3)
+ *    WHERE r3.c3 > 0
+ *
+ * reverse() reverses the text by code points, a multibyte character kept whole (varlena.c text_reverse), and the
+ * separator is one Unicode scalar value, its own reversal, so strpos finds in the reversal the text's last occurrence
+ * of it, at its place counted in code points from the text's end, from 1, and 0 where the text holds none, which the
+ * WHERE drops. The text before it is every code point but the last that many, and the text after it the last that many
+ * less one: the text is the two joined by the separator, and the text after holds no separator. strpos and reverse
+ * read UTF-8, where an occurrence of a scalar value's bytes is the character itself, never bytes inside another, so
+ * the code points they count are the text's. The one row is the split, which the call's argument determines.
+ */
+const lowerSplitLast = (
+	node: NodeOf<"Call">,
+	separator: string,
+	cx: LowerContext,
+	env: Env
+): OperandSelect => {
+	const columns = splitColumns(node, 1, cx)
+	const { read } = columns
+	const text = splitArgument(node, "text", cx, env)
+	const item = splitItem(
+		call("strpos", [call("reverse", [text]), lit.text(separator, types.text)]),
+		columns,
+		false
+	)
+	return splitRows(
+		node,
+		item,
+		binary(">", read(0), lit.int(0, types.integer)),
+		(name) => {
+			if (name === splitLastHeading.before) {
+				return call("left", [text, { kind: "negate", expr: read(0) }])
+			}
+			if (name === splitLastHeading.after) {
+				return call("right", [text, binary("-", read(0), lit.int(1, types.integer))])
+			}
+			throw defect(`a split at the last separator's heading of its two sides, not ${name}`)
+		},
+		"a split at the last separator's rows"
+	)
+}
+
 /** A split's rows (ir/rel.ts TextSplit), by its kind. */
 const lowerSplit = (
 	node: NodeOf<"Call">,
@@ -817,6 +865,8 @@ const lowerSplit = (
 			return lowerDecodedPath(node, cx, env)
 		case "resolvedWithin":
 			return lowerResolvedWithin(node, cx, env)
+		case "splitLast":
+			return lowerSplitLast(node, split.separator, cx, env)
 	}
 }
 

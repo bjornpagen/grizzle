@@ -85,6 +85,7 @@ export const splitLibrary = (split: TextSplit): LibraryFn | undefined => {
 		case "tokens":
 		case "pieces":
 		case "rest":
+		case "splitLast":
 			return undefined
 	}
 }

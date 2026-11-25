@@ -707,6 +707,23 @@ type RuleResolvedWithin = <
 	CallReads<{ readonly base: B; readonly reference: X }>
 >
 
+/**
+ * Rule.splitLast: the text split at the last occurrence of its separator, a term of any text, a parameter or a
+ * JavaScript string, as a call's value argument of a text field is: a source a rule matches as it matches a call's rows
+ * (CallSource), one fact, the text before that occurrence and the text after it, where the text holds the separator and
+ * none where it does not, needing what its text needs. The separator is a string literal, one Unicode scalar value but
+ * U+0000, which the builder holds it to.
+ */
+type RuleSplitLast = <const X extends CallArgs<TokensArgs>["text"]>(
+	text: X,
+	separator: string
+) => CallSource<
+	FactOfFields<SplitLastFields>,
+	BindMapParams<{ readonly text: X }>,
+	SplitLastFields,
+	CallReads<{ readonly text: X }>
+>
+
 /** A target within a base's two arguments (RuleResolvedWithin): its base and its reference, each of any text. */
 type WithinArgs = { readonly base: TextField<string>; readonly reference: TextField<string> }
 
@@ -755,6 +772,9 @@ type DecodedPathFields = { readonly path: TextField<string> }
 
 /** A target within a base's heading (RuleResolvedWithin): the reference's target. */
 type WithinFields = { readonly target: TextField<string> }
+
+/** A split at the last separator's heading (RuleSplitLast): the text before that separator and the text after it. */
+type SplitLastFields = { readonly before: TextField<string>; readonly after: TextField<string> }
 
 /** Rule.not: a relational negation over a source of the schema of the rule it is called on (Rule). */
 type RuleNot = <
@@ -866,6 +886,12 @@ export interface Rule<S, Params = unknown, Sole = "no match", Facts = NoFacts, C
 	 * none where one does (RuleResolvedWithin).
 	 */
 	readonly resolvedWithin: RuleResolvedWithin
+	/**
+	 * The text split at the last occurrence of its separator, a source the rule matches: one fact, `before`, the text
+	 * before that occurrence, and `after`, the text after it, a text that holds no separator, where the text holds the
+	 * separator, and none where it does not (RuleSplitLast).
+	 */
+	readonly splitLast: RuleSplitLast
 	/**
 	 * Each integer from `low` to `high`, both included, none where `low` lies above `high`, a source the rule matches:
 	 * `at`, each integer, of the ends' common type, every one between the least value `low` takes and the greatest

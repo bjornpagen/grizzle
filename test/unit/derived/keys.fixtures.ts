@@ -1389,14 +1389,18 @@ export const keyName = (n: number): string => `n${n}`
  * A source of rows a call returns, which a derived relation matches beside the row its arguments are read from: a
  * token split of the row's list (r.tokens), a separator split of it at a comma (r.split), a series from its low to its
  * high (r.series), a declared function's rows at its list (Fn.rows), each row of which has a place `at` beside its
- * piece where it has one, or the list's rest after a prefix (r.rest), one row or none, which has no place.
+ * piece where it has one, or the list's rest after a prefix (r.rest), or its split at its last comma (r.splitLast), one
+ * row or none, which has no place; or the text after the last comma of the row's bounded text alone, which keys itself
+ * within that text's byte bound.
  */
 export const callSources = [
 	"a token split",
 	"a separator split",
 	"a series",
 	"a declared function's rows",
-	"a rest"
+	"a rest",
+	"a split at the last separator",
+	"the text after a bounded text's last separator alone"
 ] as const
 export type CallSource = (typeof callSources)[number]
 
@@ -1422,7 +1426,10 @@ const seriesUses = [
 	"the place dropped"
 ] as const satisfies ReadonlyArray<OrdinalUse>
 
-/** The use of a rest's place a case draws: none, a rest having no place, so its definition drops none. */
+/**
+ * The use of a rest's place, or a split at the last separator's, a case draws: none, either having no place, so its
+ * definition drops none.
+ */
 const restUses = ["the place dropped"] as const satisfies ReadonlyArray<OrdinalUse>
 
 export const callKeyCase: Gen<CallKeyCase> = (source) => {
@@ -1431,7 +1438,13 @@ export const callKeyCase: Gen<CallKeyCase> = (source) => {
 		call,
 		ordinal: source.draw(
 			element<OrdinalUse>(
-				call === "a series" ? seriesUses : call === "a rest" ? restUses : ordinalUses
+				call === "a series"
+					? seriesUses
+					: call === "a rest" ||
+						  call === "a split at the last separator" ||
+						  call === "the text after a bounded text's last separator alone"
+						? restUses
+						: ordinalUses
 			)
 		)
 	}
@@ -1442,11 +1455,12 @@ const Piece = str.bytes(64, str.regex("^.*$", "su"))
 
 /**
  * A row of lists, keyed by its id: a list of any text, whose tokens are texts of no byte bound, as edullm's walks read a
- * pantry attribute's value (WalkCategory, WalkLiteralPair), and the two ends of a series.
+ * pantry attribute's value (WalkCategory, WalkLiteralPair), the two ends of a series, and a path of any text within 64
+ * bytes, whose texts split from it are within them too.
  */
 const Listed = relation(
 	"Listed",
-	{ id: Id, list: str.regex("^.*$", "su"), lo: pg.integer, hi: pg.integer },
+	{ id: Id, list: str.regex("^.*$", "su"), lo: pg.integer, hi: pg.integer, path: Piece },
 	["id"]
 )
 
@@ -1531,6 +1545,34 @@ const restStored = derived(
 )
 
 /**
+ * The stored relation of a split at the last separator's case: each row's list after its last comma, where the list
+ * holds one.
+ */
+const splitLastStored = derived(
+	"D",
+	query(callBase).rule((r) => {
+		const { id, list } = v(Listed, "row")
+		const split = r.splitLast(list, ",")
+		const { after } = v(split, "split")
+		return r.match(Listed, { id, list }).match(split, { after }).find({ id, piece: after })
+	})
+)
+
+/**
+ * The stored relation of the bounded text's case: the text after each row's path's last comma, where the path holds
+ * one, alone, so its whole heading, that text within the path's 64 bytes, is its only key.
+ */
+const boundedAfterStored = derived(
+	"D",
+	query(callBase).rule((r) => {
+		const { id, path } = v(Listed, "row")
+		const split = r.splitLast(path, ",")
+		const { after } = v(split, "split")
+		return r.match(Listed, { id, path }).match(split, { after }).find({ piece: after })
+	})
+)
+
+/**
  * The stored relation of a series' case: each row's elements from its low to its high, each an exact integer between
  * the row's ends, delivered as the integer its ends are where its head delivers them.
  */
@@ -1592,6 +1634,10 @@ export const callKeySchema = (c: CallKeyCase) => {
 			return schema.extend([callBase], "CallKeysTop", [separatedStored(c)], [])
 		case "a rest":
 			return schema.extend([callBase], "CallKeysTop", [restStored], [])
+		case "a split at the last separator":
+			return schema.extend([callBase], "CallKeysTop", [splitLastStored], [])
+		case "the text after a bounded text's last separator alone":
+			return schema.extend([callBase], "CallKeysTop", [boundedAfterStored], [])
 		case "a series":
 			return schema.extend([callBase], "CallKeysTop", [seriesStored(c)], [])
 		case "a declared function's rows":
@@ -1602,7 +1648,9 @@ export const callKeySchema = (c: CallKeyCase) => {
 /**
  * What a case's stored relation is keyed by, as the call's rows are (ir/rel.ts callNumbering): a split's and a series' rows
  * at their argument are keyed by their place, which numbers them, so a row of lists and a place key D, and the row
- * alone where a literal fixes the place; a rest is one row or none at its arguments, so the row alone keys D; a declared
+ * alone where a literal fixes the place; a rest and a split at the last separator are one row or none at their
+ * arguments, so the row alone keys D, and the text after a bounded path's last comma delivered alone keys D by itself,
+ * within the path's byte bound; a declared
  * function's rows are a set nothing numbers, keyed by their whole heading, so D by the row and every field of the call
  * it delivers. A token and a piece are texts of no byte bound, which no B-tree entry holds, so a key of either is
  * refused, its whole heading the definition's only key where the place is dropped.
@@ -1626,7 +1674,10 @@ export const callKeyModel = (
 				keys: [c.ordinal === "the place in the head" ? ["at", "id"] : ["id"]]
 			}
 		case "a rest":
+		case "a split at the last separator":
 			return { kind: "keyed", keys: [["id"]] }
+		case "the text after a bounded text's last separator alone":
+			return { kind: "keyed", keys: [["piece"]] }
 		case "a declared function's rows":
 			return {
 				kind: "keyed",

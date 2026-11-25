@@ -30,6 +30,7 @@ import {
 	resolvedWithinRows,
 	restRows,
 	seriesRows,
+	splitLastRows,
 	tokensRows
 } from "#compiler/query/build/call.ts"
 import { type Heading, heading, withAttachment } from "#compiler/query/build/heading.ts"
@@ -133,6 +134,8 @@ export interface RuleRun<F> {
  * - `decodedPath(text)` is a source: the path a percent-encoded path spells, one fact or none (decodedPathRows).
  * - `resolvedWithin(base, reference)` is a source: a reference's target within its base, one fact or none
  *   (resolvedWithinRows).
+ * - `splitLast(text, separator)` is a source: the text before and after its separator's last occurrence, one fact or
+ *   none (splitLastRows).
  * - `series(low, high)` is a source: each integer from low to high (query/build/call.ts seriesRows).
  * - The comparisons, in, and, or, not, allen, pointIn, the producers and the aggregates are terms.ts's.
  *
@@ -437,6 +440,7 @@ export interface RuleValue {
 	readonly rest: (text: unknown, prefix: unknown) => Built
 	readonly decodedPath: (text: unknown) => Built
 	readonly resolvedWithin: (base: unknown, reference: unknown) => Built
+	readonly splitLast: (text: unknown, separator: unknown) => Built
 	readonly series: (low: unknown, high: unknown) => Built
 	readonly eq: (a: unknown, b: unknown) => PredicateValue
 	readonly ne: (a: unknown, b: unknown) => PredicateValue
@@ -591,6 +595,8 @@ const ruleValue = <S, Params, Sole, Facts, Cx>(
 		decodedPath: (text) => guarded("r.decodedPath", [text], () => decodedPathRows(text)),
 		resolvedWithin: (base, reference) =>
 			guarded("r.resolvedWithin", [base, reference], () => resolvedWithinRows(base, reference)),
+		splitLast: (text, separator) =>
+			guarded("r.splitLast", [text, separator], () => splitLastRows(text, separator)),
 		series: (low, high) => guarded("r.series", [low, high], () => seriesRows(low, high)),
 		eq: (a, b) => guarded("r.eq", [a, b], () => T.compare("eq")(a, b)),
 		ne: (a, b) => guarded("r.ne", [a, b], () => T.compare("ne")(a, b)),

@@ -1080,12 +1080,14 @@ export type SourceDesc<L = Located, R extends Refs = Spelled> =
 			 * whitespace-separated list (XML Schema Part 2 §3.3.10, a list's lexical space), each a fact of
 			 * `tokensHeading`; r.split(text, separator), the text's pieces between its separators, each a fact of
 			 * `piecesHeading`; r.rest(text, prefix), the text after its prefix, one fact of `restHeading` or none;
-			 * r.decodedPath(text), the path a percent-encoded path spells, one fact of `decodedPathHeading` or none; and
+			 * r.decodedPath(text), the path a percent-encoded path spells, one fact of `decodedPathHeading` or none;
 			 * r.resolvedWithin(base, reference), a reference's target within its base, one fact of `resolvedWithinHeading`
-			 * or none.
-			 * `args` holds the split's arguments by name (ir/rel.ts splitArguments), each a term of the scope the match
-			 * stands in, a variable, a parent variable, a parameter or a typed constant, as a call's value argument is, so
-			 * the facts are a function of the binding the match stands at.
+			 * or none; and r.splitLast(text, separator), the text before and after its last separator, one fact of
+			 * `splitLastHeading` or none.
+			 * `args` holds the split's arguments by name (ir/rel.ts splitArguments), each a text term of the scope the
+			 * match stands in: a variable, a parent variable, a parameter or a typed constant, as a call's value argument
+			 * is, or a term computed from them there, as a series' end is, so the facts are a function of the binding the
+			 * match stands at.
 			 */
 			readonly kind: "split"
 			readonly split: TextSplit
@@ -3459,7 +3461,8 @@ const sourceDescBody: S.Shape<SourceDesc> = S.tagged("kind", {
 			pieces: S.struct({ separator: S.nonEmptyString }),
 			rest: S.struct({}),
 			decodedPath: S.struct({}),
-			resolvedWithin: S.struct({})
+			resolvedWithin: S.struct({}),
+			splitLast: S.struct({ separator: S.nonEmptyString })
 		}),
 		args: S.recordShape(
 			S.ref("an expression", () => exprDescShape),

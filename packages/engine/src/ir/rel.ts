@@ -965,9 +965,14 @@ export type CallArg<R extends RefKinds> =
  *   `reference` resolved against `base` (strict, §5.2.2), where no `..` segment of the path its resolution walks climbs
  *   past that path's root, and none where one does, so a hierarchy rooted at the base holds no target of it, under
  *   `resolvedWithinHeading`.
+ * - `splitLast`, the text split at the last occurrence of `separator`, one Unicode scalar value but U+0000
+ *   (r.splitLast): one row, the text before that occurrence and the text after it, so the text is the two joined by
+ *   the separator and the text after holds none, where the text holds the separator, and none where it does not, under
+ *   `splitLastHeading`; either side may be empty, a separator at either end of the text.
  *
- * The separator is the split's own, a constant of its description, never an argument: a piece is typed as a text
- * that holds no separator, which only a constant states (check/checker.ts #pieceType).
+ * The separator is the split's own, a constant of its description, never an argument: a piece, and the text after a
+ * last separator, is typed as a text that holds no separator, which only a constant states (check/checker.ts
+ * #splitHeading).
  */
 export type TextSplit =
 	| { readonly kind: "tokens" }
@@ -975,9 +980,10 @@ export type TextSplit =
 	| { readonly kind: "rest" }
 	| { readonly kind: "decodedPath" }
 	| { readonly kind: "resolvedWithin" }
+	| { readonly kind: "splitLast"; readonly separator: string }
 
 /**
- * The code point a separator split's separator is (TextSplit `pieces`): its text's one Unicode scalar value, which is
+ * The code point a separator split's separator is (TextSplit `pieces`, `splitLast`): its text's one Unicode scalar value, which is
  * no U+0000, PostgreSQL's text holding none; none where the text is empty, holds two code points or more, or a lone
  * surrogate.
  */
@@ -1016,7 +1022,8 @@ export const splitArguments = {
 	pieces: ["text"],
 	rest: ["text", "prefix"],
 	decodedPath: ["text"],
-	resolvedWithin: ["base", "reference"]
+	resolvedWithin: ["base", "reference"],
+	splitLast: ["text"]
 } as const satisfies { readonly [K in TextSplit["kind"]]: NonEmptyReadonlyArray<string> }
 
 /**
@@ -1047,14 +1054,20 @@ export const decodedPathHeading = { path: "path" } as const
 export const resolvedWithinHeading = { target: "target" } as const
 
 /**
+ * A split at the last separator's heading (TextSplit `splitLast`): the text before the last occurrence of the separator
+ * and the text after it.
+ */
+export const splitLastHeading = { before: "before", after: "after" } as const
+
+/**
  * How the rows of one evaluation of a call stand among themselves (CallFunction), which keys them at its arguments, the
  * rows of one evaluation, as a row number keys the rows of its partition (logical/props.ts, ir/keys.ts numberedRow):
  *
  * - `numbered`: a column numbers them, no two alike: a token or separator split's place, the count of the pieces before
  *   it, and a series' element, each integer from its low end to its high end once; a split's rows are keyed by what
  *   keys its text and its ordinal.
- * - `one`: there is one row or none, a rest's, a decoded path's and a target within a base's, so what keys its
- *   arguments keys its row (ir/keys.ts atMostOneRow).
+ * - `one`: there is one row or none, a rest's, a decoded path's, a target within a base's and a split at the last
+ *   separator's, so what keys its arguments keys its row (ir/keys.ts atMostOneRow).
  * - `set`: nothing numbers them, a declared function's rows or a field's of its row, which PostgreSQL alone evaluates.
  */
 export type CallNumbering =
@@ -1068,7 +1081,8 @@ const splitRows: { readonly [K in TextSplit["kind"]]: CallNumbering } = {
 	pieces: { kind: "numbered", ordinal: piecesHeading.at },
 	rest: { kind: "one" },
 	decodedPath: { kind: "one" },
-	resolvedWithin: { kind: "one" }
+	resolvedWithin: { kind: "one" },
+	splitLast: { kind: "one" }
 }
 
 /** How the rows of one evaluation of `called` stand among themselves (CallNumbering). */

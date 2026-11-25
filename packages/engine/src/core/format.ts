@@ -494,6 +494,10 @@
  * resolveReference's walk of dot segments is one LATERAL row that also counts the `..` segments that climb past the
  * root (physical/ddl/library.ts dotSegmentWalk), where format 8 removed them in a scalar subquery, so its definition's
  * digest, the name it is installed under, moves.
+ * A text split may be a split at the last separator, r.splitLast (ir/rel.ts TextSplit `splitLast`, its separator stated
+ * as a separator split's is), which a snapshot's and a served file's Descriptions may hold, so recordShapes moves with
+ * it; a split's argument may be a term the split's scope computes, which a Description already held as a term, so no
+ * statement format 8 printed moves.
  * A served read's key is the fields of the completed order it delivers its rows in, `{ fields }` (served/forms.ts
  * ServedKey), and every read's wire shape is a list's, `list` or `answeredList`, its upsert carrying the key of the row
  * it follows (live/events.ts events, live/shape.ts MemberShape), where format 8 told a read of no stated order, its key
@@ -599,8 +603,8 @@ export type FormattedFile = (typeof formattedFiles)[number]
  * @formatConstant each file's shape: the digest of its type, by test/support/record-shape.ts
  */
 export const recordShapes: { readonly [F in FormattedFile]: string } = {
-	snapshot: "4d7c4da6903041ba40c14f83a028f6c915ecfe05487792fee02b89c2ce209ab4",
-	served: "907daf7bd2648296759ed6c684e767f804d1b40f218e45819ea2aff62c353137"
+	snapshot: "e609802332c892bd42d9b49a1430f9f97b034cf09f8e29c98170a3017533cc33",
+	served: "973638e8bf53e5b0c7f1c97692fdc7decf1471645ee1a1c7dcc3a1236f2540f6"
 }
 
 /**

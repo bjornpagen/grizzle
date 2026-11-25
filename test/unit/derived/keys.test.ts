@@ -527,7 +527,8 @@ export const derivedRelationKeysStateEachNameAViewsHeadGivesItsKeysVariableAsAKe
 
 /**
  * A stored relation over a call's rows is keyed as they are at the call's argument: a split's and a series' by their
- * place, a rest's by the argument alone, a declared function's by its whole heading.
+ * place, a rest's and a split at the last separator's by the argument alone, a declared function's by its whole
+ * heading.
  *
  * Its budget is the runner's: a new property, with no suite before it to carry a count from.
  */
@@ -564,9 +565,9 @@ export const aStoredRelationOverACallsRowsIsKeyedByThePlaceThatNumbersThemAtItsA
 			}),
 		oracle: {
 			kind: "specification",
-			name: "a call's rows keyed at its argument as its source numbers them: a split's and a series' by their place, a rest's by its argument alone, a declared function's by its whole heading"
+			name: "a call's rows keyed at its argument as its source numbers them: a split's and a series' by their place, a rest's and a split at the last separator's by its argument alone, a declared function's by its whole heading"
 		},
-		box: "a row of lists keyed by its id, beside a token split of its list, a separator split of it, a series from its low to its high or a declared function's rows of its list, each place in the head, fixed to a literal (but a series') or dropped, or its rest after a prefix",
+		box: "a row of lists keyed by its id, beside a token split of its list, a separator split of it, a series from its low to its high or a declared function's rows of its list, each place in the head, fixed to a literal (but a series') or dropped, or its rest after a prefix, or its split at its last comma, or the text after its bounded path's last comma alone",
 		kept: [],
 		kills: [
 			{
@@ -580,6 +581,20 @@ export const aStoredRelationOverACallsRowsIsKeyedByThePlaceThatNumbersThemAtItsA
 				original: '\t\t\t\t\t\t? [atMostOneRow(all, { kind: "partialSplit" })]\n',
 				replacement: "\t\t\t\t\t\t? []\n",
 				why: "A rest's one row is keyed by nothing at its arguments: a stored relation of a list's rest proves only its whole heading, a rest of no byte bound, and is refused."
+			},
+			{
+				file: "packages/engine/src/ir/rel.ts",
+				original: '\tsplitLast: { kind: "one" }\n',
+				replacement: '\tsplitLast: { kind: "set" }\n',
+				why: "A split at the last separator's rows are a set nothing numbers at its argument: a stored relation of the text after a list's last comma proves only its whole heading, a text of no byte bound, and is refused."
+			},
+			{
+				file: "packages/engine/src/check/checker.ts",
+				original:
+					"\t\tconst bytes = textInfoBounds(text)?.bytes\n\t\tconst language = bytes === undefined ? pattern : languageWithin(pattern, bytes)\n\t\treturn this.schema.queryFieldType(",
+				replacement:
+					"\t\tconst bytes = undefined\n\t\tconst language = bytes === undefined ? pattern : languageWithin(pattern, bytes)\n\t\treturn this.schema.queryFieldType(",
+				why: "The text after a last separator is typed with no byte bound, so a stored relation keyed by the text after a bounded path's last comma keys by a text no B-tree entry holds, and is refused."
 			}
 		]
 	})
