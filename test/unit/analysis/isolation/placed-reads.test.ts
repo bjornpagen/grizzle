@@ -19,16 +19,15 @@
 
 import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
-import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect } from "effect"
-import { readModes } from "#compiler/analysis/isolation/certify.ts"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
+import { Effect } from "effect"
 import { callCounts } from "#test/support/kernel/calls.ts"
 import {
 	flatFacts,
 	sharedCaseGen,
-	sharedCertified,
-	sharedInput
+	sharedCertified
 } from "#test/unit/analysis/isolation/certify.fixtures.ts"
+import { sharedRead } from "#test/unit/analysis/isolation/placed-reads.fixtures.ts"
 
 type Situation = "a read of a query CTE taking one mode at two instances" | "a case of no such read"
 
@@ -36,31 +35,6 @@ const placings = {
 	file: "packages/engine/src/analysis/isolation/certify.ts",
 	name: "placedRead"
 } as const
-
-/** Whether some read of a query CTE of some member of the case takes one mode at two of its instances. */
-const sharedRead = (c: Parameters<typeof sharedInput>[0]): boolean => {
-	const input = sharedInput(c, (st) => st)
-	return Arr.some(input.roles, (role) =>
-		role.writes.kind !== "served"
-			? false
-			: Arr.some(role.writes.members, (member) => {
-					const seen = new Map<string, number>()
-					for (const r of readModes(input, member)) {
-						if (r.at.cte === undefined) {
-							continue
-						}
-						const query = member.statements[r.statement]?.ctes[r.at.cte]?.query
-						const key = `${r.statement}|${query}|${r.at.read}|${r.mode}`
-						const at = seen.get(key)
-						if (at !== undefined && at !== r.at.cte) {
-							return true
-						}
-						seen.set(key, r.at.cte)
-					}
-					return false
-				})
-	)
-}
 
 /** The certifier places each read of a statement once for every mode it takes, however many instances of its query CTE read it. */
 export const theCertifierPlacesEachReadOfAStatementOnceForEveryModeItTakesHoweverManyInstancesOfItsQueryCteReadIt =
@@ -99,13 +73,28 @@ export const theCertifierPlacesEachReadOfAStatementOnceForEveryModeItTakesHoweve
 			kind: "universal",
 			name: "a bound: no more placed reads than the expansion's, fewer where a query CTE's read takes one mode at two instances"
 		},
-		kept: [],
+		kept: [
+			{
+				token: ReplayToken(
+					"test/unit/analysis/isolation/placed-reads.test.ts#theCertifierPlacesEachReadOfAStatementOnceForEveryModeItTakesHoweverManyInstancesOfItsQueryCteReadIt:-:0.0.1.0.0.1.0.0.0.0.1.0.0.0.0.1.0.0.0.0.1.0.0.0.1.0.0.1.1.2.0.0.1.0.0.0.0.1.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.1.0.0.0.0.1.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.2.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.2.0.0.1.0.0.0.0.0.0.0.0.0.0"
+				),
+				reason:
+					"TOOLTRUST's run at 3c68ea225, rotating seed 0x41ff41a9, case 45, shrunk: two instances of one query whose read binds its key to $p1 at one and $p0 at the other, two read facts, each placed",
+				since: "2026-11-24"
+			}
+		],
 		kills: [
 			{
 				file: "packages/engine/src/analysis/isolation/certify.ts",
 				original: "\t\t\t\tif (place.cte !== undefined && seen.has(key)) {\n",
 				replacement: "\t\t\t\tif (false) {\n",
 				why: "Each instance of a query CTE places its reads again, as at 218b37a8e: a read taking one mode at two instances is placed twice, as its expansion places it, and the property fails."
+			},
+			{
+				file: "test/unit/analysis/isolation/placed-reads.fixtures.ts",
+				original: "\t\t\t\t\t\tconst read = cte?.reads[r.at.read]\n",
+				replacement: "\t\t\t\t\t\tconst read = undefined\n",
+				why: "The oracle keys a read of a query CTE by its place alone, not the read fact, as it did: two instances of one query reading two facts at one place are expected placed once; the kept pair of bindings fails."
 			}
 		]
 	})
