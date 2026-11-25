@@ -1,6 +1,7 @@
 import { emptyAllenMask, parseAllenMask } from "#compiler/allen/mask.ts"
 import { allenExpr } from "#compiler/check/allen.ts"
 import { approximate } from "#compiler/check/approximate/index.ts"
+import { type Carrying, carry } from "#compiler/check/carry.ts"
 import { completeStated } from "#compiler/check/complete.ts"
 import type { CheckedNodeSpec, ScopedServices, StageScope } from "#compiler/check/context.ts"
 import { type Declared, DeclarationTable } from "#compiler/check/declarations.ts"
@@ -1145,6 +1146,8 @@ export class Checker {
 	readonly #attached = new Map<RelNode, ReadonlySet<string>>()
 	/** Each node's text digests, by the node, once read (`digestColumns`). */
 	readonly #digests = new Map<RelNode, ReadonlyMap<string, string>>()
+	/** Each stored relation's declared text digests, by its name, once read (`carrying`). */
+	readonly #declaredDigests = new Map<string, ReadonlyMap<string, string>>()
 	/** The contracts and contexts the query declares itself, each once (DuplicateIdentity). */
 	readonly #declarations = new DeclarationTable()
 	/**
@@ -3549,6 +3552,31 @@ export class Checker {
 		}
 	}
 
+	/**
+	 * `query` carrying the digest of each of its columns `columns` whose every arm's head copies a text a stored relation
+	 * declares the digest of (check/carry.ts carry), once for the compile (CheckSession `carrying`): the query a match
+	 * reads where its rule equates those columns, so the rule states the digest's equality beside the text's
+	 * (RuleCheck `#stateDigests`).
+	 */
+	carrying(query: ResolvedQuery, columns: ReadonlyArray<string>, loc: SourceLoc): Carrying {
+		return carry(
+			query,
+			columns,
+			(relation) => {
+				const known = this.#declaredDigests.get(relation)
+				if (known !== undefined) {
+					return known
+				}
+				const info = this.schema.relation(relation, loc)
+				const found =
+					info.kind === "relation" ? textDigestsOf(info.fields) : new Map<string, string>()
+				this.#declaredDigests.set(relation, found)
+				return found
+			},
+			this.options.session.carrying
+		)
+	}
+
 	/** The SHA-256 of a text, `sha256(x)`, as a declared digest field's generation computes it (ir/law.ts textDigestsOf). */
 	textDigest(text: ScalarExpr, loc: SourceLoc): ScalarExpr {
 		const op = overloadOf("sha256", ["text"])
@@ -4202,8 +4230,12 @@ class RuleCheck {
 					: undefined
 			const source =
 				series?.node ??
-				this.cx.source(match.source, this.scope, this.rule.interiors, loc, (term, param, at) =>
-					this.#bindValue(term, param, at, this.region)
+				this.cx.source(
+					this.#carried(match),
+					this.scope,
+					this.rule.interiors,
+					loc,
+					(term, param, at) => this.#bindValue(term, param, at, this.region)
 				)
 			const narrowed = this.#narrow(source, match.bindings, loc)
 			const heading = narrowed.heading
@@ -4238,6 +4270,74 @@ class RuleCheck {
 		this.#occurrences = this.#occurrences
 			.toSorted((a, b) => a.index - b.index)
 			.map((occ) => this.#withConstants(occ))
+	}
+
+	/**
+	 * The source `match` reads: where it imports a query, the query carrying the digest of each text column of it the
+	 * rule equates (Checker `carrying`): a column a match binds to a constant, or to a variable another binding of the
+	 * rule binds, or an equality or a membership of its where reads, as a negation's binding does (`#equates`). The
+	 * source as written elsewhere.
+	 */
+	#carried(match: ResolvedMatch): ResolvedSource {
+		return this.#carrying(
+			match.source,
+			entries(match.bindings).flatMap(([column, e]) => (this.#equates(match, e) ? [column] : [])),
+			match.loc
+		)
+	}
+
+	/** `source` carrying the digests of its columns `equated` where it imports a query (Checker `carrying`), else itself. */
+	#carrying(
+		source: ResolvedSource,
+		equated: ReadonlyArray<string>,
+		loc: SourceLoc
+	): ResolvedSource {
+		if ((source.kind !== "query" && source.kind !== "step") || !isNonEmpty(equated)) {
+			return source
+		}
+		const carried = this.cx.carrying(source.query, equated, loc)
+		return carried.query === source.query ? source : { ...source, query: carried.query }
+	}
+
+	/**
+	 * Whether the rule states the column `match` binds to `e` equal to a value beside its match (`#carried`): a constant
+	 * fixes it; a variable is equated where another match or another column binds it, or a condition of the where
+	 * equates it with a value as `#digestOf` reads one, or a negation or an existence binds it; a parent variable is
+	 * correlated with its parent's row, which states no digest.
+	 */
+	#equates(match: ResolvedMatch, e: ResolvedExpr): boolean {
+		if (e.kind === "parent") {
+			return false
+		}
+		if (e.kind !== "var") {
+			return true
+		}
+		const reads = (x: ResolvedExpr): boolean => x.kind === "var" && x.var === e.var
+		const binds = (m: ResolvedMatch): number =>
+			entries(m.bindings).filter(([, b]) => reads(b)).length
+		const equating = (w: ResolvedExpr): boolean => {
+			if (w.kind === "compare") {
+				return w.op === "eq" && (reads(w.left) || reads(w.right))
+			}
+			if (w.kind === "in") {
+				return reads(w.arg)
+			}
+			if (w.kind === "and") {
+				return w.args.some(equating)
+			}
+			if (w.kind === "or") {
+				return w.args.every(equating)
+			}
+			return (
+				(w.kind === "absent" || w.kind === "exists") &&
+				entries(w.bindings).some(([, b]) => reads(b))
+			)
+		}
+		return (
+			binds(match) > 1 ||
+			this.rule.matches.some((m) => m !== match && binds(m) > 0) ||
+			this.rule.where.some(equating)
+		)
 	}
 
 	#column(source: RelNode, heading: Heading, column: string, loc: SourceLoc): HeadingColumn {
@@ -5043,8 +5143,16 @@ class RuleCheck {
 		correlate: Correlate
 	): RelNode {
 		const source = this.#narrow(
-			this.cx.source(filter.source, this.scope, this.rule.interiors, loc, (term, param, at) =>
-				this.#bindValue(term, param, at, left.id)
+			this.cx.source(
+				this.#carrying(
+					filter.source,
+					entries(filter.bindings).map(([column]) => column),
+					loc
+				),
+				this.scope,
+				this.rule.interiors,
+				loc,
+				(term, param, at) => this.#bindValue(term, param, at, left.id)
 			),
 			filter.bindings,
 			loc
@@ -5086,9 +5194,37 @@ class RuleCheck {
 					]
 				: []
 		})
-		const bindings: Array<{ readonly column: string; readonly var: VarDecl }> = []
+		/**
+		 * The digest each text the negation correlates with a column of `left` owes: the negated relation's digest of it,
+		 * correlated with the SHA-256 of that column, where the negation binds it nowhere else (`#stateDigests`), so the
+		 * negated read seeks the digest of each row's text and rechecks the text on its rows.
+		 */
+		const correlatedDigests = placed.flatMap((p) => {
+			const digest = p.kind === "correlated" ? digests.get(p.column) : undefined
+			if (
+				p.kind !== "correlated" ||
+				digest === undefined ||
+				placed.some((q) => q.kind !== "none" && q.column === digest)
+			) {
+				return []
+			}
+			const text = defined(columnOf(left.heading, p.left), "the column a negation correlates with")
+			const decl: VarDecl = Object.freeze({
+				id: this.cx.b.ids.var(),
+				name: digest,
+				type: defined(columnOf(heading, digest), "a digest field of the negated relation").type
+			})
+			return [
+				{
+					var: decl,
+					expr: this.cx.textDigest(this.cx.emit(storedColumn(left.id, text.name, text.type)), loc)
+				}
+			]
+		})
+		const bindings: Array<{ readonly column: string; readonly var: VarDecl }> =
+			correlatedDigests.map((d) => ({ column: d.var.name, var: d.var }))
 		const constants: Array<{ readonly column: string; readonly expr: ScalarExpr }> = []
-		const vars: Array<VarDecl> = []
+		const vars: Array<VarDecl> = correlatedDigests.map((d) => d.var)
 		const on: Array<{ readonly left: string; readonly right: string }> = []
 		/** Columns fixed to a value through a variable of the negated region and a filter over it. */
 		const filtered: Array<{
@@ -5121,7 +5257,7 @@ class RuleCheck {
 				vars,
 				occurrences: [{ id: occurrence, source, bindings, constants }],
 				equalities: [],
-				correlated: [],
+				correlated: correlatedDigests,
 				heading: vars.map((v) => ({ name: v.name, type: v.type }))
 			},
 			loc
@@ -5148,7 +5284,10 @@ class RuleCheck {
 						},
 						loc
 					)
-		const fixedOnly = new Set(filtered.map((f) => f.column))
+		const fixedOnly = new Set([
+			...filtered.map((f) => f.column),
+			...correlatedDigests.map((d) => d.var.name)
+		])
 		const rightOut = regionOut.filter((c) => !fixedOnly.has(c.name))
 		const right = this.cx.node(
 			{

@@ -411,8 +411,10 @@ suite's residual risk. A longer search is a fuzz run, `pnpm fuzz <suite>`.
   - **Only a field whose real data does not fit spills to an explicit digest**: a field the author declares beside it,
     `generated(sha256, Crypto.sha256(row.text))`, SHA-256's raw 32 bytes, which the key holds like any other field.
     grizzle states the digest's equality wherever a read states the text's (check/checker.ts `#stateDigests`), so the
-    read seeks by the digest and rechecks the text. The digest's cost stands in the schema, where its author chose
-    it; grizzle never derives one.
+    read seeks by the digest and rechecks the text, and a query whose head copies the text carries the declared digest
+    beside it, by lineage, wherever its reader equates the text (check/carry.ts): the carried column is the relation's
+    own digest field, never one grizzle computes. The digest's cost stands in the schema, where its author chose it;
+    grizzle never derives one.
   - **Never md5.** Every digest grizzle and its tests compute is SHA-256. md5 stands only where an outside system
     defines the digest (an integration's own, such as Timeback's), never in grizzle.
 

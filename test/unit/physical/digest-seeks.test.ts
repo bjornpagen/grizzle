@@ -3,25 +3,31 @@
  * digest of it is refused (README "Keys and indexes"). Over a relation T(k, g, t) keyed by k, its text `t` of no byte
  * bound, which declares `h = Crypto.sha256(t)` where a case draws it, and a served read of T that states `t` equal to a
  * value in a drawn form (a literal or a parameter its match binds, an equality, with a value of t's type or of another
- * text type, or a membership its where states, an
- * equality with another match's text, one variable another match's text binds, a negation's literal or parameter, a
- * parameter it binds the text to through a query of T that delivers the text and its digest), binding T's key k besides
- * where a case draws it:
+ * text type, or a membership its where states, an equality with another match's text, one variable another match's
+ * text binds, a negation's literal or parameter, a parameter it binds the text to through a query of T that delivers
+ * the text and its digest; and, by the digest's lineage, through queries that deliver the text and never its digest
+ * (check/carry.ts): a parameter through one, a literal through one over a query that delivers both, one variable S's
+ * text and two such queries bind, one variable S's text of another type and a chain of two such queries over one that
+ * delivers both bind, and a negation's correlation of S's text with T's or with one such query's), binding T's key k
+ * besides where a case draws it:
  *
  * - a read that binds k reads one row by T's key, its text rechecked on it: it installs, and no index is created on T;
  * - otherwise, where T declares h, the read binds h wherever it binds t (check/checker.ts RuleCheck `#stateDigests`,
- *   a join by one variable split into a filter's equality by `#splitDigestedJoins`), and the one index created on T holds
- *   h and never t, which its comment names as filtered beside it;
+ *   a join by one variable split into a filter's equality by `#splitDigestedJoins`, a negation's correlation by
+ *   `#relational`, each query between them carrying h beside t), and the one index created on T holds h and never t,
+ *   which its comment names as filtered beside it;
  * - where T declares no digest, the installation is refused as UnrepresentableKey (KeyFault `undigestedText`) naming t
  *   and no digest.
  *
  * Oracle: the rule restated: no B-tree entry holds a text of no byte bound, a digest of 32 bytes is one any entry holds,
- * and a read by a key reads one row.
+ * and a read by a key reads one row. Kept: the shapes of the consumer reads refused at 710c2d1d3, pantry's law probes
+ * of a branch rule's target and the ledger's three reads of a test part's submission mode, and pantry's Head negation.
+ * test/pg/reads/digest-seeks.test.ts holds the forms' rows to the undigested model on PostgreSQL.
  */
 
 import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
-import { type Case, property } from "@bjornpagen/testing/property"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, String as Str } from "effect"
 import { refused, refusedKeys, succeeded } from "#test/support/assert.ts"
 import {
@@ -51,6 +57,12 @@ export const aLookupThatBindsATextOfNoByteBoundByEqualitySeeksByItsDeclaredDiges
 			"a negated literal",
 			"a negated parameter",
 			"an imported text",
+			"a carried parameter",
+			"a carried literal",
+			"a carried join",
+			"a carried join of another text type",
+			"a correlated negation",
+			"a carried negation",
 			"sought by its digest",
 			"refused undigested",
 			"read by its key"
@@ -110,7 +122,32 @@ export const aLookupThatBindsATextOfNoByteBoundByEqualitySeeksByItsDeclaredDiges
 			kind: "specification",
 			name: "README's lookup rule: no B-tree entry holds a text of no byte bound; a lookup binding one by equality seeks by its declared 32-byte digest, reads one row by a key, or is refused"
 		},
-		kept: [],
+		kept: [
+			{
+				token: ReplayToken(
+					"test/unit/physical/digest-seeks.test.ts#aLookupThatBindsATextOfNoByteBoundByEqualitySeeksByItsDeclaredDigestAndOneThatBindsNoDigestOfItIsRefused:-:d.0"
+				),
+				reason:
+					"pantry's law probes of a branch rule's target (laws BranchResolution in ResolvedBranchRule and ResolvedBranchRule in ForwardBranchRule, qti-pie 5fab9435): Attribute(package, kind, name, start, value) probed by a Named identifier, a text of another type, joined to the target branchResolutionRows delivers through namingBranchRuleRows from attributeValues, which alone delivers valueDigest; refused undigestedText at 710c2d1d3",
+				since: "2026-11-24"
+			},
+			{
+				token: ReplayToken(
+					"test/unit/physical/digest-seeks.test.ts#aLookupThatBindsATextOfNoByteBoundByEqualitySeeksByItsDeclaredDigestAndOneThatBindsNoDigestOfItIsRefused:-:b.0"
+				),
+				reason:
+					'the ledger\'s result_suite reads answerTestItem, deliveredTestsOf and takeGuarded (qti-pie 5fab9435, member-controls.ts): TestPart matched at submission "individual", the mode testPartRows delivers from attributeValues without its digest, which Attribute(kind, name, package, path, value), (kind, name, package, value) and (kind, name, value) read by; refused undigestedText at 710c2d1d3',
+				since: "2026-11-24"
+			},
+			{
+				token: ReplayToken(
+					"test/unit/physical/digest-seeks.test.ts#aLookupThatBindsATextOfNoByteBoundByEqualitySeeksByItsDeclaredDigestAndOneThatBindsNoDigestOfItIsRefused:-:f.0"
+				),
+				reason:
+					"pantry's Head (lom.ts): a lesson's package no package of the lesson claims, r.not(lessonClaims, { catalog, earlier, entry }), its catalog and entry correlated with the lesson's, texts lessonClaims delivers from Node.stringValue without stringValueDigest",
+				since: "2026-11-24"
+			}
+		],
 		kills: [
 			{
 				file: "packages/engine/src/check/checker.ts",
@@ -130,6 +167,27 @@ export const aLookupThatBindsATextOfNoByteBoundByEqualitySeeksByItsDeclaredDiges
 				original: "\t\tthis.#filters = [...this.#filters, ...this.#splitDigestedJoins(loc)]",
 				replacement: "\t\tthis.#filters = [...this.#filters]",
 				why: "A join by one variable on a digested text states no digest: the variable's column is the one value at either match, so `h = sha256(x)` cannot be read from the other match, and the read binds t alone and is refused though T declares h."
+			},
+			{
+				file: "packages/engine/src/check/checker.ts",
+				original:
+					'\t\tif ((source.kind !== "query" && source.kind !== "step") || !isNonEmpty(equated)) {',
+				replacement: "\t\tif (true) {",
+				why: "No query carries the digest of the text it copies (check/carry.ts): a read that binds T's text through a query that delivers it without its digest binds the text alone, its parameter, literal, join or negation stating no digest, and is refused though T declares h."
+			},
+			{
+				file: "packages/engine/src/check/carry.ts",
+				original: "\tconst carried = carry(source.query, [text], digests, memo)",
+				replacement:
+					"\tconst carried = { query: source.query, digests: new Map<string, string>() }",
+				why: "A query carries the digest of a text it copies only from a stored relation, never through a query it matches: a read of T's text through two such queries binds the text alone and is refused though T declares h."
+			},
+			{
+				file: "packages/engine/src/check/checker.ts",
+				original:
+					'\t\t\tconst digest = p.kind === "correlated" ? digests.get(p.column) : undefined',
+				replacement: "\t\t\tconst digest = undefined",
+				why: "A negation that correlates T's text with a column of the rule's region states no digest: its negated read binds T's text alone, by the correlation, and is refused though T declares h."
 			},
 			{
 				file: "packages/engine/src/ir/law.ts",

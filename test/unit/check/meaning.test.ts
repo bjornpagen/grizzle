@@ -64,8 +64,8 @@ export const theBuilderAndTheCheckerGiveEveryGeneratedQueryReadTheMeaningItsProg
 			},
 			{
 				file: "packages/engine/src/check/checker.ts",
-				original: "\t\t\t\tthis.#bindValue(term, param, at, left.id)",
-				replacement: "\t\t\t\tthis.#bindValue(term, param, at, this.region)",
+				original: "\t\t\t\t(term, param, at) => this.#bindValue(term, param, at, left.id)",
+				replacement: "\t\t\t\t(term, param, at) => this.#bindValue(term, param, at, this.region)",
 				why: "A negated import's bind values read the rule's region rather than the node the negation is over, which a filter stands between; the floor stream fails at a negated import bound to an outer variable beside a filter."
 			}
 		]

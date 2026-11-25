@@ -2075,10 +2075,13 @@ Each type has one name, the one PostgreSQL prints for it: `pg.integer`, never `i
   match's constant or parameter, a variable another match binds, `Logic.eq` or `Logic.in` in its where with a term of
   its other values, or a negation's constant, grizzle states the digest equal to that value's `Crypto.sha256` too, which
   the digest's generation makes true of every such row, so the lookup's index holds the digest and the read rechecks the
-  text on the rows of that digest alone; through a query, the digest is stated where the query delivers it beside the
-  text. A lookup that binds such a text and no digest of it, a relation that declares none or a text reached through a
-  query that delivers it without its digest, is `UnrepresentableKey` naming the field and the digest
-  (`undigestedText`), unless its other equalities bind a key, which reads one row. A bounded text too wide for the entry
+  text on the rows of that digest alone. Through a query the digest goes by lineage: a query whose head copies the text,
+  delivering it as its relation stores it, carries the declared digest beside it wherever its reader equates the text,
+  through every query between them, and a negation that correlates the text with a column of its reader states the
+  digest equal to that column's `Crypto.sha256`; only the digest the relation declares is carried, never one grizzle
+  computes. A lookup that binds such a text and no digest of it, a relation that declares none, or a text a query's
+  head computes rather than copies, is `UnrepresentableKey` naming the field and the digest (`undigestedText`), unless
+  its other equalities bind a key, which reads one row. A bounded text too wide for the entry
   beside the lookup's other columns is a filter beside the index, never a column of it, and a text it orders, ranges or
   matches a prefix by needs the byte bound. `keyTextBytes(fields)` is the most bytes a text holds as itself beside
   `fields`, the index's other columns, in every index grizzle plans over them, in any order, any of them a hidden

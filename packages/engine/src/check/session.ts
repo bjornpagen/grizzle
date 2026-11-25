@@ -1,3 +1,4 @@
+import type { Carrying, CarryingMemo } from "#compiler/check/carry.ts"
 import type { ClosedImport, QueryRead } from "#compiler/check/checker.ts"
 import type { Resolved, ResolvedQuery } from "#compiler/check/params.ts"
 import type { SchemaReading } from "#compiler/check/schema.ts"
@@ -167,6 +168,26 @@ export class CheckSession {
 		const imports = new Map<string, ClosedImport>()
 		this.#imports.set(schema, imports)
 		return imports
+	}
+
+	readonly #carried = new WeakMap<ResolvedQuery, Map<string, Carrying>>()
+
+	/**
+	 * The query `query` carrying the digest of its column `column` (check/carry.ts CarryingMemo), `build`'s at the
+	 * compile's first reader of it, the same object at every other, so the carried query has one place among the objects
+	 * import keys name (`place`), and so one key and one node, as the query it carries the digest of has.
+	 */
+	readonly carrying: CarryingMemo = (query, column, build) => {
+		const known = this.#carried.get(query)
+		const found = known?.get(column)
+		if (found !== undefined) {
+			return found
+		}
+		const built = build()
+		const at = known ?? new Map<string, Carrying>()
+		at.set(column, built)
+		this.#carried.set(query, at)
+		return built
 	}
 
 	/** `o`'s place among the objects import keys name. */
