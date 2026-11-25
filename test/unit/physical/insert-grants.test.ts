@@ -20,7 +20,9 @@
  * - **A program beyond its grants is refused when it compiles:** the ChangeSet compiled for the role is the control's
  *   compilation wherever the control is refused, and wherever no statement of the control's program updates or
  *   deletes from a table the rule grants the role no UPDATE or DELETE on; otherwise it is `OutsideRole` at the role,
- *   naming such a table's relation and operation. An admitted program is the control's, statement for statement.
+ *   naming such a table's relation and operation. An admitted program is the control's, statement for statement, save
+ *   each UPDATE's anchor (sql/generation.ts), a column it assigns its own value, chosen among the columns its updater
+ *   may assign, which the role's grants decide and grizzle widens none for.
  * - **Never a defect:** every drawn program of a role compiles or is refused with a CompileError, and never throws. The
  *   kept case is the one that found familyProgram reading a family owner from the role's own schema (CLOSED-B-00b): a
  *   role writing a mutable owner through a query entry, whose ChangeSet inserts another owner and puts the entry in one
@@ -68,6 +70,7 @@ import {
 	rulePrivileges,
 	schemaOf,
 	sortedPrivileges,
+	anchorlessStatementsOf,
 	statementsOf,
 	tablePrivileges,
 	type InsertWorld,
@@ -288,8 +291,8 @@ export const rolesThatWriteEachRelationUnderItsListTheDeclarationItsGrantsAndThe
 					c.note("an admitted program")
 					assert.ok(program.ok, program.ok ? "" : program.error.message)
 					assert.deepEqual(
-						statementsOf(program.value),
-						statementsOf(controlProgram.value),
+						anchorlessStatementsOf(program.value),
+						anchorlessStatementsOf(controlProgram.value),
 						"an admitted program is the control's"
 					)
 					return
@@ -337,9 +340,25 @@ export const rolesThatWriteEachRelationUnderItsListTheDeclarationItsGrantsAndThe
 				reason:
 					"a put through a query entry over a mutable family owner under the write list, beside an owner's insertion",
 				since: "2026-11-10"
+			},
+			{
+				token: ReplayToken(
+					"test/unit/physical/insert-grants.test.ts#rolesThatWriteEachRelationUnderItsListTheDeclarationItsGrantsAndTheRefusalOfProgramsBeyondThem:-:0.0.0.0.0.0.0.0.0.0.2.1.0.0.0.1.0.0.0.0.1.1.0.1.1.2.0"
+				),
+				reason:
+					"TOOLTRUST's sync at faa39c3c1: a put of a mutable owner whose counted member the role inserts, whose UPDATE carries the control's anchor on the count and none of the role's",
+				since: "2026-11-25"
 			}
 		],
 		kills: [
+			{
+				file: "packages/engine/src/sql/generation.ts",
+				original:
+					"\t\t: brand([...set, { column: anchor.column, value: col(target, anchor.column) }])\n",
+				replacement:
+					"\t\t: brand([...set, { column: anchor.column, value: col(target, set[0].column) }])\n",
+				why: "An UPDATE's anchor assigns another column's value, not its own (sql/generation.ts assignments), so it changes the row: the control's put of the owner differs from the role's, which carries no anchor."
+			},
 			{
 				file: "packages/engine/src/physical/ddl/roles.ts",
 				original: '\t\t\treturn ["SELECT", "INSERT"]',

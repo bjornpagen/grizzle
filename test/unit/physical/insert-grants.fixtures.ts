@@ -39,7 +39,9 @@ import {
 import { str } from "#compiler/public/text.ts"
 import { installationsOf, ownLogin, rostersOf } from "#compiler/schema/own.ts"
 import { loginDescOf, roleBuilder as role } from "#compiler/schema/world.ts"
-import type { CteBody, SqlStatement, TableName } from "#compiler/sql/ast.ts"
+import type { CteBody, Insert, SqlStatement, TableName, Update } from "#compiler/sql/ast.ts"
+import { type Assignments, assignments, ungenerated } from "#compiler/sql/generation.ts"
+import { identityHooks, Transform } from "#compiler/sql/transform.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
 import type { EntryValue } from "#compiler/types/schema/world.ts"
 import { changeSetOver, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
@@ -664,3 +666,54 @@ export const compiledOrRefused = (
 export const statementsOf = (program: {
 	readonly artifact: { readonly statements: ReadonlyArray<{ readonly ast: SqlStatement }> }
 }) => Arr.map(program.artifact.statements, (st) => st.ast)
+
+/** `set` with its anchor taken out: an assignment of a column to its own value at `target`, `"c" = "<target>"."c"`. */
+const withoutAnchor = (set: Assignments, target: string): Assignments => {
+	const kept = Arr.filter(
+		set,
+		(a) => !(a.value.kind === "column" && a.value.table === target && a.value.column === a.column)
+	)
+	return assignments(ungenerated, target, isNonEmpty(kept) ? kept : set)
+}
+
+/**
+ * A statement with every UPDATE's anchor taken out of its SET list (sql/generation.ts assignments): the column an UPDATE
+ * that feeds no stored generated column assigns to itself, `"c" = "<target>"."c"`, so PostgreSQL keeps its generation
+ * expressions built, chosen among the columns its updater may assign, so a role's grants decide it and grizzle widens
+ * none for it. It changes no row, so two programs that differ by it alone are one program; any other assignment, one
+ * that assigns another value, stays.
+ */
+class Anchorless extends Transform {
+	constructor() {
+		super(identityHooks)
+	}
+
+	override update(u: Update): Update {
+		const rebuilt = super.update(u)
+		return { ...rebuilt, set: withoutAnchor(rebuilt.set, rebuilt.alias) }
+	}
+
+	override insert(i: Insert): Insert {
+		const rebuilt = super.insert(i)
+		const conflict = rebuilt.onConflict
+		const alias = rebuilt.alias
+		return alias !== undefined &&
+			conflict?.kind === "columns" &&
+			conflict.action.kind === "doUpdate"
+			? {
+					...rebuilt,
+					onConflict: {
+						...conflict,
+						action: { ...conflict.action, set: withoutAnchor(conflict.action.set, alias) }
+					}
+				}
+			: rebuilt
+	}
+}
+
+/** A program's statements as `statementsOf` reads them, each UPDATE's anchor taken out (`Anchorless`): what two roles'
+ * compilations of one program share, whatever columns each may assign. */
+export const anchorlessStatementsOf = (
+	program: Parameters<typeof statementsOf>[0]
+): ReadonlyArray<SqlStatement> =>
+	Arr.map(statementsOf(program), (st) => new Anchorless().statement(st))
