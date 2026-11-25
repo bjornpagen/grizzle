@@ -73,6 +73,7 @@ import {
 	orderSchemaOf,
 	schemaOf,
 	tableKey,
+	aggregatesBeside,
 	looseJoins,
 	tableReads,
 	type UnitFeature,
@@ -286,7 +287,10 @@ export const aLawsFullViolationQueryRunsEachRulesCheckInValidateAfterEveryPrimar
  * defines One's kind. Never is a relation read whole for
  * the document and joined to the others by PostgreSQL's estimates, which follow-up 4's known_operand_base_key, reading
  * Expression twice inside its count, and expression_node_in_unknown_operand_base, negating UnknownOperandBase's two
- * rules over the operands' join, were.
+ * rules over the operands' join, were. And the key's count is computed at its judged region row's document alone
+ * (analysis/theory/navigate.ts boundInside, the match's bindings held inside the aggregate's import), never again for
+ * every document the transaction wrote at each row of the region, which only then keeps the row's own: a judge of U
+ * documents computed U² counts, every step of each still a lookup by what the steps before it bound.
  */
 export const aUnitLocalRulesJudgeAndCheckReadEachStepByWhatTheStepsBeforeItBoundAnAggregatesImportAndANegatedUnionAsMuchAsItsOwnMatches =
 	property.exhaust(finite(unitCaseGen), {
@@ -333,6 +337,11 @@ export const aUnitLocalRulesJudgeAndCheckReadEachStepByWhatTheStepsBeforeItBound
 						0,
 						"every step of a judged statement but its region's looks its table up by a value before it"
 					)
+					assert.equal(
+						aggregatesBeside(statement.query),
+						0,
+						"no aggregate of a judged statement is computed again for each row of a source beside it, its import read at its region row's unit alone"
+					)
 					k.note("a judged statement")
 				}
 			}),
@@ -353,7 +362,7 @@ export const aUnitLocalRulesJudgeAndCheckReadEachStepByWhatTheStepsBeforeItBound
 				file: "packages/engine/src/analysis/theory/navigate.ts",
 				original: "\t\tconst inside = boundInside(source, m.bindings, fixed, columns)",
 				replacement: "\t\tconst inside = source",
-				why: "An aggregate's import is navigated apart from the unit its groups are bound to, the binding left outside the aggregate, so its chain's first step reads every Op row once per unit, as follow-up 4's known_operand_base_key read every expression once per document; it fails the key's case."
+				why: "An aggregate's import is navigated apart from the unit its groups are bound to: the judged statement computes Known's count over the key set of every unit the transaction wrote at each row of its region and keeps the row's unit after, U units' imports at each of U rows, every step still a lookup by what the steps before it bound; it fails the key's case."
 			},
 			{
 				file: "packages/engine/src/analysis/theory/navigate.ts",

@@ -96,6 +96,17 @@ const readsOf = (e: InferredExpr): ReadonlySet<string> => varsOf(e, new Set())
 const keyedTerm = (e: InferredExpr): boolean => readsOf(e).size > 0 || leavesOf(e).params.length > 0
 
 /**
+ * `e` read through each relabel of it: `Type.base(x)` is x's own datum under its base type (scalar/compute/typing.ts
+ * restates its operand's type and keeps its representation), so an equality of a term with `Type.base(x)` fixes x as
+ * one with x does, and PostgreSQL seeks x's column by it, a domain's value compared under its base type a binary
+ * coercion its index matching reads through. qti-pie's LinearPresentations equates the after member's prior with
+ * `Type.base(place)` of the member before it: read as no binding, the member's MemberPlace stood at (child, stage)
+ * alone beside its TestPresented, the tie went to the written order, and the judge of a presentation read every
+ * presentation of its sitting before the one place its key (child, stage, place) holds (metis's FASTMATH, 2026-11-25).
+ */
+const relabeled = (e: InferredExpr): InferredExpr => (e.kind === "base" ? relabeled(e.arg) : e)
+
+/**
  * The subject and suffix of a suffix test, `endsWith(x, t)` or `endsWith(x, t) = true` (Text.endsWith), whose subject
  * is a variable: what a read binding `x` is sought by once `t` is known, the B-tree on its column's suffix key serving
  * it (sql/suffix.ts), as an equality's term keys the column it binds.
@@ -1232,10 +1243,11 @@ class Navigator {
 			const out = new Map<string, boolean>()
 			for (const c of pending) {
 				if (c.kind === "compare" && c.op === "eq") {
-					for (const [v, term] of [
+					for (const [side, term] of [
 						[c.left, c.right],
 						[c.right, c.left]
 					] as const) {
+						const v = relabeled(side)
 						if (v.kind === "var" && isKnown(term)) {
 							out.set(v.var, out.get(v.var) === true || keyedTerm(term))
 						}

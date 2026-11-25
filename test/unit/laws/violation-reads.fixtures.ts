@@ -451,6 +451,45 @@ export const unboundSteps = (query: OperandSelect, stored: ReadonlySet<string>):
 			!Arr.some(Arr.fromIterable(columnTables(step)), (t) => !aliasesOf(step).has(t))
 	).length
 
+/** Whether `query` holds a core that groups its rows (GROUP BY), at any depth: an aggregate. */
+const aggregates = (query: OperandSelect): boolean =>
+	Arr.some(queriesOf(query), (q) => Arr.some(bodyCores(q.body), (core) => core.groupBy.length > 0))
+
+/**
+ * The cores of a query read once per row of a source outside them (inside a LATERAL derived table or a sublink, as
+ * `perRowSteps` finds them) that read an aggregate (`aggregates`) beside a source before it in their FROM: each row of
+ * that source computes the aggregate's import again, at each row around the core. Navigated at the bindings of the
+ * match that reads it (analysis/theory/navigate.ts boundInside), an aggregate's import is read at the unit of its
+ * region's row, its groups that unit's alone; navigated apart from them, a judged statement computed it over the key
+ * set of every unit the transaction wrote at each row of its region, then kept the row's unit: U units' imports at each
+ * of U rows where one each suffices, its every step still a lookup by what the steps before it bound.
+ */
+export const aggregatesBeside = (query: OperandSelect): number => {
+	const roots: Array<OperandSelect> = []
+	visitSelect(query, {
+		...inertVisitor,
+		fromItem: (item) => {
+			if (item.kind === "derived" && item.lateral) {
+				roots.push(item.query)
+			}
+		},
+		expr: (e) => {
+			if (e.kind === "exists" || e.kind === "subquery") {
+				roots.push(e.query)
+			}
+		}
+	})
+	const cores = new Set(
+		Arr.flatMap(roots, (root) => Arr.flatMap(queriesOf(root), (q) => bodyCores(q.body)))
+	)
+	return Arr.filter([...cores], (core) =>
+		Arr.some(
+			sourcesOf(core).slice(1),
+			(source) => source.kind === "derived" && aggregates(source.query)
+		)
+	).length
+}
+
 export type MigrationFeature =
 	| "a key kept"
 	| "a key's index built before the check, attached after it"
