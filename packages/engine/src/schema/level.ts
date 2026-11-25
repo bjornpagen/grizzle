@@ -5,7 +5,6 @@ import {
 	isLevelOf,
 	levelRelations,
 	type SchemaContent,
-	sameLevel,
 	sameRoleLevel
 } from "#compiler/schema/levels.ts"
 import { ownedEntryOf } from "#compiler/schema/protocol.ts"
@@ -65,16 +64,14 @@ export const relationsOfLevel = (level: Level): ReadonlyMap<string, RelationDesc
  * it and every fragment one of those lists (`LevelsOf`). A rule over S matches a query written over any level of S, and
  * a ChangeSet over S accepts members and read-backs written over any level of S. A level is its content, not its name,
  * by the one level check every entry point shares, `isLevelOf`; two roles are one level when they are one Description
- * over one base (`sameRoleLevel`); a fragment's one level is itself, and a role's levels hold a fragment of its base it
- * holds every relation of whole. */
+ * over one base (`sameRoleLevel`); a fragment's levels are itself and the empty level (levels.ts emptyLevel), and a
+ * role's levels hold a fragment of its base it holds every relation of whole and, as its whole level's, the empty level. */
 export const isLevelOver = (lower: Level, higher: Level): boolean => {
 	if (higher.kind !== "role") {
 		if (lower.kind === "role") {
 			return false
 		}
-		return higher.kind === "fragment"
-			? sameLevel(lower.content, higher.content)
-			: isLevelOf(lower.content, higher.content)
+		return isLevelOf(lower.content, higher.content)
 	}
 	switch (lower.kind) {
 		case "role":
@@ -82,7 +79,7 @@ export const isLevelOver = (lower: Level, higher: Level): boolean => {
 		case "fragment":
 			return isLevelOf(lower.content, higher.base) && unheldOf(lower.content, higher) === undefined
 		case "schema":
-			return higher.whole !== undefined && isLevelOf(lower.content, higher.whole)
+			return isLevelOf(lower.content, higher.whole)
 	}
 }
 

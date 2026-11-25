@@ -167,9 +167,10 @@ export const parseBuiltSchema = (
 /**
  * How a value built over `carried` relates to `named`, the schema it is compiled against: one of its levels (reality
  * over a level of itself by content or a fragment it lists, schema/levels.ts isLevelOf, the one level check; a role over
- * itself; a full role over a level of its base, whose every relation it holds whole; a role over a fragment of its base
- * whose every relation it holds whole); a level or a fragment of the base of a role that holds not every relation of it
- * whole, whose program reads relations outside the role (`access`); or neither.
+ * itself; a role over a level of its base whose every relation it holds whole, the empty level among them, which every
+ * role holds; a role over a fragment of its base whose every relation it holds whole); a level or a fragment of the base
+ * of a role that holds not every relation of it whole, whose program reads relations outside the role (`access`); or
+ * neither.
  */
 type Level =
 	| { readonly kind: "level" }
@@ -200,8 +201,7 @@ const levelOf = (carried: Over, named: SchemaInput): Level => {
 			? level
 			: outside({ kind: "read", relation: unheld, base: named.desc.base.name })
 	}
-	const whole = named.level.whole
-	return whole !== undefined && isLevelOf(carried.content, whole)
+	return isLevelOf(carried.content, named.level.whole)
 		? level
 		: outside({ kind: "wholeBase", base: named.desc.base.name })
 }
@@ -234,7 +234,7 @@ export const levelSchema = (
 			return Result.err(
 				malformedDescription(
 					loc,
-					"a value built over a level of the schema it is compiled against (the schema itself, one its extends chain reaches or a fragment one of those lists, or the base of a role that holds every relation of it whole, or a fragment of it the role holds whole); its schema is none of them"
+					"a value built over a level of the schema it is compiled against (the schema itself, one its extends chain reaches, a fragment one of those lists or the empty level, or the base of a role that holds every relation of it whole, or a fragment of it the role holds whole); its schema is none of them"
 				)
 			)
 	}

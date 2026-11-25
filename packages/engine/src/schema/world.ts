@@ -34,6 +34,7 @@ import {
 } from "#compiler/ir/desc.ts"
 import { writableEntry } from "#compiler/schema/entry.ts"
 import {
+	emptyLevel,
 	isLevelOf,
 	levelRelations,
 	type SchemaContent,
@@ -116,9 +117,10 @@ export interface RoleLevel {
 	 * The highest level of its base the role holds, every relation of that level and of every level below it whole or
 	 * scoped under its own name but the closed and derived relations: programs over that level and every level below
 	 * it run on the role, each over its scoped relations' owner's rows (program/slice.ts). Its base itself for a full
-	 * role; none for a role that holds not every relation of its base's root so.
+	 * role; the empty level (levels.ts emptyLevel), which every role holds whole, for a role that holds not every
+	 * relation of its base's root so.
 	 */
-	readonly whole: SchemaContent | undefined
+	readonly whole: SchemaContent
 	readonly relations: ReadonlyMap<string, RelationDesc>
 	readonly entries: ReadonlyMap<string, RoleEntryDesc>
 	/**
@@ -142,13 +144,14 @@ export const loginDescOf = (value: unknown): LoginDesc | undefined => ownedDesc(
 /**
  * The highest level of `content`, a base's levels, every relation of which and of every level below it a role holding
  * `holds`, its whole and scoped entries, holds under its own name, but the relations no role holds (desc.ts
- * heldRelation); none when the root is not held so. `relations` is every relation of every level of the base, by name.
+ * heldRelation); the empty level below the root (levels.ts emptyLevel) when the root is not held so. `relations` is
+ * every relation of every level of the base, by name.
  */
 const wholeLevel = (
 	content: SchemaContent,
 	relations: ReadonlyMap<string, RelationDesc>,
 	holds: ReadonlySet<string>
-): SchemaContent | undefined => {
+): SchemaContent => {
 	const held = (level: SchemaContent | undefined): boolean => {
 		for (let at = level; at !== undefined; at = at.below) {
 			for (const name of at.relations.keys()) {
@@ -165,7 +168,7 @@ const wholeLevel = (
 			return at
 		}
 	}
-	return undefined
+	return emptyLevel
 }
 
 /** What a world relation value records: its name and definition, as its role's query entry. */

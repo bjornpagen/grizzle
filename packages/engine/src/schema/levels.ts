@@ -18,7 +18,8 @@ import {
 import type { RoleLevel } from "#compiler/schema/world.ts"
 
 /**
- * Schema levels: a schema is itself and every schema its extends chain reaches (LevelsOf).
+ * Schema levels: a schema is itself, every schema its extends chain reaches, and the empty level below its root
+ * (LevelsOf, emptyLevel).
  *
  * A level is its content, not its name or its declaration order: the content ownership's canonical description holds
  * (own.ts own), each level's relations by name and its statements by canonical text. A schema value's content is read
@@ -208,13 +209,21 @@ export const sameRoleLevel = (a: RoleLevel, b: RoleLevel): boolean =>
 		sameContent({ ...a.desc, base: undefined }, { ...b.desc, base: undefined }))
 
 /**
- * Whether `lower` is one of the levels of `higher`, higher itself, a level its extends chain reaches, or a fragment
- * one of those lists, compared by content whatever name places them (as types/schema/schema.ts IsLevelOf states at the
- * type level): the one level check every entry point shares (role admission of a query entry, ChangeSet building,
- * workload(...), login(...), a query's and a ChangeSet's compilation against the Db's schema, program/schema.ts
- * levelSchema). A program over a fragment reads and writes the fragment's relations alone, under the fragment's
- * statements, which a schema that lists it holds, beside none of its own that decides how they are written (schema.ts
- * fragment), so the program means there what it means over the fragment.
+ * The empty level: no relation, no statement, nothing below it, the level below every root (schema/api.ts
+ * schema.empty). It is a level of every level (isLevelOf), and a role holds it whole whatever it holds (world.ts
+ * RoleLevel whole), vacuously, so a program over it, a read of no relation, runs on every role and reads nothing the
+ * role does not hold. Every level of its content is it, whatever name a schema of no relation places it under.
+ */
+export const emptyLevel: SchemaContent = levelContent([], [], undefined, [], noDeclaredEntries)
+
+/**
+ * Whether `lower` is one of the levels of `higher`, higher itself, a level its extends chain reaches, a fragment one of
+ * those lists, or the empty level below its root (emptyLevel), compared by content whatever name places them (as
+ * types/schema/schema.ts IsLevelOf states at the type level): the one level check every entry point shares (role
+ * admission of a query entry, ChangeSet building, workload(...), login(...), a query's and a ChangeSet's compilation
+ * against the Db's schema, program/schema.ts levelSchema). A program over a fragment reads and writes the fragment's
+ * relations alone, under the fragment's statements, which a schema that lists it holds, beside none of its own that
+ * decides how they are written (schema.ts fragment), so the program means there what it means over the fragment.
  */
 export const isLevelOf = (lower: SchemaContent, higher: SchemaContent): boolean => {
 	for (let at: SchemaContent | undefined = higher; at !== undefined; at = at.below) {
@@ -222,7 +231,7 @@ export const isLevelOf = (lower: SchemaContent, higher: SchemaContent): boolean 
 			return true
 		}
 	}
-	return false
+	return sameLevel(emptyLevel, lower)
 }
 
 /**

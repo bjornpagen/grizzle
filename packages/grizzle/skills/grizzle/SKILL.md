@@ -70,6 +70,9 @@ export default defineConfig({
   a law built over a relation of a declared name other than the one declared.
 - A level's bases are a list, of one base: `schema.extend([base], ...)`. A level over several bases is not built yet,
   and a second base is refused, `Refusal<"schema.extend takes one base: a level over several bases is not built yet">`.
+- A read of no relation, a row of its parameters and constants alone, is written over `schema.empty`, the empty level
+  below every root, which every role holds whole: the role serving it holds nothing for it. Never declare an empty
+  schema or a level of no relation for it; a level that declares nothing over a base holds the base's relations.
 - A package's level over whatever base its installation hands it is a function of that base, bounded by the least
   level it reads: `<Base extends SchemaOver<typeof Qti>>(base: Base) => schema.extend([base], "Ledger", ...)`, or
   `AnySchema`, which knows no relation's name and admits no derived relation. The call checks the level over the bound;

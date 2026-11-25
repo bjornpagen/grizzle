@@ -923,13 +923,34 @@ type RecordOver<B, L> =
 			: { readonly [N in keyof B | keyof L]: N extends keyof B ? B[N] : L[N & keyof L] }
 
 /**
- * S, every schema below it, and every fragment one of them lists (FragmentsOf). A query over any of them is a query
- * over S. The recursion is as deep as the extension chain, never over relations or statements.
+ * The empty level, schema.empty's type (schema/api.ts): no relation, no statement, nothing below it, the level below
+ * every root (LevelsOf), as schema/levels.ts emptyLevel is its content. A query over it reads no relation, so it runs
+ * over every schema and on every role, which holds it whole vacuously.
+ */
+export type EmptyLevel = RootSchema<"Empty", readonly [], readonly []>
+
+/** What schema(name, relations, statements) builds (schema/api.ts rootSchema): a root level of its list and statements. */
+export type RootSchema<
+	Name extends string,
+	Relations extends ReadonlyArray<unknown>,
+	Statements extends ReadonlyArray<Statement>
+> = Schema<
+	Name,
+	Declared<Relations>,
+	StatementsByName<Statements, Declared<Relations>>,
+	never,
+	FragmentsIn<Relations>
+>
+
+/**
+ * S, every schema below it, every fragment one of them lists (FragmentsOf), and the empty level below the root
+ * (EmptyLevel). A query over any of them is a query over S. The recursion is as deep as the extension chain, never over
+ * relations or statements.
  */
 export type LevelsOf<S> = S | FragmentsOf<S> | LevelsBelow<BelowOf<S>>
 
-/** LevelsOf the level below, none below a root schema. */
-type LevelsBelow<B> = [B] extends [never] ? never : LevelsOf<B>
+/** LevelsOf the level below, the empty level below a root schema. */
+type LevelsBelow<B> = [B] extends [never] ? EmptyLevel : LevelsOf<B>
 
 /**
  * What a level's phantom states under K, the level it extends or the fragments it lists, read by key (PhantomOf), each

@@ -88,15 +88,15 @@ import type {
 	Declared,
 	DeclaredOnce,
 	DerivedAt,
+	EmptyLevel,
 	Extended,
 	Fragment,
-	FragmentsIn,
 	LeastOf,
 	LeastRecord,
 	LeastStated,
 	LevelsOf,
 	MutablesUnder,
-	Schema,
+	RootSchema,
 	StatementsByName,
 	StatementsOf,
 	StatementsReadBack,
@@ -403,13 +403,8 @@ const rootSchema = <
 			StatementsWithin<Statements, Declared<Relations>>
 		>,
 	...extra: ReadonlyArray<never>
-): Schema<
-	Name,
-	Declared<Relations>,
-	StatementsByName<Statements, Declared<Relations>>,
-	never,
-	FragmentsIn<Relations>
-> => schemaBuilder<Name, Relations, Statements>(name, relations, statements, extra)
+): RootSchema<Name, Relations, Statements> =>
+	schemaBuilder<Name, Relations, Statements>(name, relations, statements, extra)
 
 /**
  * schema.extend([base], name, relations, statements): a level of its own name over `base`, with relations, derived
@@ -464,9 +459,18 @@ const extend = <
 		extra
 	)
 
-export const schema: typeof rootSchema & { readonly extend: typeof extend } = Object.freeze(
-	Object.assign(rootSchema, { extend })
-)
+/**
+ * schema.empty: the empty level, no relation and no statement, the level below every root (schema/levels.ts emptyLevel,
+ * types/schema/schema.ts EmptyLevel). A query over it reads no relation, a row of its parameters and constants alone,
+ * and is a query over every level, so it runs on every role, which holds the empty level whole whatever it holds: a read
+ * of no relation is written over it, and the role serving it holds nothing for it. It installs nothing.
+ */
+const empty: EmptyLevel = rootSchema("Empty", [], [])
+
+export const schema: typeof rootSchema & {
+	readonly extend: typeof extend
+	readonly empty: EmptyLevel
+} = Object.freeze(Object.assign(rootSchema, { extend, empty }))
 
 /**
  * rows(fields): the heading of the rows a declared function takes as an argument or returns: its fields, at least one,

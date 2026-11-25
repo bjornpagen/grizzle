@@ -383,7 +383,7 @@ const workloadProgram = (
 		if (over !== undefined && !levelSchema(over, built, builderLoc(label, ["programs", name])).ok) {
 			throw malformed(
 				label,
-				`program ${JSON.stringify(name)}: a program over ${built.desc.name}, a schema it extends or a fragment one of them lists, not over ${over.desc.name}`
+				`program ${JSON.stringify(name)}: a program over ${built.desc.name}, a schema it extends, a fragment one of them lists or the empty level, not over ${over.desc.name}`
 			)
 		}
 		return { name, ...found.program }
