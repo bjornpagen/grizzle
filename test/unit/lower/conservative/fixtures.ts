@@ -11,6 +11,7 @@ import {
 	type ScalarExpr,
 	type TypedLiteral
 } from "#compiler/ir/expr.ts"
+import type { GeneratedRead } from "#compiler/ir/keys.ts"
 import type { LogicalQuery, ParamDecl } from "#compiler/ir/products.ts"
 import type {
 	AggregateCallOver,
@@ -221,6 +222,15 @@ export class Q {
 	}
 
 	base(relation: RelationSpec, meta: MetaSpec): RelNode {
+		return this.generatingBase(relation, [], meta)
+	}
+
+	/** A scan of `relation` whose generated fields `generated` states, each with the fields its generation reads. */
+	generatingBase(
+		relation: RelationSpec,
+		generated: ReadonlyArray<GeneratedRead>,
+		meta: MetaSpec
+	): RelNode {
 		return this.b.node({
 			kind: "Base",
 			relation: relation.name,
@@ -228,7 +238,7 @@ export class Q {
 			primaryKey: nonEmptyList(relation.primaryKey, "a primary key"),
 			keys: [],
 			relationKind: "relation",
-			generated: [],
+			generated,
 			heading: relation.heading,
 			loc: undefined,
 			meta

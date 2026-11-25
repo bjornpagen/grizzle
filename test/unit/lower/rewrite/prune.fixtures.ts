@@ -4,6 +4,7 @@ import { Array as Arr } from "effect"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
 import { nodesByLabel } from "#compiler/ir/dag.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
+import type { GeneratedRead } from "#compiler/ir/keys.ts"
 import { conservativeMeta, type RelDag, type RelNode } from "#compiler/ir/rel.ts"
 import { relationalRewrites } from "#compiler/lower/optimize/demand/phases.ts"
 import { prunePass } from "#compiler/lower/optimize/prune/index.ts"
@@ -236,3 +237,26 @@ export const bindingsOf = (dag: RelDag, region: RelNode): ReadonlyArray<Readonly
 		? Arr.map(node.occurrences, (o) => Arr.map(o.bindings, (b) => b.column))
 		: []
 }
+
+/** A relation two of whose fields are generated: g from a, h from b and c. */
+export const Generating: RelationSpec = {
+	name: "Generating",
+	heading: heading(
+		["id", T.int4],
+		["a", T.int4],
+		["b", T.int4],
+		["c", T.int4],
+		["g", T.int4],
+		["h", T.int4]
+	),
+	primaryKey: ["id"]
+}
+
+/** Generating's generations, each field with the fields its generation reads. */
+export const generations: ReadonlyArray<GeneratedRead> = [
+	{ field: "g", reads: ["a"] },
+	{ field: "h", reads: ["b", "c"] }
+]
+
+/** The columns of Generating a query may read beside its key. */
+export const generatingColumns = ["a", "b", "c", "g", "h"] as const

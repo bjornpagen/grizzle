@@ -8,21 +8,36 @@
  * Oracle: the rule's statement as a checker over exhaustive planted spaces (a specification), the reference evaluator's
  * delivery (a second implementation).
  *
- * Features: an aggregate dropped and every aggregate delivered; each reader over each stage.
+ * And the last prune, which narrows the sources too (sourcePrunePass), narrows a stored relation's scan to a heading its
+ * keys and generations name alone: a generated field whose generation reads a column the scan drops is no generation
+ * of the narrowed scan, whose logical analysis reads each one's reads as the determinants of its field
+ * (logical/closure.ts determinantsAt). Oracle: the narrowed scan's statement, every key and generation over its heading,
+ * and the logical analysis of the narrowed query, which refuses one that names a column the scan lacks (a
+ * specification). Kill: the generations kept whole.
+ *
+ * Features: an aggregate dropped and every aggregate delivered; each reader over each stage; a generation dropped, one
+ * kept.
  */
 
 import { assert, contains, defined, lacks } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { element, finite, subarray } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect } from "effect"
+import { Array as Arr, Effect, Record as Rec } from "effect"
+import { topoOrder } from "#compiler/ir/dag.ts"
 import { conservativeMeta } from "#compiler/ir/rel.ts"
+import { analyzeLogical, everyNode, queryEvidence } from "#compiler/logical/annotate.ts"
+import { sourcePrunePass } from "#compiler/lower/optimize/prune/index.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { Edge, Posting, Q } from "#test/unit/lower/conservative/fixtures.ts"
 import {
 	aggregateNames,
 	aggregates,
 	bindingsOf,
 	edges,
+	Generating,
+	generatingColumns,
+	generations,
 	headingOf,
 	postings,
 	pruned,
@@ -30,7 +45,7 @@ import {
 	type Reader,
 	type Stage
 } from "#test/unit/lower/rewrite/prune.fixtures.ts"
-import { rulesOf } from "#test/unit/lower/rewrite/support.ts"
+import { ledgerCatalog, passContext, rulesOf, runPasses } from "#test/unit/lower/rewrite/support.ts"
 
 /** Demand pruning keeps a fold's whole bound tuple, the key no head reads included, and drops only undemanded aggregates. */
 export const demandPruningKeepsAFoldsWholeBoundTupleTheKeyNoHeadReadsIncludedAndDropsOnlyUndemandedAggregates =
@@ -172,3 +187,72 @@ export const aPinnedNodeKeepsItsFormAndItsInputsEveryColumnThatFormReadsAStageRe
 			]
 		}
 	)
+
+/** The last prune narrows a stored relation's scan to a heading its keys and generations name alone. */
+export const theLastPruneNarrowsAStoredRelationsScanToAHeadingItsKeysAndGenerationsNameAlone =
+	property.exhaust(finite(subarray(generatingColumns)), {
+		needs: {},
+		situations: ["a generation dropped", "a generation kept"],
+		check: (_, c: Case<"a generation dropped" | "a generation kept">) => (read) =>
+			Effect.sync(() => {
+				const q = new Q()
+				const scan = q.generatingBase(Generating, generations, conservativeMeta)
+				const region = q.region([
+					{
+						source: scan,
+						bind: Rec.fromEntries(Arr.map(["id", ...read], (column) => [column, column] as const)),
+						constants: {}
+					}
+				])
+				const ran = succeeded(
+					runPasses(
+						q.build(region),
+						[sourcePrunePass],
+						passContext({ catalog: ledgerCatalog, evidence: "snapshot" })
+					)
+				)
+				const [narrowed] = Arr.flatMap(topoOrder(ran.query.dag), (node) =>
+					node.kind === "Base" && node.relationKind === "relation" ? [node] : []
+				)
+				if (narrowed === undefined) {
+					throw new Error("the narrowed scan")
+				}
+				const columns = new Set(Arr.map(narrowed.heading, (h) => h.name))
+				for (const key of [narrowed.primaryKey, ...narrowed.keys]) {
+					assert.ok(
+						Arr.every(key, (k) => columns.has(k)),
+						`a key over the heading: ${Arr.join(key, ",")}`
+					)
+				}
+				for (const g of narrowed.generated) {
+					assert.ok(
+						columns.has(g.field) && Arr.every(g.reads, (r) => columns.has(r)),
+						`a generation over the heading: ${g.field} from ${Arr.join(g.reads, ",")}`
+					)
+				}
+				c.note(
+					narrowed.generated.length < generations.length
+						? "a generation dropped"
+						: "a generation kept"
+				)
+				succeeded(
+					analyzeLogical(ran.query.dag, queryEvidence, everyNode),
+					"the narrowed query's analysis"
+				)
+			}),
+		oracle: {
+			kind: "specification",
+			name: "a narrowed scan's keys and generations name its heading's columns, and its analysis reads them"
+		},
+		box: "a scan of a relation with two generated fields, one reading one column and one two, read at its key and every subset of its other columns",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/lower/optimize/prune/index.ts",
+				original:
+					"\t\t\t\tgenerated: node.generated.filter((g) => keep(g.field) && g.reads.every(keep))\n",
+				replacement: "",
+				why: "A narrowed scan keeps every generation whole, one reading a column it dropped among them, which its analysis refuses."
+			}
+		]
+	})

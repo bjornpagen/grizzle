@@ -59,8 +59,12 @@ type Reach = "aboveSources" | "withSources"
 /**
  * A scan of a stored relation narrowed to the columns its readers demand and its primary key, so each row it delivers
  * is still one stored row, keyed as it was, and no reader's multiplicity or deduplication changes; it keeps each other
- * declared key whose columns it keeps. A view's scan, a derived relation's or a world relation's, delivers its whole
- * heading: the keys it carries (ir/rel.ts ViewBase) are proved over the view's columns and their classes together.
+ * declared key whose columns it keeps, and each generated field whose generation reads only columns it keeps, the
+ * field among them (ir/rel.ts StoredBase generated), so every key and generation it states names its heading's columns
+ * alone, where a generation reading a column it dropped named a determinant the scan does not deliver, which the logical
+ * analysis of the narrowed DAG refuses (logical/closure.ts determinantsAt). A view's scan, a derived relation's or a
+ * world relation's, delivers its whole heading: the keys it carries (ir/rel.ts ViewBase) are proved over the view's
+ * columns and their classes together.
  */
 const narrowedBase = (
 	node: KindOver<"Base", EditRefs>,
@@ -73,7 +77,12 @@ const narrowedBase = (
 	const heading = restrict(node.heading, keep)
 	return heading.length === node.heading.length
 		? undefined
-		: { ...node, heading, keys: node.keys.filter((k) => k.every(keep)) }
+		: {
+				...node,
+				heading,
+				keys: node.keys.filter((k) => k.every(keep)),
+				generated: node.generated.filter((g) => keep(g.field) && g.reads.every(keep))
+			}
 }
 
 /**
