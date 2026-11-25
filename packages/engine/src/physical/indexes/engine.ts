@@ -49,7 +49,11 @@ import type {
 	TargetField
 } from "#compiler/physical/ddl/context.ts"
 import type { KeyIndex, KeyRole } from "#compiler/physical/ddl/tables.ts"
-import { fewestSharingGroups } from "#compiler/physical/indexes/chains.ts"
+import {
+	fewestSharingGroups,
+	type OrderKey,
+	together as ordersTogether
+} from "#compiler/physical/indexes/chains.ts"
 import type { Node } from "#compiler/physical/obligations/graph.ts"
 import {
 	type DatumBound,
@@ -625,18 +629,14 @@ const sameSet = (have: ReadonlyArray<IndexKey>, want: ReadonlyArray<IndexKey>): 
 	want.every((k) => have.some((l) => sameKey(l, k))) &&
 	have.every((l) => want.some((k) => sameKey(l, k)))
 
-/**
- * Whether two lists of keys take one direction on the columns they share: each key of one in the other's direction, or
- * each opposite. An index holds an order (BlocksPlacement `directed`) when its keys and the order are together, its
- * blocks having placed the order's columns, since a B-tree scanned backward yields the exact reverse of its order; two
- * orders one index holds are together, and orders together pairwise are together all at once on any index whose leading
- * runs hold each, since each order fixes only the relative direction of keys adjacent in it, adjacent in the index too,
- * and those pairs make a path, which no two of them constrain apart (`directionsOf`).
- */
-const together = (a: ReadonlyArray<IndexKey>, b: ReadonlyArray<IndexKey>): boolean => {
-	const along = a.flatMap((k) => b.filter((l) => sameKey(l, k)).map((l) => l.dir === k.dir))
-	return along.every((same) => same) || along.every((same) => !same)
-}
+/** Whether two lists of keys take one direction on the columns they share (indexes/chains.ts `together`): an index
+ * holds an order (BlocksPlacement `directed`) when its keys and the order are together, its blocks having placed the
+ * order's columns. */
+const together = (a: ReadonlyArray<IndexKey>, b: ReadonlyArray<IndexKey>): boolean =>
+	ordersTogether(a.map(orderKeyOf), b.map(orderKeyOf))
+
+/** A key as an order's key (indexes/chains.ts OrderKey): its identity in a chain's sets, and its direction. */
+const orderKeyOf = (k: IndexKey): OrderKey => ({ key: keyIdentity(k), dir: k.dir })
 
 /** Whether an index's keys hold a placement (see `planIndexes`), over `columns`, what its relation's columns hold. */
 const placed = (index: KeyedIndex, placement: Placement, columns: Columns): boolean => {
@@ -1532,15 +1532,12 @@ interface Chain {
  */
 const chainsOf = (entries: ReadonlyArray<Chained>): ReadonlyArray<Chain> => {
 	const needed = entries.map(setsOf)
-	const apart = (i: number, j: number): boolean => {
-		const a = entries[i]?.directed
-		const b = entries[j]?.directed
-		return a !== undefined && b !== undefined && !together(a, b)
-	}
 	return fewestSharingGroups(
-		needed.map((sets) => mapNonEmpty(sets, (x) => x.members)),
-		apart
-	).map((group): Chain => {
+		needed.map((sets, at) => ({
+			sets: mapNonEmpty(sets, (x) => x.members),
+			order: entries[at]?.directed?.map(orderKeyOf)
+		}))
+	).groups.map((group): Chain => {
 		const holds = mapNonEmpty(group, (at) => defined(entries[at], "a member of a group"))
 		const distinct = new Map<string, ChainSet>()
 		for (const at of group) {
