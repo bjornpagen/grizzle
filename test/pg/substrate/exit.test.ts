@@ -77,10 +77,10 @@ export const exitsOnceItsScopesClose = property.exhaust(finite(caseGen), {
 	kept: [],
 	kills: [
 		{
-			file: "packages/grizzle/src/adapter/wire/session.ts",
+			file: "packages/grizzle/src/adapter/wire/pool.ts",
 			original: "\t\tyield* Effect.addFinalizer(() => Effect.suspend(end))\n",
 			replacement: "",
-			why: "A DbLayer's scope never ends its session pool (adapter/wire/session.ts, its end no finalizer of the layer), so a closed Db leaves its sockets holding the process open."
+			why: "A DbLayer's scope never ends its session pool (adapter/wire/pool.ts, its end no finalizer of the layer), so a closed Db leaves its sockets holding the process open."
 		}
 	]
 })

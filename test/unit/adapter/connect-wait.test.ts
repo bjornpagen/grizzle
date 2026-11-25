@@ -10,7 +10,7 @@
  * which failed P5's `grizzle migrate` on a loaded machine (one TLS connect in 16 took 15.5 s). pg's own timer, where one
  * is set, starts before the startup is sent, so a cap of that size runs out before the server answers. The attempt is
  * made over both connect paths: `grizzle migrate`'s owner session (migrate/session.ts openMigrationSession), and a Db's
- * lease from a login's pool (wire/session.ts makePool), each of which must connect.
+ * lease from a login's pool (wire/pool.ts makePool), each of which must connect.
  *
  * Oracle: the specification, a session once the server answers ready. The box is exhausted: both paths.
  * Features: each path connected.
@@ -23,7 +23,7 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Cause, Effect, Exit, Fiber } from "effect"
 import pgDriver from "pg"
 import { openMigrationSession } from "#adapter/migrate/session.ts"
-import { makePool } from "#adapter/wire/session.ts"
+import { makePool } from "#adapter/wire/pool.ts"
 import { servedSession } from "#compiler/program/served.ts"
 import { noPassword, parsedConnection } from "#test/support/pg.ts"
 import { FakeServer, wallClock } from "#test/unit/adapter/pool.fixtures.ts"

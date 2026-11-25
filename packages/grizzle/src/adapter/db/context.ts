@@ -8,7 +8,7 @@ import {
 	readFrame,
 	writeFrame
 } from "#adapter/wire/batch.ts"
-import type { SessionPool } from "#adapter/wire/session.ts"
+import type { SessionPool } from "#adapter/wire/pool.ts"
 import type { InstallationWitness } from "#adapter/witness/index.ts"
 import type { WriteExclusion } from "#compiler/plan/change.ts"
 import type { Isolation } from "#compiler/plan/common.ts"

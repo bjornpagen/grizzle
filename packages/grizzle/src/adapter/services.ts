@@ -5,7 +5,7 @@ import { Context, Effect, Tracer } from "effect"
  * What a layer does for no one caller runs under exactly these, put in place of the context of whichever caller set it
  * going (`Effect.updateContext`, which replaces, never `Effect.provideContext`, which merges, so a caller's span would
  * stay): the installation's live fan-out and its leader candidacy, which the first watch of a process starts and every
- * later watch shares (live/subscriptions.ts), a pool's connection attempt that no lease made (wire/session.ts makePool),
+ * later watch shares (live/subscriptions.ts), a pool's connection attempt that no lease made (wire/pool.ts makePool),
  * and each request an HTTP handler answers (http/handler.ts httpAnswers), which comes from outside any fiber. Each
  * outlives the build and serves every caller, so it is traced under none of their spans, the build's among them, and
  * holds no caller's services: a tracer reads such work as a root of its own, or, through a tracer bridged to the

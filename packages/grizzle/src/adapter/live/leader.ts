@@ -28,9 +28,9 @@ import {
 	type Transaction
 } from "#adapter/wire/batch.ts"
 import {
+	type LoginConnection,
 	connectReplication,
 	connectSession,
-	type LoginConnection,
 	type ReplicationFailure,
 	type ReplicationSession,
 	type Session

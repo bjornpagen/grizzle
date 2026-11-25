@@ -35,7 +35,8 @@ import type {
 import { servedHeading, servedProgram, servedSource } from "#compiler/served/read.ts"
 import { servedSpine } from "#compiler/served/spine.ts"
 import type { EmittedText } from "#compiler/sql/ast.ts"
-import { emitText } from "#compiler/sql/emit.ts"
+import * as C from "#compiler/sql/catalog.ts"
+import { emitCatalog, emitText } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 
 /**
@@ -171,10 +172,46 @@ export const servedPage = (page: PageTemplate, codes: Codebook): ServedPage => {
 const beginWrite = (isolation: Isolation): EmittedText =>
 	emitText({ kind: "beginWrite", isolation }, emptyNameMap).text
 
+const pgSettings = C.from("pg_settings", "s")
+
+/** The setting `name` as pg_settings reports it, in its unit, as text: a scalar read of its one row. */
+const settingText = (name: string): C.CatalogExpr =>
+	C.asText(
+		C.scalar(
+			C.query(
+				[pgSettings.col("setting")],
+				[pgSettings.item],
+				C.eq(pgSettings.col("name"), C.text(name))
+			)
+		)
+	)
+
+/**
+ * The read of a session's reap window (served/forms.ts ServedSession reapWindow): one row, tcp_keepalives_idle,
+ * tcp_keepalives_interval, tcp_keepalives_count and idle_session_timeout, each as pg_settings reports it over the
+ * session's own connection. Over TCP, every connection a login's session makes, pg_settings reports each keepalive
+ * setting at its effective value, the operating system's where PostgreSQL's is 0, by its show hook (REL_19_0
+ * src/backend/libpq/pqcomm.c pq_getkeepalivesidle, pq_getkeepalivesinterval, pq_getkeepalivescount), in seconds, and
+ * idle_session_timeout in milliseconds, 0 for none.
+ */
+const reapWindowRead: EmittedText = emitCatalog(
+	C.query(
+		[
+			settingText("tcp_keepalives_idle"),
+			settingText("tcp_keepalives_interval"),
+			settingText("tcp_keepalives_count"),
+			settingText("idle_session_timeout")
+		],
+		[],
+		undefined
+	)
+)
+
 /**
  * The texts every session of a login sends that its file carries, emitted now (served/forms.ts ServedSession): the
  * startup options pinning its role's defaults (physical/ddl/roles.ts loginStartupOptions), an owner's session's
- * (ownerStartupOptions), a read's BEGIN, a write's at each isolation level, and its COMMIT and ROLLBACK.
+ * (ownerStartupOptions), a read's BEGIN, a write's at each isolation level, its COMMIT and ROLLBACK, and the read of its
+ * reap window (reapWindowRead).
  */
 export const servedSession: ServedSession = {
 	startup: loginStartupOptions,
@@ -184,7 +221,8 @@ export const servedSession: ServedSession = {
 		write: { serializable: beginWrite("serializable"), readCommitted: beginWrite("readCommitted") }
 	},
 	commit: emitText({ kind: "commit" }, emptyNameMap).text,
-	rollback: emitText({ kind: "rollback" }, emptyNameMap).text
+	rollback: emitText({ kind: "rollback" }, emptyNameMap).text,
+	reapWindow: reapWindowRead
 }
 
 /** The rosters a decoder form's columns read: a closed id's and a set's. */

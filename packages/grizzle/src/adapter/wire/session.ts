@@ -57,33 +57,12 @@
  *   server's own answer or failure, as the operating system reports an unreachable host (a refused or timed-out TCP
  *   connect, a reset) and as PostgreSQL ends a startup it does not finish (authentication_timeout). A caller that
  *   answers by a deadline states it on its own call (`Effect.timeout`).
- * - Pool. The driver's own Pool, its most sessions the caller's (DbConfig.pool), which keeps every session it opened
- *   for its life: it is built with an idle timeout of 0, pg's "never" (types/driver.ts PgPoolConfig), so no session is
- *   closed for being idle, and a session's cold cost, its connection and its first plan of each statement, is paid once
- *   in the pool's life, never again after a pause between requests. It opens no session before a lease asks for one,
- *   and hands a lease the idle session released last (pg-pool's idle list is a stack), so one request at a time runs on
- *   one session. A session leaves the pool only once it is not open (State, below) or the pool ends (Release). The
- *   wait for a session is the lease's own: its ask takes one of the pool's `max`
- *   permits, or waits for one in order, before pg's Pool is asked for a client, and the permit is held until pg has
- *   that client back, so pg's Pool always has an idle client or room and never keeps a lease waiting for one, holding
- *   an ask only for the turn it takes to hand an idle client over. The lease waits, interruptibly and with no deadline
- *   of its own, only for its ask to settle: the caller's own timeout bounds it. A permit and a client move between the
- *   ask, pg's callback and the lease only in plain synchronous code, so no interruption at any step can drop one. A
- *   wait that is interrupted leaves nothing behind: a client that arrives for a lease abandoned while pg connected it
- *   goes back to the pool, and its permit with it. A lease of an ended pool is refused with LayerReleased, before pg is
- *   asked for a client.
  * - State. A session is open, retired or ended (SessionState), and moves only as sessionTransitions says: retired on an
  *   interruption with a statement in flight, a failure batch.ts cannot account for, or a transaction it could not end;
- *   ended once its connection ends, lost, ended by the server, or destroyed. A session that is not open is released
- *   with an error, so pg's Pool closes it instead of keeping it, and is counted out of the pool before its permit admits
- *   another lease.
- * - Release. The pool ends when the scope it was built in closes (a DbLayer's): pg's Pool ends, writing a Terminate to
- *   each idle session; the socket of every client still connecting, handed to a lease or leased is destroyed at once;
- *   every lease still waiting is refused with LayerReleased, whether queued for a permit or asking pg's Pool, which
- *   drops the asks it queued for an idle client when it ends and so would never answer them; and the release returns
- *   once the server has closed every other connection, which it does only once that session's backend has exited, its
- *   temporary relations dropped and the backend out of the database's (makePool), so the database can be dropped at
- *   once. That wait has no deadline: interrupting the release ends it, every connection still open destroyed.
+ *   ended once its connection ends, lost, ended by the server, or destroyed. A pool closes a session that is not open
+ *   as it is released (wire/pool.ts makePool).
+ * - Pool. A login's sessions are pooled by wire/pool.ts makePool, over the client class and the connection attempt this
+ *   module gives it (sessionClient, attemptFailed).
  */
 import { Buffer } from "node:buffer"
 import { isIP } from "node:net"
@@ -112,12 +91,10 @@ import {
 import type { ParsedConnection, ParsedTransport } from "#adapter/connection/config.ts"
 import { CredentialError } from "#adapter/errors/credential.ts"
 import {
-	type AcquireRefusal,
 	ConnectionClosed,
 	type ConnectRefusal,
 	DriverFailure,
 	DriverRefused,
-	LayerReleased,
 	ConnectionLost,
 	NoCancelKey,
 	ReplicationEnded,
@@ -127,18 +104,14 @@ import {
 	TlsRefused,
 	UnreadableAnswer
 } from "#adapter/errors/failures.ts"
-import { ownServices } from "#adapter/services.ts"
 import type {
 	PgClient,
 	PgClientConfig,
 	PgDriver,
-	PgPool,
-	PgPoolClient,
 	PgQueryConfig,
 	PgSocket,
 	PgWireMode
 } from "#adapter/types/driver.ts"
-import type { PoolBounds } from "#adapter/types/layer.ts"
 import type {
 	BatchOutcome,
 	OneShotStatement,
@@ -160,6 +133,8 @@ export interface ControlTexts {
 	readonly begin: ServedSession["begin"]
 	readonly commit: EmittedText
 	readonly rollback: EmittedText
+	/** The read of the session's reap window, also a pool's probe of a session silent past it (wire/pool.ts). */
+	readonly reapWindow: EmittedText
 }
 
 /**
@@ -215,7 +190,7 @@ const wireModeOf = (startup: Startup): PgWireMode =>
  * transport, database and password, the login role, whose session it is, installed already under the
  * connection's role space, and its transactions' control texts.
  */
-interface SessionSpec extends Omit<ParsedConnection, "roles"> {
+export interface SessionSpec extends Omit<ParsedConnection, "roles"> {
 	/** The login role. */
 	readonly role: string
 	readonly startup: Startup
@@ -378,7 +353,7 @@ const saidBy = (error: unknown): string =>
  * does not verify, a name it does not carry and a server that refuses the handshake are TLS alike. Each pool, and each
  * owner's session, keeps its own, which its clients fill (sessionClient) and its attempts' ends read (attemptFailed).
  */
-type Handshakes = WeakSet<object>
+export type Handshakes = WeakSet<object>
 
 /**
  * The class of a failed connection attempt, from what pg reported (failures.ts ConnectRefusal): the CredentialError the
@@ -417,7 +392,7 @@ const connectRefusalOf = (
 }
 
 /** The end of a failed connection attempt: a defect of the password Effect is the operation's; any other its class. */
-const attemptFailed = (
+export const attemptFailed = (
 	spec: SessionSpec,
 	handshakes: Handshakes,
 	error: unknown
@@ -437,7 +412,7 @@ const attemptFailed = (
  * function it never called (trust, peer or certificate authentication) for the client's life, and a lease's services
  * hold its Scope, which keeps its Exit, so no connected client keeps a lease's.
  */
-interface AttemptServices {
+export interface AttemptServices {
 	current: Context.Context<never>
 	readonly own: Context.Context<never>
 }
@@ -498,7 +473,7 @@ const clientConfig = (
 })
 
 /** Destroys a client's connection at once: the TLS socket pg reads, and the transport's socket under it. */
-const destroyWire = (client: PgClient, socket: PgSocket): void => {
+export const destroyWire = (client: PgClient, socket: PgSocket): void => {
 	client.connection.stream.destroy()
 	socket.destroy()
 }
@@ -648,7 +623,7 @@ export interface Session {
 	/**
 	 * The wait for the connection's end, once a Terminate is on its way: done when pg reports it ended, which for a
 	 * Terminate the server read is once the server closed it, and the server closes it only once the session's backend
-	 * has exited, its temporary relations dropped and the backend out of the database's backends (makePool). The wait
+	 * has exited, its temporary relations dropped and the backend out of the database's backends (wire/pool.ts makePool). The wait
 	 * has no deadline; interrupted, it destroys the connection (`destroy`) and ends at once.
 	 */
 	readonly closed: Effect.Effect<void>
@@ -656,7 +631,7 @@ export interface Session {
 	 * The session ended as grizzle ends every session it is done with, the one way a session ends normally: an open one
 	 * by a Terminate (pg's Client.end, which writes it and half-closes the connection), then the wait for the server's
 	 * close (`closed`); a retired or ended one destroyed, its connection unaccounted for or gone. A pool's idle sessions
-	 * are given their Terminate by pg's Pool as it ends, and their end waits for the same close (makePool).
+	 * are given their Terminate by pg's Pool as it ends, and their end waits for the same close (wire/pool.ts makePool).
 	 */
 	readonly close: Effect.Effect<void>
 	/**
@@ -960,7 +935,7 @@ interface ClientHooks {
  * error the TLS socket raises before its handshake completes joins `handshakes`, by a listener ahead of pg's, which
  * fails the attempt with it.
  */
-const sessionClient = (
+export const sessionClient = (
 	spec: SessionSpec,
 	attempt: AttemptServices,
 	handshakes: Handshakes,
@@ -996,7 +971,7 @@ const sessionClient = (
 	}
 
 /** A client end's callback that wants nothing: pg calls it once the connection has ended. */
-const terminated = (): void => undefined
+export const terminated = (): void => undefined
 
 /**
  * The wait for every one of `sessions` to close (Session closed), each a Terminate on its way, all at once and
@@ -1005,7 +980,7 @@ const terminated = (): void => undefined
  * holds, so a pool's release in a fiber already interrupted, the case of every scope an interruption closes, would
  * return with idle sessions open, their backends alive past the release.
  */
-const closedAll = (sessions: ReadonlyArray<Session>): Effect.Effect<void> =>
+export const closedAll = (sessions: ReadonlyArray<Session>): Effect.Effect<void> =>
 	Effect.all(
 		Arr.map(sessions, (session) => session.closed),
 		{ concurrency: "unbounded", discard: true }
@@ -1306,469 +1281,5 @@ export const connectReplication = (
 	)
 }
 
-/**
- * What one lease's ask for a client came to, once pg answered it: pg's client, held for the lease with its permit; or
- * its refusal, the permit back, with what the attempt failed with.
- */
-type Settled =
-	| { readonly _tag: "connected"; readonly client: PgPoolClient }
-	| { readonly _tag: "refused"; readonly failure: Effect.Effect<never, AcquireRefusal> }
-
-/**
- * Where one lease's ask for a client stands, and so who holds its permit: queued for a permit, holding none; connecting,
- * its permit given to pg's Pool, which was asked for a client and has not answered; or settled.
- */
-type AskState =
-	| { readonly _tag: "queued" }
-	| { readonly _tag: "connecting"; readonly attempt: Attempt }
-	| Settled
-
-/**
- * One lease's ask for a client. It moves only in plain synchronous code, never across a fiber's steps: the lease waits
- * for `settled` alone, interruptibly, which carries what the ask came to; an interrupted lease withdraws its ask at once,
- * without interruption, so neither a permit nor a client is ever in flight between fibers where an interruption could
- * drop it.
- */
-interface Ask {
-	state: AskState
-	/** The services of the lease the ask is for, under which its connection attempt's password runs. */
-	readonly services: Context.Context<never>
-	/** Done with what the ask came to, once it is connected or refused. */
-	readonly settled: Deferred.Deferred<Settled>
-}
-
-/**
- * The pool's permits, one for each session up to `bounds.max`, as they stand between asks: some free and no ask waiting
- * (`free`, at least one), asks waiting for one in order and none free (`waiting`, at least one), or neither
- * (`exhausted`). A free permit and a waiting ask never stand side by side: a permit that comes back goes to the first
- * ask waiting, and only when none waits is it free.
- */
-type Permits =
-	| { readonly _tag: "free"; readonly count: number }
-	| { readonly _tag: "waiting"; readonly queue: Arr.NonEmptyReadonlyArray<Ask> }
-	| { readonly _tag: "exhausted" }
-
-const exhausted: Permits = { _tag: "exhausted" }
-
-/** The permits once `asks` wait in order: waiting, or exhausted when none does. */
-const waitingFor = (asks: ReadonlyArray<Ask>): Permits =>
-	Arr.isReadonlyArrayNonEmpty(asks) ? { _tag: "waiting", queue: asks } : exhausted
-
-/** The permits with `ask` no longer among those waiting. */
-const withdrawn = (permits: Permits, ask: Ask): Permits =>
-	permits._tag === "waiting" ? waitingFor(Arr.filter(permits.queue, (w) => w !== ask)) : permits
-
-/** Who pg's answer to one request for a client is for: the ask waiting for it, or nobody once that lease left. */
-type AttemptWaiter = { readonly _tag: "waiting"; readonly ask: Ask } | { readonly _tag: "nobody" }
-
-/** One request to pg's Pool for a client, made for an ask holding a permit. */
-interface Attempt {
-	waiter: AttemptWaiter
-}
-
-const nobody: AttemptWaiter = { _tag: "nobody" }
-
-/** What an ask comes to once its pool has ended: the layer that built the pool was released. */
-const layerReleased = (): Settled => ({
-	_tag: "refused",
-	failure: Effect.fail(new LayerReleased())
-})
-
-/**
- * What pg's answer to an attempt reaches in the pool that made it (makePool): that pg answered it, so it holds its
- * permit no longer as an attempt; the way a permit goes back; the client handed to the ask waiting for it, which then
- * holds the permit until its lease takes the client; and the one settling of an ask, its state and its `settled`
- * together.
- */
-interface AttemptOwner {
-	readonly answered: (attempt: Attempt) => void
-	readonly permitBack: () => void
-	readonly handOver: (ask: Ask, client: PgPoolClient) => void
-	readonly settle: (ask: Ask, settled: Settled) => void
-}
-
-/**
- * pg's callback for one attempt. For the ask waiting for it, the client is held for the lease with its permit, or the
- * failure is the ask's and the permit goes back. When nobody waits, the lease having left or the pool having ended, the
- * client goes back to pg's Pool and the permit with it: the pool's end leaves no attempt waiting (makePool), so an
- * answer for a waiting ask always comes before it. pg keeps the callback for the client's life (the connection's
- * `connect` listener holds pg's own callback, which holds this), so it is made here, apart from any lease, and drops
- * the ask once it has answered: a connected client keeps no lease's context.
- */
-const answerAttempt =
-	(spec: SessionSpec, handshakes: Handshakes, attempt: Attempt, owner: AttemptOwner) =>
-	(error: unknown, client: PgPoolClient | undefined): void => {
-		owner.answered(attempt)
-		const waiter = attempt.waiter
-		attempt.waiter = nobody
-		if (waiter._tag === "nobody") {
-			client?.release(false)
-			owner.permitBack()
-			return
-		}
-		if (client !== undefined) {
-			owner.handOver(waiter.ask, client)
-			return
-		}
-		owner.settle(waiter.ask, {
-			_tag: "refused",
-			failure: attemptFailed(spec, handshakes, error)
-		})
-		owner.permitBack()
-	}
-
 /** Where a login's sessions connect: the driver, the transport, the database, the login role and the password. */
 export type LoginConnection = Omit<SessionSpec, "startup" | "controls">
-
-interface PoolConfig {
-	/** Where each of the pool's sessions connects. */
-	readonly connection: LoginConnection
-	/**
-	 * What every session of the login sends that no program states: the startup options pinning its role's defaults and
-	 * its transactions' control texts, its served file's (served/forms.ts ServedSession).
-	 */
-	readonly session: ServedSession
-	/** The pool's bounds (DbConfig.pool). */
-	readonly bounds: PoolBounds
-}
-
-/**
- * A pool's permits as they stand at one moment, one permit for each session up to its bounds' `max`: each free; held by
- * an ask that is no lease yet (`attempting`: an attempt pg's Pool has not answered, a left lease's among them, or a
- * client pg handed over that its lease has not taken yet); or held by a session handed to a lease and not yet released
- * (`leased`; a connection still being established is none). So free + attempting + leased is the pool's `max` at every
- * moment, and a permit that none of them holds is lost. `waiting` counts the leases queued for a permit, which wait only
- * while none is free.
- */
-export interface PoolState {
-	readonly free: number
-	readonly attempting: number
-	readonly leased: number
-	readonly waiting: number
-}
-
-export interface SessionPool {
-	readonly role: string
-	/** pg's Pool, holding the pool's bounds. */
-	readonly native: PgPool
-	/** A session for the scope. */
-	readonly lease: Effect.Effect<Session, AcquireRefusal, Scope.Scope>
-	/** Open connections: leased, idle, or still being established. */
-	readonly size: Effect.Effect<number>
-	/** The pool's permits and its waiting leases, read in one step (PoolState). */
-	readonly state: Effect.Effect<PoolState>
-}
-
-/**
- * Builds the pool in the current scope; it ends when that scope closes. A pool is a login's: each of its sessions
- * starts under the login's pinned defaults (SessionSpec startup), and is kept for the pool's life once opened, never
- * closed for being idle (see the header's Pool). pg's Pool reports an idle client that failed after it has closed and
- * dropped it, so its `error` event wants nothing. The lease's services hold only while pg constructs and starts connecting a client inside
- * `connect`, and that client keeps them only until its connection is set up.
- *
- * Its end, when the scope closes: pg's Pool ends, which writes a Terminate to each idle client, half-closes its
- * connection and refuses every later ask; the wire of every client still connecting, handed to a lease or leased is
- * destroyed; every ask still unsettled is refused with LayerReleased; and the end then waits for the server to close
- * every connection it did not destroy, an idle session's, or one a release was closing already. A backend's server
- * closes its connection only once the backend has exited: proc_exit runs the before_shmem_exit callbacks, among them
- * the drop of the session's temporary relations (REL_19_0 src/backend/catalog/namespace.c 4610
- * RemoveTempRelationsCallback), then the on_shmem_exit ones, which take the backend out of the database's backends
- * (src/backend/storage/lmgr/proc.c 554 ProcKill, 594 RemoveProcFromArray; backend_status.c 218, its pg_stat_activity
- * row), and only then the on_proc_exit ones, the connection's close among them (src/backend/storage/ipc/ipc.c 166
- * proc_exit_prepare; src/backend/libpq/pqcomm.c 287 socket_close, which leaves the socket open until the process dies
- * so that a client "can be sure the backend has exited"). So once the end returns, no backend of the pool's idle
- * sessions counts against the database: a DROP DATABASE after it finds none, where it found a backend still dropping
- * its session's temporary relations, the rule judge's deltas, its sentinel and the write's carriers
- * (physical/ddl/rules.ts addStandUps, sql/ast.ts CreateCarrier), each a table with its TOAST table and index, its row
- * types and its NOT NULL constraints: 150 tables, 642 objects, 1.8 s for one session of pantry's export suite and 6
- * to 13 s on its whole project (edullm P5, 2026-11-21), where DROP DATABASE waits 5 s. The wait has no deadline of
- * grizzle's: interrupting the release, or the fiber whose scope it closes, your own timeout among the ways, ends it and
- * destroys every connection still open (closedAll), as the end of a session leased then is destroyed at once.
- */
-export const makePool = (config: PoolConfig): Effect.Effect<SessionPool, never, Scope.Scope> =>
-	Effect.gen(function* () {
-		const { bounds } = config
-		const spec: SessionSpec = {
-			...config.connection,
-			startup: { kind: "login", options: config.session.startup },
-			controls: config.session
-		}
-		const own = yield* ownServices()
-		const attemptServices: AttemptServices = { current: own, own }
-		/**
-		 * The session of each client pg's Pool connected, made when its client is ready, before anyone holds the
-		 * client, and kept beside it; a client with none had no BackendKeyData, and an ended session goes with its
-		 * client. `wires` holds every client constructed, with the socket the transport opened for it, until it ends: what the
-		 * pool's end destroys or waits for.
-		 */
-		const sessions = new WeakMap<PgClient, Session>()
-		const wires = new Map<PgClient, PgSocket>()
-		const handshakes: Handshakes = new WeakSet()
-		const native = new spec.driver.Pool({
-			Client: sessionClient(spec, attemptServices, handshakes, {
-				opened: (client, socket) => {
-					wires.set(client, socket)
-					client.once("end", () => {
-						wires.delete(client)
-					})
-				},
-				ready: (client, session) => {
-					if (session === undefined) {
-						return
-					}
-					sessions.set(client, session)
-				}
-			}),
-			max: bounds.max,
-			idleTimeoutMillis: 0
-		})
-		native.on("error", () => undefined)
-		/**
-		 * The permits. An ask takes a permit before pg's Pool is asked for a client for it, and the permit comes back
-		 * once pg has that client back or the attempt has failed; an attempt abandoned while pg connects or hands over
-		 * its client keeps its permit until pg answers. So pg's Pool always has an idle client or room for the attempt,
-		 * and never queues one but for the turn it takes to hand an idle client over.
-		 */
-		let permits: Permits = { _tag: "free", count: bounds.max }
-		/**
-		 * The clients handed to a lease and not yet released. pg's Pool counts a client still connecting in totalCount
-		 * and not in idleCount, so its difference would count a session being established as leased.
-		 */
-		const leased = new Set<PgPoolClient>()
-		/** The attempts pg's Pool has not answered, each holding the permit its ask took, a left lease's included. */
-		const pending = new Set<Attempt>()
-		/** The asks pg answered with a client their lease has not taken yet, each holding its permit, with that client. */
-		const handed = new Map<Ask, PgPoolClient>()
-		/**
-		 * The asks not yet settled, whose leases wait: queued for a permit, or connecting. An ask leaves when it settles
-		 * or its lease withdraws it, and the pool's end refuses every one still here: pg's Pool drops the asks it queued
-		 * for an idle client when it ends, and answers none of them.
-		 */
-		const unsettled = new Set<Ask>()
-
-		/** Settles `ask`: what it came to, for its lease to take. */
-		const settle = (ask: Ask, settled: Settled): void => {
-			unsettled.delete(ask)
-			ask.state = settled
-			Deferred.doneUnsafe(ask.settled, Exit.succeed(settled))
-		}
-
-		/**
-		 * Asks pg's Pool for a client for `ask`, which holds a permit, under the services of its lease, pg's answer
-		 * reaching `owner`; whether pg holds the permit now. pg's Pool ends only in this pool's finalizer, so an ending
-		 * pool is a released layer: the ask is refused with LayerReleased, read in the same turn as `connect`, so no end
-		 * can come between, and the permit is the caller's again, as it is when pg's Pool throws.
-		 */
-		const attemptFor = (ask: Ask, owner: AttemptOwner): boolean => {
-			if (native.ending) {
-				settle(ask, layerReleased())
-				return false
-			}
-			const attempt: Attempt = { waiter: { _tag: "waiting", ask } }
-			ask.state = { _tag: "connecting", attempt }
-			pending.add(attempt)
-			attemptServices.current = ask.services
-			const started = Result.try(() => {
-				native.connect(answerAttempt(spec, handshakes, attempt, owner))
-			})
-			attemptServices.current = own
-			if (Result.isSuccess(started)) {
-				return true
-			}
-			pending.delete(attempt)
-			attempt.waiter = nobody
-			settle(ask, { _tag: "refused", failure: Effect.die(started.failure) })
-			return false
-		}
-
-		/**
-		 * What pg's answers reach in this pool: the one settling of an ask, and a permit back, to the first ask waiting
-		 * that pg's Pool takes it for, whose attempt's answer reaches this owner in turn, else free.
-		 */
-		const owner: AttemptOwner = {
-			answered: (attempt) => {
-				pending.delete(attempt)
-			},
-			handOver: (ask, client) => {
-				handed.set(ask, client)
-				settle(ask, { _tag: "connected", client })
-			},
-			settle,
-			permitBack: () => {
-				while (permits._tag === "waiting") {
-					const [first, ...rest] = permits.queue
-					permits = waitingFor(rest)
-					if (attemptFor(first, owner)) {
-						return
-					}
-				}
-				permits = { _tag: "free", count: permits._tag === "free" ? permits.count + 1 : 1 }
-			}
-		}
-
-		/** A new ask for the lease whose services are `services`: given a free permit and pg asked at once, or queued. */
-		const newAsk = (services: Context.Context<never>): Ask => {
-			const made: Ask = {
-				state: { _tag: "queued" },
-				services,
-				settled: Deferred.makeUnsafe<Settled>()
-			}
-			unsettled.add(made)
-			if (permits._tag !== "free") {
-				permits = {
-					_tag: "waiting",
-					queue: permits._tag === "waiting" ? Arr.append(permits.queue, made) : [made]
-				}
-				return made
-			}
-			permits = permits.count === 1 ? exhausted : { _tag: "free", count: permits.count - 1 }
-			if (!attemptFor(made, owner)) {
-				owner.permitBack()
-			}
-			return made
-		}
-
-		/**
-		 * An interrupted lease's ask, withdrawn in one step: from the queue; from pg's Pool, whose later answer goes back
-		 * with its permit; or, when pg answered with a client the lease never took, that client back to pg's Pool and
-		 * then its permit. A refused ask's permit is back already.
-		 */
-		const withdraw = (ask: Ask): void => {
-			const state = ask.state
-			switch (state._tag) {
-				case "queued":
-					unsettled.delete(ask)
-					permits = withdrawn(permits, ask)
-					return
-				case "connecting":
-					unsettled.delete(ask)
-					state.attempt.waiter = nobody
-					return
-				case "connected":
-					handed.delete(ask)
-					state.client.release(false)
-					owner.permitBack()
-					return
-				case "refused":
-					return
-			}
-		}
-
-		/**
-		 * The pool's end (see makePool): pg's Pool ended, which gives each idle client its Terminate; the wire of every
-		 * client no lease may still run on destroyed, one connecting, handed to a lease or leased, a ready one's through
-		 * its session; every ask still unsettled refused with LayerReleased, the queue emptied with them; then the wait
-		 * for every other session's close (closedAll), though the release runs uninterruptibly, so an interruption,
-		 * the release's own or the one whose scope it closes, destroys every connection still open. A connecting ask's
-		 * attempt answers nobody after: pg's later answer, if any comes, goes back to the ended pool with its permit.
-		 */
-		const end = (): Effect.Effect<void> => {
-			native.end(terminated)
-			const held = new Set<PgClient>([...leased, ...handed.values()])
-			const closing: Array<Session> = []
-			for (const [client, socket] of wires) {
-				const session = sessions.get(client)
-				if (session === undefined) {
-					destroyWire(client, socket)
-				} else if (held.has(client)) {
-					session.destroy()
-				} else {
-					closing.push(session)
-				}
-			}
-			permits = permits._tag === "waiting" ? exhausted : permits
-			for (const ask of unsettled) {
-				const state = ask.state
-				if (state._tag === "connecting") {
-					state.attempt.waiter = nobody
-				}
-				settle(ask, layerReleased())
-			}
-			return closedAll(closing)
-		}
-		yield* Effect.addFinalizer(() => Effect.suspend(end))
-
-		/**
-		 * `client` back to pg's Pool, which closes it when `close` holds, and then its permit: pg's Pool counts a closed
-		 * client out at once, so the permit admits no lease before the pool has room for it.
-		 */
-		const giveBack = (client: PgPoolClient, close: boolean): void => {
-			client.release(close)
-			owner.permitBack()
-		}
-
-		/** The client pg handed to `ask` back, untaken by its lease, closed: the ask holds its permit no longer. */
-		const untaken = (ask: Ask, client: PgPoolClient): Effect.Effect<void> =>
-			Effect.sync(() => {
-				handed.delete(ask)
-				giveBack(client, true)
-			})
-
-		/**
-		 * A lease's end: the client leaves the leased count and goes back to pg's Pool, which keeps it exactly when the
-		 * session is open; a retired or ended one is released with an error, so pg's Pool closes it.
-		 */
-		const release = (client: PgPoolClient, session: Session): Effect.Effect<void> =>
-			Effect.sync(() => {
-				leased.delete(client)
-				giveBack(client, session.state() !== "open")
-			})
-
-		/**
-		 * One client as a session for the scope. A pooled client whose session is not open, its connection ended while it
-		 * sat idle, is closed before anything runs on it and another leased in its place, while `replacements` remain:
-		 * this is pool hygiene, never a retry, at most `bounds.max` times, so no flight is ever sent twice, and a
-		 * connection attempt that fails is the acquisition's failure. A lease of a pool already ending is refused at once,
-		 * before it asks for a permit.
-		 *
-		 * Only the wait for the ask to settle is interruptible, and it carries nothing and has no deadline: an interrupted
-		 * lease withdraws its ask in one step, without interruption, so a client that arrived for it goes back with its
-		 * permit, and a leased client is always released.
-		 */
-		const leaseWith = (replacements: number): Effect.Effect<Session, AcquireRefusal, Scope.Scope> =>
-			Effect.uninterruptibleMask((restore) =>
-				Effect.gen(function* () {
-					if (native.ending) {
-						return yield* new LayerReleased()
-					}
-					const context = yield* Effect.context()
-					const asked = newAsk(context)
-					const waited = yield* Effect.exit(restore(Deferred.await(asked.settled)))
-					if (Exit.isFailure(waited)) {
-						withdraw(asked)
-						return yield* Effect.failCause(waited.cause)
-					}
-					const settled = waited.value
-					if (settled._tag === "refused") {
-						return yield* settled.failure
-					}
-					const client = settled.client
-					const session = sessions.get(client)
-					if (session === undefined) {
-						yield* untaken(asked, client)
-						return yield* new NoCancelKey()
-					}
-					if (session.state() !== "open" && replacements > 0) {
-						yield* untaken(asked, client)
-						return yield* restore(leaseWith(replacements - 1))
-					}
-					handed.delete(asked)
-					leased.add(client)
-					yield* Effect.addFinalizer(() => release(client, session))
-					return session
-				})
-			)
-
-		return {
-			role: spec.role,
-			native,
-			lease: leaseWith(bounds.max),
-			size: Effect.sync(() => native.totalCount),
-			state: Effect.sync((): PoolState => ({
-				free: permits._tag === "free" ? permits.count : 0,
-				attempting: pending.size + handed.size,
-				leased: leased.size,
-				waiting: permits._tag === "waiting" ? permits.queue.length : 0
-			}))
-		}
-	})

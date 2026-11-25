@@ -201,7 +201,7 @@ export interface LoadedLogin {
 	readonly role: string
 	readonly fingerprint: SchemaFingerprint
 	readonly prologue: PrologueStatements
-	/** What every session of the login's pool sends that no program states (wire/session.ts makePool). */
+	/** What every session of the login's pool sends that no program states (wire/pool.ts makePool). */
 	readonly session: ServedSession
 	readonly roles: Arr.NonEmptyReadonlyArray<LoadedRole>
 	/** The installed tables its statements read and write, with their indexes, which its explains name plans by. */

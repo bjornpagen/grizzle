@@ -10,7 +10,7 @@ import type { ClientBase, Submittable } from "pg"
  * - Client: the class grizzle extends for every session (wire/session.ts sessionClient), constructed with the
  *   configuration grizzle states in full (PgClientConfig). Its instances keep `pipeline`, which pg 8.23 added with the
  *   pipeline mode every flight is written in.
- * - Pool: the pool grizzle builds each session pool from (wire/session.ts makePool), which constructs its clients from
+ * - Pool: the pool grizzle builds each session pool from (wire/pool.ts makePool), which constructs its clients from
  *   the Client class grizzle derives from this driver's own (PgPoolConfig.Client).
  * - Query: the query class every statement of a flight is submitted as (wire/session.ts submit), with listeners and no
  *   callback, so pg hands over each row as it arrives and keeps none: a pipelined client takes no other submittable.

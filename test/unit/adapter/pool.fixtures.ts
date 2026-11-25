@@ -14,7 +14,7 @@ import {
 	map,
 	oneOf
 } from "@bjornpagen/testing/gen"
-import { type Array as Arr, Clock, Duration, Effect, Exit, Result, type Scope } from "effect"
+import { Array as Arr, Clock, Duration, Effect, Exit, Result, type Scope } from "effect"
 import type { PgSocket } from "#adapter/types/driver.ts"
 import type { Transport } from "#adapter/types/layer.ts"
 import type { Session } from "#adapter/wire/session.ts"
@@ -213,6 +213,61 @@ const startupRefusal = frame(
 	"E",
 	Buffer.from("SFATAL\0VFATAL\0C28000\0Mrefused by the fake server\0\0", "latin1")
 )
+const int16 = (n: number): Buffer => {
+	const out = Buffer.alloc(2)
+	out.writeInt16BE(n)
+	return out
+}
+
+/**
+ * The settings the fake server reports for a session's reap window, as pg_settings reports Linux's keepalive defaults
+ * and no idle_session_timeout: tcp_keepalives_idle, tcp_keepalives_interval and tcp_keepalives_count in seconds and
+ * idle_session_timeout in milliseconds, a window no step of a sequence idles past, so no lease probes.
+ */
+const reapSettings = ["7200", "75", "9", "0"] as const
+
+/** A text column of a RowDescription: its name, no table, its type text (oid 25), variable length, no modifier, text. */
+const textColumn = (name: string): Buffer =>
+	Buffer.concat([
+		Buffer.from(`${name}\0`, "latin1"),
+		int32(0),
+		int16(0),
+		int32(25),
+		int16(-1),
+		int32(-1),
+		int16(0)
+	])
+
+/**
+ * The answer to the one statement a pool sends on a session, the read of its reap window, on the extended protocol:
+ * ParseComplete, BindComplete, its row's description and its row, CommandComplete and ReadyForQuery.
+ */
+const reapWindowAnswer = Buffer.concat([
+	frame("1", Buffer.alloc(0)),
+	frame("2", Buffer.alloc(0)),
+	frame(
+		"T",
+		Buffer.concat([
+			int16(reapSettings.length),
+			...Arr.map(reapSettings, (_, i) => textColumn(`s${i}`))
+		])
+	),
+	frame(
+		"D",
+		Buffer.concat([
+			int16(reapSettings.length),
+			...Arr.map(reapSettings, (cell) =>
+				Buffer.concat([int32(Buffer.byteLength(cell)), Buffer.from(cell, "latin1")])
+			)
+		])
+	),
+	frame("C", Buffer.from("SELECT 1\0", "latin1")),
+	readyForQuery
+])
+
+/** The Sync message's type, S, which ends each statement pg sends on the extended protocol. */
+const sync = 0x53
+
 /** The Terminate message's type, X. */
 const terminate = 0x58
 
@@ -324,6 +379,8 @@ export class FakeServer {
 					this.terminated += 1
 					connection.hangUp()
 					return
+				} else if (type === sync && secure.writable) {
+					secure.write(reapWindowAnswer)
 				}
 			}
 		}

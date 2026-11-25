@@ -21,13 +21,8 @@ import { artifactsUnder, builtLogin, loginRoles, ownLoginOver } from "#adapter/s
 import type { RoleContext } from "#adapter/served/role.ts"
 import type { ApplyOutcome } from "#adapter/types/db.ts"
 import { oneShotStatement } from "#adapter/wire/batch.ts"
-import {
-	type Answer,
-	controlText,
-	type WireQuery,
-	type Session,
-	type SessionPool
-} from "#adapter/wire/session.ts"
+import { type SessionPool } from "#adapter/wire/pool.ts"
+import { type Answer, controlText, type WireQuery, type Session } from "#adapter/wire/session.ts"
 import { lawsAbove } from "#adapter/witness/keylaw.ts"
 import { type Summary, summarize } from "#bench/cold/stats.ts"
 import {

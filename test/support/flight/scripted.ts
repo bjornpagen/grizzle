@@ -3,13 +3,13 @@ import { Array as Arr, Effect } from "effect"
 import { Pool } from "pg"
 import type { ServerError } from "#adapter/errors/failures.ts"
 import type { BatchOutcome, BatchStatement } from "#adapter/wire/batch.ts"
+import { type SessionPool } from "#adapter/wire/pool.ts"
 import {
 	type Answer,
 	type CancelEnd,
 	type WireQuery,
 	type Session,
 	type SessionEvent,
-	type SessionPool,
 	type SessionState,
 	sessionTransitions,
 	type TxControl

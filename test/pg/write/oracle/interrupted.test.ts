@@ -111,7 +111,7 @@ export const anInterruptedWriteRunAWriteRunInterruptedMidCaseLeavesNoSessionOfIt
 		],
 		kills: [
 			{
-				file: "packages/grizzle/src/adapter/wire/session.ts",
+				file: "packages/grizzle/src/adapter/wire/pool.ts",
 				original: "\t\t\treturn closedAll(closing)",
 				replacement:
 					'\t\t\treturn Effect.interruptible(Effect.all(Arr.map(closing, (session) => session.closed), { concurrency: "unbounded", discard: true }))',

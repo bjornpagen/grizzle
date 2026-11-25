@@ -1,5 +1,5 @@
 /**
- * The session pool's release against the cluster (adapter/wire/session.ts makePool's end).
+ * The session pool's release against the cluster (adapter/wire/pool.ts makePool's end).
  *
  * - Wait: over both ends of the wait, an idle session whose backend's exit the bootstrap superuser holds (a lock on its
  *   temporary schema) is waited for: the release has not returned while the backend waits, then returns once the hold
@@ -120,7 +120,7 @@ export const adapterSessionPoolsReleaseWaitsForAnIdleSessionsBackendToExitUntilT
 		kept: [],
 		kills: [
 			{
-				file: "packages/grizzle/src/adapter/wire/session.ts",
+				file: "packages/grizzle/src/adapter/wire/pool.ts",
 				original: "\t\t\t\t} else if (held.has(client)) {",
 				replacement: "\t\t\t\t} else if (wires.has(client)) {",
 				why: "The end destroys every wire, an idle session's among them, as it did before it waited (d81ee19dc): the release returns while the backend's exit is still held, where it waits for the server's close."
@@ -198,7 +198,7 @@ export const adapterSessionPoolsReleaseReturnsOnceNoBackendOfItsIdleSessionsIsLe
 		kept: [],
 		kills: [
 			{
-				file: "packages/grizzle/src/adapter/wire/session.ts",
+				file: "packages/grizzle/src/adapter/wire/pool.ts",
 				original: "\t\t\treturn closedAll(closing)",
 				replacement: "\t\t\treturn Effect.void",
 				why: "The end writes each idle session's Terminate and returns without waiting for its close: the backends are still dropping their temporary tables when the release returns, so pg_stat_activity still holds them, as edullm's DROP DATABASE found one (P5)."

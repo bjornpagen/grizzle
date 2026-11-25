@@ -535,6 +535,9 @@
  * snapshot's and a served file's statements hold; and a single statement's arm is a cut text, its placeholders cut out
  * as its unit's CTEs' are (runtime/write/parted.ts PartedUnit `arm`, `arms`), a part's own CTE being printed in its arm,
  * where format 8 held an arm's text whole. Every statement with such a CTE, and every served single statement, moves.
+ * Every served file's session carries the read of a session's reap window (served/forms.ts ServedSession reapWindow),
+ * the one statement a login's pool sends on a session of its own: at the session's first lease, and as the probe of one
+ * silent past the window before a lease runs anything on it (the shell's wire/pool.ts makePool).
  */
 export const artifactFormat = 8
 
@@ -563,7 +566,7 @@ export type FormattedFile = (typeof formattedFiles)[number]
  */
 export const recordShapes: { readonly [F in FormattedFile]: string } = {
 	snapshot: "74fce2c900121e3fca91721977dbc7b33e932a6c4aeaf063c8d85208431e8b54",
-	served: "d9e562fc2ad6eefe4d5f20dc2113117787e6f66e6fdf6cfdd1a6b3b565b8f007"
+	served: "0c1adc88f9e29a508806b4c9a17ea4cd183173280e1c54b1c8b0e3f2bd3a0e40"
 }
 
 /**

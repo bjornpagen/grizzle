@@ -34,7 +34,8 @@ import type {
 	ServedLogin,
 	Verify
 } from "#adapter/types/layer.ts"
-import { type LoginConnection, makePool, type SessionPool } from "#adapter/wire/session.ts"
+import { makePool, type SessionPool } from "#adapter/wire/pool.ts"
+import type { LoginConnection } from "#adapter/wire/session.ts"
 import type { AnyLogin, Invariant } from "#compiler/plan/common.ts"
 import { SourceLoc, malformedDescription, nominal, readCaller } from "#compiler/plan/runtime.ts"
 import type { ServedFile } from "#compiler/plan/serve.ts"

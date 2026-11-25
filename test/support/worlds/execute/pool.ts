@@ -2,7 +2,7 @@ import { Effect, Option, Ref, Result, type Scope } from "effect"
 import { Pool, type PoolClient } from "pg"
 import type { PgPool } from "#adapter/types/driver.ts"
 import { oneShotStatement } from "#adapter/wire/batch.ts"
-import type { SessionPool } from "#adapter/wire/session.ts"
+import type { SessionPool } from "#adapter/wire/pool.ts"
 import { runAlone } from "#test/support/pg.ts"
 import { testSql } from "#test/support/sql.ts"
 import type { Probe } from "#test/support/worlds/model/types.ts"
@@ -112,7 +112,7 @@ const pooledSql =
 
 /**
  * What an idle pooled connection carries between transactions, read on a session leased as a Db's transactions lease
- * one, through its pool's permits (wire/session.ts SessionPool.lease). Where it stands is the status of the last
+ * one, through its pool's permits (wire/pool.ts SessionPool.lease). Where it stands is the status of the last
  * ReadyForQuery its connection read, which pg keeps on its client (`getTransactionStatus`), read before anything is sent:
  * idle, in a transaction, or in an aborted one. The client is the one pg's Pool names in its `acquire` event just before
  * it answers the lease's ask, which resumes the lease in that same call (makePool), so the last client named when the

@@ -6099,20 +6099,26 @@ one checks the snapshot and takes on the role and the claims for that transactio
 carries one request's role or claims into the next. An apply with nothing to write still sends BEGIN, those two
 statements and COMMIT, so a stale `Db` never answers `unchanged`.
 
-**Sessions on the server.** A pool keeps every session it opened until the session fails or the layer's scope
-closes, so a deployment holds at most its processes times their pools' `max` sessions open on the server, each process
-the most its calls ever needed at once. A platform that suspends an instance between requests, as Vercel's Fluid
-compute does, suspends its sessions with it: an instance that resumes reuses them warm, and the server ends those of
-an instance that stays suspended once its TCP keepalive finds no answer, after `tcp_keepalives_idle` plus
+**Sessions on the server.** A pool keeps every session it opened until the session fails or the layer's scope closes,
+so a deployment holds at most its processes times their pools' `max` sessions open on the server, each process the
+most its calls ever needed at once. A platform that suspends an instance between requests, as Vercel's Fluid compute
+does, suspends its sessions with it: an instance that resumes reuses them warm, and the server ends those of an
+instance that stays suspended once its TCP keepalive finds no answer, after `tcp_keepalives_idle` plus
 `tcp_keepalives_count` times `tcp_keepalives_interval` seconds of silence: 300 + 2 × 30 = 360 s under the defaults of
 Amazon RDS for PostgreSQL, and 7,200 + 9 × 75 = 7,875 s under PostgreSQL's own, which take Linux's. Size `max` so that
-it, times the instances live or suspended within that window, beside every other login's sessions and the
-migration's, stays within the server's `max_connections` (on RDS, `LEAST({DBInstanceClassMemory/9531392}, 5000)` by
-default); Vercel publishes no cap on its instances. Past it, the server refuses the next session, which the call that
-asked for it reports as `unavailable` with the cause `tooManyConnections`. A session the server ended while its
-instance was suspended is found dead by the first call that runs on it once the instance resumes: a write answers
-`commitUnknown`, since its COMMIT went out with the rest of its flight and no answer came back, and a read `transport`;
-that session is closed, and the next call opens another. grizzle depends on no platform's package.
+it, times the instances live or suspended within that window, beside every other login's sessions and the migration's,
+stays within the server's `max_connections` (on RDS, `LEAST({DBInstanceClassMemory/9531392}, 5000)` by default);
+Vercel publishes no cap on its instances. Past it, the server refuses the next session, which the call that asked for
+it reports as `unavailable` with the cause `tooManyConnections`. A session silent past that window, or past the
+server's `idle_session_timeout` where it is set and shorter, may have been ended by its server while its instance was
+suspended, unheard, so the pool probes it before a call runs anything on it, one round trip that reads the window
+again: a dead one is closed and another opened in its place, and the call answers as on a live session. Each session
+reads its window from its server at its first call, beside its connection, and a call on a session silent for less
+sends nothing more. Silence is counted from the call that last took the session, on the process's monotonic clock and
+its wall clock, the larger reading kept: a freeze neither counts goes unseen (a Firecracker microVM's guest clocks
+continue from the pause until the guest sets its wall clock), and then the first call on a dead session answers
+`commitUnknown` for a write, its COMMIT gone out with no answer back, and `transport` for a read. grizzle depends on
+no platform's package.
 
 **RDS with IAM authentication.** The password is an Effect that signs a token for each connection attempt;
 `@aws-sdk/rds-signer` signs locally, without a network call, for the user `roleNameOf(EtlServed, connection)` names. Grant that role

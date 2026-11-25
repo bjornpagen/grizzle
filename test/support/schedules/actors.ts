@@ -1,6 +1,6 @@
 import { defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Effect, Formatter, Option, Predicate, Record, type Scope } from "effect"
-import type { SessionPool } from "#adapter/wire/session.ts"
+import type { SessionPool } from "#adapter/wire/pool.ts"
 import type { RawQueryResult, SqlError } from "#test/support/pg.ts"
 import type { DirectAction, ScheduleOutcome } from "#test/support/schedules/types.ts"
 import {

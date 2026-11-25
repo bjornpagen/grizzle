@@ -1,5 +1,5 @@
 /**
- * The session pool's lifetime bookkeeping (packages/grizzle/src/adapter/wire/session.ts makePool) over a PostgreSQL
+ * The session pool's lifetime bookkeeping (packages/grizzle/src/adapter/wire/pool.ts makePool) over a PostgreSQL
  * server in memory, behind the SSLRequest and verify-full TLS of grizzle's public transport (test/support/memory-tls.ts):
  * the pool must hold no connection, session, waiter or permit past its life, whatever leases, interruptions and
  * connection losses happen.
@@ -40,7 +40,7 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Exit, Fiber, Formatter, Scheduler, Scope } from "effect"
 import pgDriver from "pg"
-import { makePool, type PoolState } from "#adapter/wire/session.ts"
+import { makePool, type PoolState } from "#adapter/wire/pool.ts"
 import { servedSession } from "#compiler/program/served.ts"
 import { noPassword } from "#test/support/pg.ts"
 import { parsedConnection } from "#test/support/pg.ts"
@@ -383,19 +383,19 @@ export const theSessionPoolKeepsExactlyTheOpenConnectionsAndRecoversFromEveryInt
 		],
 		kills: [
 			{
-				file: "packages/grizzle/src/adapter/wire/session.ts",
+				file: "packages/grizzle/src/adapter/wire/pool.ts",
 				original: "\t\t\tclient?.release(false)\n\t\t\towner.permitBack()",
 				replacement: "\t\t\tclient?.release(false)",
 				why: "A lease abandoned while pg connects it never gives its permit back."
 			},
 			{
-				file: "packages/grizzle/src/adapter/wire/session.ts",
+				file: "packages/grizzle/src/adapter/wire/pool.ts",
 				original: "\t\t\t\t\tpermits = withdrawn(permits, ask)\n",
 				replacement: "",
 				why: "An interrupted waiter stays queued, so a permit goes to it and is lost."
 			},
 			{
-				file: "packages/grizzle/src/adapter/wire/session.ts",
+				file: "packages/grizzle/src/adapter/wire/pool.ts",
 				original: "\t\t\tidleTimeoutMillis: 0\n",
 				replacement: "\t\t\tidleTimeoutMillis: 1\n",
 				why: "The pool closes a session idle for a millisecond, as it closed one idle past the caller's idleTimeoutMs: the next lease opens a cold session in its place."

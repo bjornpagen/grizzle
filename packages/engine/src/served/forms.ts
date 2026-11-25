@@ -140,6 +140,14 @@ export interface ServedSession {
 	}
 	readonly commit: EmittedText
 	readonly rollback: EmittedText
+	/**
+	 * The read of a session's reap window from its server, one row of four settings, each as pg_settings reports it in
+	 * its unit: tcp_keepalives_idle, tcp_keepalives_interval and tcp_keepalives_count in seconds, and
+	 * idle_session_timeout in milliseconds (program/served.ts reapWindowRead). A pool sends it at a session's first lease
+	 * and again, as the probe its answer is, before a lease runs anything on a session silent past the window (the
+	 * shell's wire/pool.ts makePool).
+	 */
+	readonly reapWindow: EmittedText
 }
 
 /**
