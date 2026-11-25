@@ -16,8 +16,8 @@
  */
 
 import type { Reached } from "@bjornpagen/testing/features"
-import type { Case as PropertyCase } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Formatter } from "effect"
+import { type Case as PropertyCase, ReplayToken } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Formatter, Order } from "effect"
 import { canonicalTextOf } from "#compiler/core/canonical.ts"
 import {
 	type Carrier,
@@ -38,6 +38,17 @@ import { namedPlacement, oracleProperty, PropertyFailed } from "#test/support/or
 
 type FactSetFeature = `${Observer} over ${Carrier}`
 
+/**
+ * Rows as the set they are: each row's canonical text, sorted, so one set delivered in any order reads alike. A root
+ * that orders nothing delivers its rows in whatever order its plan yields, a hash aggregate's under enable_sort = off
+ * among them, and PostgreSQL's order holds -0 and +0 tied besides.
+ */
+const asSet = (rows: ReadonlyArray<ReadonlyArray<string>>): ReadonlyArray<string> =>
+	Arr.sort(
+		Arr.map(rows, (row) => canonicalTextOf(row)),
+		Order.String
+	)
+
 /** Two facts of a relation parameter apart in a zero's sign alone are two rows under both lowerings, counted 2. */
 export const twoFactsApartInAZerosSignAreTwoRowsUnderBothLoweringsCountedTwo = oracleProperty(
 	factSetCaseGen,
@@ -50,7 +61,16 @@ export const twoFactsApartInAZerosSignAreTwoRowsUnderBothLoweringsCountedTwo = o
 			kind: "second-implementation",
 			name: "the conservative lowering on the same installation and facts, and the facts' own count"
 		},
-		kept: [],
+		kept: [
+			{
+				token: ReplayToken(
+					"test/pg/oracle/optimized/fact-sets.test.ts#twoFactsApartInAZerosSignAreTwoRowsUnderBothLoweringsCountedTwo:-:2.0.0.0.1.0.0.0.0.0.0"
+				),
+				reason:
+					"rotating seed 0xfcd2b402, case 8, shrunk: the result over float4 under enable_sort = off, its two facts delivered -0 first",
+				since: "2026-11-24"
+			}
+		],
 		/**
 		 * Its search budget: the fewest runs at which each kill it declares still fails a witness, the cull rule's measure
 		 * (grizzle main, 2026-11-23).
@@ -92,6 +112,12 @@ export const twoFactsApartInAZerosSignAreTwoRowsUnderBothLoweringsCountedTwo = o
 					"\t\t\t(input.columns.every((c) => heading.includes(c)) ? input.facts : undefined)",
 				replacement: "\t\t\tundefined",
 				why: "An observer is discharged by a native key alone (analysis/physical/analyze.ts obligations), as at 59d57455f: placement puts a DISTINCT on the region over the parameter, which merges (0, 1) and (-0, 1), and the count is 1."
+			},
+			{
+				file: "packages/engine/src/ir/compare.ts",
+				original: "\t\tgroupBy: [...targets.map((t) => t.expr), ...signs]\n",
+				replacement: "\t\tgroupBy: targets.map((t) => t.expr)\n",
+				why: "A set of facts grouped under PostgreSQL's equality alone (ir/compare.ts factSet), its zeros' signs left out: the parameter's (0, 1) and (-0, 1) are one row of the result."
 			}
 		],
 		show: Formatter.format,
@@ -103,7 +129,8 @@ export const twoFactsApartInAZerosSignAreTwoRowsUnderBothLoweringsCountedTwo = o
 				const rows = Arr.flatMap(o.conservative.statements, (s) => s.rows)
 				const expected = deliveredRows(c.observer)
 				const decided =
-					expected === undefined || canonicalTextOf(rows) === canonicalTextOf(expected)
+					expected === undefined ||
+					canonicalTextOf(asSet(rows)) === canonicalTextOf(asSet(expected))
 				if (!agrees(o) || !decided) {
 					return yield* new PropertyFailed({
 						report: `two facts apart in a zero's sign are not two rows under both lowerings\n${printDifferential(o)}`
