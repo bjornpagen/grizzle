@@ -510,6 +510,16 @@ export interface QueryConfig {
 	 * not taken, the numbered name once every dictionary name is taken ("dictionary").
 	 */
 	readonly paramNames: "numbered" | "dictionary"
+	/**
+	 * How a heterogeneous union root projects its arms (QueryResolver hetero): "any" projects each heading group's every
+	 * column from its arm's picked column, the arms of one group sketch under one tag, so a group's rows may agree on
+	 * every field the groups share and the union is keyed only where its picks happen to keep a key of each arm there;
+	 * "keyed" projects every arm onto the first group sketch's target, tags every arm apart and gives each later group
+	 * sketch its own target's columns as literals, so each arm's find retains its key within the fields every group
+	 * holds and the union is keyed by them, the one order a page over it and a take of it read as one relation need
+	 * (lower/conservative/take/order.ts sharedOrder).
+	 */
+	readonly hetero: "any" | "keyed"
 }
 
 export const defaultQueryConfig: QueryConfig = {
@@ -549,7 +559,8 @@ export const defaultQueryConfig: QueryConfig = {
 	regions: false,
 	groupFilter: false,
 	soundness: false,
-	paramNames: "numbered"
+	paramNames: "numbered",
+	hetero: "any"
 }
 
 /**
@@ -2185,6 +2196,32 @@ class QueryResolver {
 		)
 	}
 
+	/**
+	 * The arms of one group sketch of a "keyed" heterogeneous union (hetero), `first` of the union's arms before them:
+	 * each projected onto `shared`, the first group sketch's target, every column picked from its arm as conform picks
+	 * it, then the columns of `own`, the group sketch's own target, renamed y0, y1, ..., each a literal of its type, then
+	 * `tag`, the arm's position among the union's arms. Every two arms of the union are told apart by their tags, and the
+	 * rows of an arm hold one value of each of its own columns, so `shared` and the tag key each arm, and the union.
+	 */
+	keyedArms(
+		arms: ReadonlyArray<Built>,
+		shared: Heading,
+		own: Heading,
+		picks: ReadonlyArray<number>,
+		first: number
+	): ReadonlyArray<Built> {
+		const literals = Arr.map(own, (c, k) => ({
+			column: column(`y${k}`, c.type),
+			value: resolveValue(c.type, { cls: at(picks, k), sp: 0 }, this.spelling.edge)
+		}))
+		return Arr.map(arms, (arm, i) =>
+			this.conform(arm, shared, picks, [
+				...literals,
+				{ column: column("tag", int4), value: { kind: "int", value: BigInt(first + i) } }
+			])
+		)
+	}
+
 	/** Projects each arm onto `target`, with an integer literal `tag` column where the arms are tagged. */
 	arms(
 		arms: ReadonlyArray<Built>,
@@ -3041,16 +3078,41 @@ class QueryResolver {
 		}
 	}
 
+	/**
+	 * A heterogeneous union of `groups`: each group sketch's arms projected onto its target heading (armHeading) beside
+	 * the integer literal discriminant `tag`, arms whose projections share a heading one heading group, the union's
+	 * heading the fields every group holds. Under the configuration's `hetero` "any", every arm of group sketch i is
+	 * tagged i and every column picked from its arm (arms); under "keyed", the first group sketch's target is every
+	 * group's, each later group sketch's own target its literal columns beside it (keyedArms).
+	 */
 	hetero(groups: ReadonlyArray<HeteroGroupSketch>): RelNode {
-		const resolved: Array<{ heading: Heading; arms: Arr.NonEmptyArray<RelNode> }> = []
-		for (const [gi, g] of groups.entries()) {
+		const drawn = Arr.map(groups, (g) => {
 			const arms = Arr.map(g.arms, (a) => this.query(a))
-			const target = this.armHeading(
-				elementAt(arms, 0, "a heading group's arms").heading,
-				g.width,
-				g.picks
-			)
-			const projected = this.arms(arms, target, g.picks, { kind: "tagged", tag: () => BigInt(gi) })
+			return {
+				arms,
+				picks: g.picks,
+				target: this.armHeading(
+					elementAt(arms, 0, "a heading group's arms").heading,
+					g.width,
+					g.picks
+				)
+			}
+		})
+		const shared = elementAt(drawn, 0, "the group sketches").target
+		/** The arms before each group sketch's first. */
+		const before = Arr.scan(drawn, 0, (n, d) => n + d.arms.length)
+		const resolved: Array<{ heading: Heading; arms: Arr.NonEmptyArray<RelNode> }> = []
+		for (const [gi, d] of drawn.entries()) {
+			const projected =
+				this.config.hetero === "any"
+					? this.arms(d.arms, d.target, d.picks, { kind: "tagged", tag: () => BigInt(gi) })
+					: this.keyedArms(
+							d.arms,
+							shared,
+							gi === 0 ? [] : d.target,
+							d.picks,
+							elementAt(before, gi, "a group sketch's arms before it")
+						)
 			const heading = elementAt(projected, 0, "a heading group's projected arms").heading
 			const same = Arr.findFirst(
 				resolved,

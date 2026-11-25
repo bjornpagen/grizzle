@@ -14,7 +14,7 @@ import {
 	weighted
 } from "@bjornpagen/testing/gen"
 import { type Budget, type Case, type Kept, type Kill } from "@bjornpagen/testing/property"
-import { Array as Arr, Data, Effect, Formatter, Option, Order, Record as Rec, Result } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec, Result } from "effect"
 import { DatabaseError } from "pg"
 import { type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
 import { ConnectionLost } from "#adapter/errors/failures.ts"
@@ -31,7 +31,7 @@ import { scalarCodec } from "#compiler/codec/scalar.ts"
 import { maxStringLength } from "#compiler/core/canonical.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { NodeId, ParamId } from "#compiler/core/ids.ts"
-import { formatLoc, SourceLoc } from "#compiler/core/loc.ts"
+import { SourceLoc } from "#compiler/core/loc.ts"
 import type { Cell, ParamText } from "#compiler/core/wire.ts"
 import { floatLiteral } from "#compiler/ir/carriers.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
@@ -69,7 +69,6 @@ import { hasCapability } from "#compiler/scalar/registry.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { storedValue } from "#compiler/scalar/values/identity.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
-import { refusalLoc } from "#test/support/assert.ts"
 import { admitGenerated, filledSql, programAsts } from "#test/support/compile.ts"
 import { genCatalog } from "#test/support/evidence.ts"
 import { sentSql } from "#test/support/flight/scripted.ts"
@@ -116,15 +115,12 @@ import { Q } from "#test/unit/lower/conservative/fixtures.ts"
 import { withinOneParentCase } from "#test/unit/lower/dedup/cases.ts"
 
 /**
- * Why a case pages nothing: a column without an admitted order, a baseline lowering that refuses the query, a
- * heterogeneous union whose common columns hold no proved key, heading groups that tie on every common column, or an
+ * Why a case pages nothing: a column without an admitted order, a baseline lowering that refuses the query, or an
  * answer or a walk over the request bound.
  */
 type PageSkip =
 	| "unordered column"
 	| "baseline refuses"
-	| "union without a common key"
-	| "heading groups tie"
 	| "answer over the request bound"
 	| "walk over the request bound"
 
@@ -171,7 +167,10 @@ type PageFeature =
 	| `window size ${PageSize}`
 	| `skipped: ${PageSkip}`
 
-/** What the population must reach. */
+/**
+ * What the population must reach, among them a heterogeneous union paged by position past its first page, where each
+ * group's part delivers its rows of the window alone (rows.ts positionedGroupRows).
+ */
 const situations: ReadonlyArray<Reached<PageFeature>> = [
 	"Group",
 	"Recursive",
@@ -198,6 +197,7 @@ const situations: ReadonlyArray<Reached<PageFeature>> = [
 	"several pages by position",
 	"a window at a position within D",
 	"a window at a position past D",
+	["heading groups", "several pages by position"],
 	...Arr.map(pageSizes, (n) => `window size ${n}` as const)
 ]
 
@@ -386,6 +386,12 @@ const answerBound = (
 	)
 }
 
+/**
+ * The oracle's population, its plain, attached and heterogeneous-union roots drawn 4 : 2 : 2, each heterogeneous union
+ * keyed by the fields every heading group holds (QueryConfig `hetero` "keyed"): a page reads one row's key of those
+ * fields, which seeks every group's part and orders the merge across them, and a union with no key within them has no
+ * such order, which the page compiler refuses (lower/conservative/take/order.ts sharedOrder).
+ */
 const config: GenConfig = {
 	...defaultGenConfig,
 	query: {
@@ -395,7 +401,8 @@ const config: GenConfig = {
 			plain: 4,
 			attach: 2,
 			hetero: 2
-		}
+		},
+		hetero: "keyed"
 	}
 }
 
@@ -732,8 +739,6 @@ const childrenByKey = (
 	return out
 }
 
-class Skip extends Data.TaggedError("Skip")<{ readonly reason: string }> {}
-
 interface Full {
 	readonly rows: ReadonlyArray<Row>
 	/** Each attachment statement's rows over every delivered parent, by parent key (`childrenByKey`). */
@@ -823,16 +828,11 @@ const fullResult = (
 			if (byPage(a, b) !== 0) {
 				continue
 			}
-			if (compareRoot.value(a.value, b.value) !== 0) {
-				throw new PropertyFailed({
-					report: `two delivered rows tie on the page order ${Formatter.format(template.order.keys)} but not on every common column\n${printCase(o)}`
-				})
-			}
-			if (groups.length > 1) {
-				throw new Skip({ reason: "heading groups tie on every common column" })
-			}
 			throw new PropertyFailed({
-				report: `two delivered rows tie on every column\n${printCase(o)}`
+				report:
+					compareRoot.value(a.value, b.value) !== 0
+						? `two delivered rows tie on the page order ${Formatter.format(template.order.keys)} but not on every common column\n${printCase(o)}`
+						: `two delivered rows tie on every common column\n${printCase(o)}`
 			})
 		}
 		return {
@@ -1237,15 +1237,17 @@ const checkPositions = (
 
 /**
  * What a case reached besides its skip and its relation parameters: its query's node kinds, the shapes of the template
- * it pages through, among them a per-execution form, and its D. A distinct is read from the statements' ASTs, never
- * their text.
+ * it pages through, among them a per-execution form, and its D, paired with its heading groups where it spans several
+ * pages by position at the forward size `forward`. A distinct is read from the statements' ASTs, never their text.
  */
 const coverage = (
 	query: LogicalQuery,
 	template: PageTemplate,
 	full: Full,
-	note: Case<PageFeature>["note"]
+	forward: PageSize,
+	c: Case<PageFeature>
 ): void => {
+	const note = c.note
 	const kinds = new Set(Arr.map(topoOrder(query.dag), (n) => n.kind))
 	for (const kind of [
 		"Group",
@@ -1262,6 +1264,9 @@ const coverage = (
 	}
 	if (template.artifact.requests.first.delivery.kind === "headingGroups") {
 		note("heading groups")
+		if (full.rows.length > forward) {
+			c.pair("heading groups", "several pages by position")
+		}
 	}
 	if (
 		Arr.some(
@@ -1352,10 +1357,11 @@ const negativeZeroRelation = (o: OrderedCase): boolean =>
  *   heterogeneous union's positioned window delivers each group's rows of the window alone, so its merge keeps them
  *   all.
  *
- * A heterogeneous union whose common columns hold no proved key is refused by the page compiler and skipped, as are
- * the other rare skips the lowering suite names. Every case notes what it reached (PageFeature), a skip its reason (PageSkip), and the
- * population must reach every required feature, among them a per-execution form, a relation parameter holding a
- * float -0, which the runtime passes as the caller's one zero, a walk of at least 200 windows, and a correlated
+ * Every heterogeneous union is keyed by the fields its heading groups share (`config`), so every case the rare skips
+ * leave compiles: a page compiler's refusal fails the case, as two rows of D tying on the page order do. Every case
+ * notes what it reached (PageFeature), a skip its reason (PageSkip), and the population must reach every required
+ * feature, among them a per-execution form, a relation parameter holding a float -0, which the runtime passes as the
+ * caller's one zero, a walk of at least 200 windows, a heterogeneous union's pages by position, and a correlated
  * child under a nested attachment, the shape where a key within one parent must not stand for a key across parents
  * (lower/conservative/keys.ts). Its escaped counterexample is recorded (recordedPageCases) and replays by its token
  * before its streams.
@@ -1390,8 +1396,6 @@ export const generatedProperty = (
 	budget: Budget
 ) => {
 	/**
-	 * The order refusal is located at the caller's orderBy, never at the node the order completes over.
-	 *
 	 * The case installs, loads and reads under one savepoint of its transaction (OracleSeat's reading), rolled back to
 	 * after it: a rollback that fails leaves the transaction unlike the case found it, a defect of the case, never
 	 * ignored.
@@ -1478,14 +1482,6 @@ export const generatedProperty = (
 				stated: { keys: ordered.stated, at: statedAt }
 			}
 			const page = compilePage(pageInput)
-			if (
-				!page.ok &&
-				page.error.reason._tag === "UnsupportedOperation" &&
-				formatLoc(refusalLoc(page.error)) === formatLoc(statedAt)
-			) {
-				c.note("skipped: union without a common key")
-				return
-			}
 			if (!page.ok) {
 				return yield* new PropertyFailed({
 					report: `page compiler: ${page.error.message}\n${printCase(o)}`
@@ -1520,22 +1516,7 @@ export const generatedProperty = (
 					for (const sql of plannerStatements(perturbation)) {
 						yield* session.query(sql, [])
 					}
-					const full = yield* fullResult(
-						session,
-						o,
-						query,
-						template,
-						conservative.value,
-						codes
-					).pipe(
-						Effect.catchDefect((defect) =>
-							defect instanceof Skip ? Effect.void : Effect.die(defect)
-						)
-					)
-					if (full === undefined) {
-						c.note("skipped: heading groups tie")
-						return
-					}
+					const full = yield* fullResult(session, o, query, template, conservative.value, codes)
 					const read = Arr.reduce(full.attachments, full.rows.length, (sum, children) =>
 						Arr.reduce([...children.values()], sum, (n, rows) => n + rows.length)
 					)
@@ -1564,7 +1545,7 @@ export const generatedProperty = (
 						sizes,
 						o.position
 					)
-					coverage(query, template, full, c.note)
+					coverage(query, template, full, sizes.forward, c)
 					if (negativeZeroRelation(o)) {
 						c.note("float -0 in a relation parameter")
 					}
