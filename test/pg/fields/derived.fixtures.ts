@@ -438,8 +438,8 @@ export interface Built {
 
 /**
  * The model as a schema under `name`, the roster declared as `declaration`: Tier, Weight and Pair, and R with its
- * caller's fields and the model's generated fields, each the expression the model chose; `writer` writes R whole, the
- * one role of the login `desk`.
+ * caller's fields and the model's generated fields, each the expression the model chose; `writer` inserts into R, a
+ * closed relation, by its insert list, the one role of the login `desk`.
  */
 export const builtOf = (name: string, m: Model, declaration: Declaration): Built => {
 	const Tier = closed.ordered("Tier", declaration)
@@ -524,7 +524,7 @@ export const builtOf = (name: string, m: Model, declaration: Declaration): Built
 	const stored: Record<string, AnyRelation> = { R }
 	const declared: Record<string, AnyRelation | AnyClosed> = { Tier, Weight, Pair, ...stored }
 	const base = schema(name, Rec.values(declared), [])
-	const writer = role(base, "writer", stored, { write: ["R"] })
+	const writer = role(base, "writer", stored, { insert: ["R"] })
 	return { version: { schema: base, logins: [login(base, "desk", [writer])] }, writer }
 }
 
