@@ -551,6 +551,9 @@ any direct writer.
 
 ## Refusals
 
+A grizzle type refusal (`Refusal<"…">`) reported beside a TypeScript error at its source, such as TS2552 or TS2304, is
+that error's cascade: fix the first TypeScript error before reading the refusal.
+
 `check` and `migrate` print each finding as `<where>: <problem>; <fix>`, an unresolved data loss as `<where>: <what
 it loses>: <problem>; <fix>`. `migrate` refuses a connection or a process environment it cannot use first, then runs
 every check of the committed files, and refuses before connecting. It compiles nothing and applies the files as they
