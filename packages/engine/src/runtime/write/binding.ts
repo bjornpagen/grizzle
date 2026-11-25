@@ -133,6 +133,21 @@ export interface MemberAt {
 	readonly kind: "array" | "stream"
 }
 
+/**
+ * Whether a write's facts may be drawn in shares by its shape (adapter/apply/shares.ts drawShares, which adds that its
+ * call of no facts sends no statement): every member an array of inserted facts, all in one stratum, and no relation
+ * parameter, so a share's statements are the call's over that share's facts alone. The one statement of it, which the
+ * draw and the compile's check of the laws a share is judged by (write/program/decide.ts sharedChecksBacked) both read.
+ */
+export const drawableShape = (
+	members: ReadonlyArray<MemberAt>,
+	params: ReadonlyArray<{ readonly kind: string }>
+): boolean =>
+	members.length > 0 &&
+	members.every((m) => m.op === "insert" && m.kind === "array") &&
+	new Set(members.map((m) => m.stratum)).size === 1 &&
+	params.every((p) => p.kind !== "relation")
+
 /** A family as a row of it past every statement is reported by (bind.ts FamilyRowBound): its owner relation, its count
  * field and its member relation, by name. */
 export interface FamilyNames {

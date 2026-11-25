@@ -26,7 +26,7 @@ import type { HostCall } from "#adapter/apply/run.ts"
 import { toResult } from "#adapter/engine.ts"
 import type { FlightWrite } from "#compiler/plan/change.ts"
 import type { EncodingFailure } from "#compiler/plan/common.ts"
-import { readCall, type SlotReads } from "#compiler/plan/runtime.ts"
+import { drawableShape, readCall, type SlotReads } from "#compiler/plan/runtime.ts"
 
 /** The slots of a family's owner and members, and how a fact of each names its group. */
 interface FamilySlots {
@@ -88,13 +88,12 @@ const familySlots = (program: FlightWrite): ReadonlyArray<FamilySlots> => {
 export const sendsAlone = (program: FlightWrite, skip: ReadonlySet<number>): boolean =>
 	Arr.some(program.statements, (s) => !skip.has(s.index) && s.step.kind !== "familyWrite")
 
-/** Whether a write's facts may be drawn in shares (see the header), `alone` whether its call of no facts sends a statement. */
+/**
+ * Whether a write's facts may be drawn in shares (see the header): its shape (runtime/write/binding.ts drawableShape), and `alone`
+ * false, its call of no facts sending no statement.
+ */
 const drawable = (program: FlightWrite, alone: boolean): boolean =>
-	!alone &&
-	program.binding.members.length > 0 &&
-	Arr.every(program.binding.members, (m) => m.op === "insert" && m.kind === "array") &&
-	new Set(Arr.map(program.binding.members, (m) => m.stratum)).size === 1 &&
-	Arr.every(program.params, (p) => p.kind !== "relation")
+	!alone && drawableShape(program.binding.members, program.params)
 
 /** A union-find over group keys: each key's root, and the union of two keys' groups. */
 const unionFind = () => {

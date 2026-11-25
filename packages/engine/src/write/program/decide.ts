@@ -29,17 +29,18 @@ import { type StratumAt, strataAt } from "#compiler/ir/stratum.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import { witnessFields } from "#compiler/laws/model/uniques.ts"
 import { recordedLaw } from "#compiler/runtime/law-entry.ts"
-import type {
-	Binding,
-	CountedFamily,
-	FamilyNames,
-	FreshOwner,
-	FreshStratum,
-	JudgedRelation,
-	MemberAt,
-	NestedAt,
-	NestedOwner,
-	OwnedColumn
+import {
+	type Binding,
+	type CountedFamily,
+	drawableShape,
+	type FamilyNames,
+	type FreshOwner,
+	type FreshStratum,
+	type JudgedRelation,
+	type MemberAt,
+	type NestedAt,
+	type NestedOwner,
+	type OwnedColumn
 } from "#compiler/runtime/write/binding.ts"
 import type {
 	Evaluation,
@@ -536,6 +537,41 @@ const groupData = (group: SlotGroup): GroupData => ({
 	inputs: mapNonEmpty(group.inputs, inputData)
 })
 
+/**
+ * The soundness of a write whose facts may be drawn in shares (binding.ts drawableShape), checked where its binding is
+ * decided, or an internal compiler error: every law its host judges a share's facts by either reads one drawn group or
+ * is refused across shares by an object the server holds. The host judges a share's facts by its same-key checks
+ * (frontend/compile.ts SlotFacts `host`), by its generated fields, each one fact's, and by its counted families' fresh
+ * groups, which drawShares draws whole (adapter/apply/shares.ts, the binding's own FreshStratum and CountedFamily); a
+ * same-key check compares facts of two groups, so each must be a unique or span object of its relation (laws/model/
+ * uniques.ts), which the later share's insert meets as stored, arbitrates or probes, and refuses as the host would. A
+ * key the host alone compares would let a shared call commit two facts at one key, which the whole call refuses.
+ */
+export const sharedChecksBacked = (
+	members: ReadonlyArray<MemberAt>,
+	params: ReadonlyArray<{ readonly kind: string }>,
+	slots: ReadonlyArray<Pick<SlotGroup, "relation" | "facts">>
+): void => {
+	if (!drawableShape(members, params)) {
+		return
+	}
+	for (const slot of slots) {
+		const uniques = slot.relation.uniques
+		const objects = new Set([
+			...uniques.keys.map((o) => o.law),
+			...uniques.others.map((o) => o.law),
+			...uniques.checks.map((c) => c.object.law)
+		])
+		for (const check of [...slot.facts.host.keys, ...slot.facts.host.spans]) {
+			if (!objects.has(check.law)) {
+				throw defect(
+					`a write drawn in shares judges law ${check.law} of ${slot.relation.name} on the host alone: no unique or span object of the relation refuses it across shares`
+				)
+			}
+		}
+	}
+}
+
 /** Each stratum's nested layouts (binding.ts NestedAt), in the order its nested writes are first met: each relation as
  * the one nesting of the stratum that fills it lays it out (frontend/compile.ts stratumLayouts). */
 const nestedAts = (frontend: WriteFrontend): ReadonlyArray<NestedAt> =>
@@ -815,10 +851,12 @@ const witnessData = (frontend: WriteFrontend): WitnessData => {
  * its fills read.
  */
 export const decideBinding = (frontend: WriteFrontend): Binding => {
+	const members = membersAt(frontend)
+	sharedChecksBacked(members, frontend.params, frontend.slots)
 	const fresh = freshStrata(frontend)
 	const fill = hostFillOf(frontend.laws.theory.fill, fillStarts(frontend, fresh))
 	return Object.freeze({
-		members: membersAt(frontend),
+		members,
 		groups: frontend.slots.map(groupData),
 		nested: nestedAts(frontend),
 		rowFamilies: rowFamilies(frontend),
