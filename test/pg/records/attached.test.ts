@@ -111,29 +111,29 @@ export const aQuerysRecordsReadBackExactlyTheRowsTheQueryDelivered = property.ex
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/program/records.ts",
+				file: "packages/engine/src/runtime/records.ts",
 				original: "\t\t\t\t\ta.name,\n\t\t\t\t\tvalue.map((member, i): RecordsFact => {",
 				replacement:
 					"\t\t\t\t\ta.name,\n\t\t\t\t\tvalue.slice(0, 0).map((member, i): RecordsFact => {",
-				why: "An array's members are never inserted (program/records.ts attachmentFacts), so a book's chapters, and the shelf's books, read back empty."
+				why: "An array's members are never inserted (runtime/records.ts attachmentFacts), so a book's chapters, and the shelf's books, read back empty."
 			},
 			{
-				file: "packages/engine/src/program/records.ts",
+				file: "packages/engine/src/runtime/records.ts",
 				original: '\t\t\tcase "option":\n\t\t\tcase "arm": {',
 				replacement: '\t\t\tcase "option":\n\t\t\t\tbreak\n\t\t\tcase "arm": {',
-				why: "An option's child is never inserted (program/records.ts attachmentFacts), so a blurb reads back None where the query delivered Some."
+				why: "An option's child is never inserted (runtime/records.ts attachmentFacts), so a blurb reads back None where the query delivered Some."
 			},
 			{
-				file: "packages/engine/src/program/records.ts",
+				file: "packages/engine/src/runtime/records.ts",
 				original: '\t\t\tcase "option":\n\t\t\tcase "arm": {',
 				replacement: '\t\t\tcase "arm":\n\t\t\t\tbreak\n\t\t\tcase "option": {',
-				why: "An arm's child is never inserted (program/records.ts attachmentFacts), so the alternatives law refuses the insert of a book of the arm's kind."
+				why: "An arm's child is never inserted (runtime/records.ts attachmentFacts), so the alternatives law refuses the insert of a book of the arm's kind."
 			},
 			{
-				file: "packages/engine/src/program/records.ts",
+				file: "packages/engine/src/runtime/records.ts",
 				original: '\t\t\tcase "one":\n\t\t\t\tstateApart(a, value)\n\t\t\t\tbreak',
 				replacement: '\t\t\tcase "one":\n\t\t\t\tbreak',
-				why: "The one child is never inserted (program/records.ts attachmentFacts), so its mirror refuses the insert of every book."
+				why: "The one child is never inserted (runtime/records.ts attachmentFacts), so its mirror refuses the insert of every book."
 			},
 			{
 				file: "packages/engine/src/program/records.ts",

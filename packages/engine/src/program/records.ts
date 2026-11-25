@@ -34,14 +34,21 @@
  *   under the root's name each row's fact, its owner's values then its stored columns, each array's members nested at
  *   its count with theirs; under each other attachment's relation its facts, its carried key's values then its own.
  */
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
-import { decoderOf, headingsOf } from "#compiler/core/decoder.ts"
+import { type DecoderForm, decoderOf, formFields, headingsOf } from "#compiler/core/decoder.ts"
 import { CompileError, unsupported } from "#compiler/core/errors.ts"
-import { maxIdentifierBytes, parseDeclaredName } from "#compiler/core/identity.ts"
+import {
+	type DeclaredName,
+	maxIdentifierBytes,
+	parseDeclaredName
+} from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import { compareStrings } from "#compiler/core/order.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
 import type { ContractFieldDesc } from "#compiler/ir/desc.ts"
+import type { Roster } from "#compiler/ir/scalar.ts"
 import { arm } from "#compiler/query/build/attach.ts"
 import {
 	decodedBy,
@@ -58,6 +65,7 @@ import {
 	type QueryState,
 	queryState
 } from "#compiler/query/build/state.ts"
+import { type RecordsHolder, type RecordsLayout, recordsFacts } from "#compiler/runtime/records.ts"
 import { naturalDescriptor } from "#compiler/scalar/natural.ts"
 import { defineField, type ScalarEnv } from "#compiler/scalar/registry.ts"
 import { fieldDescOf } from "#compiler/schema/field-desc.ts"
@@ -72,12 +80,7 @@ import {
 	requireDeclaredName,
 	requireName
 } from "#compiler/schema/protocol.ts"
-import {
-	type RecordsFact,
-	recordFields,
-	recordsInsert,
-	recordsValue
-} from "#compiler/schema/record.ts"
+import { recordFields, recordsValue } from "#compiler/schema/record.ts"
 import { drawnField, relationBuilder } from "#compiler/schema/relation.ts"
 import {
 	alternativesBuilder,
@@ -87,6 +90,7 @@ import {
 	onBuilder,
 	orderedBuilder
 } from "#compiler/schema/statements.ts"
+import type { ServedRecords } from "#compiler/served/forms.ts"
 import type { Carrier, Carriers } from "#compiler/types/core/phantom.ts"
 import type { Evidence } from "#compiler/types/evidence/evidence.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
@@ -169,10 +173,21 @@ interface RecordsState {
 	readonly owner: ReadonlyArray<string>
 	readonly ownerFields: RecordOwner
 	readonly apart: ReadonlyArray<RecordsRelation>
+	/** The records' stem, which names its served form (served/forms.ts ServedFile records). */
+	readonly stem: string
+	/** Its query's rows' decoder form, and the schema's roster of each name a code or set column of it names. */
+	readonly form: DecoderForm
+	readonly roster: (name: DeclaredName) => Roster | undefined
 }
 
 /** Each records value's state, by the value: a WeakMap, so it holds nothing alive and is never enumerated. */
 const states = new WeakMap<object, RecordsState>()
+
+/**
+ * Each records' state by its root relation's value, which a level lists among its relations: how generate finds the
+ * records a login's base lists (servedRecordsOf). A WeakMap, so it holds nothing alive.
+ */
+const rooted = new WeakMap<object, RecordsState>()
 
 /**
  * The contracts a query's level declares, by name, which its contract columns are declared by: those its content holds
@@ -732,12 +747,17 @@ export const recordsBuilder = <
 		literals: literalsOf(admitted.columns),
 		attachments
 	}
-	states.set(value, {
+	const recorded: RecordsState = {
 		root,
 		owner: Object.keys(admitted.owner),
 		ownerFields: admitted.owner,
-		apart: built.apart
-	})
+		apart: built.apart,
+		stem: admitted.stem,
+		form: query.rows.form,
+		roster: (name) => state.schema.env.roster(name)
+	}
+	states.set(value, recorded)
+	rooted.set(row, recorded)
 	return value
 }
 
@@ -855,107 +875,33 @@ export const recordsQueryOver = <L, R extends AnyRecords>(
 	})
 }
 
-/** An Option a decoded row holds, read by its tag: its value, or none. */
-const optionValue = (
-	value: unknown,
-	label: string
-): { readonly some: boolean; readonly value: unknown } => {
-	if (isRecord(value) && value["_tag"] === "Some") {
-		return { some: true, value: value["value"] }
-	}
-	if (isRecord(value) && value["_tag"] === "None") {
-		return { some: false, value: undefined }
-	}
-	throw malformed(label, "an Option of the attachment's records")
-}
-
-/** A found row of a holder, refused where it is no record. */
-const rowRecord = (row: unknown, label: string): Readonly<Record<string, unknown>> => {
-	if (!isRecord(row)) {
-		throw malformed(label, "found rows of the records' query")
-	}
-	return row
-}
-
-/** The facts of a holder's attachments for one of its rows, its key's values `key`: nested at counts, and apart. */
-interface AttachmentFacts {
-	readonly nested: ReadonlyArray<readonly [string, ReadonlyArray<RecordsFact>]>
-	readonly apart: ReadonlyArray<readonly [string, RecordsFact]>
-}
+/** A holder as its records' insert reads it (runtime/records.ts RecordsHolder): its relation's name, its key's field names, its stored columns and each attachment's, by its holding's kind. */
+const holderLayout = (holder: Holder): RecordsHolder => ({
+	relation: holder.relation.name,
+	key: holder.key.map((k) => k.name),
+	columns: holder.columns,
+	attachments: holder.attachments.map((a) => ({
+		name: a.name,
+		holding: a.holding.kind,
+		holder: holderLayout(a.holder)
+	}))
+})
 
 /**
- * The facts of the holder's attachments for its row `row`, whose key's values are `key` (see the header): an array's
- * members nested at its count, each its stored columns and its own arrays, its place its index; every other child's
- * facts apart under its relation's name, its carried key's values then its own.
+ * A records' layout (runtime/records.ts RecordsLayout), read off its state: what its insert is worked out from, by the
+ * compile's recordsFacts and, carried in a served file (served/forms.ts ServedRecords), by a served login's recordedOf.
  */
-const attachmentFacts = (
-	holder: Holder,
-	key: ReadonlyArray<unknown>,
-	row: Readonly<Record<string, unknown>>,
-	label: string
-): AttachmentFacts => {
-	const nested: Array<readonly [string, ReadonlyArray<RecordsFact>]> = []
-	const apart: Array<readonly [string, RecordsFact]> = []
-	const stateApart = (a: AttachmentRecords, value: unknown): void => {
-		const child = rowRecord(value, label)
-		const below = attachmentFacts(a.holder, key, child, label)
-		apart.push([
-			a.holder.relation.name,
-			{
-				fields: [
-					...a.holder.key.map((k, i) => [k.name, key[i]] as const),
-					...a.holder.columns.map((c) => [c, child[c]] as const)
-				],
-				nested: below.nested
-			}
-		])
-		for (const entry of below.apart) {
-			apart.push(entry)
-		}
-	}
-	for (const a of holder.attachments) {
-		const value = row[a.name]
-		switch (a.holding.kind) {
-			case "array": {
-				if (!isList(value)) {
-					throw malformed(label, `an array of ${a.name}'s records`)
-				}
-				nested.push([
-					a.name,
-					value.map((member, i): RecordsFact => {
-						const child = rowRecord(member, label)
-						const below = attachmentFacts(a.holder, [...key, BigInt(i)], child, label)
-						for (const entry of below.apart) {
-							apart.push(entry)
-						}
-						return {
-							fields: a.holder.columns.map((c) => [c, child[c]] as const),
-							nested: below.nested
-						}
-					})
-				])
-				break
-			}
-			case "option":
-			case "arm": {
-				const option = optionValue(value, label)
-				if (option.some) {
-					stateApart(a, option.value)
-				}
-				break
-			}
-			case "one":
-				stateApart(a, value)
-				break
-		}
-	}
-	return { nested, apart }
-}
+const layoutOf = (state: RecordsState): RecordsLayout => ({
+	owner: state.owner,
+	root: holderLayout(state.root),
+	apart: state.apart.map((relation) => relation.name)
+})
 
 /**
  * recordsFacts(level, records), the public schema barrel's (see the header): for found rows, each beside its owner's
  * values, the insert of them all, under the root's name each row's fact, its owner's values then its stored columns
- * with each array's members nested, and under each apart relation's name its facts.
+ * with each array's members nested, and under each apart relation's name its facts (runtime/records.ts recordsFacts,
+ * over the records' layout, as a served login's recordedOf works it out over the layout its file carries).
  */
 export const recordsFactsOver = <L, R extends AnyRecords>(
 	_level: L,
@@ -966,28 +912,71 @@ export const recordsFactsOver = <L, R extends AnyRecords>(
 	if (extra.length > 0) {
 		throw malformed(label, "recordsFacts(level, records): two arguments")
 	}
-	const state = stateOf(records, label)
-	const { root } = state
-	return (entries) => {
-		const apart = new Map<string, Array<RecordsFact>>(
-			state.apart.map((relation) => [relation.name, []])
-		)
-		const facts = Array.from(entries, ([owner, delivered]): RecordsFact => {
-			const values: Readonly<Record<string, unknown>> = owner
-			const key = root.key.map((k) => values[k.name])
-			const row = rowRecord(delivered, label)
-			const below = attachmentFacts(root, key, row, label)
-			for (const [name, fact] of below.apart) {
-				apart.get(name)?.push(fact)
+	return recordsFacts<RecordsInsert<L, R>>(layoutOf(stateOf(records, label)), (what) => {
+		throw malformed(label, what)
+	})
+}
+
+/** Each roster a code or set column of `form` names, at any depth of its attachments and arms, into `names`. */
+const formRosters = (form: DecoderForm, names: Set<string>): void => {
+	for (const fields of formFields(form)) {
+		for (const [, field] of fields) {
+			switch (field.kind) {
+				case "column":
+					if (field.column.kind === "code" || field.column.kind === "bits") {
+						names.add(field.column.roster)
+					}
+					break
+				case "attachment":
+				case "some":
+				case "none":
+				case "arm":
+					formRosters(field.child, names)
+					break
 			}
-			return {
-				fields: [
-					...state.owner.map((field) => [field, values[field]] as const),
-					...root.columns.map((c) => [c, row[c]] as const)
-				],
-				nested: below.nested
-			}
-		})
-		return recordsInsert<RecordsInsert<L, R>>([[root.relation.name, facts], ...apart])
+		}
 	}
+}
+
+/** A records as a served file carries it (served/forms.ts ServedRecords): its form, the rosters it names, its layout. */
+const servedRecords = (recorded: RecordsState): ServedRecords => {
+	const names = new Set<string>()
+	formRosters(recorded.form, names)
+	return {
+		form: recorded.form,
+		rosters: new Map(
+			[...names].toSorted(compareStrings).map((name) => {
+				const declared = parseDeclaredName(name)
+				const roster = declared.ok ? recorded.roster(declared.value) : undefined
+				if (roster === undefined) {
+					throw defect(`a column's roster ${name} is one its records' schema declares`)
+				}
+				return [name, { order: roster.order, handles: roster.handles }] as const
+			})
+		),
+		layout: layoutOf(recorded)
+	}
+}
+
+/**
+ * The records a served file carries (served/forms.ts ServedFile records): each records whose root relation is among
+ * `relations`, a login's base's relation values (its schema value's `relations`), and among `footprint`, the relations
+ * the login's statements read and write, by its stem, in stem order.
+ */
+export const servedRecordsOf = (
+	relations: Iterable<unknown>,
+	footprint: ReadonlySet<string>
+): ReadonlyMap<string, ServedRecords> => {
+	const carried: Array<RecordsState> = []
+	for (const relation of relations) {
+		const recorded = isRecord(relation) ? rooted.get(relation) : undefined
+		if (recorded !== undefined && footprint.has(recorded.root.relation.name)) {
+			carried.push(recorded)
+		}
+	}
+	return new Map(
+		carried
+			.toSorted((a, b) => compareStrings(a.stem, b.stem))
+			.map((recorded) => [recorded.stem, servedRecords(recorded)] as const)
+	)
 }

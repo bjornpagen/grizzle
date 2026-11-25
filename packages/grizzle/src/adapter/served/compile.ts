@@ -1,6 +1,6 @@
 import { openApiText } from "@bjornpagen/grizzle-openapi/openapi"
 import type { TextChunks } from "@bjornpagen/grizzle-text/chunks"
-import { Array as Arr, Effect, Option } from "effect"
+import { Array as Arr, Effect, Option, Record as Rec } from "effect"
 import { fromEngine } from "#adapter/engine.ts"
 import {
 	artifactsUnder,
@@ -31,6 +31,8 @@ import {
 	type LoginDesc,
 	movedClock,
 	type OwnedLogin,
+	ownedEntry,
+	servedRecordsOf,
 	transactionClock
 } from "#compiler/plan/common.ts"
 import {
@@ -42,6 +44,7 @@ import {
 } from "#compiler/plan/migration.ts"
 import {
 	everySlice,
+	type ServedRecords,
 	type ServedSnapshot,
 	servedSnapshot,
 	type UncoveredRead
@@ -85,6 +88,8 @@ export interface CompiledServed {
 	readonly roles: ReadonlyArray<LayerRole>
 	readonly footprint: ReadonlySet<string>
 	readonly footprints: ProgramFootprints
+	/** The records its base lists over its footprint (served/forms.ts ServedFile records). */
+	readonly records: ReadonlyMap<string, ServedRecords>
 }
 
 /**
@@ -173,12 +178,17 @@ const compileServed = Effect.fn("compileServed")(function* (
 		atRole
 	)
 	const footprint = yield* Effect.mapError(workloadSlice(login.login, login.owned), atRole)
+	const base = ownedEntry(login.login.base.value, "schema")
 	return {
 		login: login.login.desc,
 		snapshot: served,
 		roles,
 		footprint: footprint.names,
-		footprints
+		footprints,
+		records: servedRecordsOf(
+			base === undefined ? [] : Rec.values(base.value.relations),
+			footprint.names
+		)
 	}
 })
 

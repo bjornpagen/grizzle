@@ -43,13 +43,13 @@ export const aFoundRowsTextIsOneTextPerRowValueForValue = property.exhaust(
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/program/text.ts",
+				file: "packages/engine/src/runtime/read/text.ts",
 				original: `const framed = (text: string): string => \`\${text.length}:\${text}\``,
 				replacement: "const framed = (text: string): string => text",
 				why: "Texts are joined unframed, so the row of word ab and name c and the row of word a and name bc have one text."
 			},
 			{
-				file: "packages/engine/src/program/text.ts",
+				file: "packages/engine/src/runtime/read/text.ts",
 				original: "\t\t\tconst handles = handleList(rosterOf(column.roster))",
 				replacement:
 					"\t\t\tconst handles = (value: unknown) => Result.ok(value instanceof Set ? [...value].map(String) : [])",

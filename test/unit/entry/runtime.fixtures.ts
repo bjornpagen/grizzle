@@ -28,9 +28,10 @@ export const probedRuntimeProgram = (checkout: string, program: RuntimeProgram) 
  * entries' own (runtime-entry, http), the shell's runtime and decode sites, the engine's runtime facade and the modules
  * it re-exports from (runtime, served, decode, reader, codec, live and its model, wire and served members), the parts
  * of the core, the IR and the scalars they read (core, browser-core, dsl-core, ir, dsl-ir, scalar, dsl-scalar,
- * values), the CredentialError a session's password Effect fails with, and grizzle-text. None is the compiler's or the
+ * values), a records' facts (dsl-runtime, which the DSL's records and a served login's recordedOf share), the
+ * CredentialError a session's password Effect fails with, and grizzle-text. None is the compiler's or the
  * DSL builders': no schema, check, analysis, laws, logical, query, lower, write, physical, deploy, program, SQL or
- * install zone, and of the DSL only the core, IR and scalar parts its descriptors share with the runtime.
+ * install zone, and of the DSL only the core, IR, scalar and records' facts parts it shares with the runtime.
  */
 export const runtimeZones = [
 	"adapter-decode",
@@ -42,6 +43,7 @@ export const runtimeZones = [
 	"decode",
 	"dsl-core",
 	"dsl-ir",
+	"dsl-runtime",
 	"dsl-scalar",
 	"grizzle-text",
 	"http",

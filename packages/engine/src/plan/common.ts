@@ -118,6 +118,7 @@ export { rowEvaluatorOver } from "#compiler/program/evaluate.ts"
 export { codecTextOver, rowTextOver, type TextedField } from "#compiler/program/text.ts"
 export type { Isolation } from "#compiler/core/isolation.ts"
 export type { Decoders, HeadOf } from "#compiler/types/query/query.ts"
+export type { AnyRecords, OwnerFacts, RecordsInsert } from "#compiler/types/schema/records.ts"
 export type { Result } from "@bjornpagen/grizzle-text/base/result"
 export { sha256ChunksHex, sha256Hex } from "#compiler/core/sha256.ts"
 export { wellFormed } from "#compiler/core/text.ts"
@@ -217,6 +218,7 @@ export {
 	rostersOf,
 	schemaInstallation
 } from "#compiler/schema/own.ts"
+export { servedRecordsOf } from "#compiler/program/records.ts"
 export { ownedEntry, ownedKind } from "#compiler/schema/protocol.ts"
 export { writesOf } from "#compiler/schema/reach.ts"
 export { bindGroups } from "#compiler/schema/record.ts"

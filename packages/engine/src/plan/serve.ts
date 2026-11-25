@@ -88,6 +88,7 @@ export {
 	servedPath,
 	type ServedPrologue,
 	type ServedRead,
+	type ServedRecords,
 	type ServedRefusals,
 	type ServedRoleForm,
 	type ServedRoutes,

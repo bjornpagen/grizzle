@@ -365,6 +365,20 @@ export class ServedLoginRefused extends Data.TaggedError("ServedLoginRefused")<{
 }
 
 /**
+ * recordedOf was given a stem the login's served file carries no records of: the records' relations are none its
+ * programs read or write, so `grizzle generate` wrote no form of them into its file, or the file was written before
+ * they joined its programs.
+ */
+export class RecordsUnserved extends Data.TaggedError("RecordsUnserved")<{
+	readonly login: string
+	readonly stem: string
+}> {
+	override get message(): string {
+		return `the served file of login ${this.login} carries no records ${this.stem}: none of its programs reads or writes their relations, or grizzle generate has not written the file since they joined them`
+	}
+}
+
+/**
  * No provided DbLayer serves the role: the context holds no layer built for the login that holds it (`login`), or the
  * role is in no login at all (undefined).
  */

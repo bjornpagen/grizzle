@@ -115,6 +115,7 @@
 					"packages/grizzle/src/adapter/public/db.ts",
 					"packages/grizzle/src/adapter/public/errors.ts",
 					"packages/grizzle/src/adapter/public/layer.ts",
+					"packages/grizzle/src/adapter/public/records.ts",
 					"packages/grizzle/src/adapter/public/settled.ts",
 					"packages/grizzle/src/adapter/reader/params.ts",
 					"packages/grizzle/src/adapter/reader/relations.ts",
@@ -201,6 +202,12 @@
 					"packages/grizzle/src/compile.ts",
 					"packages/grizzle/src/locks.ts"
 				]
+			},
+			{
+				// The DSL's part of runtime: a records' facts (runtime/records.ts), which the DSL's recordsFacts and a served
+				// login's recordedOf work out alike, over the core alone.
+				"name": "dsl-runtime",
+				"patterns": ["packages/engine/src/runtime/records.ts"]
 			},
 			{
 				// What a served layer and its Dbs run beside the core: the statement helpers a read's and a write's runtime share
@@ -702,6 +709,7 @@
 					"core",
 					"dsl-core",
 					"dsl-ir",
+					"dsl-runtime",
 					"dsl-scalar",
 					"grizzle-text",
 					"ir",
@@ -771,6 +779,7 @@
 					"dsl-ir",
 					"dsl-program",
 					"dsl-query",
+					"dsl-runtime",
 					"dsl-scalar",
 					"dsl-schema",
 					"dsl-sql",
@@ -920,6 +929,7 @@
 					"dsl-core",
 					"dsl-ir",
 					"dsl-query",
+					"dsl-runtime",
 					"dsl-scalar",
 					"dsl-schema",
 					"dsl-sql",
@@ -1030,6 +1040,11 @@
 				"allow": []
 			},
 			{
+				// A records' facts, which the DSL's recordsFacts and a served login's recordedOf work out alike: core alone.
+				"from": "dsl-runtime",
+				"allow": ["browser-core", "grizzle-text"]
+			},
+			{
 				"from": "dsl-engine-index",
 				"allow": ["dsl-public", "grizzle-text"],
 				"allowTypeOnly": ["public"]
@@ -1135,6 +1150,7 @@
 					"core",
 					"dsl-core",
 					"dsl-ir",
+					"dsl-runtime",
 					"dsl-scalar",
 					"dsl-schema",
 					"dsl-sql",
@@ -1176,6 +1192,7 @@
 					"core",
 					"dsl-core",
 					"dsl-ir",
+					"dsl-runtime",
 					"dsl-scalar",
 					"dsl-schema",
 					"dsl-text",
@@ -1240,6 +1257,7 @@
 					"core",
 					"dsl-core",
 					"dsl-ir",
+					"dsl-runtime",
 					"dsl-scalar",
 					"dsl-sql",
 					"grizzle-text",
@@ -1264,6 +1282,7 @@
 					"dsl-core",
 					"dsl-ir",
 					"dsl-query",
+					"dsl-runtime",
 					"dsl-scalar",
 					"dsl-schema",
 					"dsl-sql",
@@ -1294,6 +1313,7 @@
 					"core",
 					"dsl-core",
 					"dsl-ir",
+					"dsl-runtime",
 					"dsl-scalar",
 					"dsl-schema",
 					"dsl-sql",
@@ -1330,6 +1350,7 @@
 					"dsl-ir",
 					"dsl-program",
 					"dsl-query",
+					"dsl-runtime",
 					"dsl-scalar",
 					"dsl-schema",
 					"dsl-sql",
@@ -1422,6 +1443,7 @@
 				],
 				"allowTypeOnly": [
 					"codec",
+					"dsl-runtime",
 					"dsl-sql",
 					"dsl-write",
 					"laws",
@@ -1448,6 +1470,7 @@
 					"dsl-ir",
 					"dsl-program",
 					"dsl-query",
+					"dsl-runtime",
 					"dsl-scalar",
 					"dsl-schema",
 					"dsl-sql",
@@ -1489,6 +1512,7 @@
 					"decode",
 					"dsl-core",
 					"dsl-ir",
+					"dsl-runtime",
 					"dsl-scalar",
 					"grizzle-text",
 					"ir",
@@ -1546,6 +1570,7 @@
 					"decode",
 					"dsl-core",
 					"dsl-ir",
+					"dsl-runtime",
 					"dsl-scalar",
 					"grizzle-text",
 					"ir",
@@ -1638,6 +1663,7 @@
 					"decode",
 					"dsl-core",
 					"dsl-ir",
+					"dsl-runtime",
 					"dsl-scalar",
 					"grizzle-text",
 					"ir",
@@ -1710,6 +1736,7 @@
 					"dsl-ir",
 					"dsl-program",
 					"dsl-query",
+					"dsl-runtime",
 					"dsl-scalar",
 					"dsl-schema",
 					"dsl-sql",
@@ -1748,6 +1775,7 @@
 					"dsl-core",
 					"dsl-ir",
 					"dsl-program",
+					"dsl-runtime",
 					"dsl-schema",
 					"dsl-sql",
 					"grizzle-text",

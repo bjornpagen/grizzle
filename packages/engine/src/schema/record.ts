@@ -15,6 +15,7 @@ import {
 } from "#compiler/core/decoder.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import { frozenRecordOf } from "#compiler/core/record.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
@@ -92,13 +93,8 @@ const claimed = <R>(record: Readonly<Record<string, unknown>>): R => record as R
  * A frozen null-prototype record holding each of `entries`' values under its key, at the type its caller's construction
  * gives it (see the header).
  */
-const assembled = <R>(entries: ReadonlyArray<readonly [string, unknown]>): R => {
-	const out: Record<string, unknown> = { __proto__: null }
-	for (const [key, value] of entries) {
-		out[key] = value
-	}
-	return claimed<R>(Object.freeze(out))
-}
+const assembled = <R>(entries: ReadonlyArray<readonly [string, unknown]>): R =>
+	claimed<R>(frozenRecordOf(entries))
 
 /**
  * A decoder bound by `reader`, the runtime's reader of its form bound to every heading group's layout, once per compiled
@@ -386,35 +382,6 @@ export const recordFields = <F>(entries: ReadonlyArray<readonly [string, unknown
  */
 export const recordsValue = <A>(entries: ReadonlyArray<readonly [string, unknown]>): A =>
 	assembled<A>(entries)
-
-/**
- * One fact of a query's records as an insert states it: its fields' values under their keys, and at each count of an
- * array the members it nests, each a fact of its own.
- */
-export interface RecordsFact {
-	readonly fields: ReadonlyArray<readonly [string, unknown]>
-	readonly nested: ReadonlyArray<readonly [string, ReadonlyArray<RecordsFact>]>
-}
-
-/** A fact of a query's records (RecordsFact) as a record, its nested members records too. */
-const recordsFactRecord = (fact: RecordsFact): unknown =>
-	assembled<unknown>([
-		...fact.fields,
-		...fact.nested.map(
-			([count, members]) => [count, Object.freeze(members.map(recordsFactRecord))] as const
-		)
-	])
-
-/**
- * The insert of one owner's found rows into a query's records (see the header): under each relation's name, its facts
- * (RecordsFact), each a record, at the type its caller states.
- */
-export const recordsInsert = <A>(
-	relations: ReadonlyArray<readonly [string, ReadonlyArray<RecordsFact>]>
-): A =>
-	assembled<A>(
-		relations.map(([name, facts]) => [name, Object.freeze(facts.map(recordsFactRecord))] as const)
-	)
 
 /**
  * The heading of no column, at the type its caller states: a described query's or arm's public heading

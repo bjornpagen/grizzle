@@ -8,4 +8,5 @@
 export * from "#adapter/public/db.ts"
 export * from "#adapter/public/errors.ts"
 export * from "#adapter/public/layer.ts"
+export * from "#adapter/public/records.ts"
 export { roleNameOf } from "#adapter/served/served.ts"

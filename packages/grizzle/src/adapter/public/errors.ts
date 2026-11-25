@@ -10,6 +10,7 @@ export {
 	DbConfigRefused,
 	ExpiryRefused,
 	LiveSourceMissing,
+	RecordsUnserved,
 	RoleOutsideLayers,
 	ServedLoginRefused,
 	type SettingFault,

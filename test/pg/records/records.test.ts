@@ -118,7 +118,7 @@ export const aRowAQueryFoundReadsBackFromItsRecordsExactlyAsTheQueryFoundIt = pr
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/program/records.ts",
+				file: "packages/engine/src/runtime/records.ts",
 				original: "\t\t\t\t\t...root.columns.map((c) => [c, row[c]] as const)",
 				replacement: "\t\t\t\t\t...root.columns.slice(1).map((c) => [c, row[c]] as const)",
 				why: "recordsFacts leaves a row's first stored column out, so the insert of its records is refused for the missing field and nothing reads back."

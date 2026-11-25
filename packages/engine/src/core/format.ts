@@ -276,7 +276,11 @@
  * held a column list beside the query: a derived table or a query CTE whose query named its outputs inline prints them
  * as a list, its targets bare, a data-modifying CTE lists its RETURNING names, and a set operation whose maker names
  * its outputs names its later arms' as its first's, so a drafted backfill's and a served statement's text of such a
- * table moves.
+ * table moves. A served file carries `records`, by stem, each records its base lists whose relations the login's
+ * programs read or write: its query's rows' decoder form, the declared rosters the form's code and set columns name,
+ * and its layout (served/forms.ts ServedRecords), which a served login's recordedOf reads a found row's text and the
+ * insert of found rows off, where format 8 held no records and a process read them only off the records' value,
+ * evaluating its schema module (a den worker's whole flow chain, owned at its import).
  *
  * Format 8 (pin+2): a drafted folder's meta.json records a drafted
  * statement by its text only where a reader reads its text: a loss's statement and each statement of a confirmed group,
@@ -597,7 +601,7 @@ export type FormattedFile = (typeof formattedFiles)[number]
  */
 export const recordShapes: { readonly [F in FormattedFile]: string } = {
 	snapshot: "7dd16c83c1bb19b86422b590955133d346370bb1c0f5f89a3ef785cf0571e740",
-	served: "973638e8bf53e5b0c7f1c97692fdc7decf1471645ee1a1c7dcc3a1236f2540f6"
+	served: "7d9ab94f4704fedb018111c7e1a97ca6be2fe232e0df39a2d6ba87b8474a8f9a"
 }
 
 /**

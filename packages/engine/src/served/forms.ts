@@ -16,6 +16,7 @@ import type { RosterCodes } from "#compiler/ir/cells.ts"
 import type { ContextFactSource } from "#compiler/ir/desc.ts"
 import type { CallerParamDecl, ConstraintLaws, PageFill } from "#compiler/ir/products.ts"
 import type { CompletedOrder, Heading, HeadingColumn } from "#compiler/ir/rel.ts"
+import type { RosterHandles } from "#compiler/ir/scalar.ts"
 import type { ConstraintLaw } from "#compiler/laws/model/model.ts"
 import type { RoleWire, ServedWire } from "#compiler/live/member.ts"
 import type { PageStatementSlot } from "#compiler/lower/conservative/types.ts"
@@ -24,6 +25,7 @@ import type { PageComparator, PageVariant, VariantFill } from "#compiler/lower/s
 import type { ChoiceInput } from "#compiler/lower/shapes/take/index.ts"
 import type { DescribedLaw } from "#compiler/physical/install/plan.ts"
 import type { RecordedGenerated } from "#compiler/runtime/law-entry.ts"
+import type { RecordsLayout } from "#compiler/runtime/records.ts"
 import type { ClosedTable } from "#compiler/runtime/write/fill.ts"
 import type { ServedWrite } from "#compiler/runtime/write/flight.ts"
 import type { ArrayMember } from "#compiler/runtime/write/members.ts"
@@ -100,6 +102,24 @@ export type ServedFile = {
 	readonly tables: ServedTables
 	/** The login's roles, in the login's declared order. */
 	readonly roles: ReadonlyArray<ServedRoleForm>
+	/**
+	 * Each records (program/records.ts records) its base's levels list whose relation the login's statements read or
+	 * write, by its stem (ServedRecords): what a served login's recordedOf reads a found row's text and the insert of found
+	 * rows by, so a process that serves the login builds both with no records value, query or schema at hand.
+	 */
+	readonly records: ReadonlyMap<string, ServedRecords>
+}
+
+/**
+ * A records as a served file carries it (ServedFile records): its query's rows' decoder form, which its found rows'
+ * one text is read off (runtime/read/text.ts rowTextOf), each roster a code or set column of the form names as its
+ * schema declares it, its handles in their declared order, and its layout, which the insert of found rows is worked
+ * out from (runtime/records.ts recordsFacts).
+ */
+export interface ServedRecords {
+	readonly form: DecoderForm
+	readonly rosters: ReadonlyMap<string, RosterHandles>
+	readonly layout: RecordsLayout
 }
 
 /**

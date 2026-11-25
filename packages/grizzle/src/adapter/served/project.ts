@@ -58,6 +58,7 @@ import {
 	type ServedMemberForm,
 	type ServedRead,
 	type ServedReadLive,
+	type ServedRecords,
 	type ServedRefusals,
 	type ServedRoleForm,
 	type ServedSnapshot,
@@ -85,6 +86,8 @@ export interface CompiledLogin {
 	readonly footprint: ReadonlySet<string>
 	/** Each query program's footprint, by name (served/compile.ts CompiledServed footprints). */
 	readonly footprints: ProgramFootprints
+	/** The records its base lists over its footprint (served/compile.ts CompiledServed records). */
+	readonly records: ReadonlyMap<string, ServedRecords>
 }
 
 /**
@@ -525,6 +528,7 @@ export const servedFileOf = (
 			closed: closedOfLogin(compiled.roles),
 			above: servedAbove(lawsAbove(snapshot)),
 			tables: tablesOf(snapshot.derived.tables, compiled.footprint),
-			roles
+			roles,
+			records: compiled.records
 		}
 	})

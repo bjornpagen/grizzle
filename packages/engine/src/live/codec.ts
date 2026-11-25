@@ -16,7 +16,7 @@ import { canonicalEquals, type Path } from "#compiler/core/canonical.ts"
 import { type TransientTag, transientTags } from "#compiler/core/errors.ts"
 import { hostRead } from "#compiler/core/host.ts"
 import type { ParamPlace } from "#compiler/core/identity.ts"
-import { isIterable, isList, isPlainRecord } from "#compiler/core/record.ts"
+import { frozenRecordOf, isIterable, isList, isPlainRecord } from "#compiler/core/record.ts"
 import { Sqlstate } from "#compiler/core/sqlstate.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import {
@@ -89,17 +89,6 @@ const headingOf = <L>(record: WireRecord<L>, value: object): WireHeading<L> | un
 			heading.map((named) => named.name)
 		)
 	)
-}
-
-/** A frozen null-prototype record of `entries`, as grizzle's decoders build every record they deliver. */
-const deliveredRecord = (
-	entries: ReadonlyArray<readonly [string, unknown]>
-): Readonly<Record<string, unknown>> => {
-	const out: Record<string, unknown> = { __proto__: null }
-	for (const [name, value] of entries) {
-		out[name] = value
-	}
-	return Object.freeze(out)
 }
 
 /** The JSON of a field's value the server holds. */
@@ -214,7 +203,7 @@ export const decodeRecord = (
 	if (heading === undefined) {
 		throw defect("a wire record of one of its record's headings")
 	}
-	return deliveredRecord(
+	return frozenRecordOf(
 		heading.map((named) => [
 			named.name,
 			decodeField(named.field, trustedMember(object, named.name), options)

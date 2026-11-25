@@ -55,6 +55,21 @@ export const deepFreeze = <A>(value: A): A => {
 	return value
 }
 
+/**
+ * A frozen record of `entries` without a prototype, so a key named like a member of `Object.prototype` is an own
+ * property like any other: the one record grizzle's builders assemble (schema/record.ts), its decoders deliver
+ * (live/codec.ts) and its records' facts are (runtime/records.ts).
+ */
+export const frozenRecordOf = (
+	entries: Iterable<readonly [string, unknown]>
+): Readonly<Record<string, unknown>> => {
+	const out: Record<string, unknown> = { __proto__: null }
+	for (const [key, value] of entries) {
+		out[key] = value
+	}
+	return Object.freeze(out)
+}
+
 /** `record` with each value mapped by `f`, its keys in their order. */
 export const mapRecord = <A, B>(
 	record: Readonly<Record<string, A>>,

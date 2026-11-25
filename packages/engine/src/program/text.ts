@@ -7,23 +7,16 @@ import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import { isNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { Result as Public } from "effect"
-import { handleText, hostText, handleList, specText } from "#compiler/codec/scalar.ts"
-import {
-	type ColumnForm,
-	type DecoderForm,
-	formFields,
-	type FormField,
-	type OptionVocabulary
-} from "#compiler/core/decoder.ts"
+import { hostText } from "#compiler/codec/scalar.ts"
+import { formFields, type OptionVocabulary } from "#compiler/core/decoder.ts"
 import { type CodecFault, type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { parseDeclaredName } from "#compiler/core/identity.ts"
 import { captureLoc, SourceLoc } from "#compiler/core/loc.ts"
 import type { PublicResult } from "#compiler/core/public-result.ts"
-import { isList, isRecord } from "#compiler/core/record.ts"
 import type { Roster } from "#compiler/ir/scalar.ts"
 import { queryState } from "#compiler/query/build/state.ts"
+import { rowTextOf } from "#compiler/runtime/read/text.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
-import { conversionSpec } from "#compiler/scalar/values/convert.ts"
 import { describeDeclared } from "#compiler/schema/relation.ts"
 import type { Field, GeneratedField, StoredOnlySql } from "#compiler/types/fields/field.ts"
 import type { Decoders, HeadOf } from "#compiler/types/query/query.ts"
@@ -60,140 +53,6 @@ export const codecTextOver = <V>(
 	const { scalar } = describeDeclared(field, captureLoc("codecText", []))
 	const text = hostText(scalar)
 	return (value) => answer(text(value))
-}
-
-/** A text, framed: its length in UTF-16 code units, a colon, then the text, so a reader tells where it ends. */
-const framed = (text: string): string => `${text.length}:${text}`
-
-/** Texts, framed as a list: their count, a colon, then each framed, so a list and its members are told apart. */
-const framedList = (texts: ReadonlyArray<string>): string =>
-	`${texts.length}:${texts.map(framed).join("")}`
-
-/** The text of a found row's value, or its CodecFault: a value its column's type does not admit. */
-type ValueText = (value: unknown) => Result.Result<string, CodecFault>
-
-/** Each value's text by `text`, framed as a list, or the first CodecFault. */
-const listText =
-	(text: ValueText) =>
-	(values: ReadonlyArray<unknown>): Result.Result<string, CodecFault> => {
-		const texts: Array<string> = []
-		for (const value of values) {
-			const t = text(value)
-			if (!t.ok) {
-				return t
-			}
-			texts.push(t.value)
-		}
-		return Result.ok(framedList(texts))
-	}
-
-/**
- * A column's value's text by its form (core/decoder.ts ColumnForm), framed: a converted column's and head literals'
- * its conversion's carrier's one text (codec/scalar.ts specText), a refined text's the text itself, a closed id's its
- * handle (handleText), a set's its handles in its roster's declared order as a list (handleList), and a bytes value's
- * its digest, its canonical text. Each is the column's type's one text of the value, so two values have one text
- * exactly where the type's equality holds them equal.
- */
-const columnText = (column: ColumnForm, rosterOf: (name: string) => Roster): ValueText => {
-	switch (column.kind) {
-		case "convert":
-		case "constant": {
-			const text = specText(conversionSpec(column.conversion))
-			return (value) => Result.map(text(value), framed)
-		}
-		case "text": {
-			const text = specText({ carrier: "text" })
-			return (value) => Result.map(text(value), framed)
-		}
-		case "bytes": {
-			const text = specText({ carrier: "bytes" })
-			return (value) => Result.map(text(value), framed)
-		}
-		case "code": {
-			const text = handleText(rosterOf(column.roster), undefined)
-			return (value) => Result.map(text(value), framed)
-		}
-		case "bits": {
-			const handles = handleList(rosterOf(column.roster))
-			return (value) => Result.map(handles(value), framedList)
-		}
-	}
-}
-
-/**
- * A field's value's text: a column's (columnText); an attachment's children's texts as a list, an array's in their
- * order, an Option's none or its one, the one child's alone; an alternatives arm's, an Option, its none or its one.
- */
-const fieldText = (
-	field: FormField,
-	rosterOf: (name: string) => Roster,
-	options: OptionVocabulary
-): ValueText => {
-	switch (field.kind) {
-		case "column":
-			return columnText(field.column, rosterOf)
-		case "attachment": {
-			const children = listText(rowTextOf(field.child, rosterOf, options))
-			switch (field.delivery) {
-				case "array":
-					return (value) => {
-						if (!isList(value)) {
-							throw defect("an array attachment's value is its children's list")
-						}
-						return children(value)
-					}
-				case "option":
-					return (value) => children(options.held(value))
-				case "one":
-					return (value) => children([value])
-			}
-		}
-		case "some":
-		case "none":
-		case "arm": {
-			const children = listText(rowTextOf(field.child, rosterOf, options))
-			return (value) => children(options.held(value))
-		}
-	}
-}
-
-/**
- * The text of a row of a decoder form's records: its heading's place among the form's headings, then each field's text
- * in the heading's order (fieldText), each one framed, so the text is the row's alone. A row's heading is the one
- * whose keys it holds; a value of no heading's keys is a defect, since the row is one the query's decoder delivered.
- */
-const rowTextOf = (
-	form: DecoderForm,
-	rosterOf: (name: string) => Roster,
-	options: OptionVocabulary
-): ValueText => {
-	const headings = formFields(form).map((fields, place) => ({
-		place,
-		keys: fields
-			.map(([key]) => key)
-			.toSorted()
-			.join("\n"),
-		fields: fields.map(([key, field]) => [key, fieldText(field, rosterOf, options)] as const)
-	}))
-	const byKeys = new Map(headings.map((heading) => [heading.keys, heading] as const))
-	return (value) => {
-		if (!isRecord(value)) {
-			throw defect("a found row is a record")
-		}
-		const heading = byKeys.get(Object.keys(value).toSorted().join("\n"))
-		if (heading === undefined) {
-			throw defect("a found row holds the keys of one of its query's headings")
-		}
-		let text = `${heading.place}:`
-		for (const [key, read] of heading.fields) {
-			const t = read(value[key])
-			if (!t.ok) {
-				return t
-			}
-			text += t.value
-		}
-		return Result.ok(text)
-	}
 }
 
 /**

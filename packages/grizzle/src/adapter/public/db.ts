@@ -22,7 +22,13 @@ export const Db: DbConstructor = { open: openDb, openMoved }
  * The inet and cidr host values and their parses (scalar/values/net.ts): what a server attests a request's address as
  * (Db.open's `attested`), read from its edge's header by `Inet.parse`, the one text PostgreSQL's inet_out prints.
  */
-export { Cidr, Inet } from "#compiler/plan/runtime.ts"
+/**
+ * grizzle's artifact format (engine core/format.ts artifactFormat), the identity of every file generate writes and the
+ * codec texts a served file's programs read: a reader folding it into a fingerprint of what it read (den's
+ * RequestedWith) changes that fingerprint with every repin that changes the format, with no file regenerated.
+ */
+export { artifactFormat } from "#compiler/plan/runtime.ts"
+export { Cidr, Inet, Sha256, Vector } from "#compiler/plan/runtime.ts"
 export type Db<R, P> = DbOf<R, P>
 
 export type {
