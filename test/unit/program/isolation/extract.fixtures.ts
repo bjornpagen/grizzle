@@ -2192,13 +2192,13 @@ class Expect {
 	}
 
 	/** What a side binds a column equal to it to (Binds), none for one that binds nothing (otherText): a fixed own
-	 * column's or stacked column's value once (fixedOwn, fixedStacked), the context's claim, another table's column. */
+	 * column's or stacked column's value once (fixedOwn, fixedStacked), the context's claim, another table's column that
+	 * is a field; a column of no field binds nothing, so a later equality of the column binds it, as the extractor's
+	 * bindingsOf skips an equality that binds nothing. */
 	bound(o: ModelOther): Binds | undefined {
-		if (o.kind === "table") {
-			return { kind: "stored", text: this.storedText(o.alias, "c_b"), rows: "stored" }
-		}
-		if (o.kind === "incoming") {
-			return { kind: "stored", text: this.storedText(o.alias, o.column), rows: "stored" }
+		if (o.kind === "table" || o.kind === "incoming") {
+			const text = this.storedText(o.alias, o.kind === "table" ? "c_b" : o.column)
+			return text === undefined ? undefined : { kind: "stored", text, rows: "stored" }
 		}
 		if (o.kind === "limited") {
 			const stacked = this.stackedAt.get(o.alias)

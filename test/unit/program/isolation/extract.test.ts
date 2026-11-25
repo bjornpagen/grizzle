@@ -81,7 +81,7 @@
 
 import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
-import { type Case, property } from "@bjornpagen/testing/property"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Order } from "effect"
 import { memberFacts } from "#compiler/program/isolation/extract.ts"
 import { expanded } from "#test/support/expanded.ts"
@@ -304,7 +304,16 @@ export const aChangeMembersFactsNameEveryReadByItsModeItsOwnItsGroupAndItsBindin
 			kind: "specification",
 			name: "the extractor's contract restated over the drawn statements: each read's mode from its place, its group and binding from its conditions, each write's positive reads"
 		},
-		kept: [],
+		kept: [
+			{
+				token: ReplayToken(
+					"test/unit/program/isolation/extract.test.ts#aChangeMembersFactsNameEveryReadByItsModeItsOwnItsGroupAndItsBindingAndEveryWriteByThePositiveReadsThatFeedItAsTheContractRestatedOverTheDrawnStatementsSays:-:0.1.2.0.1.5.0.0.0.1.0.2.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.1.0.2.0.0.3.0.3.1.0.0.0.0.0.0.1.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0"
+				),
+				reason:
+					"a read of W keyed by :a whose c_hidden, a law column of no field, and c_a equal another read's column: the model took the c_hidden equality as the binding and dropped the next, where the extractor skips an equality that binds nothing (SUBMITKEY's rotating stream, TEST_SEED 0xc818218f case 410)",
+				since: "2026-11-25"
+			}
+		],
 		kills: [
 			{
 				file: "packages/engine/src/program/isolation/extract.ts",
