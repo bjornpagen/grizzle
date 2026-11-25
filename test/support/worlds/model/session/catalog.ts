@@ -643,9 +643,10 @@ export const keyShown = (
  * new contract there again (packages/engine/src/deploy/diff/diff.ts): its folder drops a role's world object the perturbation
  * changed, or creates it again under a new definition (a view, a filter function or key probe, an edited policy), never
  * one the perturbation removed, a dropped policy, whose DROP stops the run (departedAt); enables row
- * security on a table the new installation is the first to narrow, which a disabled or enabled
- * state then no longer departs from (ENABLE leaves FORCE as it was); revokes a privilege a grant made by hand stands
- * beside, or drops its table (handGrantTaken), or grants anew every privilege a revoke made by hand took that the new
+ * security on a table the new installation is the first to narrow, or disables it on a table the old installation
+ * narrowed and the new one does not, so the table's row security is the new installation's again where FORCE was not
+ * set by hand (rowSecurityHealed: ENABLE and DISABLE leave FORCE as it was); revokes a privilege a grant made by hand
+ * stands beside, or drops its table (handGrantTaken), or grants anew every privilege a revoke made by hand took that the new
  * installation holds (handRevokeGrantedBack), one privilege at a time (deploy/diff/privileges.ts); or moves a
  * role to another login, which revokes it from its old login, options and all. Every other perturbation outlives the
  * migration, a PUBLIC grant on a stored relation's table among them, since a migration revokes from PUBLIC only on what
@@ -658,7 +659,7 @@ export const keyShown = (
 export const healedBy = (from: InstallSpec, to: InstallSpec, p: CatalogPerturbation): boolean => {
 	switch (p.kind) {
 		case "row-security":
-			return p.state !== "forced" && !rowSecured(from, p.relation) && rowSecured(to, p.relation)
+			return rowSecurityHealed(from, to, p)
 		case "extra-grant":
 		case "extra-column-grant":
 			return handGrantTaken(from, to, p)
@@ -806,6 +807,27 @@ const settingEffect = (
 			return roleOf(install, who) === undefined || p.change === "default-reset" ? noChange : changed
 		}
 	}
+}
+
+/**
+ * Whether a migration from `from` to `to` leaves a table's row security as `to` states it after a hand change `p`: the
+ * table's flags as the change left them, relrowsecurity set by ENABLE and cleared by DISABLE, relforcerowsecurity set by
+ * FORCE, over the old installation's (enabled exactly where a role's entry narrows it, never forced); then the
+ * migration's ENABLE where the new installation is the first to narrow it, or DISABLE where the old one narrowed it and
+ * the new one does not, each leaving FORCE as it was (physical/ddl/roles.ts addRowSecurity, deploy/diff/departed.ts);
+ * the drift check then finds it as the new installation states it exactly when it is enabled where `to` narrows it and
+ * never forced.
+ */
+const rowSecurityHealed = (
+	from: InstallSpec,
+	to: InstallSpec,
+	p: Extract<CatalogPerturbation, { readonly kind: "row-security" }>
+): boolean => {
+	const before = rowSecured(from, p.relation)
+	const after = rowSecured(to, p.relation)
+	const changedBy = p.state === "enabled" ? true : p.state === "disabled" ? false : before
+	const enabled = before === after ? changedBy : after
+	return p.state !== "forced" && enabled === after
 }
 
 /** A table's row security changed: the drift check requires it enabled, not forced, where a role's entry narrows it. */

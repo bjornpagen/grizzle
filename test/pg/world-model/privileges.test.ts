@@ -1,3 +1,4 @@
+import { ReplayToken } from "@bjornpagen/testing/property"
 import { installs, tamperMigratedRequired } from "#test/pg/world-model/privileges.fixtures.ts"
 import {
 	drawnRealities,
@@ -21,8 +22,32 @@ export const privilegesTamperMigrated = programProperty({
 	realities: drawnRealities,
 	lead: tamperThenMigrate(tamperMigratedRequired),
 	check: () => undefined,
-	kept: [],
+	kept: [
+		{
+			token: ReplayToken(
+				"test/pg/world-model/privileges.test.ts#privilegesTamperMigrated:-:1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.1.0.0.0.0.1.0.1.0.0.1.0.0.0.0.0.0.0.0.2.8.1.2.0.1.0.0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0"
+			),
+			reason:
+				"row security enabled by hand on Doc, which the old installation already narrows, then a migration to one that narrows it no more: the migration's DISABLE ROW LEVEL SECURITY leaves Doc as the new installation states it, so the run ends ok, where the model kept the hand change standing and wanted the drift refused (STAMPRC5's red on d9a51ea25; the model's rowSecurityHealed)",
+			since: "2026-11-25"
+		},
+		{
+			token: ReplayToken(
+				"test/pg/world-model/privileges.test.ts#privilegesTamperMigrated:3ffffff.9:1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.1.0.0.0.0.0.0.0.8.2.0.0"
+			),
+			reason:
+				"row security enabled by hand on Org, which no role's entry narrows, and a migration that leaves it so: the drift check refuses the run, Org's row security the only fact that departs",
+			since: "2026-11-25"
+		}
+	],
 	kills: [
+		{
+			file: "packages/grizzle/src/adapter/admission/drift.ts",
+			original:
+				'\t\t\t\t\tC.caseWhen(\n\t\t\t\t\t\t[{ when: c.col("relrowsecurity"), result: C.text("enabled") }],\n\t\t\t\t\t\tC.text("disabled")\n\t\t\t\t\t),\n',
+			replacement: '\t\t\t\t\tC.text("disabled"),\n',
+			why: "The drift check reads no table's relrowsecurity (adapter/admission/drift.ts), so a table's row security enabled or disabled by hand is no fact that departs, and a migrate over it ends ok; the property fails."
+		},
 		{
 			file: "packages/grizzle/src/adapter/migrate/errors.ts",
 			original: "\t\t\tcatalogDeparted.has(this.failure.sqlstate) &&\n",
