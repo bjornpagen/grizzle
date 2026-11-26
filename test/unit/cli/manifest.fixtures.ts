@@ -239,8 +239,8 @@ const withoutDependencies = (members: Members): Members => {
 /**
  * Both files as d76a61066 drafted them, qti-pie's pantry among them, which 8b75446f4's `grizzle check` failed reading
  * (TypeError: Cannot read properties of undefined (reading 'map')): each declared statistic recording no dependencies,
- * sealed under format 8's domain, snapshot.json recording the number alone as its format, or, `relabelled`, this
- * grizzle's format.
+ * sealed under the domain of this grizzle's format's number, snapshot.json recording that number alone as its format,
+ * or, `relabelled`, this grizzle's format.
  */
 export const d76a61066Draft = (
 	snapshot: string,

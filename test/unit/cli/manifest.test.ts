@@ -13,7 +13,7 @@ import { formatOf } from "#compiler/core/format.ts"
  * its fix the installation drafted afresh, and generate and names refuse it at the stage format, writing nothing
  * (cli/committed.ts SnapshotFormat, the one refusal every command reads); a manifest.json sealed under a domain that
  * names no format, one edited by hand under its seal, and a record of another shape relabelled with this grizzle's
- * format, sealed under format 8's number, read as no snapshot, check's unreadableSnapshot finding alone, which generate
+ * format, sealed under this format's number, read as no snapshot, check's unreadableSnapshot finding alone, which generate
  * refuses at the stage snapshot; a sealed record that is not the one the schemas compile to is check's manifestRecord
  * finding, which generate writes back as the record, drafting no folder and leaving snapshot.json as it was; and a
  * record of this format holding an object of a kind this grizzle does not install, the database default a grizzle
@@ -24,7 +24,7 @@ import { formatOf } from "#compiler/core/format.ts"
  * beside the other: snapshot.json of no format, of the format before this grizzle's or after it; both files as a draft
  * of format 3 left them, its constants recorded with no language, sealed under format 3's domain, which the format
  * check refuses before anything reads its record; both files as d76a61066 drafted them, qti-pie's pantry among them,
- * its declared statistics recording no dependencies, sealed under format 8's domain, snapshot.json recording the number
+ * its declared statistics recording no dependencies, sealed under this format's number, snapshot.json recording the number
  * alone or this grizzle's format; manifest.json sealed under the earlier domain `manifest`; the record with an edge
  * left out, an edit no draft reads, sealed again; that edit under the draft's seal; or the record with a former
  * database default or an advanceFunction object its first, sealed again.
@@ -54,7 +54,7 @@ import {
 /** A snapshot.json of another format is check's format finding, carrying the formats, which generate and names refuse at the stage format writing nothing; a seal naming no format and a hand edit read as no snapshot; and a record not the compile's is check's finding, which generate writes back drafting no folder. */
 export const aSnapshotOfAnotherFormatIsItsOwnFindingASealNamingNoFormatOrAHandEditReadsAsNoSnapshotAndARecordNotTheCompilesIsWrittenBack =
 	property.exhaust(commitSpace, {
-		box: "snapshot.json of no format, of the format before this grizzle's and of the one after it, a draft of format 3, manifest.json under the earlier seal's domain, a record sealed again over an edit, that edit under the draft's seal, a record holding a former database default or an object of a removed kind, each sealed again, and d76a61066's draft, of format 8's number and relabelled with this grizzle's format",
+		box: "snapshot.json of no format, of the format before this grizzle's and of the one after it, a draft of format 3, manifest.json under the earlier seal's domain, a record sealed again over an edit, that edit under the draft's seal, a record holding a former database default or an object of a removed kind, each sealed again, and d76a61066's draft, of this format's number and relabelled with this grizzle's format",
 		needs: { baseNeed },
 		situations: [
 			"format none",
@@ -214,7 +214,7 @@ export const aSnapshotOfAnotherFormatIsItsOwnFindingASealNamingNoFormatOrAHandEd
 				file: "packages/engine/src/deploy/snapshot/build.ts",
 				original: `\tdigest(\`manifest-\${formatOf.snapshot}\`, value, everyProperty)`,
 				replacement: '\tdigest("manifest-8", value, everyProperty)',
-				why: "The seal ignoring the record's shape: d76a61066's record relabelled with this grizzle's format seals under format 8's number, so check trusts it and fails reading a declared statistic of no dependencies inside grizzle (TypeError: Cannot read properties of undefined (reading 'map'))."
+				why: "The seal ignoring the record's shape: d76a61066's record relabelled with this grizzle's format seals under this format's number, so check trusts it and fails reading a declared statistic of no dependencies inside grizzle (TypeError: Cannot read properties of undefined (reading 'map'))."
 			},
 			{
 				file: "packages/engine/src/deploy/snapshot/build.ts",

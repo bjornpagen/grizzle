@@ -13,7 +13,272 @@
  * anything, so `grizzle upgrade` refuses such a change by name (CONTRIBUTING.md, Settled decisions). Format 6 retyped
  * the ledger's and the proofs' digests, so no format 5 installation is rebased onto it: each is drafted afresh.
  *
- * @formatConstant grizzle's artifact format: 8. Format 8 (pin+2): a drafted folder's meta.json records a drafted
+ * @formatConstant grizzle's artifact format: 9. Format 9 (pin+3): a rule matches r.series(low, high), a call of
+ * grizzle's series (ir/rel.ts CallFunction `series`, a Description source of kind `series`), each integer from its low
+ * end to its high end, printed as generate_series, its element read within the least value its low end takes and the
+ * greatest its high end takes; GREATEST is stated within its operands' greater least and greater greatest values and
+ * LEAST within their lesser, and an exact integer's division by a divisor of one sign within the quotients of the
+ * operands' ends (scalar/compute/bounds.ts greatestBounds, leastBounds, quotientBounds), where format 8 stated their
+ * hull and the dividend's digits, so a term over them is typed narrower, an exact integer's digits and the casts and
+ * domain casts its bounds prove with it. A chain of steps reads first, of two lookups, one bound at a key of its
+ * relation, then, of two relations one is contained in over every row, the contained read keyed at more columns than
+ * its image in the container, or else the container's lookup keyed at more columns than the contained read's image
+ * (analysis/theory/navigate.ts Navigation narrower), then the one keyed at more columns, where format 8 counted keyed
+ * columns alone: a judged statement over qti's placed references walks to a reference's child elements and then each
+ * expression by its key, never every expression of the reference's item, so its steps move, and the indexes their
+ * lookups ask for with them. A single statement holds as a part of its own a sub-query another stratum's member reads
+ * too, which the later stratum lowers anew (lower/shapes/share/statements.ts StatementSharing.uncarry,
+ * write/schedule/plan.ts), where format 8 left it inline at each read. Retirement is deleted: a schema states no
+ * retirable unit, no header's `retirement` field, no reachable records and no side over records, a role no `retire`
+ * list (its Description no `retire` member) and a ChangeSet no retire member, where format 8 installed each retirable
+ * unit's header retirement column with its DEFAULT false, its bodies' fence (generated columns and foreign keys into
+ * the open headers), its hold and retire functions with their EXECUTE grants (manifest objects of kind `unitFunction`,
+ * gone from the manifest's kinds), served a hold before a write touching a body and a retire member's call, counted a
+ * retirement in an outcome and recorded a `retirement` writing in snapshot.json; an installation of a schema that held
+ * one is drafted afresh. An import a chain reads whole and matches at a term of a variable binds its column to a hidden
+ * variable equated with the term (analysis/theory/navigate.ts Navigator #chain `hiddenFor`), where it took the term's
+ * variables for its own. A judged step that binds a column to a term computed from the channels it passes in, a sum, a
+ * conditional or a bounded text's guarded cast, asks an index holding that column (physical/access/extract.ts
+ * regionFacts `fixing`), where the term fixed nothing and the step's index held only the columns its channels bind
+ * directly. A union, a fold or a shared join every read of a statement restricts is computed at its key set, the keys
+ * its reads reach it at from what the statement fixes (lower/shapes/share/keys.ts, magic sets): the key set a
+ * MATERIALIZED DISTINCT CTE of the statement, a union LATERAL per key with each arm at it, a fold with the key below
+ * its aggregate, a join LATERAL per key into it (share/keyed.ts KeyedLowering), in place or as the body of the CTE or
+ * the part that shares it, where format 8 read a union or a fold whole, joined beside, probed a fold beside a stored
+ * relation, and carried a write's shared nodes whole. A unit delete of a relation that is a member of two counted
+ * families or more keeps none of a group of any of them a doomed row it removes reaches, across the crossing, by one
+ * recursive read over its removed rows (write/delete/unit.ts wholeAcross), where format 8 kept each family's groups by
+ * that family's own exclusions alone. An attachment whose child reads a union or a fold through a rule that matches it
+ * as it stands reads it per parent key inside its LATERAL (lower/optimize/cte-policy probedByKey), where format 8
+ * derived it whole, a MATERIALIZED CTE the LATERAL filtered. Each capture's branch and each part stands its session
+ * tables up in one read of pg_catalog.pg_class (physical/ddl/rules.ts standing, sql/print.ts sessionTablesStanding),
+ * where format 8 asked whether each table stood and whether it was the definer's own in two statements of its own, so
+ * every capture function's and part's body moves. An existence test whose right side the statement's values restrict, a
+ * filter at a parameter or a literal among them (lower/optimize/cte-policy restrictedByValues), stays in a bare test,
+ * derived once (lower/conservative/semi-join/exists.ts readPerLeftRow), where format 8 read it per left row and counted
+ * a filter at a value no restriction. A served role's refusals hold the witness query of each deferred foreign key its
+ * writes meet whose table and target it reads whole (served/forms.ts ServedRefusals `unmatched`, write/unmatched.ts),
+ * which the shell runs after a COMMIT that key refused, so the refusal names the key of a row the write leaves
+ * unmatched, or `unreproduced` where none is left (adapter/apply/run.ts unmatchedWitness), where format 8 left every
+ * refusal at COMMIT unreported. A rule over a query that reads a mutable relation is judged whole where every relation
+ * it reads sits in one declared unit whose key leads its own (analysis/theory/unit.ts wholeRule), and a containment
+ * between selected sides of such relations is discharged whole (laws/model/plan.ts containmentDischarge), where format
+ * 8 probed the one and made the other native, its law columns, their UNIQUE and their index. Every table's statistics
+ * are declared from the schema's facts (physical/statistics/declared.ts): the manifest holds, for each table and
+ * indexed view and each of grizzle's bookkeeping tables, one object of kind `statistics`,
+ * `statistics:<schema>.<table>`, whose one statement sets the table's autovacuum_analyze_threshold and
+ * autovacuum_analyze_scale_factor to their maxima and every column's statistics target to 0, and restores each column's
+ * declared number of distinct values, each restore checked (sql/ast.ts DeclareStatistics), and the drift check compares
+ * each column's statistics target and pg_stats, and the table's storage parameters, with it, where format 8 created the
+ * extended statistics (CREATE STATISTICS of ndistinct, dependencies and mcv) a workload program's correlated selections
+ * and groupings asked for, named by their columns, and recorded each program's `statistics` in snapshot.json's workload
+ * access, which holds its paths alone; a live installation's extended statistics objects are departures its upgrade
+ * drops. An import a rule statement's chain reads whole is placed among its steps once the steps before it have bound
+ * what they bind of its columns, an equality of a variable it binds first with one a step bound the rule's own
+ * (analysis/theory/navigate.ts Navigator #chain `matchWhole`), where format 8 placed it before every step, the steps
+ * after it keyed by its variables, so every judge statement that reads one reads its steps in another order. Each delta
+ * reader declares the rows a call returns, ROWS 10 (sql/print.ts sessionReaderRows), where format 8 declared none and
+ * PostgreSQL estimated a thousand. Each file grizzle reads back records its format as `<format>:<shape>`, the format's
+ * number and the digest of its type's shape (recordShapes, formatOf), and a committed snapshot's seal digests its
+ * record under it (build.ts snapshotSeal), where format 8 recorded the number alone and sealed under it, so a file of
+ * the pending window's other shapes passed its format check and reached a reader of another shape. A relation is closed
+ * or open: closed, the default, its facts inserted, never changed or deleted, so a role that writes it holds SELECT and
+ * INSERT on its table and no UPDATE or DELETE (physical/ddl/roles.ts entryPrivileges), where format 8 granted DELETE on
+ * every table a role wrote; open, mutable(R) inside a unit whose heading its primary key leads with, its writers
+ * holding UPDATE and DELETE as before. A world's grants move for every closed table a role writes. A role names each
+ * relation it writes under the mode it writes it by, its insert list or its write list, the two together (ir/desc.ts
+ * RoleWriting, schema/own.ts OwnedWrite `mode`), a closed relation under its write list refused (core/causes.ts
+ * RoleRule writeClosed), where format 8 had a role state one list for every relation it wrote, so a writer that changed
+ * one open relation held UPDATE and DELETE on every open relation it only inserted into: its grants on each relation it
+ * only inserts into lose them, and a recount's UPDATE of a family's owner stands only where the role writes the member
+ * in full, a closed one by its insert list, an open one by its write list. A session stands up the objects a write's
+ * flight reads and writes once, before its first call of the write, in one transaction of its own (adapter
+ * apply/stand-up.ts): a served write holds its stand-ups (runtime/write/flight.ts ServedWrite `standUps`), each
+ * carrier's CREATE TEMPORARY TABLE with its emptying, a pg_temp session function of the carrier's own name
+ * (sql/print.ts carrierEmptying), and the call of each written judged table's stand-up, a SECURITY DEFINER function per
+ * judged table (physical/ddl/rules.ts addStandUps) that the installation grants every role writing the table and a
+ * migration's Structure calls before its data steps (deploy/diff/diff.ts standUps); a carrier step's `create` is
+ * `empty`, the call of its session function (sql/ast.ts EmptyCarrier), and a staged carrier holds its `empty` beside
+ * its fill, where format 8 stood each carrier up by a DO block at every use and each capture and part stood its deltas
+ * and the sentinel up inside the write's transaction; a capture requires its tables and refuses a session that stood
+ * none up (core/sqlstate.ts grizzleUnstood, 55Z03). A rule statement's rule that joins is navigated beside a relational
+ * filter of a query navigation reads no part of, that filter its condition as written (analysis/theory/navigate.ts
+ * ruleReads, Navigator #chain `asWritten`), where format 8 left the whole rule as written, one flat join, so every
+ * judge statement over such a rule reads it as a chain of steps. A migration's DROP ROLE of a role, a login, the
+ * decoder login or the function owner follows a statement of its own that ends every session holding a temporary object
+ * of the role and waits for each to exit (sql/ast.ts EndHolders, deploy/diff/diff.ts remove), naming the role by psql's
+ * literal variable `:'<stem>'`, which migrate fills as a quoted literal (deploy/render/variables.ts), where format 8
+ * dropped the role alone, refused (2BP01) while any session that had written under it held its carriers; so every
+ * publish file that drops a role moves. A relation parameter a ChangeSet binds to a query is an input of the call,
+ * evaluated once before the first stratum of the part it was bound on: a ChangeSet's Description holds each such
+ * binding once, its rows and that stratum under the parameter's private name (ChangeSetDesc `boundRows`, BoundRowsDesc
+ * {stratum, rows}, which every served file's ChangeSet now holds, empty where it binds none), its members and
+ * read-backs reading the parameter by that name, where format 8 copied the bound query into each of them; where a
+ * reader reads another state than the one it is evaluated in, a later stratum's member or a read-back, its write
+ * program empties and fills a carrier of its rows first among the statements of the first writing stratum at or after
+ * its own (plan step `bound`, a carrier step of that stratum), which each reader's InputSet reads (ir/rel.ts
+ * InputSetInput `bound`), where format 8 evaluated the query again in each statement over the state that statement
+ * reads; a bound parameter every reader of which reads the state it is evaluated in is a part of their queries as
+ * before. A containment the law model discharges by the rule judge over immutable relations is judged by its probes
+ * (laws/model/plan.ts containmentDischarge): each row a transaction gained of its source, and each source row at the
+ * fields of a row it lost of its target, probes the target at those fields, where format 8 read every source row of
+ * each unit written and judged the target beside it at the unit's key; its judge's blocks are a probe's of each side
+ * its triggers touch, where format 8 had one of the units, and the refusal of a containment into a side holding no key
+ * names the judge's admission, unit-local, where it named a whole judgement. A rule navigation reads where it stands,
+ * beside the rows a call binds a relation parameter to, reads each import it navigates apart as a chain of its own and
+ * that those rows' variables bind restricted inside to their values, its bind map binding a parameter of its own to
+ * each (analysis/theory/navigate.ts Navigator.restrictedApart), where format 8 navigated it from no value, a fenced
+ * step over every row: a write member over a call's sittings looks a definition's relation up by the sitting. A write
+ * member's rule over a union keeps the union whole, one node, its rules navigated inside it
+ * (analysis/theory/navigate.ts sharedImports), where format 8 distributed the rule into its conjunctions, one for each
+ * choice of a rule at every union, each reading every other import again. Every statement reads a carrier through its
+ * reader, a session function the stand-up makes beside it, pg_temp."<carrier>_rows"() RETURNS SETOF the carrier's row
+ * type, ROWS 10 (write/carriers/carriers.ts carrierReader, carrierRead; runtime/write/flight.ts StandUp `reader`),
+ * where format 8 read the carrier's table, so every statement over a carrier prints anew and no plan of one depends on
+ * the table; and a session table, a carrier or a delta, is truncated only once it holds more than 100 pages
+ * (sql/print.ts sessionTableKeptPages), where format 8 truncated it past one page. Every session object's column is its
+ * value's session type (ir/physical.ts sessionTypeRef), its base type and a set's bit(n) of its roster's width, never
+ * an installation's domain: a write's carriers, the staged and slot ones among them (write/carriers/carriers.ts
+ * CarrierDeclaring), and a rule judge's deltas with their readers' row types (physical/ddl/deltas.ts sessionDeltaOf),
+ * where format 8 typed a carrier's column by its field's domain and a delta's set by its roster's bits domain; so every
+ * carrier's name and stand-up moves, with every statement that names it, and every delta reader's row type. No role
+ * holds USAGE on a domain (physical/ddl/roles.ts addRole), which PostgreSQL checks only where an object of the type is
+ * created and no role creates one since its carriers hold session types, where format 8 granted each role USAGE on
+ * every domain its columns and its carriers' fields were typed by; its EXECUTE on the constants those domains' CHECKs
+ * call stays: every world's grants move. A stand-up and a capture read the sentinel's standing from its pg_class row
+ * alone, as a delta's (physical/ddl/rules.ts sentinelStood): it is made with its trigger in one branch of one stand-up,
+ * so it stands only with it, where format 8 read pg_trigger beside it in every call; so every stand-up's and capture's
+ * body moves. Every index the engine creates holds each run of columns it may hold in any order in its relation's
+ * heading order, a law column after every field (physical/indexes/engine.ts withinBlock, ddl/context.ts BuiltTarget
+ * `place`), where format 8 held them in the order the request that created it stated them, so a created index whose
+ * request stated its columns in another order is created again, its name with them. snapshot.json's derived facts
+ * record the relations the installation's rule judge captures (deploy/snapshot/types.ts CompileFacts `judged`), which a
+ * login over a level below the top compiles its writes' stand-ups from (write/program/ stand-up.ts writeStandUps),
+ * where format 8 stood up only the tables its own level's rules read, so a served write of a table a rule of a level
+ * above reads met the capture's 55Z03; every such write's served file holds the stand-ups of those tables. A rule
+ * judge's statement reads each delta through the reader of the selection it reads the delta under, its conjuncts over
+ * the read's columns and constants moved into the reader (physical/ddl/deltas.ts headed, DeltaReads), one reader for
+ * each delta and selection the statements read, named by both (identity.ruleDeltaReader), a reader read once called
+ * where its read stands and one read twice or more read through one MATERIALIZED CTE; and each delta's table is stood
+ * up with a B-tree of each column two or more of its selections fix to constants (deltaIndexes,
+ * identity.ruleDeltaIndex, sql/ast.ts PlStatement createSessionIndex), where format 8 had one reader of every row of
+ * each delta, read through a MATERIALIZED CTE of each statement that read it, and no index of a delta. A reader returns
+ * the columns its statements read of its selection's rows and no other, SETOF record, each call defining them by type
+ * and collation (sql/ast.ts FunctionColumns `defined`), one reader of a selection in a statement however many of its
+ * reads read it, their columns' union, so the reader's name holds its columns too, and no delta has a row type, where
+ * format 8 created one for each delta's readers. So every judge statement, every reader and every stand-up moves. A
+ * stored relation's upkeep's DELETE reads each selection through one call of its reader, the region its USING reads and
+ * the region its definition is read at sharing it (physical/ddl/deltas.ts headedDelete), where format 8 read the
+ * region's deltas in each part apart; so every upkeep's DELETE moves. The judge nets each side of news a transaction
+ * wrote that a rule reads once in its run, before phase A, one only an upkeep reads never (physical/ddl/rules.ts
+ * nettingsOf), and no part nets one, where format 8's parts each netted the sides of news they held, a delta an
+ * upkeep's part and a rule's part both held netted twice; so the judge and every part move. Every read the index engine
+ * plans lands on an index whose leading columns are exactly the columns it binds by equality, or on a unique index all
+ * of whose keys it binds, and the B-trees created for the reads no installed key serves are the fewest that do, grouped
+ * so each group's sets are one chain (physical/indexes/engine.ts chainsOf, indexes/chains.ts fewestSharingGroups),
+ * where format 8 let a workload's lookup land on a B-tree led by one of its columns of many values that held the rest
+ * anywhere after it, or on a GiST index placed by one, and drafted each index from its first request: so indexes are
+ * created, dropped and renamed. A take or page seek whose equalities bind every key of a unique B-tree lands on that
+ * index, and a seek's fixed columns lead its index as one block, in any order and direction, only the keys it orders by
+ * after them directed (engine.ts orderedPlacements), where format 8 created an index of its own for such a seek and
+ * directed its fixed columns as its order, so two seeks that differed only in a fixed column's direction took two
+ * indexes on one column list. A sub-query a rule statement reads at several sites is computed once for each row of the
+ * node that drives it, beside that row, its rows carried on it as arrays a site reads in lockstep (sql/ast.ts
+ * ArraysSource `carried`, lower/shapes/ share/keyed.ts KeyedLowering carried), where format 8 read one evaluation at
+ * every site's keys, a CTE each site read at its own row's values; so every judge with such a copy moves. grizzle's
+ * library holds two functions a split of a text into rows reads, decodedPath (r.decodedPath) and resolvedWithin
+ * (r.resolvedWithin), each an array of its one row or of none (ir/physical.ts libraryFns, splitLibrary), so the library
+ * roster a snapshot and a served file name their functions by widens, recordShapes with it; and resolveReference's walk
+ * of dot segments is one LATERAL row that also counts the `..` segments that climb past the root
+ * (physical/ddl/library.ts dotSegmentWalk), where format 8 removed them in a scalar subquery, so its definition's
+ * digest, the name it is installed under, moves. A text split may be a split at the last separator, r.splitLast
+ * (ir/rel.ts TextSplit `splitLast`, its separator stated as a separator split's is), which a snapshot's and a served
+ * file's Descriptions may hold, so recordShapes moves with it; a split's argument may be a term the split's scope
+ * computes, which a Description already held as a term, so no statement format 8 printed moves. A served read's key is
+ * the fields of the completed order it delivers its rows in, `{ fields }` (served/forms.ts ServedKey), and every read's
+ * wire shape is a list's, `list` or `answeredList`, its upsert carrying the key of the row it follows (live/events.ts
+ * events, live/shape.ts MemberShape), where format 8 told a read of no stated order, its key `set` and its shape `set`
+ * or `answeredSet`, its upsert its row alone, from an ordered read's: every such read's key, wire and digest move.
+ * Every served read and every ChangeSet's read-back that states no order delivers its rows in its result's key order,
+ * ascending (check/checker.ts rootOrder, logical/order.ts completeGroups): a key's fields in the order of the declared
+ * key they copy (logical/key-order.ts declaredKeyOrder), a union's as its arms agree, and where no key narrower than
+ * its heading is proved its whole heading's, in its key's declared order where the heading is its own key, else field
+ * by field. A heterogeneous union with a key within the fields its heading groups share is ordered by it, one order of
+ * every group: the stated keys, its discriminant, then that key; one with none orders each group by its own key after
+ * the stated keys and the discriminant, which tell the groups' rows apart (ir/rel.ts GroupOrders, OrderedResult and
+ * Take `orders`). A delivered relation that deduplicates its rows, by DISTINCT, GROUP BY or a set operation, is formed
+ * in a MATERIALIZED CTE and ordered outside it (lower/shapes/index.ts #formed), and every delivered statement's ORDER
+ * BY states a text column's collation, COLLATE pg_catalog.pg_c_utf8 (lower/template.ts collatedOrder). Where format 8
+ * delivered such reads and read-backs in their plan's order, appended an order's key in heading order, its fields'
+ * names', stated no collation and completed a heterogeneous union's order over its common fields alone: every served
+ * read's and read-back's statement and served key moves, with every page's and attachment array's whose completion
+ * appends a key. A keyless heading's completion breaks ties by a set's bits, bytes and a search document too, in
+ * PostgreSQL's order (scalar/registry.ts breaksTies), which the host never compares: a heading-group merge reads each
+ * row's order no further than two rows differ (adapter/reader/run.ts groupOrder), and a page that would seek by one, or
+ * a take over heading groups ordered again that would compare one, is refused (UnsupportedOperation), as format 8
+ * refused both. A rule's violation and a ChangeSet's bound relation parameter are checked as relations, sets no caller
+ * reads in an order (check/index.ts checkRelation). Where a derived relation's rows live is the installation's
+ * inference, never its declaration's (analysis/derived/storage.ts): `derived.stored` is gone, and a derived relation's
+ * Description states no `storage`. Every derived relation whose definition is unit-local within one declared unit,
+ * every function it calls immutable, no field it reads one grizzle rewrites in place, whose upkeep costs what its delta
+ * bounds (its unit wider than its declared unit, so a write re-derives the keys it touched alone, or its declared unit
+ * sealed at founding), and whose table can hold its rows is stored, kept at every COMMIT by the judge's upkeep as
+ * format 8 kept a declared one, whether the relations it reads are closed or open; every other is live, one whose
+ * upkeep would re-derive its whole declared unit recorded as `unboundedUpkeep`, and snapshot.json's derived facts
+ * record each live one with why (types.ts SnapshotDerived `liveDerived`). So an installation gains a stored table, its
+ * unique indexes, its fill, its upkeep blocks and its holders' captures for every such relation format 8 read live,
+ * every statement that read its definition reads its table, and its laws become its table's natives as a declared
+ * stored relation's were. A query names every derived relation by its name, the checker reads it as a relation keyed by
+ * the keys its definition proves, stored or live alike, and the lowering reads a live one through its definition
+ * (ir/derived.ts servedDag), where format 8's builder inlined a live one's definition into the query's Description, so
+ * every served file's query and ChangeSet Description that matched a live derived relation names it instead. A
+ * statement of a write that writes a relation a stored relation's definition reads reads that relation through its
+ * definition (analysis/schema.ts CheckedSchema serves), as does a read inside a write's transaction where its schema
+ * may write such a relation, and every membership; and a role reads a stored relation's table through its whole view
+ * where it holds every relation its definition reads whole (schema/own.ts OwnedRole `wholeDerived`), its definition
+ * over its entries otherwise: no role holds a derived relation as an entry, so every role's description that held a
+ * stored one whole loses that entry, and every role reading one in full gains its whole view. Every installation
+ * installs its stored tables, which format 8 left to an extension its caller supplied (the installation's `deferred`
+ * derived relations are gone). A role is granted EXECUTE on every declared function its programs reach through the
+ * definitions of the relations they read, derived relations stored or live and its query entries alike, at any depth
+ * (program/workload/compile.ts servedCalls), where format 8 granted only the calls its programs' own Descriptions held,
+ * a live definition inlined into one among them, so every role reading a stored relation or a query entry whose
+ * definition calls a declared function gains its grant. A closed relation's constant, and each side's and each
+ * dependent key's owner function's, is two parallel arrays (ir/cells.ts Constant): its cells, `'{-1,k1,…}'::bigint[]`,
+ * every row's key index ascending after the sentinel -1, and, where its payload space holds more than one code, its
+ * payloads, `'{c1,…}'::bigint[]`, every row's payload code in the cells' order, each a literal pack of its own named by
+ * its own content, O(rows) whatever the key space; a membership and an application search the cells by width_bucket,
+ * O(log n), the key's index computed in bigint (sql/constants.ts held, applied), and C.row reads them by the library
+ * function closedRow (physical/ddl/library.ts), where format 8 stated each as a bit string of every cell of its key
+ * space, X'…'::bit varying, read by substring, beside a key set of its own. So every literal pack, its comment and its
+ * function's name move, every read of a closed relation a CHECK, a generated column or a statement makes moves, and
+ * snapshot.json's closed constants record their cells' and payloads' functions, no width and no key set. A unit may be
+ * sealed at founding, sealed(unit(name, heading)), the unit statement's Description stating `sealed` (ir/desc.ts
+ * UnitDesc), false for every unit format 8 stated, so every statement text and fingerprint of a schema with a unit
+ * moves: every row of every relation under a sealed unit at a key is inserted by the one transaction that founds it
+ * there, a law the installation holds by the unit's founding table (ir/products.ts PhysicalKind `founding`), each key
+ * with its founding transaction's xid8, and each member's seal trigger `__sealed`, which founds each key its statement
+ * inserted at that no transaction founded and refuses the statement where another founded one (physical/ddl/seal.ts), a
+ * migration filling a founding table it creates from its members' rows (deploy/diff/plan.ts structure.foundings);
+ * snapshot.json's constraintToLaw maps each `__sealed` to the unit's seal law, a StatedLaw `sealed` lawsOf lists. Every
+ * statement is printed once (sql/print-once.ts): a CTE its query reads once, that is not MATERIALIZED, not a recursive
+ * WITH's, writes nothing and calls no VOLATILE function, is printed in place as the derived table PostgreSQL's inlining
+ * makes of it, where format 8 printed it as a CTE that PostgreSQL inlined by a walk of the whole statement for each. So
+ * a function reference states its declared volatility (sql/ast.ts QualifiedFunctionRef `volatility`), which a
+ * snapshot's and a served file's statements hold; and a single statement's arm is a cut text, its placeholders cut out
+ * as its unit's CTEs' are (runtime/write/parted.ts PartedUnit `arm`, `arms`), a part's own CTE being printed in its
+ * arm, where format 8 held an arm's text whole. Every statement with such a CTE, and every served single statement,
+ * moves. Every served file's session carries the read of a session's reap window (served/forms.ts ServedSession
+ * reapWindow), the one statement a login's pool sends on a session of its own: at the session's first lease, and as the
+ * probe of one silent past the window before a lease runs anything on it (the shell's wire/pool.ts makePool). A derived
+ * table's and a CTE's columns are its query's output names, each target's own and a set operation's its left arm's,
+ * which the printer lists after its alias or name (sql/ast.ts selectColumns, cteColumns; sql/print.ts), where format 8
+ * held a column list beside the query: a derived table or a query CTE whose query named its outputs inline prints them
+ * as a list, its targets bare, a data-modifying CTE lists its RETURNING names, and a set operation whose maker names
+ * its outputs names its later arms' as its first's, so a drafted backfill's and a served statement's text of such a
+ * table moves.
+ *
+ * Format 8 (pin+2): a drafted folder's meta.json records a drafted
  * statement by its text only where a reader reads its text: a loss's statement and each statement of a confirmed group,
  * the decisions `grizzle check` reads a review by, and a statement that holds a placeholder, which a reviewer fills;
  * every other statement is the step `{ kind: "digest", digest }`, the SHA-256 digest of its tokens as PostgreSQL's
@@ -304,287 +569,8 @@
  * outside the base they type a value by (derived.params.contracts). Format 3's files were written in several shapes,
  * changes of what they hold riding its number (a constant recorded with no language before 56f26ca01), so a reader that
  * trusted a sealed record of 3 met shapes it never wrote; every one is refused here.
- *
- * Pending, for the next format, which grizzle main bumps once for the batch: a rule matches r.series(low, high), a
- * call of grizzle's series (ir/rel.ts CallFunction `series`, a Description source of kind `series`), each integer from
- * its low end to its high end, printed as generate_series, its element read within the least value its low end takes
- * and the greatest its high end takes; GREATEST is stated within its operands' greater least and greater greatest values
- * and LEAST within their lesser, and an exact integer's division by a divisor of one sign within the quotients of the
- * operands' ends (scalar/compute/bounds.ts greatestBounds, leastBounds, quotientBounds), where format 8 stated their
- * hull and the dividend's digits, so a term over them is typed narrower, an exact integer's digits and the casts and
- * domain casts its bounds prove with it. A chain of steps reads first, of two
- * lookups, one bound at a key of its relation, then, of two relations one is contained in over every row, the contained
- * read keyed at more columns than its image in the container, or else the container's lookup keyed at more columns than
- * the contained read's image (analysis/theory/navigate.ts Navigation narrower), then the one keyed at more columns,
- * where format 8 counted keyed columns alone: a judged statement over qti's placed references walks to a reference's
- * child elements and then each expression by its key, never every expression of the reference's item, so its steps
- * move, and the indexes their lookups ask for with them. A single statement holds as a part of its own a sub-query
- * another stratum's member reads too, which the later stratum lowers anew (lower/shapes/share/statements.ts
- * StatementSharing.uncarry, write/schedule/plan.ts), where format 8 left it inline at each read. Retirement is deleted:
- * a schema states no retirable unit, no header's `retirement` field, no reachable records and no side over records, a
- * role no `retire` list (its Description no `retire` member) and a ChangeSet no retire member, where format 8
- * installed each retirable unit's header retirement column with its DEFAULT false, its bodies' fence (generated
- * columns and foreign keys into the open headers), its hold and retire functions with their EXECUTE grants (manifest
- * objects of kind `unitFunction`, gone from the manifest's kinds), served a hold before a write touching a body and a
- * retire member's call, counted a retirement in an outcome and recorded a `retirement` writing in snapshot.json; an
- * installation of a schema that held one is drafted afresh. An import a chain reads whole and matches at a term of a
- * variable binds its column to a hidden variable equated with the term (analysis/theory/navigate.ts Navigator #chain
- * `hiddenFor`), where it took the term's variables for its own. A judged step that binds a column to a term computed
- * from the channels it passes in, a sum, a conditional or a bounded text's guarded cast, asks an index holding that
- * column (physical/access/extract.ts regionFacts `fixing`), where the term fixed nothing and the step's index held only
- * the columns its channels bind directly. A union, a fold or a shared join every read of a statement restricts is
- * computed at its key set, the keys its reads reach it at from what the statement fixes (lower/shapes/share/keys.ts,
- * magic sets): the key set a MATERIALIZED DISTINCT CTE of the statement, a union LATERAL per key with each arm at it, a
- * fold with the key below its aggregate, a join LATERAL per key into it (share/keyed.ts KeyedLowering), in place or
- * as the body of the CTE or the part that shares it, where format 8 read a union or a fold whole, joined beside, probed
- * a fold beside a stored relation, and carried a write's shared nodes whole. A unit delete of a relation that is a member of two counted families or more keeps none of a group of any of
- * them a doomed row it removes reaches, across the crossing, by one recursive read over its removed rows
- * (write/delete/unit.ts wholeAcross), where format 8 kept each family's groups by that family's own exclusions alone.
- * An attachment whose child reads a union or a fold through a rule that matches it as it stands reads it per parent key
- * inside its LATERAL (lower/optimize/cte-policy probedByKey), where format 8 derived it whole, a MATERIALIZED CTE the
- * LATERAL filtered.
- * Each capture's branch and each part stands its session tables up in one read of pg_catalog.pg_class
- * (physical/ddl/rules.ts standing, sql/print.ts sessionTablesStanding), where format 8 asked whether each table stood
- * and whether it was the definer's own in two statements of its own, so every capture function's and part's body moves.
- * An existence test whose right side the statement's values restrict, a filter at a parameter or a literal among them
- * (lower/optimize/cte-policy restrictedByValues), stays in a bare test, derived once
- * (lower/conservative/semi-join/exists.ts readPerLeftRow), where format 8 read it per left row and counted a filter at
- * a value no restriction.
- * A served role's refusals hold the witness query of each deferred foreign key its writes meet whose table and target it
- * reads whole (served/forms.ts ServedRefusals `unmatched`, write/unmatched.ts), which the shell runs after a COMMIT that
- * key refused, so the refusal names the key of a row the write leaves unmatched, or `unreproduced` where none is left
- * (adapter/apply/run.ts unmatchedWitness), where format 8 left every refusal at COMMIT unreported.
- * A rule over a query that reads a mutable relation is judged whole where every relation it reads sits in one declared
- * unit whose key leads its own (analysis/theory/unit.ts wholeRule), and a containment between selected sides of such
- * relations is discharged whole (laws/model/plan.ts containmentDischarge), where format 8 probed the one and made the
- * other native, its law columns, their UNIQUE and their index.
- * Every table's statistics are declared from the schema's facts (physical/statistics/declared.ts): the manifest holds,
- * for each table and indexed view and each of grizzle's bookkeeping tables, one object of kind `statistics`,
- * `statistics:<schema>.<table>`, whose one statement sets the table's autovacuum_analyze_threshold and
- * autovacuum_analyze_scale_factor to their maxima and every column's statistics target to 0, and restores each column's
- * declared number of distinct values, each restore checked (sql/ast.ts DeclareStatistics), and the drift check compares
- * each column's statistics target and pg_stats, and the table's storage parameters, with it, where format 8 created the
- * extended statistics (CREATE STATISTICS of ndistinct, dependencies and mcv) a workload program's correlated selections
- * and groupings asked for, named by their columns, and recorded each program's `statistics` in snapshot.json's workload
- * access, which holds its paths alone; a live installation's extended statistics objects are departures its upgrade
- * drops.
- * An import a rule statement's chain reads whole is placed among its steps once the steps before it have bound what
- * they bind of its columns, an equality of a variable it binds first with one a step bound the rule's own
- * (analysis/theory/navigate.ts Navigator #chain `matchWhole`), where format 8 placed it before every step, the steps
- * after it keyed by its variables, so every judge statement that reads one reads its steps in another order.
- * Each delta reader declares the rows a call returns, ROWS 10 (sql/print.ts sessionReaderRows), where format 8
- * declared none and PostgreSQL estimated a thousand.
- * Each file grizzle reads back records its format as `<format>:<shape>`, the format's number and the digest of its
- * type's shape (recordShapes, formatOf), and a committed snapshot's seal digests its record under it (build.ts
- * snapshotSeal), where format 8 recorded the number alone and sealed under it, so a file of the pending window's
- * other shapes passed its format check and reached a reader of another shape.
- * A relation is closed or open: closed, the default, its facts inserted, never changed or deleted, so a role that writes
- * it holds SELECT and INSERT on its table and no UPDATE or DELETE (physical/ddl/roles.ts entryPrivileges), where format
- * 8 granted DELETE on every table a role wrote; open, mutable(R) inside a unit whose heading its primary key leads with,
- * its writers holding UPDATE and DELETE as before. A world's grants move for every closed table a role writes.
- * A role names each relation it writes under the mode it writes it by, its insert list or its write list, the two
- * together (ir/desc.ts RoleWriting, schema/own.ts OwnedWrite `mode`), a closed relation under its write list refused
- * (core/causes.ts RoleRule writeClosed), where format 8 had a role state one
- * list for every relation it wrote, so a writer that changed one open relation held UPDATE and DELETE on every open
- * relation it only inserted into: its grants on each relation it only inserts into lose them, and a recount's UPDATE of
- * a family's owner stands only where the role writes the member in full, a closed one by its insert list, an open one
- * by its write list.
- * A session stands up the objects a write's flight reads and writes once, before its first call of the write, in one
- * transaction of its own (adapter apply/stand-up.ts): a served write holds its stand-ups (runtime/write/flight.ts
- * ServedWrite `standUps`), each carrier's CREATE TEMPORARY TABLE with its emptying, a pg_temp session function of the
- * carrier's own name (sql/print.ts carrierEmptying), and the call of each written judged table's stand-up, a SECURITY
- * DEFINER function per judged table (physical/ddl/rules.ts addStandUps) that the installation grants every role writing
- * the table and a migration's Structure calls before its data steps (deploy/diff/diff.ts standUps); a carrier step's
- * `create` is `empty`, the call of its session function (sql/ast.ts EmptyCarrier), and a staged carrier holds its
- * `empty` beside its fill, where format 8 stood each carrier up by a DO block at every use and each capture and part
- * stood its deltas and the sentinel up inside the write's transaction; a capture requires its tables and refuses a
- * session that stood none up (core/sqlstate.ts grizzleUnstood, 55Z03).
- * A rule statement's rule that joins is navigated beside a relational filter of a query navigation reads no part of,
- * that filter its condition as written (analysis/theory/navigate.ts ruleReads, Navigator #chain `asWritten`), where
- * format 8 left the whole rule as written, one flat join, so every judge statement over such a rule reads it as a chain
- * of steps.
- * A migration's DROP ROLE of a role, a login, the decoder login or the function owner follows a statement of its own
- * that ends every session holding a temporary object of the role and waits for each to exit (sql/ast.ts EndHolders,
- * deploy/diff/diff.ts remove), naming the role by psql's literal variable `:'<stem>'`, which migrate fills as a quoted
- * literal (deploy/render/variables.ts), where format 8 dropped the role alone, refused (2BP01) while any session that
- * had written under it held its carriers; so every publish file that drops a role moves.
- * A relation parameter a ChangeSet binds to a query is an input of the call, evaluated once before the first stratum
- * of the part it was bound on: a ChangeSet's Description holds each such binding once, its rows and that stratum under
- * the parameter's private name (ChangeSetDesc `boundRows`, BoundRowsDesc {stratum, rows}, which every served file's
- * ChangeSet now holds, empty where it binds none), its members and read-backs reading the parameter by that name,
- * where format 8 copied the bound query into each of them; where a reader reads another state than the one it is
- * evaluated in, a later stratum's member or a read-back, its write program empties and fills a carrier of its rows
- * first among the statements of the first writing stratum at or after its own (plan step `bound`, a carrier step of that
- * stratum), which each reader's InputSet reads (ir/rel.ts InputSetInput `bound`), where format 8 evaluated the query
- * again in each statement over the state that statement reads; a bound parameter every reader of which reads the state
- * it is evaluated in is a part of their queries as before.
- * A containment the law model discharges by the rule judge over immutable relations is judged by its probes
- * (laws/model/plan.ts containmentDischarge): each row a transaction gained of its source, and each source row at the
- * fields of a row it lost of its target, probes the target at those fields, where format 8 read every source row of
- * each unit written and judged the target beside it at the unit's key; its judge's blocks are a probe's of each side
- * its triggers touch, where format 8 had one of the units, and the refusal of a containment into a side holding no key
- * names the judge's admission, unit-local, where it named a whole judgement.
- * A rule navigation reads where it stands, beside the rows a call binds a relation parameter to, reads each import it
- * navigates apart as a chain of its own and that those rows' variables bind restricted inside to their values, its bind
- * map binding a parameter of its own to each (analysis/theory/navigate.ts Navigator.restrictedApart), where format 8
- * navigated it from no value, a fenced step over every row: a write member over a call's sittings looks a definition's
- * relation up by the sitting. A write member's rule over a union keeps the union whole, one node, its rules navigated
- * inside it (analysis/theory/navigate.ts sharedImports), where format 8 distributed the rule into its conjunctions, one
- * for each choice of a rule at every union, each reading every other import again.
- * Every statement reads a carrier through its reader, a session function the stand-up makes beside it,
- * pg_temp."<carrier>_rows"() RETURNS SETOF the carrier's row type, ROWS 10 (write/carriers/carriers.ts carrierReader, carrierRead;
- * runtime/write/flight.ts StandUp `reader`), where format 8 read the carrier's table, so every statement over a carrier
- * prints anew and no plan of one depends on the table; and a session table, a carrier or a delta, is truncated only once
- * it holds more than 100 pages (sql/print.ts sessionTableKeptPages), where format 8 truncated it past one page.
- * Every session object's column is its value's session type (ir/physical.ts sessionTypeRef), its base type and a set's
- * bit(n) of its roster's width, never an installation's domain: a write's carriers, the staged and slot ones among them
- * (write/carriers/carriers.ts CarrierDeclaring), and a rule judge's deltas with their readers' row types
- * (physical/ddl/deltas.ts sessionDeltaOf), where format 8 typed a carrier's column by its field's domain and a delta's
- * set by its roster's bits domain; so every carrier's name and stand-up moves, with every statement that names it, and
- * every delta reader's row type.
- * No role holds USAGE on a domain (physical/ddl/roles.ts addRole), which PostgreSQL checks only where an object of the
- * type is created and no role creates one since its carriers hold session types, where format 8 granted each role
- * USAGE on every domain its columns and its carriers' fields were typed by; its EXECUTE on the constants those domains'
- * CHECKs call stays: every world's grants move.
- * A stand-up and a capture read the sentinel's standing from its pg_class row alone, as a delta's (physical/ddl/rules.ts
- * sentinelStood): it is made with its trigger in one branch of one stand-up, so it stands only with it, where format 8
- * read pg_trigger beside it in every call; so every stand-up's and capture's body moves.
- * Every index the engine creates holds each run of columns it may hold in any order in its relation's heading order, a
- * law column after every field (physical/indexes/engine.ts withinBlock, ddl/context.ts BuiltTarget `place`), where format
- * 8 held them in the order the request that created it stated them, so a created index whose request stated its
- * columns in another order is created again, its name with them.
- * snapshot.json's derived facts record the relations the installation's rule judge captures (deploy/snapshot/types.ts
- * CompileFacts `judged`), which a login over a level below the top compiles its writes' stand-ups from (write/program/
- * stand-up.ts writeStandUps), where format 8 stood up only the tables its own level's rules read, so a served write of
- * a table a rule of a level above reads met the capture's 55Z03; every such write's served file holds the stand-ups of
- * those tables.
- * A rule judge's statement reads each delta through the reader of the selection it reads the delta under, its conjuncts
- * over the read's columns and constants moved into the reader (physical/ddl/deltas.ts headed, DeltaReads), one reader
- * for each delta and selection the statements read, named by both (identity.ruleDeltaReader), a reader read once
- * called where its read stands and one read twice or more read through one MATERIALIZED CTE; and each delta's table is
- * stood up with a B-tree of each column two or more of its selections fix to constants (deltaIndexes,
- * identity.ruleDeltaIndex, sql/ast.ts PlStatement createSessionIndex), where format 8 had one reader of every row of
- * each delta, read through a MATERIALIZED CTE of each statement that read it, and no index of a delta. A reader returns
- * the columns its statements read of its selection's rows and no other, SETOF record, each call defining them by type
- * and collation (sql/ast.ts FunctionColumns `defined`), one reader of a selection in a statement however many of its
- * reads read it, their columns' union, so the reader's name holds its columns too, and no delta has a row type, where
- * format 8 created one for each delta's readers. So every judge statement, every reader and every stand-up moves.
- * A stored relation's upkeep's DELETE reads each selection through one call of its reader, the region its USING reads
- * and the region its definition is read at sharing it (physical/ddl/deltas.ts headedDelete), where format 8 read the
- * region's deltas in each part apart; so every upkeep's DELETE moves. The judge nets each side of news a transaction
- * wrote that a rule reads once in its run, before phase A, one only an upkeep reads never (physical/ddl/rules.ts
- * nettingsOf), and no part nets one, where format 8's parts each netted the sides of news they held, a delta an
- * upkeep's part and a rule's part both held netted twice; so the judge and every part move.
- * Every read the index engine plans lands on an index whose leading columns are exactly the columns it binds by
- * equality, or on a unique index all of whose keys it binds, and the B-trees created for the reads no installed key
- * serves are the fewest that do, grouped so each group's sets are one chain (physical/indexes/engine.ts chainsOf,
- * indexes/chains.ts fewestSharingGroups), where format 8 let a workload's lookup land on a B-tree led by one of its
- * columns of many values that held the rest anywhere after it, or on a GiST index placed by one, and drafted each index
- * from its first request: so indexes are created, dropped and renamed. A take or page seek whose equalities bind every
- * key of a unique B-tree lands on that index, and a seek's fixed columns lead its index as one block, in any order and
- * direction, only the keys it orders by after them directed (engine.ts orderedPlacements), where format 8 created an
- * index of its own for such a seek and directed its fixed columns as its order, so two seeks that differed only in a
- * fixed column's direction took two indexes on one column list.
- * A sub-query a rule statement reads at several sites is computed once for each row of the node that drives it, beside
- * that row, its rows carried on it as arrays a site reads in lockstep (sql/ast.ts ArraysSource `carried`, lower/shapes/
- * share/keyed.ts KeyedLowering carried), where format 8 read one evaluation at every site's keys, a CTE each site read at
- * its own row's values; so every judge with such a copy moves.
- * grizzle's library holds two functions a split of a text into rows reads, decodedPath (r.decodedPath) and
- * resolvedWithin (r.resolvedWithin), each an array of its one row or of none (ir/physical.ts libraryFns, splitLibrary),
- * so the library roster a snapshot and a served file name their functions by widens, recordShapes with it; and
- * resolveReference's walk of dot segments is one LATERAL row that also counts the `..` segments that climb past the
- * root (physical/ddl/library.ts dotSegmentWalk), where format 8 removed them in a scalar subquery, so its definition's
- * digest, the name it is installed under, moves.
- * A text split may be a split at the last separator, r.splitLast (ir/rel.ts TextSplit `splitLast`, its separator stated
- * as a separator split's is), which a snapshot's and a served file's Descriptions may hold, so recordShapes moves with
- * it; a split's argument may be a term the split's scope computes, which a Description already held as a term, so no
- * statement format 8 printed moves.
- * A served read's key is the fields of the completed order it delivers its rows in, `{ fields }` (served/forms.ts
- * ServedKey), and every read's wire shape is a list's, `list` or `answeredList`, its upsert carrying the key of the row
- * it follows (live/events.ts events, live/shape.ts MemberShape), where format 8 told a read of no stated order, its key
- * `set` and its shape `set` or `answeredSet`, its upsert its row alone, from an ordered read's: every such read's key,
- * wire and digest move.
- * Every served read and every ChangeSet's read-back that states no order delivers its rows in its result's key order,
- * ascending (check/checker.ts rootOrder, logical/order.ts completeGroups): a key's fields in the order of the declared
- * key they copy (logical/key-order.ts declaredKeyOrder), a union's as its arms agree, and where no key narrower than its
- * heading is proved its whole heading's, in its key's declared order where the heading is its own key, else field by
- * field. A heterogeneous union with a key within the fields its heading groups share is ordered by it, one order of
- * every group: the stated keys, its discriminant, then that key; one with none orders each group by its own key after
- * the stated keys and the discriminant, which tell the groups' rows apart (ir/rel.ts GroupOrders, OrderedResult and
- * Take `orders`). A delivered relation that deduplicates its rows, by DISTINCT, GROUP BY or a set operation, is formed
- * in a MATERIALIZED CTE and ordered outside it (lower/shapes/index.ts #formed), and every delivered statement's ORDER BY
- * states a text column's collation, COLLATE pg_catalog.pg_c_utf8 (lower/template.ts collatedOrder). Where format 8
- * delivered such reads and read-backs in their plan's order, appended an order's key in heading order, its fields'
- * names', stated no collation and completed a heterogeneous union's order over its common fields alone: every served
- * read's and read-back's statement and served key moves, with every page's and attachment array's whose completion
- * appends a key. A keyless heading's completion breaks ties by a set's bits, bytes and a search document too, in
- * PostgreSQL's order (scalar/registry.ts breaksTies), which the host never compares: a heading-group merge reads each
- * row's order no further than two rows differ (adapter/reader/run.ts groupOrder), and a page that would seek by one,
- * or a take over heading groups ordered again that would compare one, is refused (UnsupportedOperation), as format 8
- * refused both. A rule's violation and a ChangeSet's bound relation parameter are checked as relations, sets no caller
- * reads in an order (check/index.ts checkRelation).
- * Where a derived relation's rows live is the installation's inference, never its declaration's
- * (analysis/derived/storage.ts): `derived.stored` is gone, and a derived relation's Description states no `storage`. Every
- * derived relation whose definition is unit-local within one declared unit, every function it calls immutable, no field
- * it reads one grizzle rewrites in place, whose upkeep costs what its delta bounds (its unit wider than its declared
- * unit, so a write re-derives the keys it touched alone, or its declared unit sealed at founding), and whose table can
- * hold its rows is stored, kept at every COMMIT by the judge's upkeep as format 8 kept a declared one, whether the
- * relations it reads are closed or open; every other is live, one whose upkeep would re-derive its whole declared unit
- * recorded as `unboundedUpkeep`, and snapshot.json's derived facts record each live one with why (types.ts SnapshotDerived `liveDerived`). So an
- * installation gains a stored table, its unique indexes, its fill, its upkeep blocks and its holders' captures for every
- * such relation format 8 read live, every statement that read its definition reads its table, and its laws become its
- * table's natives as a declared stored relation's were. A query names every derived relation by its name, the checker
- * reads it as a relation keyed by the keys its definition proves, stored or live alike, and the lowering reads a live
- * one through its definition (ir/derived.ts servedDag), where format 8's builder inlined a live one's definition into
- * the query's Description, so every served file's query and ChangeSet Description that matched a live derived relation
- * names it instead. A statement of a write that writes a relation a stored relation's definition reads reads that
- * relation through its definition (analysis/schema.ts CheckedSchema serves), as does a read inside a write's
- * transaction where its schema may write such a relation, and every membership; and a role reads a
- * stored relation's table through its whole view where it holds every relation its definition reads whole
- * (schema/own.ts OwnedRole `wholeDerived`), its definition over its entries otherwise: no role holds a derived relation
- * as an entry, so every role's description that held a stored one whole loses that entry, and every role reading one
- * in full gains its whole view. Every installation installs its stored tables, which format 8 left to an extension its
- * caller supplied (the installation's `deferred` derived relations are gone). A role is granted EXECUTE on every declared
- * function its programs reach through the definitions of the relations they read, derived relations stored or live
- * and its query entries alike, at any depth (program/workload/compile.ts servedCalls), where format 8 granted only the
- * calls its programs' own Descriptions held, a live definition inlined into one among them, so every role reading a
- * stored relation or a query entry whose definition calls a declared function gains its grant.
- * A closed relation's constant, and each side's and each dependent key's owner function's, is two parallel arrays
- * (ir/cells.ts Constant): its cells, `'{-1,k1,…}'::bigint[]`, every row's key index ascending after the sentinel -1,
- * and, where its payload space holds more than one code, its payloads, `'{c1,…}'::bigint[]`, every row's payload code
- * in the cells' order, each a literal pack of its own named by its own content, O(rows) whatever the key space; a
- * membership and an application search the cells by width_bucket, O(log n), the key's index computed in bigint
- * (sql/constants.ts held, applied), and C.row reads them by the library function closedRow (physical/ddl/library.ts),
- * where format 8 stated each as a bit string of every cell of its key space, X'…'::bit varying, read by substring,
- * beside a key set of its own. So every literal pack, its comment and its function's name move, every read of a closed
- * relation a CHECK, a generated column or a statement makes moves, and snapshot.json's closed constants record their
- * cells' and payloads' functions, no width and no key set.
- * A unit may be sealed at founding, sealed(unit(name, heading)), the unit statement's Description stating `sealed`
- * (ir/desc.ts UnitDesc), false for every unit format 8 stated, so every statement text and fingerprint of a schema with a
- * unit moves: every row of every relation under a sealed unit at a key is inserted by the one transaction that founds it
- * there, a law the installation holds by the unit's founding table (ir/products.ts PhysicalKind `founding`), each key
- * with its founding transaction's xid8, and each member's seal trigger `__sealed`, which founds each key its statement
- * inserted at that no transaction founded and refuses the statement where another founded one (physical/ddl/seal.ts),
- * a migration filling a founding table it creates from its members' rows (deploy/diff/plan.ts structure.foundings);
- * snapshot.json's constraintToLaw maps each `__sealed` to the unit's seal law, a StatedLaw `sealed` lawsOf lists.
- * Every statement is printed once (sql/print-once.ts): a CTE its query reads once, that is not MATERIALIZED, not a
- * recursive WITH's, writes nothing and calls no VOLATILE function, is printed in place as the derived table PostgreSQL's
- * inlining makes of it, where format 8 printed it as a CTE that PostgreSQL inlined by a walk of the whole statement for
- * each. So a function reference states its declared volatility (sql/ast.ts QualifiedFunctionRef `volatility`), which a
- * snapshot's and a served file's statements hold; and a single statement's arm is a cut text, its placeholders cut out
- * as its unit's CTEs' are (runtime/write/parted.ts PartedUnit `arm`, `arms`), a part's own CTE being printed in its arm,
- * where format 8 held an arm's text whole. Every statement with such a CTE, and every served single statement, moves.
- * Every served file's session carries the read of a session's reap window (served/forms.ts ServedSession reapWindow),
- * the one statement a login's pool sends on a session of its own: at the session's first lease, and as the probe of one
- * silent past the window before a lease runs anything on it (the shell's wire/pool.ts makePool).
- * A derived table's and a CTE's columns are its query's output names, each target's own and a set operation's its left
- * arm's, which the printer lists after its alias or name (sql/ast.ts selectColumns, cteColumns; sql/print.ts), where
- * format 8 held a column list beside the query: a derived table or a query CTE whose query named its outputs inline
- * prints them as a list, its targets bare, a data-modifying CTE lists its RETURNING names, and a set operation whose
- * maker names its outputs names its later arms' as its first's, so a drafted backfill's and a served statement's text of
- * such a table moves.
  */
-export const artifactFormat = 8
+export const artifactFormat = 9
 
 /** The member of a snapshot.json or a served file that records its format (artifactFormat). */
 export const formatKey = "format"
