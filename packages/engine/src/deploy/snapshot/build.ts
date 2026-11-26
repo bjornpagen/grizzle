@@ -835,10 +835,12 @@ const snapshotTablesOf = (installation: Installation): SnapshotTables => {
 					o.reasons
 				)
 				break
+			case "storedTable":
+				index(v.create.name, v.primaryKey.name, constraintKeys(v.primaryKey), o.reasons)
+				break
 			case "table":
 			case "constant":
 			case "domain":
-			case "storedTable":
 			case "statistics":
 			case "isolationTrigger":
 			case "immutableTrigger":
@@ -878,9 +880,51 @@ const snapshotTablesOf = (installation: Installation): SnapshotTables => {
 				break
 		}
 	}
+	for (const o of installation.manifest.objects) {
+		for (const { table, name } of o.ddl.flatMap(indexesCreatedBy)) {
+			const on = valueAt(schemas, table.schema, table.name)
+			if (on !== undefined && !on.indexes.has(name)) {
+				throw defect(
+					`the index ${name} on ${on.relation}'s table, which the installation creates and its snapshot does not name`
+				)
+			}
+		}
+	}
 	return keyOrdered(schemas, (tables) =>
 		keyOrdered(tables, (t) => ({ relation: t.relation, indexes: keyOrdered(t.indexes, (i) => i) }))
 	)
+}
+
+/** Whether PostgreSQL holds an index for `constraint`: a primary key's, a unique key's or an exclusion constraint's. */
+const indexed = (constraint: TableConstraint): boolean =>
+	constraint.kind === "primaryKey" || constraint.kind === "unique" || constraint.kind === "exclude"
+
+/**
+ * The table and name of every index `statement` makes PostgreSQL hold: a CREATE INDEX's, and each primary key's,
+ * unique key's and exclusion constraint's a CREATE TABLE declares or an ALTER TABLE adds. snapshotTablesOf holds the
+ * tables it names to them, read from the statements themselves, whatever object holds them, so an object kind it
+ * gathers no index of can never leave an index of a relation's table unnamed, which an explain of a plan scanning it
+ * would refuse (adapter explain/plan.ts).
+ */
+const indexesCreatedBy = (
+	statement: SqlStatement
+): ReadonlyArray<{ readonly table: ObjectName; readonly name: string }> => {
+	if (statement.kind === "createIndex") {
+		return [{ table: statement.table, name: statement.name }]
+	}
+	if (statement.kind === "createTable") {
+		return tableConstraints(statement).flatMap((c) =>
+			indexed(c) ? [{ table: statement.table, name: c.name }] : []
+		)
+	}
+	if (statement.kind === "alterTable") {
+		return statement.actions.flatMap((a) =>
+			a.kind === "addConstraint" && indexed(a.constraint)
+				? [{ table: statement.table, name: a.constraint.name }]
+				: []
+		)
+	}
+	return []
 }
 
 /** The installation's derived runtime facts, which snapshot.json records beside the snapshot's content (SnapshotDerived):

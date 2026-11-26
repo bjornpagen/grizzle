@@ -174,10 +174,30 @@ const constraintOf = (
 	)
 }
 
-/** Each index object of a snapshot's content, read off its own statement or its constraint, with the reasons the
- * compile states for it. */
+/** Each index object of a snapshot's content, read off its own statement or its constraint, and each key a stored
+ * table's object adds by its own ALTER TABLE (physical/derived/objects.ts), with the reasons the compile states for
+ * it. */
 export const manifestIndexes = (content: SnapshotContent): ReadonlyArray<ManifestIndex> =>
 	Arr.flatMap(content.manifest.objects, (o): ReadonlyArray<ManifestIndex> => {
+		if (o.kind === "storedTable") {
+			return Arr.flatMap(o.ddl, (statement): ReadonlyArray<ManifestIndex> =>
+				statement.kind === "alterTable"
+					? Arr.flatMap(statement.actions, (action): ReadonlyArray<ManifestIndex> =>
+							action.kind === "addConstraint" && action.constraint.kind === "primaryKey"
+								? [
+										{
+											schema: statement.table.schema,
+											table: statement.table.name,
+											name: action.constraint.name,
+											keys: constraintKeys(action.constraint),
+											reasons: o.reasons
+										}
+									]
+								: []
+						)
+					: []
+			)
+		}
 		if (o.kind === "index" || o.kind === "uniqueIndex") {
 			const [create] = o.ddl
 			return create?.kind === "createIndex"
