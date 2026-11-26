@@ -797,11 +797,37 @@ const propagate =
 			}
 		}
 		const keptAt = (cell: Cell): Values => kept.get(cell) ?? none
+		/**
+		 * The value a cell's column holds in every row it is read at: its own (valuesAll), or, where every reader is an
+		 * attachment that correlates the column, the value its correlation fixes it at for each parent, the parent column's
+		 * (keptBy's `Attach`), one for every reader. A cell kept at that value is restricted to no fewer rows than each of
+		 * its reads reads: a count attached by a column its head holds at a parameter, exactly one row per parent, keeps it.
+		 */
+		const heldAt = (cell: Cell, column: string): ScalarExpr | undefined => {
+			const own = of(cell).get(column)
+			if (own !== undefined) {
+				return own
+			}
+			const values = cx.cells.readers(cell).map((r) => {
+				const reader = r.current
+				const pair =
+					reader.kind === "Attach" && reader.child === cell
+						? reader.correlation.find((c) => c.child === column)
+						: undefined
+				return reader.kind === "Attach" && pair !== undefined
+					? (keptAt(r).get(pair.parent) ?? of(reader.parent).get(pair.parent))
+					: undefined
+			})
+			const [first, ...rest] = values
+			return first !== undefined && rest.every((v) => v !== undefined && sameValue(v, first))
+				? first
+				: undefined
+		}
 
 		for (const cell of live) {
 			const node = cell.current
 			const shrinks = [...keptAt(cell)].some(([column, value]) => {
-				const held = of(cell).get(column)
+				const held = heldAt(cell, column)
 				return held === undefined || !sameValue(held, value)
 			})
 			if (node.kind === "MatchRegion") {
