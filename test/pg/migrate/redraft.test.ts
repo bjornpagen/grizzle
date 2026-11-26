@@ -30,7 +30,7 @@
 
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed, constant } from "@bjornpagen/testing/gen"
-import { type Case, property } from "@bjornpagen/testing/property"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { aims, caseGen, type Feature, runCase } from "#test/pg/migrate/redraft.fixtures.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
@@ -68,8 +68,21 @@ export const redraft = property.explore(
 			kind: "specification",
 			name: "the resume's documented contract, restated over the drafts' texts, against the database read back and a fresh install"
 		},
-		kept: [],
+		kept: [
+			{
+				token: ReplayToken("test/pg/migrate/redraft.test.ts#redraft:-:1.29m.0.0.0"),
+				reason:
+					"Shop v2's folder regenerated toward v2 with Task closed again: the regeneration leaves out openTask whole, its unit and the mutable declaration that needs it, where the removal of v2's statement at index 4, once the mutable declaration and now the unit since openTask became two statements, left Task mutable under no unit and the schema refused at its admission",
+				since: "2026-11-26"
+			}
+		],
 		kills: [
+			{
+				file: "test/pg/migrate/redraft.fixtures.ts",
+				original: '\t\tpart === "open" ? openTask.includes(s) : s.kind === part',
+				replacement: '\t\tpart === "open" ? s === openTask[0] : s.kind === part',
+				why: "Task open is left out by its first statement alone, the unit, as the removal by index left it out: Task stays mutable under no unit, the regeneration toward v2 immutable is refused at its schema's admission, and the kept case fails."
+			},
 			{
 				file: "packages/grizzle/src/adapter/migrate/apply.ts",
 				original: "\t\t\t\t: []",

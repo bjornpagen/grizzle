@@ -34,7 +34,7 @@ import { succeeded } from "#test/support/assert.ts"
 import { readCatalog } from "#test/support/catalog/read.ts"
 import { chunked, joined } from "#test/support/chunked.ts"
 import { firstCodes, installedCodes } from "#test/support/compile.ts"
-import type { SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
+import type { AuthoredStatementDesc, SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import {
 	check,
 	f,
@@ -91,11 +91,16 @@ const v1Bounded: SchemaDesc = {
 /** Shop v1 with Task declared mutable. */
 const v1Mutable: SchemaDesc = { ...shopV1, statements: [...shopV1.statements, ...openTask] }
 
-/** Shop v2 with one of its statements, by index, left out. */
-const v2Without = (statement: number): SchemaDesc => ({
-	...shopV2,
-	statements: Arr.filter(shopV2.statements, (_, i) => i !== statement)
-})
+/**
+ * Shop v2 with the statements of one of its parts left out, named by what it states, never by where it stands: its
+ * candidate key, its row check, its alternatives, or Task open (openTask, the unit its key leads beside the mutable
+ * declaration that needs it, so Task is left closed and no mutable stands over a relation of no unit).
+ */
+const v2Without = (part: "key" | "check" | "alternatives" | "open"): SchemaDesc => {
+	const removed = (s: AuthoredStatementDesc): boolean =>
+		part === "open" ? openTask.includes(s) : s.kind === part
+	return { ...shopV2, statements: Arr.filter(shopV2.statements, (s) => !removed(s)) }
+}
 
 /** Shop v2 with its weight check tightened. */
 const v2Tightened: SchemaDesc = {
@@ -167,10 +172,10 @@ const folders: ReadonlyArray<{
 		regenerations: [
 			toward("its own draft", shopV2, noDeclarations, "its source"),
 			toward("v2 tightened", v2Tightened, noDeclarations, "its source"),
-			toward("v2 unkeyed", v2Without(2), noDeclarations, "its source"),
-			toward("v2 unchecked", v2Without(3), noDeclarations, "its source"),
-			toward("v2 immutable", v2Without(4), noDeclarations, "its source"),
-			toward("v2 without alternatives", v2Without(1), noDeclarations, "its source"),
+			toward("v2 unkeyed", v2Without("key"), noDeclarations, "its source"),
+			toward("v2 unchecked", v2Without("check"), noDeclarations, "its source"),
+			toward("v2 immutable", v2Without("open"), noDeclarations, "its source"),
+			toward("v2 without alternatives", v2Without("alternatives"), noDeclarations, "its source"),
 			toward("v3", shopV3, noDeclarations, "its source"),
 			toward("v2 from v1 mutable", shopV2, noDeclarations, "v1 declared mutable"),
 			toward("v2 budget renamed", v2BudgetRenamed, noDeclarations, "its source")
