@@ -97,6 +97,13 @@ export {
 	type ServedTables,
 	type ServedVariants
 } from "#compiler/served/forms.ts"
+export {
+	assembled,
+	type AssembledText,
+	type CutText,
+	type Parted,
+	type PartedUnit
+} from "#compiler/runtime/write/parted.ts"
 export { servedFile } from "#compiler/served/json.ts"
 export {
 	type ServedAttach,

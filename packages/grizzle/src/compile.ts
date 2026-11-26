@@ -7,7 +7,10 @@
  * plan names, its key columns and why the installation holds it, from the snapshot. The host's readings of a schema,
  * each compiling it, are here too: lawsOf, lawsByStatement and constraintNamesOf, which read its laws and their
  * installed names, and insertPreview, factsDecoder, rowEvaluator, codecText and rowText (adapter/public/host.ts),
- * which read its rows as PostgreSQL would, sending no SQL. A running application never loads it, nor does a schema
+ * which read its rows as PostgreSQL would, sending no SQL. And assembled, the runtime's own assembly of a single
+ * statement's units (runtime/write/parted.ts), the one function a served file's parted statement becomes the text and
+ * placeholders a call sends by: a test or a budget that measures a served statement reads it through this export,
+ * never a copy of its own. A running application never loads it, nor does a schema
  * module or a configuration (packages/grizzle/src/index.ts, the authoring entry): it loads the schema, the law model
  * and the compiler.
  */
@@ -23,6 +26,13 @@ export {
 	type SnapshotIndex,
 	type WorkloadPlace
 } from "#adapter/public/compile.ts"
+export {
+	assembled,
+	type AssembledText,
+	type CutText,
+	type Parted,
+	type PartedUnit
+} from "#compiler/plan/serve.ts"
 export {
 	codecText,
 	factsDecoder,
