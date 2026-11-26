@@ -132,9 +132,8 @@ export const everyUnrepresentableKeyOfASchemaIsRefusedAtOnceInTheOrderItsChecksM
 			},
 			{
 				file: "packages/engine/src/core/canonical.ts",
-				original:
-					"\t\tif (!this.#met.some((k) => k.subject === key.subject && sameContent(k.key, key.key))) {",
-				replacement: "\t\tif (true) {",
+				original: "\t\t\t!this.#met.some(",
+				replacement: "\t\t\ttrue || !this.#met.some(",
 				why: "A key two plans judge alike, a fold's running text on each axis that carries it, named twice."
 			},
 			{

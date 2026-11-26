@@ -304,12 +304,21 @@ export class KeyLedger {
 	}
 
 	/**
-	 * Records `key`, whose entry no index holds; the caller goes on as though it fitted. A key is met once: one the
-	 * ledger holds under the same subject over the same fields, which two plans of one index judge alike (a fold's
-	 * accumulator on each axis that carries it), is that key, and the refusal names it once.
+	 * Records `key`, whose entry no index holds; the caller goes on as though it fitted. A key is met once for each of its
+	 * faults: one the ledger holds under the same subject over the same fields for the same fault, which two plans of one
+	 * index judge alike (a fold's accumulator on each axis that carries it), is that key, and the refusal names it once;
+	 * one refused for another fault is another refusal, as a lookup's two texts of no bound, each undigested, are two
+	 * faults of its one key, where the ledger named the first alone.
 	 */
 	refuse(key: KeyRefusal): void {
-		if (!this.#met.some((k) => k.subject === key.subject && sameContent(k.key, key.key))) {
+		if (
+			!this.#met.some(
+				(k) =>
+					k.subject === key.subject &&
+					sameContent(k.key, key.key) &&
+					sameContent(k.fault, key.fault)
+			)
+		) {
 			this.#met.push(key)
 		}
 	}

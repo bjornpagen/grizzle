@@ -21,7 +21,7 @@
 
 import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
-import { type Case, property } from "@bjornpagen/testing/property"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Order, String as Str } from "effect"
 import { refused, refusedKey, refusedKeys, succeeded } from "#test/support/assert.ts"
 import {
@@ -209,8 +209,24 @@ export const aDraftedLookupNeverIndexesAColumnThatDoesNotFitItsEntryLeavingEachS
 			kind: "second-implementation",
 			name: "BTMaxItemSize and pg_type's sizes and alignments, restated, every key as itself in any order, each equality left out widest first where the entry could pass the limit"
 		},
-		kept: [],
+		kept: [
+			{
+				token: ReplayToken(
+					"test/unit/physical/lookup-entries.test.ts#aDraftedLookupNeverIndexesAColumnThatDoesNotFitItsEntryLeavingEachSuchEqualityOutAsAFilterItsCommentNames:-:0.2.4.4.0.0"
+				),
+				reason:
+					"an equality lookup of two texts of no bound, each undigested: two faults of one key, where the refusal named the first alone",
+				since: "2026-11-26"
+			}
+		],
 		kills: [
+			{
+				file: "packages/engine/src/core/canonical.ts",
+				original:
+					"\t\t\t\t\tsameContent(k.key, key.key) &&\n\t\t\t\t\tsameContent(k.fault, key.fault)\n",
+				replacement: "\t\t\t\t\tsameContent(k.key, key.key)\n",
+				why: "A key is met once whatever its fault: a lookup of two texts of no bound, each undigested, is refused naming the first alone, and the second text's want of a digest goes unnamed."
+			},
 			{
 				file: "packages/engine/src/physical/indexes/engine.ts",
 				original: '(at < request.fixed ? "equality" : past)',
