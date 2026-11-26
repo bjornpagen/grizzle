@@ -369,8 +369,7 @@ const declarations: Need<Declarations> = {
 		Effect.map((made) => Effect.succeed(made)),
 		Effect.catchTags({
 			PlatformError: (error) => Effect.fail(declarationsFailed(error.message)),
-			CompilerStalled: (error) => Effect.fail(declarationsFailed(error.message)),
-			CpuTimeUnreadable: (error) => Effect.fail(declarationsFailed(error.message))
+			CompilerStalled: (error) => Effect.fail(declarationsFailed(error.message))
 		})
 	)
 }

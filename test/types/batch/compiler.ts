@@ -1,17 +1,11 @@
-import { liveMillis, liveSleep } from "@bjornpagen/testing/live"
-import { regex } from "arkregex"
 import {
-	Array as Arr,
-	Data,
-	Duration,
-	Effect,
-	Fiber,
-	FileSystem,
-	Option,
-	type PlatformError,
-	Stream,
-	String as Str
-} from "effect"
+	boundOver,
+	type Overrun,
+	overrun,
+	overrunText,
+	processWorkNow
+} from "@bjornpagen/testing/live"
+import { Array as Arr, Data, Duration, Effect, Fiber, Option, Stream } from "effect"
 import { ChildProcess } from "effect/process"
 
 /**
@@ -21,10 +15,9 @@ import { ChildProcess } from "effect/process"
  * every goroutine's stack and exits) and fails with CompilerStalled, carrying that dump, instead of waiting on it for as
  * long as a test may run.
  *
- * A tree is idle when none of its threads is running, waiting for a CPU or waiting on the disk, and it spends no CPU
- * time, as the kernel counts both (/proc, proc(5)): a check the machine is too busy to run is waiting for a CPU, so a
- * busy machine slows a check but never makes it a stall, and a check spends its time in the kernel's own unit, the
- * clock tick, which no reading rounds away.
+ * A tree is idle when its work stands still as the testing library judges any work (@bjornpagen/testing/live
+ * processWorkNow and overrun): its CPU not moving over a window of the time it could have run, the time it waited for a
+ * CPU taken out and its storage work counted as progress, so a busy machine slows a check but never makes it a stall.
  */
 
 /** What a compiler run reported: its exit status and everything it printed. */
@@ -35,8 +28,8 @@ export interface Ran {
 }
 
 /**
- * How long a check's process tree may be idle before it has stalled: no reading of it across the whole window finds a
- * thread running, waiting for a CPU or waiting on the disk, or more CPU time than the last reading that did.
+ * How long a check's process tree may stand still before it has stalled: its CPU, the time it could have run, not
+ * moving over the whole window (the testing library's judge, @bjornpagen/testing/live overrun).
  *
  * @limitKind measured
  * @owner the type tier's compiler runs (test/types/batch)
@@ -75,235 +68,43 @@ export interface Ran {
  */
 const stallWindow = 30_000
 
-/**
- * How often the guard reads the process tree: thirty times per window, so a stall is caught within a thirtieth of it.
- *
- * @limitKind derived
- * @owner the type tier's compiler runs (test/types/batch)
- * @unit milliseconds
- * @scope the interval between two readings of a check's process tree
- * @derivation a stall is declared at the first reading a whole window after the last progress, so a thirtieth of the
- *   window delays it by at most a thirtieth; one reading of the tree's /proc files is cheap beside a check
- * @from {@link stallWindow}
- */
-const stallSampleEvery = Math.ceil(stallWindow / 30)
-
-/**
- * A stall guard: how long a process tree may be idle, and how often it is read. The type tier passes stallWindow and
- * stallSampleEvery; a test of the guard passes its own.
- */
-type StallGuard = Readonly<{ window: Duration.Duration; every: Duration.Duration }>
+/** A stall guard: how long a process tree's work may stand still. The type tier passes stallWindow; a test its own. */
+type StallGuard = Readonly<{ window: Duration.Duration }>
 
 /** The guard the type tier's compiler runs under. */
-const compilerStallGuard: StallGuard = {
-	window: Duration.millis(stallWindow),
-	every: Duration.millis(stallSampleEvery)
-}
-
-/** A /proc stat file held a line outside proc(5)'s format: the guard cannot read the tree, so it fails rather than guess. */
-class CpuTimeUnreadable extends Data.TaggedError("CpuTimeUnreadable")<{
-	readonly file: string
-	readonly line: string
-}> {
-	override get message(): string {
-		return `the stall guard cannot read ${this.file}: "${this.line}"`
-	}
-}
+const compilerStallGuard: StallGuard = { window: Duration.millis(stallWindow) }
 
 /**
- * A checked command's process tree was idle for `idleMillis`, at least its guard's window: `command` and `args` are what
- * ran, `cpuTicks` the CPU time its tree had spent by its last progress, in clock ticks, none when its process was never
- * read, and `goroutines` what it printed on stderr once asked for its goroutines, the dump an upstream report needs.
+ * A checked command's process tree stood still for a whole window of its guard, as the testing library's judge read it
+ * (`overrun`, the leg and what it measured): `command` and `args` are what ran, and `goroutines` what it printed on
+ * stderr once asked for its goroutines, the dump an upstream report needs.
  */
 class CompilerStalled extends Data.TaggedError("CompilerStalled")<{
 	readonly command: string
 	readonly args: ReadonlyArray<string>
-	readonly idleMillis: number
-	readonly cpuTicks: Option.Option<number>
+	readonly overrun: Overrun
 	readonly goroutines: string
 }> {
 	override get message(): string {
-		const spent = Option.match(this.cpuTicks, {
-			onNone: () => "with no reading of its process",
-			onSome: (ticks) => `after ${ticks} clock ticks of CPU`
-		})
-		return `${this.command} ${Arr.join(this.args, " ")} was idle for ${this.idleMillis} ms, no thread running, waiting for a CPU or on the disk and no CPU time spent, ${spent}: a stall, which no output ends. What it printed when asked for its goroutines (SIGQUIT):\n${this.goroutines}`
+		return `${this.command} ${Arr.join(this.args, " ")} stalled: ${overrunText(this.overrun)}: a stall, which no output ends. What it printed when asked for its goroutines (SIGQUIT):\n${this.goroutines}`
 	}
 }
-
-/**
- * A process's or a thread's stat line past its command's name, which ends at the line's last ")" (proc(5),
- * /proc/pid/stat): its state, ten fields, then its user and system time and its waited-for children's, in clock ticks.
- */
-const statFields = regex(
-	"^\\) (?<state>\\S) (?:-?\\d+ ){10}(?<utime>\\d+) (?<stime>\\d+) (?<cutime>-?\\d+) (?<cstime>-?\\d+) "
-)
-
-/**
- * One reading of a process, a thread or a process tree: whether it is running, waiting for a CPU or on the disk (a
- * tree when any of its threads is), and the CPU time it has spent, in clock ticks: its own and its waited-for
- * children's, so a child's time stays counted after it exits.
- */
-type Reading = Readonly<{ busy: boolean; ticks: number }>
-
-/**
- * The states in which a thread is making progress or waits only on the machine: running or runnable (R) and in an
- * uninterruptible wait, as on the disk (D). Every other state waits on an event (S), is stopped or traced (t, T), or
- * has ended (Z, X).
- */
-const BUSY_STATES: ReadonlySet<string> = new Set(["R", "D"])
-
-/**
- * The errors a /proc read fails with once the process or thread it describes has ended: ENOENT once it is reaped and its
- * entry is gone, and ESRCH while its entry stands but its task has exited (proc(5)), which a thread meets between the
- * listing of its process's tasks and the read of its own files.
- */
-const ENDED_ERRNOS: ReadonlySet<string> = new Set(["ENOENT", "ESRCH"])
-
-/** The errno code a failed read's cause carries, none where its cause is no errno exception. */
-const errnoOf = (cause: unknown): Option.Option<string> =>
-	typeof cause === "object" && cause !== null && "code" in cause && typeof cause.code === "string"
-		? Option.some(cause.code)
-		: Option.none()
-
-/**
- * Whether a failed read found its process or thread ended (ENDED_ERRNOS): nothing to read, so no progress and no error;
- * any other failure of a read is the reader's, which the guard reports.
- */
-const gone = (error: PlatformError.PlatformError): boolean =>
-	Option.exists(errnoOf(error.reason.cause), (code) => ENDED_ERRNOS.has(code))
-
-/** A /proc file's text, none once the process or thread it describes is gone. */
-const procText = (fs: FileSystem.FileSystem, file: string) =>
-	Effect.catchIf(Effect.asSome(fs.readFileString(file)), gone, () =>
-		Effect.succeed(Option.none<string>())
-	)
-
-/** The entries of a /proc directory, none once the process it describes is gone. */
-const procEntries = (fs: FileSystem.FileSystem, dir: string) =>
-	Effect.catchIf(fs.readDirectory(dir), gone, () => Effect.succeed<ReadonlyArray<string>>([]))
-
-/** A stat file read, none once its process or thread is gone, or CpuTimeUnreadable for a line outside its format. */
-const statOf = (fs: FileSystem.FileSystem, file: string) =>
-	Effect.flatMap(
-		procText(fs, file),
-		Option.match({
-			onNone: () => Effect.succeed(Option.none<Reading>()),
-			onSome: (line) =>
-				Effect.map(
-					Effect.fromOption(
-						Option.flatMap(Str.lastIndexOf(")")(line), (end) =>
-							Option.fromNullishOr(statFields.exec(Str.slice(end)(line))?.groups)
-						),
-						() => new CpuTimeUnreadable({ file, line })
-					),
-					(f) =>
-						Option.some<Reading>({
-							busy: BUSY_STATES.has(f.state),
-							ticks: Number(f.utime) + Number(f.stime) + Number(f.cutime) + Number(f.cstime)
-						})
-				)
-		})
-	)
-
-/**
- * The reading of `pid`'s tree, none once `pid` is gone: its process's stat, each of its threads' states, and the
- * reading of each child its threads started (/proc/pid/task/tid/children); a thread or a child gone mid-reading adds
- * nothing, and its time moves to its parent's waited-for children's once reaped.
- */
-const readingOf = (
-	fs: FileSystem.FileSystem,
-	pid: number
-): Effect.Effect<Option.Option<Reading>, CpuTimeUnreadable | PlatformError.PlatformError> =>
-	Effect.flatMap(
-		statOf(fs, `/proc/${pid}/stat`),
-		Option.match({
-			onNone: () => Effect.succeed(Option.none<Reading>()),
-			onSome: (own) =>
-				Effect.gen(function* () {
-					const tasks = yield* procEntries(fs, `/proc/${pid}/task`)
-					const threads = yield* Effect.forEach(tasks, (tid) =>
-						Effect.all({
-							stat: statOf(fs, `/proc/${pid}/task/${tid}/stat`),
-							children: procText(fs, `/proc/${pid}/task/${tid}/children`)
-						})
-					)
-					const childPids = Arr.flatMap(threads, ({ children }) =>
-						Option.match(children, {
-							onNone: () => [],
-							onSome: (text) =>
-								Arr.map(
-									Arr.filter(Arr.map(Str.split(text, " "), Str.trim), (p) => p !== ""),
-									Number
-								)
-						})
-					)
-					const read = yield* Effect.forEach(childPids, (child) => readingOf(fs, child))
-					const children = Arr.getSomes(read)
-					return Option.some<Reading>({
-						busy:
-							Arr.some(threads, ({ stat }) => Option.exists(stat, (t) => t.busy)) ||
-							Arr.some(children, (c) => c.busy),
-						ticks: Arr.reduce(children, own.ticks, (sum, c) => sum + c.ticks)
-					})
-				})
-		})
-	)
 
 /** Everything a command printed on one of its streams. */
 const text = <E>(stream: Stream.Stream<Uint8Array, E>) => Stream.mkString(Stream.decodeText(stream))
 
 /**
- * How long `pid`'s tree was idle once it stalled, and the CPU time it had spent by its last progress, none when its
- * process was never read.
+ * Ends once `pid`'s tree has stood still for a whole `guard.window`, as the testing library judges any work (live.ts
+ * processWorkNow and overrun): its CPU not moving over a window of the time it could have run, its waits to run taken
+ * out and its storage work counted as progress, so a busy machine slows a check but never makes it a stall. No CPU
+ * budget: a check that progresses runs for as long as it takes. The one judge of the toolchain, where this module read
+ * the tree's /proc files on the live clock with a judge of its own.
  */
-type Stall = Readonly<{ idleMillis: number; cpuTicks: Option.Option<number> }>
-
-/**
- * Whether a reading is progress: a thread of the tree running, waiting for a CPU or on the disk, the first reading of
- * the tree, or more CPU time than the last progress.
- */
-const progressed = (last: Option.Option<number>, read: Option.Option<Reading>): boolean =>
-	Option.isSome(read) && (read.value.busy || Option.isNone(last) || read.value.ticks > last.value)
-
-/** The last progress a stall guard saw: the CPU time it read, none before the first reading, and when. */
-type Progress = Readonly<{ cpu: Option.Option<number>; at: number }>
-
-/**
- * Reads `pid`'s tree every `guard.every`, from the progress `last`, and ends once it has been idle for `guard.window`,
- * on the live clock, whatever clock the caller runs under; it never ends while the tree progresses, and a reading that
- * finds the process gone changes nothing, since its exit ends the run first.
- */
-const stalledSince = (
-	fs: FileSystem.FileSystem,
-	pid: number,
-	guard: StallGuard,
-	last: Progress
-): Effect.Effect<Stall, CpuTimeUnreadable | PlatformError.PlatformError> =>
-	Effect.flatMap(Effect.all([liveMillis, readingOf(fs, pid)]), ([now, read]) => {
-		if (progressed(last.cpu, read)) {
-			return Effect.andThen(
-				liveSleep(guard.every),
-				stalledSince(fs, pid, guard, {
-					cpu: Option.map(read, (r) => r.ticks),
-					at: now
-				})
-			)
-		}
-		if (now - last.at >= Duration.toMillis(guard.window)) {
-			const stall: Stall = { idleMillis: now - last.at, cpuTicks: last.cpu }
-			return Effect.succeed(stall)
-		}
-		return Effect.andThen(liveSleep(guard.every), stalledSince(fs, pid, guard, last))
-	})
-
-/** Ends once `pid`'s tree has been idle for `guard.window` since the guard began. */
-const stalled = (pid: number, guard: StallGuard) =>
-	Effect.gen(function* () {
-		const fs = yield* FileSystem.FileSystem
-		const at = yield* liveMillis
-		return yield* stalledSince(fs, pid, guard, { cpu: Option.none(), at })
-	})
+const stalled = (pid: number, guard: StallGuard): Effect.Effect<Overrun> =>
+	Effect.flatMap(
+		processWorkNow(Option.some(pid), () => 0),
+		(work) => overrun(work, boundOver(Number.POSITIVE_INFINITY, Duration.toMillis(guard.window)))
+	)
 
 /**
  * Runs `command` with `args` in `cwd` to completion under `guard`: its exit status and what it printed, or
@@ -341,8 +142,7 @@ const guardedRun = (command: string, args: ReadonlyArray<string>, cwd: string, g
 					return yield* new CompilerStalled({
 						command,
 						args,
-						idleMillis: ended.stall.idleMillis,
-						cpuTicks: ended.stall.cpuTicks,
+						overrun: ended.stall,
 						goroutines: yield* Fiber.join(stderr)
 					})
 				}
