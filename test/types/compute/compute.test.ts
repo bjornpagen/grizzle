@@ -89,6 +89,13 @@ export const computeKeptCases = boxAgreement(computeKept, {
 	kept: [],
 	kills: [
 		{
+			file: "test/support/agreement/compute.ts",
+			original:
+				'\t\treturn Str.includes(" has more digits than ")(text)\n\t\t\t? engineDecides.digits\n\t\t\t: engineDecides.literal\n',
+			replacement: "\t\treturn undefined\n",
+			why: "A bare literal compared with a term that does not hold it as written is a refusal the types share: the kept guard's bounds of more digits than cell.dec's numeric(10, 2) holds are held to a refusal the types never state, which they admit, and the property fails."
+		},
+		{
 			file: "packages/engine/src/types/compute/compute.ts",
 			original: "\t\tfrom: Fit<Fr, string>,\n\t\tto: Fit<To, string>",
 			replacement: "\t\tfrom: Fr & string,\n\t\tto: To & string",

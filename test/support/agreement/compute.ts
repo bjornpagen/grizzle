@@ -2816,7 +2816,9 @@ type ContestedNote = typeof contestedNote
 
 /**
  * Which of the engine's decisions no type states a refusal is, where it is one: a precondition compilation alone
- * proves, a literal's value against its contract or pattern, and, by the engine's words, a decimal's digits, a pattern
+ * proves, a literal's value against its contract or pattern, a bare literal compared with a term that does not hold it
+ * as written (scalar/compute/literal.ts oppositeLiteralProblem: its digits where it has more than the term's type
+ * holds, its value otherwise), and, by the engine's words, a decimal's digits, a pattern
  * term's values, a translate's map, a text function's place and a match guard's patterns that no text of its subject
  * passes, whose branch would read the subject as text of an empty language. A JavaScript number's integrality is the
  * whole case's (verdictOf).
@@ -2850,6 +2852,11 @@ const decidedBy = (thrown: unknown): DecidedNote | undefined => {
 				: undefined
 	if (text === undefined) {
 		return undefined
+	}
+	if (Str.startsWith("a literal compared with ")(text)) {
+		return Str.includes(" has more digits than ")(text)
+			? engineDecides.digits
+			: engineDecides.literal
 	}
 	return Str.startsWith("a literal beside an exact value of ")(text)
 		? engineDecides.literal
@@ -4287,6 +4294,30 @@ const overlapKept: Arr.NonEmptyReadonlyArray<Extract<CaseSpec, { readonly kind: 
 ]
 
 /**
+ * The when whose guard compares a numeric(10, 2) term with bounds of more digits than it holds, as the rotating stream at
+ * 0x937353ea drew it as its case 101 in a generated column over a closed read:
+ * Logic.when(Num.within(cell.dec, -1000000000000000n, 1000000000000000n), (g) => Type.cast(g, Cell.fields.small),
+ * cell.small). The engine refuses each bound as a literal compared with the term, its digits, which no type states, so
+ * the types admit it and the engine decides it: a decimal's digits. Every run holds it.
+ */
+const comparedKept: Arr.NonEmptyReadonlyArray<Extract<CaseSpec, { readonly kind: "term" }>> = [
+	{
+		kind: "term",
+		term: {
+			kind: "when",
+			guard: {
+				kind: "within",
+				x: { kind: "field", field: "dec" },
+				low: { text: "-1000000000000000n", value: -1000000000000000n },
+				high: { text: "1000000000000000n", value: 1000000000000000n }
+			},
+			body: { kind: "cast", x: { kind: "guarded" }, to: "small" },
+			otherwise: { kind: "field", field: "small" }
+		}
+	}
+]
+
+/**
  * The when the run at TEST_SEED=1879254972 drew as its case 1140, so the floor reaches capturedNotes by construction,
  * whatever its draws: a power over the guarded subject whose exponent is the subject read past the parameter,
  * Logic.when(Num.nonnegative(cell.dec), (g) => Num.power(g, cell.dec), cell.dec). The guard proves g
@@ -4416,7 +4447,8 @@ export const computeKeptItems = Arr.map(
 			...Arr.map(capturedKept, (spec): Drawn => ({
 				spec,
 				reached: new Set(["when", "nonnegative", "power"])
-			}))
+			})),
+			...Arr.map(comparedKept, (spec): Drawn => ({ spec, reached: new Set(["when", "within"]) }))
 		]
 	),
 	caseOf
