@@ -561,9 +561,24 @@ export const aCompilesLawModelIsTheWholeSchemasRestrictedToItsSlicesWritesAndNam
 				),
 				reason: "a roster's domain discharging a named relation's containment and an unnamed one's",
 				since: "2026-11-09"
+			},
+			{
+				token: ReplayToken(
+					"test/unit/laws/model/slice.test.ts#aCompilesLawModelIsTheWholeSchemasRestrictedToItsSlicesWritesAndNames:-:0.1.0.0.0.0.2.2.1.1.0.0.0.3.0.0.1.0.0.0.0.1.1.0.0.1.1.1.0.0.1.0.0.0.0"
+				),
+				reason:
+					"a role writing R1, a member of R0's family, and T0, whose one ChangeSet writes T0 alone: the slice's law model holds no R0, whose grants the role holds all the same (rotating seed 0x27587f65, case 25)",
+				since: "2026-11-26"
 			}
 		],
 		kills: [
+			{
+				file: "packages/engine/src/physical/ddl/roles.ts",
+				original: "\t\tholdOn(families[0].owner, families, fullyWrittenBy(written))",
+				replacement:
+					"\t\tholdOn(model.relations.get(families[0].owner.name)!.relation, families, fullyWrittenBy(written))",
+				why: "A role's hold on a family's owner read off the law model's relations, which hold only what its slice writes (physical/ddl/roles.ts ownerHolds), so a role writing a member the slice does not write finds no owner and the ChangeSet compiled over the slice dies; the slice fails."
+			},
 			{
 				file: "packages/engine/src/schema/reach.ts",
 				original: "\tfor (const relation of out) {",

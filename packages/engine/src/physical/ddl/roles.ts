@@ -1174,24 +1174,16 @@ const holdOn = (
 }
 
 /** The owners whose members a role writes (`written`), each with what the role holds on it (`OwnerHold`), in the law
- * model's order of their first family, each owner an ordinary relation of the model. */
+ * model's order of their first family, each owner the relation its families name (ir/family.ts Family `owner`), an
+ * ordinary relation of the schema whether or not the model's slice writes it: a role's grants are the installation's,
+ * whatever slice a compile plans. */
 export const ownerHolds = (
 	model: LawModel,
-	role: OwnedRole,
 	written: ReadonlyArray<WrittenEntry>
 ): ReadonlyArray<OwnerHold> =>
-	heldFamilies(model, written).map((families) => {
-		const name = families[0].owner.name
-		const owner = (
-			model.relations.get(name) ??
-			refuse(
-				"MalformedDescription",
-				role.loc,
-				`a family owned by an ordinary relation, not ${name}`
-			)
-		).relation
-		return holdOn(owner, families, fullyWrittenBy(written))
-	})
+	heldFamilies(model, written).map((families) =>
+		holdOn(families[0].owner, families, fullyWrittenBy(written))
+	)
 
 /**
  * Whether a role holds UPDATE on a column of a relation, as its grants hold it (writePlan, ownerHolds): every column of
@@ -1240,7 +1232,6 @@ export const grantedPrivileges = (
 	model: LawModel,
 	checked: CheckedSchema<RoleWorld>
 ): ReadonlyMap<string, ReadonlySet<TablePrivilege>> => {
-	const role = checked.world.role
 	const written = roleWrites(checked.world)
 	const held = new Map<string, Set<TablePrivilege>>()
 	const hold = (relation: string, privileges: ReadonlyArray<TablePrivilege>): void => {
@@ -1252,7 +1243,7 @@ export const grantedPrivileges = (
 	for (const w of written) {
 		hold(w.relation.name, entryPrivileges(w))
 	}
-	for (const h of ownerHolds(model, role, written)) {
+	for (const h of ownerHolds(model, written)) {
 		const privileges: Array<TablePrivilege> = []
 		if (isNonEmpty(h.select)) {
 			privileges.push("SELECT")
@@ -1643,7 +1634,7 @@ const addRole = (
 			)
 		}
 	}
-	const holds = ownerHolds(b.model, role, written)
+	const holds = ownerHolds(b.model, written)
 	for (const hold of holds) {
 		const owner = hold.owner.name
 		const ownerTable = b.names.relation(owner)

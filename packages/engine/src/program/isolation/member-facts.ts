@@ -331,7 +331,7 @@ const roleWorld = (
 			)
 		}
 	}
-	for (const hold of ownerHolds(model, role, written)) {
+	for (const hold of ownerHolds(model, written)) {
 		if (!writers.has(hold.owner.name)) {
 			policed(
 				hold.owner.name,
