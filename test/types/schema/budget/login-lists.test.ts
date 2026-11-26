@@ -28,6 +28,12 @@ export const loginList = costGate(loginLists, {
 			replacement:
 				'\treadonly [R in Roles[number] as R["name"]]: LoginRole<R, ProgramsOf<R, Ws>>\n',
 			why: "Each role of a login carries its programs, a walk of the login's every workload against its levels, in the login's own type, read at each relation of the login: AnyLogin's, the list's and every parameter's it is passed to, metis's TS2589 and TS5114 over its 23 logins at c8cf6d6fb; a login costs 2,237 instantiations against its bound of 1,709."
+		},
+		{
+			file: "packages/engine/src/types/schema/schema.ts",
+			original: "type LevelsBelow<B> = [B] extends [never] ? never : LevelsOf<B>\n",
+			replacement: "type LevelsBelow<B> = [B] extends [never] ? EmptyLevel : LevelsOf<B>\n",
+			why: "The empty level is a member of every level's levels (LevelsOf) where its phantom alone made it the base case (LevelPhantom), so each reader distributing over a role's levels, a workload's programs and a login's workloads, reads one level more for every role and login: a login costs 1,736 instantiations against its bound of 1,709, as rlxvqonm's EmptyLevel below the root did at 40efdaff with the rest of its cost (REPLAYFIX)."
 		}
 	]
 })

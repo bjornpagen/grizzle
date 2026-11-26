@@ -923,34 +923,46 @@ type RecordOver<B, L> =
 			: { readonly [N in keyof B | keyof L]: N extends keyof B ? B[N] : L[N & keyof L] }
 
 /**
- * The empty level, schema.empty's type (schema/api.ts): no relation, no statement, nothing below it, the level below
- * every root (LevelsOf), as schema/levels.ts emptyLevel is its content. A query over it reads no relation, so it runs
- * over every schema and on every role, which holds it whole vacuously.
+ * The empty level, schema.empty's type (schema/api.ts): no relation under any name, no statement, nothing below it, the
+ * level below every root, as schema/levels.ts emptyLevel is its content. A query over it reads no relation, so it runs over every
+ * schema and on every role, which holds it whole vacuously: a program over it carries the least level phantom
+ * (LevelPhantom), which every level's readers admit, so no level's levels (LevelsOf) hold it.
  */
-export type EmptyLevel = RootSchema<"Empty", readonly [], readonly []>
-
-/** What schema(name, relations, statements) builds (schema/api.ts rootSchema): a root level of its list and statements. */
-export type RootSchema<
-	Name extends string,
-	Relations extends ReadonlyArray<unknown>,
-	Statements extends ReadonlyArray<Statement>
-> = Schema<
-	Name,
-	Declared<Relations>,
-	StatementsByName<Statements, Declared<Relations>>,
-	never,
-	FragmentsIn<Relations>
->
+export type EmptyLevel = Schema<"Empty", { readonly [name: string]: never }, readonly []>
 
 /**
- * S, every schema below it, every fragment one of them lists (FragmentsOf), and the empty level below the root
- * (EmptyLevel). A query over any of them is a query over S. The recursion is as deep as the extension chain, never over
- * relations or statements.
+ * The least level phantom: assignable to Invariant<L> for every L, its parameter taking anything and its result
+ * nothing, as the empty level is a level of every level.
+ */
+type LevelBottom = (value: unknown) => never
+
+/**
+ * The phantom a program over the level S carries, by which every reader of a level's programs admits it, each against
+ * Invariant<L> of a level L it reads (types/query/query.ts QueryOver and ChildBundle, types/changeset/changeset.ts
+ * ChangeSetOver, IsLevelOfInvariant): Invariant<S>, so a program over S is a program over each level S is a level of
+ * and over no other; over the empty level, the least phantom beside it (LevelBottom), so a program over the empty level
+ * is a program over every level. The empty level is the base case of the levels by its phantom alone: no level's
+ * levels (LevelsOf) hold it, since every reader distributes over a level's levels once for each level it reads, and the
+ * empty level a member of each of them cost every role's workload and every login instantiations of their own
+ * (test/types/schema/budget/login-lists.ts, served-records.ts). Its Invariant<S>, the last signature, is what a reader
+ * of a program's schema infers (`Invariant<infer S>`): the empty level. S is the empty level exactly, compared both
+ * ways, so neither never nor a wider schema is taken for it.
+ */
+export type LevelPhantom<S> = [EmptyLevel] extends [S]
+	? [S] extends [EmptyLevel]
+		? LevelBottom & Invariant<S>
+		: Invariant<S>
+	: Invariant<S>
+
+/**
+ * S, every schema below it, and every fragment one of them lists (FragmentsOf). A query over any of them is a query
+ * over S, and so is a query over the empty level, by its phantom (LevelPhantom). The recursion is as deep as the
+ * extension chain, never over relations or statements.
  */
 export type LevelsOf<S> = S | FragmentsOf<S> | LevelsBelow<BelowOf<S>>
 
-/** LevelsOf the level below, the empty level below a root schema. */
-type LevelsBelow<B> = [B] extends [never] ? EmptyLevel : LevelsOf<B>
+/** LevelsOf the level below, none below a root schema. */
+type LevelsBelow<B> = [B] extends [never] ? never : LevelsOf<B>
 
 /**
  * What a level's phantom states under K, the level it extends or the fragments it lists, read by key (PhantomOf), each

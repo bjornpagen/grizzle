@@ -91,12 +91,13 @@ import type {
 	EmptyLevel,
 	Extended,
 	Fragment,
+	FragmentsIn,
 	LeastOf,
 	LeastRecord,
 	LeastStated,
 	LevelsOf,
 	MutablesUnder,
-	RootSchema,
+	Schema,
 	StatementsByName,
 	StatementsOf,
 	StatementsReadBack,
@@ -403,8 +404,13 @@ const rootSchema = <
 			StatementsWithin<Statements, Declared<Relations>>
 		>,
 	...extra: ReadonlyArray<never>
-): RootSchema<Name, Relations, Statements> =>
-	schemaBuilder<Name, Relations, Statements>(name, relations, statements, extra)
+): Schema<
+	Name,
+	Declared<Relations>,
+	StatementsByName<Statements, Declared<Relations>>,
+	never,
+	FragmentsIn<Relations>
+> => schemaBuilder<Name, Relations, Statements>(name, relations, statements, extra)
 
 /**
  * schema.extend([base], name, relations, statements): a level of its own name over `base`, with relations, derived

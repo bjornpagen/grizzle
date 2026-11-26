@@ -41,6 +41,17 @@ const boxCases: ReadonlyArray<EmptyLevelCase> = [
 		verdict: admitted
 	},
 	{
+		what: "a relation parameter of a read over the base bound to a read over the empty level of no parameter",
+		statement:
+			'query(Base).rule((r) => { const p = r.relation("p", { at: pg.bigint }); const { at } = v(p, "p"); return r.match(p, { at }).find({ at }) }).bind({ p: query(schema.empty).rule((r) => r.find({ at: 5n })) })',
+		verdict: admitted
+	},
+	{
+		what: "a role's query entry over the empty level",
+		statement: 'role(App, "clock", { Tick: query(schema.empty).rule((r) => r.find({ at: 5n })) })',
+		verdict: admitted
+	},
+	{
 		what: "a workload over a role holding nothing of the base of a read of the base's relation",
 		statement: "workload(Den, { wantOf })",
 		verdict: {

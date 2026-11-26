@@ -33,6 +33,7 @@ import type {
 	AnySchema,
 	BelowOf,
 	IsLevelOf,
+	IsLevelOfInvariant,
 	IsRelationOf,
 	MutableNameOf,
 	NamedBy,
@@ -204,7 +205,11 @@ export type RoleRelations<Rs> = {
 /** The relation a whole or scoped entry V holds, each member of a union its own: a scoped entry's relation, or V. */
 type HeldRelationOf<V> = V extends AnyScoped ? V["relation"] : V
 
-type QuerySchema<Q> = Q extends Phantom<{ readonly schema: Invariant<infer QS> }> ? QS : never
+/**
+ * A query entry's level phantom, read off its phantom by key (LevelPhantom): the empty level's is assignable to every
+ * level's, so a query entry over it is a query entry over every base.
+ */
+type QueryLevelPhantom<Q> = PhantomOf<Q>["schema" & keyof PhantomOf<Q>]
 
 /**
  * One entry, checked: a whole entry is a relation of the base under its own name; a query entry is over a level of the
@@ -225,7 +230,7 @@ type EntryCheck<Base, K, V, Declared> = V extends AnyDerived
 					? unknown
 					: Refusal<"a scoped entry is a relation of the base under its own name">
 				: Refusal<"a scoped entry is a relation of the base under its own name">
-			: IsLevelOf<Base, QuerySchema<V>> extends true
+			: IsLevelOfInvariant<Base, QueryLevelPhantom<V>> extends true
 				? DefinitionShape<V> & EntryContextsWithin<ContextsOf<V>, Declared>
 				: Refusal<"a query entry is a query over the role's base">
 export type EntriesCheck<Base, Rs, Declared = never> = {

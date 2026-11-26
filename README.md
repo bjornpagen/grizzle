@@ -4784,8 +4784,9 @@ export const AuthorApp = login(Qti, "author_app", [QtiAuthor])
   is one that delivers other fields than the parameter's heading; a scalar parameter takes no query, whose rows are
   any number. Every member that reads one bound query reads one evaluation of it: an import's in the statement of the
   query that imports it, a ChangeSet's before the first stratum of the part it was bound on.
-- **The empty level is below every root.** `schema.empty` is the level of no relation and no rule, a level of every
-  schema and of every role, which holds it whole whatever it holds. A read of no relation, a row of its parameters and
+- **The empty level is below every root.** `schema.empty` is the level of no relation and no rule, below every root: a
+  program over it is a program over every schema and every role, which holds it whole whatever it holds, by its
+  phantom alone, the least, so no level's levels grow by it. A read of no relation, a row of its parameters and
   constants alone, is written over it, `query(schema.empty).rule((r) => r.find({ at: r.param("at", pg.bigint) }))`, and
   runs on every role, so the role serving it holds nothing for it: den's role serves a schedule's input derived from
   its key so while holding nothing of the app's. It installs nothing and names no migrations directory. A level that

@@ -71,6 +71,7 @@ import type {
 	HigherLevel,
 	IsLevelOf,
 	IsRelationOf,
+	LevelPhantom,
 	LevelsOf,
 	MutableNameOf,
 	NameIn,
@@ -827,7 +828,7 @@ export interface ChangeSetOf<
 			readonly paramsInvariant: Invariant<Params>
 			readonly writes: Writes
 			readonly contexts: Cx
-			readonly schema: Invariant<S>
+			readonly schema: LevelPhantom<S>
 			readonly strata: readonly [...Done, Last]
 			readonly arrays: (members: Arrays) => void
 		}> {

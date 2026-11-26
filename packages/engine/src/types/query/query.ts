@@ -62,8 +62,10 @@ import type { FactOfFields } from "#compiler/types/schema/relation.ts"
 import type {
 	AnyFragment,
 	AnySchema,
+	EmptyLevel,
 	HigherLevel,
 	HighestLevel,
+	LevelPhantom,
 	LevelsOf
 } from "#compiler/types/schema/schema.ts"
 import type { AnyRole } from "#compiler/types/schema/world.ts"
@@ -518,8 +520,16 @@ export type QueryRows<X, Row, S> = (SameKeys<HeadOfSource<X>, Row> extends true
 		? Refusal<"a relation parameter binds a query over a level of the schema it is bound in, or over a schema that schema is a level of">
 		: unknown)
 
-/** The schema a source is written over, read off its phantom: a query's or a bound import's; never for any other. */
-type WrittenOver<X> = X extends Phantom<{ readonly schema: Invariant<infer SX> }> ? SX : never
+/**
+ * The schema a source is written over, read off its phantom: a query's or a bound import's; never for any other, and
+ * never for the empty level, below every level, which raises no program it is bound in (LevelPhantom).
+ */
+type WrittenOver<X> =
+	X extends Phantom<{ readonly schema: Invariant<infer SX> }>
+		? [SX] extends [EmptyLevel]
+			? never
+			: SX
+		: never
 
 /** The facts a source holds, read off its phantom. */
 type HeadOfSource<X> = X extends Phantom<{ readonly heading: infer H }> ? H : never
@@ -622,7 +632,7 @@ type StandsAt<X, F> =
 interface QueryPhantom<S, Head, Ev, P, Cx, Arms, At> {
 	readonly heading: Head
 	readonly sourceParams: unknown
-	readonly schema: Invariant<S>
+	readonly schema: LevelPhantom<S>
 	readonly evidence: Ev
 	readonly params: P
 	readonly paramsInvariant: Invariant<P>
@@ -1032,7 +1042,7 @@ export interface BoundSource<S, Head, SP, Hc, Cx, Ev, Rd> extends Built, Headed<
 		| {
 				readonly heading: Head
 				readonly sourceParams: SP
-				readonly schema: Invariant<S>
+				readonly schema: LevelPhantom<S>
 				readonly readsContexts: (read: Cx) => void
 				readonly evidence: Ev
 				readonly reads: Rd
@@ -1049,7 +1059,7 @@ export interface InteriorSource<S, Head, SP, Hc, Cx, Ev> extends Built, Headed<H
 		| {
 				readonly heading: Head
 				readonly sourceParams: SP
-				readonly schema: Invariant<S>
+				readonly schema: LevelPhantom<S>
 				readonly readsContexts: (read: Cx) => void
 				readonly evidence: Ev
 				readonly reads: never
@@ -1273,7 +1283,7 @@ export interface Finished<
 	extends
 		Phantom<{
 			readonly headingInvariant: Invariant<Head>
-			readonly schema: Invariant<S>
+			readonly schema: LevelPhantom<S>
 			readonly evidence: Ev
 			readonly params: P
 			readonly readsContexts: (read: Cx) => void
@@ -1333,7 +1343,7 @@ export interface Ordered<
 			readonly evidence: Ev
 			readonly params: P
 			readonly paramsInvariant: Invariant<P>
-			readonly schema: Invariant<S>
+			readonly schema: LevelPhantom<S>
 			readonly readsContexts: (read: Cx) => void
 			readonly arms: Arms
 			readonly attached: At
