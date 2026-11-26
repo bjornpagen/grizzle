@@ -177,6 +177,14 @@ export const statedLocksBoundTheHeld = property.explore(renamedDrawGen, {
 			reason:
 				"R0 renamed to Q0 beside an added column and a toggled read, then back to R0 beside another: step 2's publish drops the reader role, whose lock the transaction holds after DROP ROLE with no pg_roles row left, and the probe named it NULL ('role ' || NULL), a cell no session reads (main d9a51ea25 and fd2316a2, rotating seed 0x05b7b736)",
 			since: "2026-11-25"
+		},
+		{
+			token: ReplayToken(
+				"test/pg/migrate/lock-demand.test.ts#statedLocksBoundTheHeld:-:0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.2.3.0.0.0.0.0.0.1.0.0.1.0.0.0.0.0.1.0.1.0.0.1.1.0.0.0.0.0.0.0.1.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0"
+			),
+			reason:
+				"step 3's publish comments R0's key and R1's foreign key after dropping Q0: each COMMENT keeps pg_description locked RowExclusive to the end, which the count left out, so the file held 25 locks past the 24 its meta stated (PIN 2 26760a21 and fd2316a2, rotating seed 0xa4d8eeef)",
+			since: "2026-11-25"
 		}
 	],
 	kills: [
@@ -187,6 +195,12 @@ export const statedLocksBoundTheHeld = property.explore(renamedDrawGen, {
 			replacement:
 				"\t\tfor (const index of this.#catalog.indexes.get(named(table)) ?? []) {\n\t\t\tvoid index\n\t\t}",
 			why: "A query or write counts no index of the tables it names, as if the planner and the executor opened none."
+		},
+		{
+			file: "packages/engine/src/deploy/locks/demand.ts",
+			original: '\t\t: [catalog("pg_description"), ...toastedCatalog("pg_description")]\n',
+			replacement: '\t\t: [...toastedCatalog("pg_description")]\n',
+			why: "A COMMENT counts no pg_description, which CreateComments keeps locked RowExclusive to the transaction's end: a file of comments holds one lock past its count."
 		}
 	]
 })

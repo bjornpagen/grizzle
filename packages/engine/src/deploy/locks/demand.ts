@@ -178,7 +178,8 @@ const endHoldersLocks: ReadonlyArray<LockTarget> = [
  * A system catalog whose datum a statement may store out of line: the catalog's TOAST table and its index, which the
  * insert keeps locked (heaptoast.c heap_toast_insert_or_update): pg_proc's for a function's body, pg_rewrite's for a
  * view's rule, pg_constraint's for a CHECK, pg_attrdef's for a default or a generation, pg_policy's for a policy's
- * expression, pg_index's for an index's expressions and predicate, pg_statistic_ext's, pg_trigger's and pg_description's.
+ * expression, pg_index's for an index's expressions and predicate, pg_statistic_ext's, pg_trigger's, and a comment's
+ * pg_description's or pg_shdescription's (commentCatalog).
  */
 const toastedCatalog = (
 	catalogName:
@@ -189,6 +190,7 @@ const toastedCatalog = (
 		| "pg_policy"
 		| "pg_index"
 		| "pg_description"
+		| "pg_shdescription"
 ): ReadonlyArray<LockTarget> => [
 	target("toast", named({ schema: "pg_catalog", name: catalogName })),
 	target("toastIndex", named({ schema: "pg_catalog", name: catalogName }))
@@ -1687,7 +1689,7 @@ const lockStatement = (locks: Locks, s: SqlStatement | RecordedStatement): void 
 			return
 		case "comment":
 			commentLocks(locks, s.on)
-			locks.add(toastedCatalog("pg_description"))
+			locks.add(commentCatalog(s.on))
 			return
 		case "select":
 			locks.names(queryNames(s), "run")
@@ -1756,6 +1758,25 @@ const grantedLocks = (
 
 /** The object a COMMENT locks, and the relation it lives on (objectaddress.c get_object_address, which locks the
  * relation of a relation's part and then the object itself, ShareUpdateExclusiveLock). */
+/**
+ * The catalog a COMMENT writes its text into, which it keeps locked RowExclusive to the transaction's end (PostgreSQL
+ * 19 comment.c CreateComments and CreateSharedComments open it RowExclusiveLock and close it NoLock), with its TOAST
+ * table and index, where a text is stored out of line (toastedCatalog): pg_description for an object of the database,
+ * pg_shdescription for a role, a shared object. The one reading of where a comment's text lies.
+ *
+ * A drop's deletion of its object's comment holds nothing past its statement: dependency.c deleteOneObject's
+ * DeleteComments, DeleteSecurityLabel and DeleteInitPrivs each close their catalog with the mode they opened it in,
+ * which releases the lock (pg_description, pg_seclabel, pg_init_privs; DROP ROLE's DeleteSharedComments and
+ * DeleteSharedSecurityLabel alike, pg_shdescription and pg_shseclabel), so no lock of them stands between two
+ * statements, and none is counted for a drop.
+ */
+const commentCatalog = (
+	on: Extract<SqlStatement, { readonly kind: "comment" }>["on"]
+): ReadonlyArray<LockTarget> =>
+	on.kind === "ROLE"
+		? [catalog("pg_shdescription"), ...toastedCatalog("pg_shdescription")]
+		: [catalog("pg_description"), ...toastedCatalog("pg_description")]
+
 const commentLocks = (
 	locks: Locks,
 	on: Extract<SqlStatement, { readonly kind: "comment" }>["on"]
