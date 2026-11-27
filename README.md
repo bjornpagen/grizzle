@@ -4821,7 +4821,9 @@ export const Lexicon = schema("Lexicon", [folded, doubled, summary], [])
 - **It reads no table.** Every declared function is `SECURITY DEFINER`, owned by the installation's function owner,
   a role of no privilege on any table or view, under `SET search_path = pg_catalog, <its schema>, pg_temp`. So its
   body names the functions and row types of its own level unqualified, and a body that reads a relation, of its schema
-  or any other, fails where it is called, `42501` permission denied. PUBLIC executes none.
+  or any other, fails where it is called, `42501` permission denied. PUBLIC executes none. It runs under no plan advice
+  (`SET pg_plan_advice.advice = ''`), its caller's included: grizzle proves no plan of its body, and an item of the
+  calling statement's advice must never meet a relation the body reads, a system catalog among them, by its alias.
 - **`calls`** lists the declared functions of the function's own level its body calls. The installation creates them
   callees first, so PostgreSQL, which reads an SQL body's names as it creates the function, finds each; a call of a
   function of another level, of one the schema does not declare, or a cycle, is `MalformedDescription` when the schema

@@ -57,8 +57,9 @@ import { installationTypes } from "#compiler/sql/type-schemas.ts"
  *   rows is an array of it, its result of rows a set of it, and an argument or a result of one row the row type itself.
  * - Each function: CREATE OR REPLACE FUNCTION <level>.<name>(<arguments>), its parameters in code point order of the
  *   arguments' names (schema/function.ts byName), RETURNS <type> | SETOF <row type> LANGUAGE <language> <volatility>
- *   [STRICT, a strict function's] SECURITY DEFINER SET search_path = pg_catalog, <level>[, <installation>], pg_temp AS
- *   <body>, the body byte for byte but for each heading it names, which is its row type's name alone, and each variant's
+ *   [STRICT, a strict function's] SECURITY DEFINER SET search_path = pg_catalog, <level>[, <installation>], pg_temp
+ *   SET pg_plan_advice.advice = '' AS <body>, under no plan advice, its caller's included (sql/print.ts
+ *   declaredAdviceClause), the body byte for byte but for each heading it names, which is its row type's name alone, and each variant's
  *   spelling, which names the variant's composite and domain alone, the ones the pinned search_path resolves
  *   (sql/print.ts typeOnSearchPath), the installation's types schema on it after the level's wherever a body at a level
  *   below the installation's own names a variant (sql/ast.ts CreateDeclaredFunction `namedAlone`), and which the

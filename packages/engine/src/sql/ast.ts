@@ -2715,7 +2715,8 @@ export const declaredBody = nominal<string, DeclaredBody>()
 
 /**
  * CREATE OR REPLACE FUNCTION <schema>.<name>(<params>) RETURNS <type> | SETOF <row type> LANGUAGE <language>
- * <volatility> [STRICT] SECURITY DEFINER SET search_path = pg_catalog, <path>, pg_temp AS <tag><body><tag>: a function the
+ * <volatility> [STRICT] SECURITY DEFINER SET search_path = pg_catalog, <path>, pg_temp SET pg_plan_advice.advice = ''
+ * AS <tag><body><tag>, under no plan advice, its caller's included (sql/print.ts declaredAdviceClause): a function the
  * application declares (physical/ddl/functions.ts). Its owner is the installation's function owner, a role of no
  * privilege on any table, so a body that reads a table fails as it runs; its path names pg_catalog first, so no name
  * of the level's shadows a builtin, then its own schema, the one its name names, so the body names the declared

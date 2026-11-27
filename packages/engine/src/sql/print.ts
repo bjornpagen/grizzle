@@ -2569,12 +2569,21 @@ export const declaredSearchPath = (
  * then `AS`, its tag, the body exactly as declared and the tag again, so the value between the tags, which PostgreSQL
  * stores as its pg_proc.prosrc, is the body itself, byte for byte.
  */
+/**
+ * A declared function's advice, as its SET clause after its search_path's: none, PostgreSQL's empty advice, set on every
+ * call and the caller's given back on return. grizzle binds no statement of the application's body, so no advice is
+ * its; and the advice a Db transaction or a routine is in force under names relations by aliases its own scope minted
+ * (`r<n>`), which a body may spell too, so an inherited item that met a relation the body reads under the same alias
+ * would constrain the body's plan by a scan grizzle proved of another statement.
+ */
+const declaredAdviceClause = ` SET ${adviceSettingName} = ${quoteString("")}`
+
 const createDeclaredFunction = (out: Lines, fn: CreateDeclaredFunction): void => {
 	out.line(
 		`CREATE OR REPLACE FUNCTION ${printObjectName(fn.name)}(${fn.params.map((p) => `${quoteIdent(p.name)} ${printType(p.type)}`).join(", ")}) RETURNS ${"setOf" in fn.returns ? `SETOF ${printType(fn.returns.setOf)}` : printType(fn.returns)}`
 	)
 	out.line(
-		`LANGUAGE ${fn.language} ${fn.volatility}${fn.nullInput === undefined ? "" : ` ${fn.nullInput}`}${rowsClause(fn.returns)} SECURITY DEFINER SET search_path = ${declaredSearchPath(fn).map(quoteIdent).join(", ")}`
+		`LANGUAGE ${fn.language} ${fn.volatility}${fn.nullInput === undefined ? "" : ` ${fn.nullInput}`}${rowsClause(fn.returns)} SECURITY DEFINER SET search_path = ${declaredSearchPath(fn).map(quoteIdent).join(", ")}${declaredAdviceClause}`
 	)
 	const tag = declaredBodyTag(fn.body)
 	out.line(`AS ${tag}${fn.body}${tag}`)

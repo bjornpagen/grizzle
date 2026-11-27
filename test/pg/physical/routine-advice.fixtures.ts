@@ -3,7 +3,7 @@ import { boolean, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Predicate } from "effect"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { type Advice, printAdvice } from "#compiler/sql/advice.ts"
-import type { PlFunction } from "#compiler/sql/ast.ts"
+import { type CreateDeclaredFunction, declaredBody, type PlFunction } from "#compiler/sql/ast.ts"
 import { call, eq, lit, types } from "#compiler/sql/build.ts"
 import { emit } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
@@ -95,4 +95,61 @@ export const runRoutine = (connection: PgConnection, x: RoutineCase) =>
 			adviceSettingName
 		])
 		return { sawOwn, after }
+	})
+
+/** A declared function's case: the advice its caller's transaction is in force under, a drawn plan's or none. */
+export interface DeclaredCase {
+	readonly caller: string
+}
+
+/** A caller's advice, a drawn plan's or none. */
+export const declaredCases: Gen<DeclaredCase> = (source) => ({
+	caller: source.draw(boolean) ? source.draw(adviceGen) : ""
+})
+
+/**
+ * A declared function as the application declares one (sql/ast.ts CreateDeclaredFunction), printed by its one printer
+ * (sql/print.ts createDeclaredFunction): an SQL body that reads a system catalog every role reads, under the alias a
+ * scope mints first, `r1`, and answers the advice in force where its statement is planned.
+ */
+const declaredOf: CreateDeclaredFunction = {
+	kind: "createDeclaredFunction",
+	name: { schema: caseSchema, name: "declared_advice" },
+	params: [],
+	returns: types.text,
+	language: "sql",
+	volatility: "STABLE",
+	nullInput: undefined,
+	namedAlone: [],
+	body: declaredBody(
+		"SELECT pg_catalog.current_setting('pg_plan_advice.advice') FROM pg_catalog.pg_class AS r1 WHERE r1.oid = 'pg_catalog.pg_class'::pg_catalog.regclass"
+	)
+}
+
+/**
+ * A declared function's case on the owner's connection, in its one transaction: the function created, the caller's
+ * advice set local to the transaction as a Db's prologue sets it, then the function called. What it answers: the advice
+ * in force inside the call, and after it.
+ */
+export const runDeclared = (connection: PgConnection, x: DeclaredCase) =>
+	Effect.gen(function* () {
+		const created = emit(declaredOf, emptyNameMap)
+		if (!created.ok) {
+			return yield* Effect.die(created.error)
+		}
+		yield* connection.query(`CREATE SCHEMA ${quoteIdent(caseSchema)}`, [])
+		yield* connection.query(created.value.text, [])
+		yield* connection.query("SELECT pg_catalog.set_config($1, $2, true)", [
+			adviceSettingName,
+			x.caller
+		])
+		const inside = yield* cells(
+			connection,
+			`SELECT ${quoteIdent(caseSchema)}."declared_advice"()`,
+			[]
+		)
+		const after = yield* cells(connection, "SELECT pg_catalog.current_setting($1)", [
+			adviceSettingName
+		])
+		return { inside, after }
 	})

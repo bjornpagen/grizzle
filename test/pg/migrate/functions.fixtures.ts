@@ -764,7 +764,7 @@ export const plantOf = (
 	switch (plant) {
 		case "a body edited":
 			return Option.some(
-				`CREATE OR REPLACE FUNCTION ${s}."helper"() RETURNS integer LANGUAGE plpgsql IMMUTABLE SECURITY DEFINER SET search_path = pg_catalog, ${s}, pg_temp AS $$BEGIN RETURN 2; END$$`
+				`CREATE OR REPLACE FUNCTION ${s}."helper"() RETURNS integer LANGUAGE plpgsql IMMUTABLE SECURITY DEFINER SET search_path = pg_catalog, ${s}, pg_temp SET pg_plan_advice.advice = '' AS $$BEGIN RETURN 2; END$$`
 			)
 		case "a null input altered":
 			return Option.some(`ALTER FUNCTION ${s}."helper"() STRICT`)
