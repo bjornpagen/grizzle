@@ -23,6 +23,8 @@ import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Record } from "effect"
+import { statementsFor } from "#adapter/migrate/ledger.ts"
+import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { fileLockSets, lockTargetText, migrationCatalog } from "#compiler/deploy/locks/demand.ts"
 import { planFiles } from "#compiler/deploy/phases/files.ts"
 import { readDecodedMeta, statedLocks } from "#compiler/deploy/render/folder.ts"
@@ -47,6 +49,7 @@ import {
 	noFurther
 } from "#test/pg/migrate/support.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { installedStatements } from "#test/support/migrate/kit.ts"
 import { factStatements } from "#test/support/oracle/install/load.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
@@ -89,6 +92,7 @@ export const statedLocksBoundTheHeld = property.explore(renamedDrawGen, {
 						const m = probingSession(
 							tapped.session,
 							{ database: sub.database, roles: { kind: "stems" } },
+							succeeded(statementsFor(identifierOf(identity.schema(parsedSchemaName(x))))),
 							ran
 						)
 						const a = { version: p.path.a, origins: p.origins.a }

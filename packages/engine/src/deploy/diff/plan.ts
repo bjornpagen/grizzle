@@ -415,3 +415,21 @@ export interface KeptView {
 	readonly ident: string
 	readonly create: CreateStoredTable
 }
+
+/** The statements a drafted step runs, a loss's among them, which runs once its reviewer writes it in, and an
+ * alteration's ALTER TABLE; none for a fill, a law's violation report or a roster's zones, which create nothing. */
+export const draftedStatements = (draft: Draft): ReadonlyArray<SqlStatement> => {
+	switch (draft.kind) {
+		case "statement":
+		case "loss":
+			return [draft.statement]
+		case "confirm":
+			return draft.keep
+		case "alteration":
+			return [{ kind: "alterTable", table: draft.table, actions: draft.actions }]
+		case "fill":
+		case "violation":
+		case "zones":
+			return []
+	}
+}

@@ -10,15 +10,20 @@ import { recordedSources } from "#compiler/deploy/admission/manifest.ts"
 import { asidesOf, setAside } from "#compiler/deploy/diff/aside.ts"
 import { applyDeclarations } from "#compiler/deploy/diff/declared.ts"
 import { diff } from "#compiler/deploy/diff/diff.ts"
-import type {
-	AbandonedSchema,
-	Declarations,
-	Draft,
-	MigrationPlan,
-	Swap
+import {
+	type AbandonedSchema,
+	type Declarations,
+	draftedStatements,
+	type MigrationPlan,
+	type Swap
 } from "#compiler/deploy/diff/plan.ts"
-import { fileLockSets, migrationCatalog } from "#compiler/deploy/locks/demand.ts"
+import { fileLockSets, migrationCatalog, StandingIndexes } from "#compiler/deploy/locks/demand.ts"
 import { planFiles } from "#compiler/deploy/phases/files.ts"
+import {
+	type AdvisedFile,
+	advisedFiles,
+	indexesBeforeReaders
+} from "#compiler/deploy/render/advise.ts"
 import {
 	type CustomMeta,
 	type DecisionRecord,
@@ -35,7 +40,7 @@ import {
 } from "#compiler/deploy/render/folder.ts"
 import { derivedMigrationName } from "#compiler/deploy/render/naming.ts"
 import { assertSourcesAsRecorded } from "#compiler/deploy/render/sources.ts"
-import { recordFile, renderFile, type SpelledFile, spellFile } from "#compiler/deploy/render/sql.ts"
+import { recordFile, renderFile, spellFile } from "#compiler/deploy/render/sql.ts"
 import {
 	derivedOf,
 	discontinuedRoster,
@@ -55,7 +60,6 @@ import { lawChecks } from "#compiler/deploy/snapshot/violation.ts"
 import { hashedNames } from "#compiler/physical/install/comments.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { assertFolderCreatesHeld } from "#compiler/physical/obligations/created.ts"
-import type { SqlStatement } from "#compiler/sql/ast.ts"
 import { tableMaxColumns } from "#compiler/write/carriers/carriers.ts"
 
 /** What a schema's draft is drafted from: `grizzle check`'s, and `grizzle generate`'s before it names the folder. */
@@ -98,6 +102,9 @@ interface DraftOf<F> {
 	readonly snapshot: DeploySnapshot
 	readonly derived: SnapshotDerived
 	readonly plan: MigrationPlan
+	/** The plan's files, each as it writes its drafts and with the advice its transaction runs under, which meta.json
+	 * records (render/advise.ts AdvisedFile): the plans the advice is printed of, every data step's bound. */
+	readonly files: ReadonlyArray<AdvisedFile>
 }
 
 /** A draft before its folder is named: the folder's meta.json and files, as `grizzle check` drafts it. */
@@ -212,18 +219,23 @@ export const planMigration = (input: DraftInput): Result.Result<PlannedDraft, Co
 		 * gives objects of another kind set aside. */
 		const applied = applyDeclarations(previous, state, installation, input.declared, temporaries)
 		const asides = asidesOf(applied.previous, state.manifest.objects, temporaries)
-		const plan = unwrap(
-			diff({
-				previous: setAside(applied.previous, asides),
-				target: state,
-				installation,
-				checks,
-				renames: applied.statements,
-				asides,
-				temporaries,
-				abandoned: input.abandoned,
-				rosters
-			})
+		/** The diff's plan, each index a data step reads through created before it (render/advise.ts
+		 * indexesBeforeReaders): the plan every file and the snapshot are drafted from. */
+		const plan = indexesBeforeReaders(
+			unwrap(
+				diff({
+					previous: setAside(applied.previous, asides),
+					target: state,
+					installation,
+					checks,
+					renames: applied.statements,
+					asides,
+					temporaries,
+					abandoned: input.abandoned,
+					rosters
+				})
+			),
+			installation
 		)
 		/** The target's content, its attribute numbers continuing the previous snapshot's, fingerprinted: the new
 		 * snapshot where its fingerprint is another than the previous one's, the previous snapshot itself, as the
@@ -239,6 +251,17 @@ export const planMigration = (input: DraftInput): Result.Result<PlannedDraft, Co
 			snapshot,
 			derived: derivedOf(installation),
 			plan,
+			files:
+				change === "schema"
+					? advisedFiles(
+							planFiles(plan),
+							installation,
+							new StandingIndexes(
+								previous,
+								state.manifest.objects.flatMap((o) => o.ddl)
+							)
+						)
+					: [],
 			rendering: {
 				previous,
 				schema: installation.names.schema,
@@ -274,6 +297,8 @@ export interface PlannedDraft {
 	readonly snapshot: DeploySnapshot
 	readonly derived: SnapshotDerived
 	readonly plan: MigrationPlan
+	/** The plan's files, each as it writes its drafts and with the advice its transaction runs under (render/advise.ts). */
+	readonly files: ReadonlyArray<AdvisedFile>
 	readonly rendering: FolderInput
 }
 
@@ -296,18 +321,19 @@ const renderFolder = (
 	planned: PlannedDraft
 ): Result.Result<RenderedFolder<Omit<DraftedFolder, "name">>, CompileError> =>
 	catchRefusal(() => {
-		const { plan, snapshot, rendering } = planned
+		const { snapshot, rendering } = planned
 		const { previous, objects } = rendering
-		const drafted = planned.change === "schema" ? planFiles(plan) : []
+		const advised = planned.files
+		const drafted = advised.map((a) => a.file)
 		assertFolderCreatesHeld(
 			drafted.flatMap((f) => f.drafts.flatMap(draftedStatements)),
 			new Set(objects.map((o) => o.ident))
 		)
 		/** Each drafted file's statements, each printed and filed once for its text and for meta.json. */
-		const spelled = new Map(drafted.map((f) => [f, unwrap(spellFile(f))] as const))
-		const spelledOf = (f: (typeof drafted)[number]): SpelledFile =>
+		const spelled = new Map(advised.map((a) => [a.file, [unwrap(spellFile(a)), a.advice] as const]))
+		const spelledOf = (f: (typeof drafted)[number]) =>
 			defined(spelled.get(f), "a drafted file is spelled")
-		const files = drafted.map((f) => ({ name: f.name, text: unwrap(renderFile(spelledOf(f))) }))
+		const files = drafted.map((f) => ({ name: f.name, text: unwrap(renderFile(spelledOf(f)[0])) }))
 		const draftedRecord = fileLockSets({
 			schema: rendering.schema,
 			catalog: migrationCatalog(
@@ -315,7 +341,10 @@ const renderFolder = (
 				objects.flatMap((o) => o.ddl)
 			),
 			files: drafted
-		}).map((f) => unwrap(recordFile(spelledOf(f.file), f.locks.size)))
+		}).map((f) => {
+			const [file, advice] = spelledOf(f.file)
+			return unwrap(recordFile(file, f.locks.size, advice))
+		})
 		assertSourcesAsRecorded(draftedRecord, recordedSources(snapshot))
 		const recorded = unwrap(provedRecord(draftedRecord))
 		const meta: DraftedMeta = {
@@ -324,7 +353,7 @@ const renderFolder = (
 			schema: snapshot.schema,
 			source: previous.fingerprint,
 			target: snapshot.fingerprint,
-			laws: folderLaws(snapshot, previous, plan.swaps),
+			laws: folderLaws(snapshot, previous, planned.plan.swaps),
 			declared: rendering.declared,
 			files: recorded
 		}
@@ -342,7 +371,8 @@ const draftOf = (planned: PlannedDraft): Result.Result<MigrationDraft, CompileEr
 		record: rendered.record,
 		snapshot: planned.snapshot,
 		derived: planned.derived,
-		plan: planned.plan
+		plan: planned.plan,
+		files: planned.files
 	}))
 
 /** The name a draft's folder is named by: the name `--name` gives, or the one derived from its change. */
@@ -391,7 +421,8 @@ export const generateMigration = (
 				record: rendered.record,
 				snapshot: planned.snapshot,
 				derived: planned.derived,
-				plan: planned.plan
+				plan: planned.plan,
+				files: planned.files
 			})
 		)
 	)
@@ -415,21 +446,3 @@ export const customMigration = (input: {
 		}
 		return { name, meta, metaText: unwrap(writeMeta(meta)), files: [] }
 	})
-
-/** The statements a drafted step runs, a loss's among them, which runs once its reviewer writes it in, and an
- * alteration's ALTER TABLE; none for a fill, a law's violation report or a roster's zones, which create nothing. */
-const draftedStatements = (draft: Draft): ReadonlyArray<SqlStatement> => {
-	switch (draft.kind) {
-		case "statement":
-		case "loss":
-			return [draft.statement]
-		case "confirm":
-			return draft.keep
-		case "alteration":
-			return [{ kind: "alterTable", table: draft.table, actions: draft.actions }]
-		case "fill":
-		case "violation":
-		case "zones":
-			return []
-	}
-}

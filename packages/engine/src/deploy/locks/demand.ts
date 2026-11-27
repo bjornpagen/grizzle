@@ -3,7 +3,7 @@ import { isNonEmpty, mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { nominal } from "#compiler/core/brand.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
-import { alterationStatement, type Draft } from "#compiler/deploy/diff/plan.ts"
+import { alterationStatement, type Draft, draftedStatements } from "#compiler/deploy/diff/plan.ts"
 import { runnerStatements } from "#compiler/deploy/ledger/ledger.ts"
 import type { DraftFile } from "#compiler/deploy/phases/files.ts"
 import type { RecordedStatement } from "#compiler/deploy/snapshot/recorded.ts"
@@ -2194,6 +2194,37 @@ export const migrationCatalog = (
 		],
 		bodies: installing
 	})
+
+/**
+ * The indexes standing as a migration's files run, in their order (LockCatalog `indexes`): the previous installation's,
+ * then each one a statement of the migration creates, under a key's constraint or by its own CREATE INDEX, or renames,
+ * learned once the statement ran. What a data step bound against the target reads through must stand where the step
+ * runs (deploy/render/advise.ts), or PostgreSQL plans it by none of its advice.
+ */
+export class StandingIndexes {
+	readonly #catalog: LockCatalog
+
+	constructor(previous: DeploySnapshot, installing: ReadonlyArray<SqlStatement>) {
+		this.#catalog = migrationCatalog(previous, installing)
+	}
+
+	/** Whether `index` stands now, an index of a table of its schema. */
+	stands(index: ObjectName): boolean {
+		for (const [key, held] of this.#catalog.indexes) {
+			if (held.has(index.name) && this.#catalog.names.get(key)?.schema === index.schema) {
+				return true
+			}
+		}
+		return false
+	}
+
+	/** What `draft`'s statements make learned (diff/plan.ts draftedStatements): it ran. */
+	ran(draft: Draft): void {
+		for (const statement of draftedStatements(draft)) {
+			learn(this.#catalog, statement)
+		}
+	}
+}
 
 /**
  * The locks the drift check's transaction holds where it replays every object of `snapshot` into its scratch schemas,

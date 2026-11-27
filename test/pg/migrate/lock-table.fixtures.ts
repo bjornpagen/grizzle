@@ -14,6 +14,7 @@ import { sentSql } from "#test/support/flight/scripted.ts"
 import { outputText } from "#test/support/wire.ts"
 
 export const places = [
+	"the file's advice",
 	"the ledger's lock",
 	"a file's statement",
 	"a ledger row",
@@ -24,8 +25,9 @@ export type LockPlace = (typeof places)[number]
 
 /**
  * A case: the statement refused, the `k`-th from the start or from the end of the first file's transaction of the
- * shop's second or first version, or of the drift check's replay. A small `k` reaches both ends (the ledger's lock
- * first, the ledger's rows last), a large one every place between; the least case refuses the ledger's lock.
+ * shop's second or first version, or of the drift check's replay. A small `k` reaches both ends (the file's advice
+ * first, then the ledger's lock, the ledger's rows last), a large one every place between; the least case refuses the
+ * file's advice.
  */
 interface Case {
 	readonly at: "the file's start" | "the file's end" | "the replay"
@@ -166,7 +168,8 @@ export const refusingAlongside = (
 export const exhaustedOf = (error: MigrateError): LockTableExhausted | undefined => {
 	const reason = error.reason
 	if (
-		(reason._tag === "LedgerUnlocked" ||
+		(reason._tag === "AdviceRefused" ||
+			reason._tag === "LedgerUnlocked" ||
 			reason._tag === "StatementFailed" ||
 			reason._tag === "RecordFailed") &&
 		reason.failure instanceof LockTableExhausted
@@ -185,6 +188,7 @@ export const exhaustedOf = (error: MigrateError): LockTableExhausted | undefined
 
 /** The reason each place's refusal is. */
 export const reasonAt: { readonly [P in LockPlace]: MigrateError["reason"]["_tag"] } = {
+	"the file's advice": "AdviceRefused",
 	"the ledger's lock": "LedgerUnlocked",
 	"a file's statement": "StatementFailed",
 	"a ledger row": "RecordFailed",

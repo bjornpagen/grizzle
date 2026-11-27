@@ -11,7 +11,7 @@ import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, key, on, relation, schema, unit } from "#compiler/public/schema.ts"
-import type { CreateStoredTable, Expr } from "#compiler/sql/ast.ts"
+import type { CreateIndex, CreateStoredTable, Expr } from "#compiler/sql/ast.ts"
 import { lit, types } from "#compiler/sql/build.ts"
 import { succeeded } from "#test/support/assert.ts"
 import {
@@ -199,8 +199,9 @@ export interface ViewStep {
 }
 
 /**
- * What one draft does to the stored tables, in step order, the snapshot it continues and the one it leaves, and the
- * identity each stored table of its version is named from (`inInstallOrder`).
+ * What one draft does to the stored tables, in step order, the snapshot it continues and the one it leaves, the
+ * identity each stored table of its version is named from (`inInstallOrder`), and the plan advice its meta.json records
+ * of each file's transaction (deploy/render/advise.ts), in file order.
  */
 export interface ViewDraft {
 	readonly created: ReadonlyArray<ViewStep>
@@ -209,13 +210,34 @@ export interface ViewDraft {
 	readonly previous: DeploySnapshot
 	readonly snapshot: DeploySnapshot
 	readonly identities: ReadonlyMap<View, Identity<"view">>
+	readonly advice: ReadonlyArray<string>
 }
+
+/**
+ * The name of the index `snapshot` installs on T whose first key is `a`, the column each of Ones' and Twos' fills binds
+ * at a constant: what such a fill reads T through.
+ */
+export const indexOfA = (snapshot: DeploySnapshot): string =>
+	defined(
+		Option.getOrUndefined(
+			Arr.findFirst(
+				Arr.flatMap(snapshot.manifest.objects, (o) => o.ddl),
+				(s): s is CreateIndex =>
+					s.kind === "createIndex" &&
+					s.table.name === snapshot.theory.relations["T"]?.ident &&
+					s.keys[0].key.kind === "column" &&
+					s.keys[0].key.column === "a"
+			)
+		),
+		"an index of T whose first key is a"
+	).name
 
 const viewDraft = (
 	previous: DeploySnapshot,
 	snapshot: DeploySnapshot,
 	steps: ReadonlyArray<Step>,
-	identities: ReadonlyMap<View, Identity<"view">>
+	identities: ReadonlyMap<View, Identity<"view">>,
+	advice: ReadonlyArray<string>
 ): ViewDraft => {
 	const statements = Arr.flatMap(steps, (step) =>
 		step.draft.kind === "statement" ? [{ slot: step.slot, statement: step.draft.statement }] : []
@@ -234,7 +256,8 @@ const viewDraft = (
 		steps: steps.length,
 		previous,
 		snapshot,
-		identities
+		identities,
+		advice
 	}
 }
 
@@ -272,13 +295,15 @@ export const viewDrafts = (
 			one.snapshot,
 			one.snapshot,
 			one.plan.steps,
-			identitiesOf(schemaOf(change, "first"))
+			identitiesOf(schemaOf(change, "first")),
+			Arr.map(one.folder.meta.files, (f) => f.advice)
 		),
 		second: viewDraft(
 			previous,
 			two.snapshot,
 			two.plan.steps,
-			identitiesOf(schemaOf(change, "second"))
+			identitiesOf(schemaOf(change, "second")),
+			Arr.map(two.folder.meta.files, (f) => f.advice)
 		)
 	}
 }

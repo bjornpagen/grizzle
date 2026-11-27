@@ -842,6 +842,20 @@ export class LedgerUnlocked extends Data.TaggedError("LedgerUnlocked")<{
 }
 
 /**
+ * The plan advice of the file at `at`, its transaction's first statement (deploy/ledger/ledger.ts LedgerStatements
+ * `advise`), was refused, so the file rolled back before any statement of it ran.
+ */
+export class AdviceRefused extends Data.TaggedError("AdviceRefused")<{
+	readonly schema: string
+	readonly at: RecordPlace
+	readonly failure: StatementFailure
+}> {
+	override get message(): string {
+		return `the plan advice of ${recordText(this.at)} could not be set: ${failureText(this.failure)}`
+	}
+}
+
+/**
  * The ledger row of `at` could not be written. The server's 42P01 says the ledger does not exist: a schema's first
  * migration creates it in its first file, so a folder whose first transaction cannot find it ran before the schema was
  * created.
@@ -1016,6 +1030,7 @@ export type MigrateReason =
 	| GuardedTableUnbracketed
 	| TransactionFailed
 	| LedgerUnlocked
+	| AdviceRefused
 	| RecordFailed
 	| FileCommitRefused
 	| FileCommitLost
@@ -1053,6 +1068,7 @@ const stageOf: { readonly [Tag in MigrateReason["_tag"]]: MigrateStage } = {
 	GuardedTableUnbracketed: "statement",
 	TransactionFailed: "statement",
 	LedgerUnlocked: "record",
+	AdviceRefused: "record",
 	RecordFailed: "record",
 	FileCommitRefused: "commit",
 	FileCommitLost: "commit",
@@ -1108,6 +1124,7 @@ export class MigrateError extends Data.TaggedError("MigrateError")<{
 			case "GuardedTableUnbracketed":
 			case "TransactionFailed":
 			case "LedgerUnlocked":
+			case "AdviceRefused":
 			case "RecordFailed":
 			case "FileCommitRefused":
 			case "FileCommitLost":
@@ -1146,6 +1163,7 @@ export class MigrateError extends Data.TaggedError("MigrateError")<{
 			case "FileCommitRefused":
 				return fileOf(reason)
 			case "LedgerUnlocked":
+			case "AdviceRefused":
 			case "RecordFailed":
 			case "FileCommitLost":
 				return reason.at
@@ -1186,6 +1204,7 @@ export class MigrateError extends Data.TaggedError("MigrateError")<{
 			case "GuardedTableUnbracketed":
 			case "TransactionFailed":
 			case "LedgerUnlocked":
+			case "AdviceRefused":
 			case "RecordFailed":
 			case "FileCommitRefused":
 			case "ProofsUnrecorded":

@@ -13,7 +13,6 @@ import type { Lines } from "#compiler/core/lines.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import {
-	type Action,
 	alterationStatement,
 	type Draft,
 	type Loss,
@@ -22,6 +21,7 @@ import {
 	type SetAside
 } from "#compiler/deploy/diff/plan.ts"
 import type { DraftFile } from "#compiler/deploy/phases/files.ts"
+import type { AdvisedFile, BoundDraft } from "#compiler/deploy/render/advise.ts"
 import { filed } from "#compiler/deploy/render/filed.ts"
 import type { DraftedFile, DraftedStep, MetaLosses } from "#compiler/deploy/render/folder.ts"
 import {
@@ -30,7 +30,7 @@ import {
 	noTransactionMarker,
 	placeholderMarker
 } from "#compiler/deploy/render/markers.ts"
-import { violationCheck } from "#compiler/physical/ddl/recheck.ts"
+import type { Advice } from "#compiler/sql/advice.ts"
 import type {
 	AlterTableAction,
 	ColumnDef,
@@ -252,9 +252,12 @@ const zoneCheck = (zones: NonEmptyReadonlyArray<string>): PlBlock => {
 }
 
 /** The statements an action drafts, in order, as the file spells them: every action drafts one at least. */
-const spellAction = (action: Action): NonEmptyReadonlyArray<Spelled> => {
+const spellAction = (
+	action: Exclude<BoundDraft, { readonly kind: "loss" | "confirm" }>
+): NonEmptyReadonlyArray<Spelled> => {
 	switch (action.kind) {
 		case "statement":
+		case "step":
 			return bare(action.statement)
 		case "alteration":
 			return spellAlteration(action.table, action.actions)
@@ -269,7 +272,7 @@ const spellAction = (action: Action): NonEmptyReadonlyArray<Spelled> => {
 			return [
 				{
 					above: [`-- The full violation query of law ${action.law}.`],
-					write: (out) => writeDoBlock(out, violationCheck(action.law, action.query))
+					write: (out) => writeDoBlock(out, action.block)
 				}
 			]
 		case "zones":
@@ -297,9 +300,10 @@ type SpelledDraft =
 	  }
 
 /** A draft spelled (SpelledDraft): an action's statements each printed and filed once. */
-const spellDraft = (draft: Draft): SpelledDraft => {
+const spellDraft = (draft: BoundDraft): SpelledDraft => {
 	switch (draft.kind) {
 		case "statement":
+		case "step":
 		case "alteration":
 		case "fill":
 		case "violation":
@@ -326,9 +330,12 @@ export interface SpelledFile {
 	readonly drafts: ReadonlyArray<SpelledDraft>
 }
 
-/** A drafted file spelled (SpelledFile); a statement past PostgreSQL's longest message refused as meta.json refuses it. */
-export const spellFile = (file: DraftFile): Result.Result<SpelledFile, CompileError> =>
-	catchRefusal(() => ({ file, drafts: file.drafts.map(spellDraft) }))
+/**
+ * A drafted file spelled (SpelledFile) as it writes its drafts, bound for its transaction's advice (advise.ts
+ * AdvisedFile); a statement past PostgreSQL's longest message refused as meta.json refuses it.
+ */
+export const spellFile = (file: AdvisedFile): Result.Result<SpelledFile, CompileError> =>
+	catchRefusal(() => ({ file: file.file, drafts: file.drafts.map(spellDraft) }))
 
 const renderDraft = (out: Lines, spelledDraft: SpelledDraft): void => {
 	if (spelledDraft.kind === "spelled") {
@@ -418,14 +425,16 @@ const recordStep = (spelledDraft: SpelledDraft): ReadonlyArray<DraftedStep> => {
 }
 
 /** One drafted file's decision record, every statement by its text, which meta.json records once generate proved it
- * (render/folder.ts provedRecord): every step it drafts, in draft order, and its lock demand, `locks`
- * (deploy/locks/demand.ts fileLockSets). */
+ * (render/folder.ts provedRecord): every step it drafts, in draft order, its lock demand, `locks`
+ * (deploy/locks/demand.ts fileLockSets), and the advice its transaction runs under, `advice` (render/advise.ts). */
 export const recordFile = (
 	file: SpelledFile,
-	locks: number
+	locks: number,
+	advice: Advice
 ): Result.Result<DraftedFile, CompileError> =>
 	catchRefusal(() => ({
 		name: file.file.name,
 		steps: file.drafts.flatMap((d) => recordStep(d)),
-		locks
+		locks,
+		advice
 	}))

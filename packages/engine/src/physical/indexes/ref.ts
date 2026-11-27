@@ -38,3 +38,9 @@ export const indexRef = nominal<IndexFacts, IndexRef>()
  * error.
  */
 export type IndexResolver = (request: IndexRequest) => IndexRef
+
+/**
+ * The index each request lands on among an installation's indexes (physical/indexes/engine.ts servingOf), none where no
+ * index of them serves it: the partial form of IndexResolver, what a read no index planning planned for reads through.
+ */
+export type IndexServing = (request: IndexRequest) => IndexRef | undefined

@@ -5464,7 +5464,14 @@ deploy.
   `-- grizzle: no-transaction`, which runs each statement alone, each ending at a semicolon where psql would end it:
   outside quotes, dollar quotes, comments, parentheses and the `BEGIN ATOMIC … END` body of a function or procedure.
   None controls its own transaction. Every file runs at SERIALIZABLE, and the database must still end at the
-  snapshot.
+  snapshot. grizzle binds none of your statements and proves no plan of them, so PostgreSQL plans each by its own
+  costs: a custom file's transaction runs under no plan advice (`pg_plan_advice.advice` set empty first), where a
+  drafted file's runs under the advice its `meta.json` records of its data steps, each bound to read whole and join by
+  a hash, a read at a constant through an index that stands where the step runs. A drafted file keeps that advice while
+  its recorded statements still stand in it, in their order and as recorded: a statement you write between them, a
+  data step at a draft's slot, runs under none, the advice set off just before it and set again after it in the same
+  flight, so grizzle's statements keep their proven plans and none of yours meets them. A drafted file whose recorded
+  statements no longer all stand, one deleted, rewritten or moved, runs under no advice at all, as a custom file does.
 - **`check` reads no database.** It reports, each with its fix, a schema change you haven't generated, a drop no
   declaration names, a workload program whose index needs differ from the snapshot's (naming it), a served file that
   is not what its login's workload compiles to (naming the login and the first program where they part), one missing

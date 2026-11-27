@@ -144,13 +144,15 @@ export const lockTable = property.explore(aimed(caseGen, [["the ledger's lock", 
 								const index = indexAmong(x, statements.length)
 								const sql = sentSql(defined(statements[index], "the refused statement"))
 								place =
-									sql === ledgerStatements.exclusive.text
-										? "the ledger's lock"
-										: sql === ledgerStatements.recordFolder.text ||
-											  sql === ledgerStatements.recordFile.text ||
-											  sql === ledgerStatements.recordHead.text
-											? "a ledger row"
-											: "a file's statement"
+									sql === ledgerStatements.advise.text
+										? "the file's advice"
+										: sql === ledgerStatements.exclusive.text
+											? "the ledger's lock"
+											: sql === ledgerStatements.recordFolder.text ||
+												  sql === ledgerStatements.recordFile.text ||
+												  sql === ledgerStatements.recordHead.text
+												? "a ledger row"
+												: "a file's statement"
 								return index
 							}
 							/**

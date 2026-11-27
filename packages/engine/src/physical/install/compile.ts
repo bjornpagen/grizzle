@@ -56,7 +56,7 @@ import {
 	planIndexes,
 	reverseRequests
 } from "#compiler/physical/indexes/engine.ts"
-import type { IndexRef, IndexResolver } from "#compiler/physical/indexes/ref.ts"
+import type { IndexRef, IndexResolver, IndexServing } from "#compiler/physical/indexes/ref.ts"
 import { commentsOf } from "#compiler/physical/install/comments.ts"
 import type {
 	InstallExtension,
@@ -120,10 +120,12 @@ export interface Installation extends InstallPlan {
 	readonly statements: ReadonlyArray<SqlStatement>
 	readonly textDomains: ReadonlyArray<TextDomain>
 	readonly indexes: ReadonlyArray<PlannedIndex>
-	/** Its indexes as coverage reads them (physical/indexes/engine.ts IndexSet), which its snapshot records, and their
-	 * resolver (engine.ts resolverOf), the one every compile of a read against the installation resolves it by. */
+	/** Its indexes as coverage reads them (physical/indexes/engine.ts IndexSet), which its snapshot records; their
+	 * resolver (engine.ts resolverOf), the one every compile of a read against the installation resolves it by; and its
+	 * partial form (engine.ts servingOf), what a migration's data step reads through, its requests planned no index. */
 	readonly indexSet: IndexSet
 	readonly resolve: IndexResolver
+	readonly serving: IndexServing
 	/**
 	 * What a statement bound against the installation reads of it (sql/bind.ts ReadCatalog): each stored table, its keys
 	 * and the columns a B-tree holds, each role's view; the one catalog its routines are bound over, and a migration's
@@ -547,7 +549,8 @@ export const installationOfPlan = (
 		const {
 			indexes,
 			set: indexSet,
-			resolve
+			resolve,
+			serving
 		} = phased(phases, { name: "indexes", of: [] }, () =>
 			unwrap(planIndexes(b, keyIndexes, requests))
 		)
@@ -614,6 +617,7 @@ export const installationOfPlan = (
 			indexes,
 			indexSet,
 			resolve,
+			serving,
 			catalog,
 			routines: [...advised.values()].map((r) => ({
 				fn: r.fn.name,

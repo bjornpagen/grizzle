@@ -17,6 +17,7 @@ import {
 	type BoundStatement,
 	costChosenSelect,
 	costChosenStatement,
+	keyedReads,
 	type ReadCatalog
 } from "#compiler/sql/bind.ts"
 import type { CatalogStatement } from "#compiler/sql/catalog.ts"
@@ -64,7 +65,7 @@ export const emitText = (
 ): EmittedSql =>
 	printedOf(
 		binding.kind === "advised"
-			? bindStatement(statement, binding.scope, binding.catalog, "keyed")
+			? bindStatement(statement, binding.scope, binding.catalog, keyedReads)
 			: costChosenStatement(statement),
 		nameMap,
 		statement

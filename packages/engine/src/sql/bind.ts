@@ -751,6 +751,72 @@ const ascending = (
 	readonly opclass: IndexOpclass
 }> => columns.map((column) => ({ column, term: "column", dir: "asc", opclass: defaultOpclass }))
 
+/** The columns equalities bind, each once, in name order. */
+const columnsOf = (fixing: ReadonlyArray<Binding>): ReadonlyArray<string> =>
+	[...new Set(fixing.map((b) => b.column))].toSorted()
+
+/** The request of a read of `table` by `access` (Binder `tableEntry`), the index it reads through. */
+const accessRequest = (
+	table: BindTable,
+	access: Exclude<Classified, { readonly kind: "whole" }>
+): AccessIndexRequest => {
+	switch (access.kind) {
+		case "seek": {
+			const [c0, ...cs] = columnsOf(access.eq)
+			return c0 === undefined
+				? defect("a seek binding a column at least")
+				: requestOf(table, [c0, ...cs], [], access.keyed ? "key lookup" : "equality lookup")
+		}
+		case "ordered":
+			return keyedRequest(
+				table,
+				"btree",
+				[
+					...ascending(columnsOf(access.eq)),
+					...access.order.map((o) => ({
+						column: o.column,
+						term: "column" as const,
+						dir: o.dir,
+						opclass: defaultOpclass
+					}))
+				],
+				columnsOf(access.eq).length,
+				access.use
+			)
+		case "nearest":
+			return keyedRequest(
+				table,
+				"hnsw",
+				[{ column: access.column, term: "column", dir: "asc", opclass: access.cosine }],
+				0,
+				"approximate vector retrieval"
+			)
+		case "range":
+			return keyedRequest(
+				table,
+				"btree",
+				[
+					...ascending(columnsOf(access.eq)),
+					{ ...access.key, dir: "asc", opclass: defaultOpclass }
+				],
+				columnsOf(access.eq).length,
+				access.use
+			)
+		case "span":
+			return keyedRequest(
+				table,
+				"gist",
+				ascending([...columnsOf(access.eq), access.column]),
+				columnsOf(access.eq).length,
+				"span predicate"
+			)
+		case "network":
+			return keyedRequest(table, "gist", ascending([access.column]), 0, "network containment")
+		case "search":
+			return keyedRequest(table, "gin", ascending([access.column]), 0, "text search")
+	}
+}
+
 /**
  * One entry of a level's FROM, flattened from its items and join chains in order: its source, and how it joins the
  * entries before it, a FROM list's item or a chain's first (`item`), an inner join on a condition, a LEFT JOIN on one,
@@ -924,19 +990,37 @@ const pushedInto = (q: OperandSelect, alias: string, c: Expr): OperandSelect | u
 
 /**
  * The binding of the statements of one scope (see the header). Local mutable state owned by one binding: the plan's
- * levels in the order the walk meets them; the columns each written alias is read at; the scope and the catalog; and
- * whether the statement reads what it reads whole, once (`#whole`).
+ * levels in the order the walk meets them; the columns each written alias is read at; the scope, the catalog and how
+ * its reads are bound (BoundReads); and whether the statement reads what it reads whole, once (`#whole`).
  */
 class Binder {
 	readonly #scope: AdviceScope
 	readonly #catalog: ReadCatalog
+	readonly #reads: BoundReads
 	readonly #levels: Array<PlanLevel<AccessIndexRequest>> = []
 	#needs: ReadonlyMap<string, ReadonlySet<string>> = new Map()
 	#whole = false
 
-	constructor(scope: AdviceScope, catalog: ReadCatalog) {
+	constructor(scope: AdviceScope, catalog: ReadCatalog, reads: BoundReads) {
 		this.#scope = scope
 		this.#catalog = catalog
+		this.#reads = reads
+	}
+
+	/**
+	 * Whether a read at the values it fixes reaches its rows through the index `request` asks: a keyed binding's always,
+	 * every request of it one index planning lands (physical/indexes/engine.ts planIndexes); a whole one's where an
+	 * index serves it (BoundReads `whole`).
+	 */
+	#serves(request: AccessIndexRequest): boolean {
+		return this.#reads.kind === "keyed" || this.#reads.serves(request)
+	}
+
+	/** A read of `table` by `access`, as its binding reaches it (`#serves`), else whole, its conjuncts its filters. */
+	#reached(table: BindTable, access: Classified): Classified {
+		return access.kind === "whole" || this.#serves(accessRequest(table, access))
+			? access
+			: { kind: "whole" }
 	}
 
 	plan(): ReadPlan<AccessIndexRequest> {
@@ -944,9 +1028,9 @@ class Binder {
 	}
 
 	/** The statement bound (see the header), its columns' needs read off it first; a whole one's reads joined by hash. */
-	statement(s: SqlStatement, whole: boolean): SqlStatement {
+	statement(s: SqlStatement): SqlStatement {
 		this.#needs = neededColumns(s)
-		this.#whole = whole
+		this.#whole = this.#reads.kind === "whole"
 		const top: PlanName = { kind: "top" }
 		if (s.kind === "select") {
 			return this.setQuery(s, topEnv, top)
@@ -1607,10 +1691,10 @@ class Binder {
 			)
 		}
 		const self = withRelation(here, written, alias, here.depth, place)
-		const access =
+		const access: Classified =
 			table === undefined
-				? ({ kind: "whole" } as const)
-				: this.#classified(table, written, pools, bindings, fixed, order)
+				? { kind: "whole" }
+				: this.#reached(table, this.#classified(table, written, pools, bindings, fixed, order))
 		/** A conjunct the read binds or matches, moved out of its level into the read, read under the read's alias. */
 		const moved = (conjunct: Expr): Expr => {
 			take(conjunct)
@@ -1632,8 +1716,6 @@ class Binder {
 			source: read(levelAccess),
 			scan: { kind: "index", index: request, bound, needs }
 		})
-		const columnsOf = (fixing: ReadonlyArray<Binding>): ReadonlyArray<string> =>
-			[...new Set(fixing.map((b) => b.column))].toSorted()
 		const bound = ((): {
 			readonly source: FromSource
 			readonly scan: PlanItem<AccessIndexRequest>["scan"]
@@ -1646,52 +1728,28 @@ class Binder {
 					return { source: read({ kind: "whole" }), scan: { kind: "seq" } }
 				case "seek": {
 					const [b0, ...bs] = sought(access.eq)
-					const [c0, ...cs] = columnsOf(access.eq)
-					if (b0 === undefined || c0 === undefined) {
+					if (b0 === undefined) {
 						return defect("a seek binding a column at least")
 					}
 					return indexed(
 						{ kind: "seek", bound: [b0, ...bs] },
-						requestOf(table, [c0, ...cs], [], access.keyed ? "key lookup" : "equality lookup"),
-						[c0, ...cs]
+						accessRequest(table, access),
+						columnsOf(access.eq)
 					)
 				}
-				case "ordered": {
-					const fixedColumns = columnsOf(access.eq)
+				case "ordered":
 					return indexed(
 						{ kind: "ordered", bound: sought(access.eq), order: access.order, use: access.use },
-						keyedRequest(
-							table,
-							"btree",
-							[
-								...ascending(fixedColumns),
-								...access.order.map((o) => ({
-									column: o.column,
-									term: "column" as const,
-									dir: o.dir,
-									opclass: defaultOpclass
-								}))
-							],
-							fixedColumns.length,
-							access.use
-						),
-						fixedColumns
+						accessRequest(table, access),
+						columnsOf(access.eq)
 					)
-				}
 				case "nearest":
 					return indexed(
 						{ kind: "nearest", column: access.column },
-						keyedRequest(
-							table,
-							"hnsw",
-							[{ column: access.column, term: "column", dir: "asc", opclass: access.cosine }],
-							0,
-							"approximate vector retrieval"
-						),
+						accessRequest(table, access),
 						[]
 					)
 				case "range": {
-					const fixedColumns = columnsOf(access.eq)
 					const [c0, ...cs] = access.conjuncts
 					return indexed(
 						{
@@ -1701,18 +1759,11 @@ class Binder {
 							conditions: [moved(c0), ...cs.map(moved)],
 							use: access.use
 						},
-						keyedRequest(
-							table,
-							"btree",
-							[...ascending(fixedColumns), { ...access.key, dir: "asc", opclass: defaultOpclass }],
-							fixedColumns.length,
-							access.use
-						),
-						[...fixedColumns, access.key.column]
+						accessRequest(table, access),
+						[...columnsOf(access.eq), access.key.column]
 					)
 				}
-				case "span": {
-					const fixedColumns = columnsOf(access.eq)
+				case "span":
 					return indexed(
 						{
 							kind: "span",
@@ -1720,16 +1771,9 @@ class Binder {
 							column: access.column,
 							condition: moved(access.conjunct)
 						},
-						keyedRequest(
-							table,
-							"gist",
-							ascending([...fixedColumns, access.column]),
-							fixedColumns.length,
-							"span predicate"
-						),
-						[...fixedColumns, access.column]
+						accessRequest(table, access),
+						[...columnsOf(access.eq), access.column]
 					)
-				}
 				case "network":
 					return indexed(
 						{
@@ -1738,7 +1782,7 @@ class Binder {
 							column: access.column,
 							condition: moved(access.conjunct)
 						},
-						keyedRequest(table, "gist", ascending([access.column]), 0, "network containment"),
+						accessRequest(table, access),
 						[access.column]
 					)
 				case "search":
@@ -1750,7 +1794,7 @@ class Binder {
 						}),
 						scan: {
 							kind: "bitmap",
-							index: keyedRequest(table, "gin", ascending([access.column]), 0, "text search"),
+							index: accessRequest(table, access),
 							bound: [access.column],
 							needs
 						}
@@ -2225,21 +2269,25 @@ class Binder {
 		)
 		const boundColumns = [...new Set((many ? fixedBindings : []).map((b) => b.column))].toSorted()
 		const [b0, ...bs] = boundColumns
+		const sought =
+			catalogTable === undefined || b0 === undefined
+				? undefined
+				: requestOf(
+						catalogTable,
+						[b0, ...bs],
+						[],
+						holdsKey(catalogTable, new Set(boundColumns)) ? "key lookup" : "equality lookup"
+					)
 		const targetItem: PlanItem<AccessIndexRequest> =
 			catalogTable === undefined
 				? { alias, scan: { kind: "rows" } }
-				: b0 === undefined
+				: sought === undefined || !this.#serves(sought)
 					? { alias, scan: { kind: "seq" } }
 					: {
 							alias,
 							scan: {
 								kind: "index",
-								index: requestOf(
-									catalogTable,
-									[b0, ...bs],
-									[],
-									holdsKey(catalogTable, new Set(boundColumns)) ? "key lookup" : "equality lookup"
-								),
+								index: sought,
 								bound: boundColumns,
 								needs: this.#needed(written)
 							}
@@ -2374,9 +2422,9 @@ class Binder {
 	}
 
 	/** A DO block's body bound (bindBlock), its columns' needs read off it first; a whole one's reads joined by hash. */
-	blockOf(b: PlBlock, whole: boolean): PlBlock {
+	blockOf(b: PlBlock): PlBlock {
 		this.#needs = neededBy((t) => t.plBlock(b))
-		this.#whole = whole
+		this.#whole = this.#reads.kind === "whole"
 		return this.block(b)
 	}
 
@@ -2509,7 +2557,7 @@ export const bindRoutine = (
 	scope: AdviceScope,
 	catalog: ReadCatalog
 ): BoundRoutine => {
-	const binder = new Binder(scope, catalog)
+	const binder = new Binder(scope, catalog, keyedReads)
 	const once = printedOnce(fn)
 	if (once.kind !== "createFunction") {
 		return defect("a routine printed once a routine still")
@@ -2709,7 +2757,7 @@ export const bindSelect = (
 	catalog: ReadCatalog
 ): BoundStatement<Select> => {
 	const once = selectOnce(query)
-	const binder = new Binder(scope, catalog)
+	const binder = new Binder(scope, catalog, keyedReads)
 	const bound = binder.selectOf(once)
 	return nominal<
 		{ readonly statement: Select; readonly plan: ReadPlan<AccessIndexRequest> },
@@ -2721,11 +2769,19 @@ export const bindSelect = (
 }
 
 /**
- * How a statement's reads of a second relation are bound: `keyed`, each by the outer row that binds it, a probe; or
- * `whole`, each read whole or at the values it fixes and joined by a hash, as a statement that runs once over every row
- * reads them: a migration's data step, O(n + m) by a hash where n probes cost n descents.
+ * How a statement's reads are bound: `keyed`, each read of a second relation by the outer row that binds it, a probe,
+ * every read one whose index request index planning plans (physical/indexes/engine.ts planIndexes): a workload's
+ * statement and a routine's; or `whole`, each read whole or at the values it fixes and joined by a hash, as a statement
+ * that runs once over every row reads them: a migration's data step, O(n + m) by a hash where n probes cost n descents.
+ * A data step's requests are planned no index, so a read of it at the values it fixes is sought where an index `serves`
+ * its request (engine.ts servingOf) and read whole beside its filter where none does.
  */
-export type BoundReads = "keyed" | "whole"
+export type BoundReads =
+	| { readonly kind: "keyed" }
+	| { readonly kind: "whole"; readonly serves: (request: AccessIndexRequest) => boolean }
+
+/** The reads of a keyed binding (BoundReads `keyed`). */
+export const keyedReads: BoundReads = { kind: "keyed" }
 
 /**
  * A DO block's body (sql/print.ts writeDoBlock), bound under `scope` over `catalog` as a routine's statements are, every
@@ -2737,8 +2793,8 @@ export const bindBlock = (
 	catalog: ReadCatalog,
 	reads: BoundReads
 ): { readonly block: PlBlock; readonly plan: ReadPlan<AccessIndexRequest> } => {
-	const binder = new Binder(scope, catalog)
-	const bound = binder.blockOf(printedBlock(block), reads === "whole")
+	const binder = new Binder(scope, catalog, reads)
+	const bound = binder.blockOf(printedBlock(block))
 	return { block: bound, plan: binder.plan() }
 }
 
@@ -2752,8 +2808,8 @@ export const bindStatement = (
 	catalog: ReadCatalog,
 	reads: BoundReads
 ): BoundStatement => {
-	const binder = new Binder(scope, catalog)
-	const bound = binder.statement(printedOnce(statement), reads === "whole")
+	const binder = new Binder(scope, catalog, reads)
+	const bound = binder.statement(printedOnce(statement))
 	return nominal<
 		{ readonly statement: SqlStatement; readonly plan: ReadPlan<AccessIndexRequest> },
 		BoundStatement

@@ -5,14 +5,17 @@ import { ChunkView } from "@bjornpagen/grizzle-text/chunks"
 import { assert, defined } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, Order, String as Str } from "effect"
+import { readMeta } from "#adapter/boundary/meta.ts"
+import { advisedSteps } from "#adapter/migrate/apply.ts"
 import {
 	explainStatementWith,
 	parsePlan,
 	type PlanNode,
 	rowsTouched
 } from "#bench/harness/explain.ts"
+import type { Draft } from "#compiler/deploy/diff/plan.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
-import { splitStatements } from "#compiler/plan/migration.ts"
+import { splitStatements, statedAdvice } from "#compiler/plan/migration.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { apply, noFurther, openMigrator } from "#test/pg/migrate/support.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -87,22 +90,38 @@ const costText = (c: Cost): string =>
 	`${c.rows} rows at ${c.size} nodes (${c.pages} pages read, ${c.temp} temp pages written)`
 
 /** The statement texts of `steps`'s backfill UPDATEs, as a folder spells them. */
-const backfillTexts = (g: ReturnType<typeof keyedDraft>): ReadonlySet<string> =>
-	new Set(
+const backfillTexts = (g: ReturnType<typeof keyedDraft>): ReadonlySet<string> => {
+	const backfills = new Set<Draft>(
 		Arr.flatMap(g.plan.steps, (s) =>
 			s.slot === "structure.backfill" &&
 			s.draft.kind === "statement" &&
 			s.draft.statement.kind === "update"
-				? [normalized(printStatement(s.draft.statement))]
+				? [s.draft]
 				: []
 		)
 	)
+	return new Set(
+		Arr.flatMap(g.files, (f) =>
+			Arr.flatMap(f.drafts, (bound, at) => {
+				const drafted = f.file.drafts[at]
+				return drafted !== undefined && backfills.has(drafted) && bound.kind === "step"
+					? [normalized(printStatement(bound.statement))]
+					: []
+			})
+		)
+	)
+}
 
 /** A statement's text without its surrounding blanks and its closing semicolon. */
 const normalized = (statement: string): string => {
 	const text = Str.trim(statement)
 	return Str.endsWith(";")(text) ? Str.trim(Str.slice(0, -1)(text)) : text
 }
+
+/** A step of a folder's transaction as the runner sends it: an advice set, or a statement of a file. */
+type Sent =
+	| { readonly kind: "advise"; readonly advice: string }
+	| { readonly kind: "statement"; readonly sql: string }
 
 /** The column every row's tid is read by. */
 const rowColumn = "ctid"
@@ -151,7 +170,22 @@ export const costAt = (shape: Shape, size: number) =>
 				losses: "written",
 				value: treePlaceholder
 			})
-			const statements = Arr.flatMap(reviewed.files, (f) => splitStatements(new ChunkView(f.text)))
+			const meta = succeeded(readMeta(g.folder.metaText), "the keyed tree's meta.json read")
+			/** The reviewed folder's statements as the runner sends them, each file's under the advice its record states
+			 * (adapter/migrate/apply.ts advisedSteps): its record's set first, set off around the reviewer's data step. */
+			const sent = Arr.flatMap(reviewed.files, (f): ReadonlyArray<Sent> => {
+				const written = splitStatements(new ChunkView(f.text))
+				const stated = statedAdvice(meta, f)
+				return [
+					{ kind: "advise", advice: stated.advice },
+					...Arr.map(advisedSteps(stated, written.length), (step): Sent =>
+						step.kind === "advise"
+							? step
+							: { kind: "statement", sql: defined(written[step.index], "a statement of the file") }
+					)
+				]
+			})
+			const statements = Arr.map(sent, (x) => (x.kind === "statement" ? x.sql : ""))
 
 			const last = Arr.findLastIndex(statements, (s) => backfill.has(normalized(s)))
 			const through = Option.getOrThrowWith(
@@ -183,7 +217,15 @@ export const costAt = (shape: Shape, size: number) =>
 			const run = Effect.gen(function* () {
 				const plans: Array<PlanNode> = []
 				const loaded = new Map<string, string>()
-				for (const [i, s] of statements.slice(0, through + 1).entries()) {
+				for (const [i, x] of sent.slice(0, through + 1).entries()) {
+					if (x.kind === "advise") {
+						yield* pinned.queryValues(
+							"SELECT pg_catalog.set_config('pg_plan_advice.advice', $1::text, true)",
+							[x.advice]
+						)
+						continue
+					}
+					const s = x.sql
 					if (i === firstStep) {
 						for (const [id, tid] of yield* tids) {
 							loaded.set(id, tid)

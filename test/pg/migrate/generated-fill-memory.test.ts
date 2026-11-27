@@ -30,7 +30,7 @@ import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { element, finite, type Gen } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, String as Str } from "effect"
+import { Array as Arr, Effect, Option, String as Str } from "effect"
 import {
 	type Held,
 	heldAt,
@@ -67,8 +67,15 @@ export const generatedFillMemory = property.exhaust(finite(memberGen), {
 					if (first === undefined) {
 						throw new Error("the box holds its sizes")
 					}
+					/** The UPDATE's target alias, as its binding names it (sql/bind.ts). */
+					const target = Option.getOrElse(
+						Option.flatMap(Arr.head(Str.split(' AS "')(first.update).slice(1)), (rest) =>
+							Arr.head(Str.split('"')(rest))
+						),
+						() => ""
+					)
 					assert.ok(
-						Str.includes(`"cheap" = "t"."cheap"`)(first.update),
+						Str.includes(`"cheap" = "${target}"."cheap"`)(first.update),
 						`the fold's backfill UPDATE of Member assigns its anchor, cheap, to itself: ${first.update}`
 					)
 					for (const h of rest) {

@@ -585,8 +585,15 @@ export interface LedgerStatements {
 	readonly rows: EmittedSql
 	/** The fence a Db transaction and admission take first (see `snapshotGuardDdl`): the ledger's ACCESS SHARE lock, NOWAIT. */
 	readonly fence: EmittedSql
-	/** The lock a migration's transaction takes first, before any statement of its file: the ledger's ACCESS EXCLUSIVE. */
+	/** The lock a migration's transaction takes after its advice, before any statement of its file: the ledger's ACCESS
+	 * EXCLUSIVE. */
 	readonly exclusive: EmittedSql
+	/**
+	 * A migration file's transaction's first statement: the plan advice $1 its folder's meta.json records of the file
+	 * (deploy/render/folder.ts statedAdvice), its data steps' plans joined, local to the transaction, so each statement of
+	 * the file is planned under it, as a Db transaction's prologue sets its own (`enter`).
+	 */
+	readonly advise: EmittedSql
 	/** Admission's check: the guard of $1, the snapshot's fingerprint. */
 	readonly guard: EmittedSql
 	/**
@@ -814,6 +821,9 @@ export const ledgerStatements = (schema: string): Result.Result<LedgerStatements
 			rows: emitted(rows),
 			fence: emitted(ledgerLock(schema, "ACCESS SHARE", "nowait")),
 			exclusive: emitted(ledgerLock(schema, "ACCESS EXCLUSIVE", "wait")),
+			advise: emitted(
+				provedSelect("oneRow", [targetAs(localSetting(adviceSettingName, 1), "c1")], [], undefined)
+			),
 			guard: emitted(provedSelect("oneRow", [targetAs(guardCall(schema), "c1")], [], undefined)),
 			enter: emitted(enter)
 		}

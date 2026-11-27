@@ -143,6 +143,7 @@ export const failedFolder = (error: MigrateError): Option.Option<string> => {
 		case "FileCommitRefused":
 			return Option.some(reason.folder)
 		case "LedgerUnlocked":
+		case "AdviceRefused":
 		case "RecordFailed":
 		case "FileCommitLost":
 			return Option.some(reason.at.folder)

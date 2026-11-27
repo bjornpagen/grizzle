@@ -132,7 +132,7 @@ export const heldAt = (owners: number) =>
 				const { table } = namesOf(state.declared)
 				const update = defined(
 					Arr.findFirst(splitStatements(file.text), (s) =>
-						Str.includes(`UPDATE ${table("Member")} AS "t"`)(s)
+						Str.includes(`UPDATE ${table("Member")} AS `)(s)
 					).pipe(Option.getOrUndefined),
 					"the third version's Structure file holds the fold's backfill UPDATE of Member"
 				)

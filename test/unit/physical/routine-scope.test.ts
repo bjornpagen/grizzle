@@ -46,7 +46,7 @@ export const everyRoutineIsOneAdviceScope = property.exhaust(finite(scopeCases),
 			file: "packages/engine/src/sql/bind.ts",
 			original: "\t\treturn { ...b, body: [this.pl(first), ...rest.map((s) => this.pl(s))] }\n",
 			replacement:
-				"\t\treturn { ...b, body: [this.pl(first), ...rest.map((s) => new Binder(new this.#scope.constructor(), this.#catalog).pl(s))] }\n",
+				"\t\treturn { ...b, body: [this.pl(first), ...rest.map((s) => new Binder(new this.#scope.constructor(), this.#catalog, this.#reads).pl(s))] }\n",
 			why: "A routine binds each statement after its first under a scope of its own, so its statements declare `r1` again and the advice of its SET clause names two relations by one alias; the property fails at a routine of two reading statements."
 		}
 	]

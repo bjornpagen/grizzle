@@ -366,6 +366,7 @@ const reasonLines = (e: MigrateError): ReadonlyArray<string> => {
 		case "GuardedTableUnbracketed":
 		case "TransactionFailed":
 		case "LedgerUnlocked":
+		case "AdviceRefused":
 		case "RecordFailed":
 		case "FileCommitRefused":
 		case "FileCommitLost":

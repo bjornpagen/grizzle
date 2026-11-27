@@ -1,6 +1,6 @@
 /** What the properties of lock-demand.test.ts read: the probing session, the lock names and the drafted paths. */
 
-import { Array as Arr, Effect, String as Str } from "effect"
+import { Array as Arr, Effect, Option, String as Str } from "effect"
 import { migrationSession, type MigrationSession } from "#adapter/migrate/session.ts"
 import {
 	type BatchStatement,
@@ -9,6 +9,7 @@ import {
 	type Transaction
 } from "#adapter/wire/batch.ts"
 import type { Session } from "#adapter/wire/session.ts"
+import type { LedgerStatements } from "#compiler/deploy/ledger/ledger.ts"
 import type { InstallationNames } from "#compiler/plan/migration.ts"
 import { testSql } from "#test/support/sql.ts"
 
@@ -144,7 +145,8 @@ const countOf = (rows: ReadonlyArray<ReadonlyArray<string>>): number => Number(r
  * A migration session over `session` whose every transaction runs as the apply runner sends it, a probe of its locks
  * after BEGIN and after each statement and the names of what it holds before COMMIT, each probe a read that changes
  * nothing, and before it, in a read-only transaction of its own, the names of what the session holds: what each
- * transaction held is pushed onto `ran`, in order. Statements apart and the drift check's transaction run as they do.
+ * transaction held is pushed onto `ran`, in order, under the file its row of the ledger records (`ledger`'s recordFile),
+ * if it records one. Statements apart and the drift check's transaction run as they do.
  *
  * No names probe runs in the file's transaction before its last count: the names probe reads the catalogs it names
  * objects from, pg_class, pg_namespace, pg_proc, pg_trigger and a dozen more, each with every index of it its planner
@@ -156,6 +158,7 @@ const countOf = (rows: ReadonlyArray<ReadonlyArray<string>>): number => Number(r
 export const probingSession = (
 	session: Session,
 	installation: InstallationNames,
+	ledger: Pick<LedgerStatements, "recordFile">,
 	ran: Array<ProbedTransaction>
 ): MigrationSession => {
 	const plain = migrationSession(session, installation)
@@ -177,8 +180,14 @@ export const probingSession = (
 							(o) => countOf(o.rows)
 						)
 						const [baseline = 0] = counts
-						const last = statements.at(-1)
-						const file = last?._tag === "oneShot" ? last.params[2] : undefined
+						const row = Arr.findFirst(
+							statements,
+							(st) => st._tag === "oneShot" && st.sql === ledger.recordFile.text
+						)
+						const file = Option.match(row, {
+							onNone: () => undefined,
+							onSome: (st) => st.params[2]
+						})
 						ran.push({
 							file: typeof file === "string" ? file : undefined,
 							peak: Arr.reduce(counts, 0, (most, n) => Math.max(most, n)) - baseline,

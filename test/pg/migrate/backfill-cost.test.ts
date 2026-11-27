@@ -32,7 +32,7 @@
 import { nonEmpty } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
-import { type Case, property } from "@bjornpagen/testing/property"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import {
 	type Cost,
@@ -76,8 +76,21 @@ export const backfillCost = property.exhaust(finite(shapeGen), {
 		name: "linear growth, judged over one shape's three sizes: its rows touched growing by no more from 2n to 4n than twice what they grow by from n to 2n; and each size's rows the keyed tree's reference (keyedRows) over rows the data step moved"
 	},
 	box: `each shape, a chain and a star, its forest at n, 2n and 4n nodes (n = ${smallest}) in one case, one document mapped onto its own root`,
-	kept: [],
+	kept: [
+		{
+			token: ReplayToken("test/pg/migrate/backfill-cost.test.ts#backfillCost:-:0"),
+			since: "2026-11-27",
+			reason:
+				"the chain at 200, 400 and 800 nodes (VEHICLES' run over 587fd269): the reviewer's data step at the draft's slot run under no advice and the backfill after it with its record's advice dropped, the bound backfill planned by PostgreSQL's costs touched 32787, 65585 and 131185 rows, past linear by 4; under the advice the runner sets again after the reviewer's statement it is linear"
+		}
+	],
 	kills: [
+		{
+			file: "packages/grizzle/src/adapter/migrate/apply.ts",
+			original: '\t\tconst wanted = stated.reviewed[index] === true ? "" : stated.advice\n',
+			replacement: '\t\tconst wanted = stated.reviewed[index] === true ? "" : inForce\n',
+			why: "The runner sets the file's advice off before the reviewer's data step and never again: the backfill after it runs under no advice, its bound statement planned by PostgreSQL's costs, and its rows grow past linear."
+		},
 		{
 			file: "packages/engine/src/deploy/diff/backfill.ts",
 			original:

@@ -25,6 +25,7 @@ import type {
 	ServerError
 } from "#adapter/errors/failures.ts"
 import {
+	AdviceRefused,
 	ApplyBusy,
 	Drifted,
 	DriftUnchecked,
@@ -68,6 +69,7 @@ import { ownSettingsQuery, textArray } from "#adapter/admission/roles.ts"
 import { toResult } from "#adapter/engine.ts"
 import { AdviceUnloaded } from "#adapter/errors/execution.ts"
 import {
+	adviceParams,
 	fileParams,
 	folderParams,
 	headParams,
@@ -144,6 +146,7 @@ import {
 	replayLocks,
 	standUpCalls,
 	standUpDisplayLead,
+	type StatedAdvice,
 	statedLocks
 } from "#compiler/plan/migration.ts"
 import { textParam } from "#compiler/plan/read.ts"
@@ -867,15 +870,47 @@ const brokenLaws = (laws: FolderLaws): ((failure: StatementFailure) => ReadonlyA
 }
 
 /**
- * Where a statement of a file's transaction stands (apply.ts runFile), which says what its refusal is: `lock`, the
+ * A step of a file's transaction past its opening, as the runner stages its plan advice (README "Plan advice",
+ * deploy/render/folder.ts StatedAdvice): the advice set (`advise`), or the file's statement at `index`.
+ */
+export type AdvisedStep =
+	| { readonly kind: "advise"; readonly advice: string }
+	| { readonly kind: "statement"; readonly index: number }
+
+/**
+ * The first `count` statements of a file, each under the advice its record states of it (StatedAdvice), the transaction
+ * opened under the record's advice: the advice set off just before each reviewer's statement that follows a recorded one,
+ * and the record's set again just before each recorded statement that follows a reviewer's, so every recorded statement
+ * runs under the plans its record proved and no reviewer's statement under any, a name it writes never meeting an atom
+ * of grizzle's. One flight sends them all, the sets among them.
+ */
+export const advisedSteps = (stated: StatedAdvice, count: number): ReadonlyArray<AdvisedStep> => {
+	const steps: Array<AdvisedStep> = []
+	let inForce = stated.advice
+	for (let index = 0; index < count; index++) {
+		const wanted = stated.reviewed[index] === true ? "" : stated.advice
+		if (wanted !== inForce) {
+			steps.push({ kind: "advise", advice: wanted })
+			inForce = wanted
+		}
+		steps.push({ kind: "statement", index })
+	}
+	return steps
+}
+
+/**
+ * Where a statement of a file's transaction stands (apply.ts runFile), which says what its refusal is: `advice`, the
+ * plan advice it runs under, the record's set first and set again around a reviewer's statement; `lock`, the
  * ledger's lock and a guard's dropping before the file's statements, a refusal the ledger left unlocked; `statement`,
  * the file's statement at `index`, which its laws can break; `laws`, the bracket's statements after them, the deferred
  * laws made immediate and the re-checks (physical/ddl/immutable.ts dataStepBracket), a refusal the file's laws' as its
  * COMMIT's is; `record`, the ledger's rows.
  */
 type FileStage =
-	| { readonly kind: "lock" | "laws" | "record" }
+	| { readonly kind: "advice" | "lock" | "laws" | "record" }
 	| { readonly kind: "statement"; readonly index: number }
+
+const adviceStage: FileStage = { kind: "advice" }
 
 const lockStage: FileStage = { kind: "lock" }
 
@@ -908,6 +943,7 @@ const runFile = (
 	levels: ReadonlyArray<string>
 ): Effect.Effect<void, MigrateError> => {
 	const at: RecordPlace = { kind: "file", folder: folder.name, file: file.name }
+	const advise = (advice: string) => oneShotStatement(statements.advise.text, adviceParams(advice))
 	const fence = fenceOf(statements, ledger)
 	const statementFailed = (index: number) => (failure: StatementFailure) =>
 		stopped(
@@ -949,6 +985,8 @@ const runFile = (
 	/** What a refusal of a statement of the file's transaction at `stage` is (FileStage). */
 	const refusedAt = (stage: FileStage, refusal: StatementFailure): MigrateError => {
 		switch (stage.kind) {
+			case "advice":
+				return stopped(new AdviceRefused({ schema, at, failure: refusal }))
 			case "lock":
 				return lockFailed(schema, at, refusal)
 			case "statement":
@@ -960,23 +998,31 @@ const runFile = (
 		}
 	}
 	/**
-	 * The file's transaction, each statement at its stage (FileStage): the ledger's lock, then, bracketing its statements
-	 * if it runs them inside it, each guard `bracket` drops (a custom migration's data step's, guardBracket), the
-	 * statements, its deferred laws made immediate and its re-checks with each guard created again (`lawsChecked`), then
-	 * its rows. A refusal is read off the stage of the statement that refused it (`refusedAt`), as the migration states
+	 * The file's transaction, each statement at its stage (FileStage): its plan advice (LedgerStatements `advise`), first,
+	 * and the ledger's lock, then, bracketing its statements if it runs them inside it, each guard `bracket` drops (a
+	 * custom migration's data step's, guardBracket), the statements, its deferred laws made immediate and its re-checks
+	 * with each guard created again (`lawsChecked`), then its rows. A refusal is read off the stage of the statement that refused it (`refusedAt`), as the migration states
 	 * the server's refusal (refusalOf).
 	 */
 	const transaction = (count: number, bracket: ReturnType<typeof dataStepBracket>) => {
 		const staged: ReadonlyArray<StagedStatement> = [
+			{ stage: adviceStage, statement: advise(file.advice.advice) },
 			...Arr.map(fence, (statement) => ({ stage: lockStage, statement })),
 			...Arr.map(bracket.before, (sql) => ({
 				stage: lockStage,
 				statement: oneShotStatement(sql, [])
 			})),
-			...Arr.map(file.statements.slice(0, count), (sql, index) => ({
-				stage: { kind: "statement" as const, index },
-				statement: oneShotStatement(sql, [])
-			})),
+			...Arr.map(advisedSteps(file.advice, count), (step) =>
+				step.kind === "advise"
+					? { stage: adviceStage, statement: advise(step.advice) }
+					: {
+							stage: { kind: "statement" as const, index: step.index },
+							statement: oneShotStatement(
+								defined(file.statements[step.index], "a statement of the file"),
+								[]
+							)
+						}
+			),
 			...Arr.map(bracket.after, (sql) => ({
 				stage: lawsChecked,
 				statement: oneShotStatement(sql, [])

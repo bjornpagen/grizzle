@@ -13,7 +13,9 @@
  * The schema: T's facts by document and place, in a unit of the document; Ones and Twos, T's facts of `a` one and of
  * `a` two, at level 1; Fives, Ones' facts of `b` five, at level 2.
  *
- * Property: the first version drafted from no installation creates and fills every stored table, and the second, over
+ * Property: the first version drafted from no installation creates and fills every stored table, each of Ones' and
+ * Twos' fills reading T at its constant `a` through T's index on `a`, which the draft creates before them (its files'
+ * advice names it, deploy/render/advise.ts), and the second, over
  * it, which changes nothing, Ones' lowering alone, Ones' installed definition to one calling a function the target no
  * longer holds, T's key of `b`, or Ones', Twos' or Fives' definition, creates again and fills exactly the tables whose
  * meaning or primary key the change changes or whose installed definition reads what is gone, and those above them (a
@@ -29,10 +31,11 @@ import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect } from "effect"
+import { Array as Arr, Effect, String as Str } from "effect"
 import {
 	type Change,
 	changeGen,
+	indexOfA,
 	inInstallOrder,
 	viewDrafts,
 	recordedViews,
@@ -98,6 +101,11 @@ export const aChangeOfAViewsMeaningCreatesExactlyThatViewAgainAndPopulatesIt = p
 			Effect.sync(() => {
 				const { first, second } = viewDrafts(change)
 				createsAndFills(first, views, "the first draft")
+				const throughA = indexOfA(first.snapshot)
+				assert.ok(
+					Arr.some(first.advice, Str.includes(throughA)),
+					`the first draft's fills of Ones and Twos read T at their constant a through ${throughA}, which it creates before them: its files' advice names it\n${Arr.join(first.advice, "\n")}`
+				)
 				const recreated = recreatedBy(change)
 				createsAndFills(second, recreated, `${change}: the second draft`)
 				if (change === "none" || change === "lowering") {
@@ -177,6 +185,18 @@ export const aChangeOfAViewsMeaningCreatesExactlyThatViewAgainAndPopulatesIt = p
 					"withAttnums(withInstalledViews(state, plan), applied.previous, plan, tableMaxColumns)",
 				replacement: "withAttnums(state, applied.previous, plan, tableMaxColumns)",
 				why: "A kept stored table is recorded by the target's lowering, not the one installed, so the snapshot changes and the drift check replays a definition PostgreSQL does not hold."
+			},
+			{
+				file: "packages/engine/src/deploy/render/advise.ts",
+				original: "\tconst steps = [...plan.steps]\n",
+				replacement: "\tconst steps = [...plan.steps]\n\treturn plan\n",
+				why: "The drafter leaves each index where the diff drafted it, after the data steps: Ones' fill reads T through the index on a its draft creates, which stands only once a later statement creates it, so its file's advice names an index the database does not hold yet, the in-force internal compiler error."
+			},
+			{
+				file: "packages/engine/src/physical/indexes/engine.ts",
+				original: '\t\treturn landing.kind === "served" ? landing.index : undefined\n',
+				replacement: "\t\treturn undefined\n",
+				why: "A data step finds no index serving its read at a constant (servingOf), so Ones' and Twos' fills read T whole beside their filter on a, every row of it, where its index on a reaches the rows of their constant alone: their files' advice names no index of T."
 			}
 		]
 	}

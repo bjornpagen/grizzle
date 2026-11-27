@@ -90,15 +90,18 @@ export type MetaStep =
 export type DraftedStep = Exclude<MetaStep, { readonly kind: "digest" }>
 
 /**
- * A drafted file's steps, in draft order, and its lock demand: the most objects one transaction of it holds locked as
+ * A drafted file's steps, in draft order; its lock demand: the most objects one transaction of it holds locked as
  * drafted, the runner's ledger fence and rows among them, counted from its drafted statements (deploy/locks/demand.ts
- * fileLockSets), which `grizzle migrate` holds the server's lock table to before it runs anything (statedLocks). Its
- * steps are meta.json's (MetaStep), or generate's every text (DraftedStep).
+ * fileLockSets), which `grizzle migrate` holds the server's lock table to before it runs anything (statedLocks); and
+ * the plan advice its transaction runs under, its data steps' (render/advise.ts), the text `grizzle migrate` sets as
+ * the transaction's first statement (statedAdvice), empty for a file of none. Its steps are meta.json's (MetaStep), or
+ * generate's every text (DraftedStep).
  */
 interface FileRecord<S> {
 	readonly name: string
 	readonly steps: ReadonlyArray<S>
 	readonly locks: number
+	readonly advice: string
 }
 
 /** A drafted file as meta.json records it (MetaStep). */
@@ -308,7 +311,8 @@ export const provedRecord = (
 		const spelled = files.map((f): FileRecord<SpelledStep> => ({
 			name: f.name,
 			steps: f.steps.map(spellStep),
-			locks: f.locks
+			locks: f.locks,
+			advice: f.advice
 		}))
 		const fault = indistinct(spelled)
 		if (fault !== undefined) {
@@ -317,7 +321,8 @@ export const provedRecord = (
 		return spelled.map((f): MetaFile => ({
 			name: f.name,
 			steps: f.steps.map(recordedStep),
-			locks: f.locks
+			locks: f.locks,
+			advice: f.advice
 		}))
 	})
 
@@ -328,7 +333,12 @@ export const provedRecord = (
  * own record is read from the files it recorded. */
 export const decisionRecord = (files: ReadonlyArray<MetaFile>): DecisionRecord =>
 	proved({
-		files: files.map((f) => ({ name: f.name, steps: f.steps.map(readStep), locks: f.locks }))
+		files: files.map((f) => ({
+			name: f.name,
+			steps: f.steps.map(readStep),
+			locks: f.locks,
+			advice: f.advice
+		}))
 	})
 
 /** What a loss loses, as a refusal names it. */
@@ -440,6 +450,49 @@ export const statedLocks = (
 	meta.kind === "drafted" && recordsAsWritten(meta, file)
 		? meta.record.files.find((f) => f.name === file.name)?.locks
 		: undefined
+
+/**
+ * The plan advice a file's transaction runs under, statement by statement, as its folder's meta records it of its
+ * drafted data steps (MetaFile `advice`): `advice` over each of the file's statements that is a recorded one, and none
+ * over each `reviewed`, a reviewer's statement between them, a data step written at a draft's slot.
+ */
+export interface StatedAdvice {
+	readonly advice: string
+	readonly reviewed: ReadonlyArray<boolean>
+}
+
+/**
+ * The plan advice `file`'s transaction runs under (StatedAdvice), of its folder's meta: the record's advice where every
+ * statement the record holds of the file still stands in it, in its order, each written as recorded (writtenAsRecorded,
+ * a placeholder filled by any value), and every other statement of the file is a reviewer's, between them, which runs
+ * under none, as a custom migration's statements do, since grizzle binds none of it; none at all for a file whose
+ * recorded statements no longer all stand in order, one deleted, rewritten or moved, or a custom migration's.
+ */
+export const statedAdvice = (
+	meta: ReadMeta,
+	file: { readonly name: string; readonly text: TextChunks }
+): StatedAdvice => {
+	const written = splitStatements(new ChunkView(file.text))
+	const none: StatedAdvice = { advice: "", reviewed: written.map(() => false) }
+	if (meta.kind === "custom") {
+		return none
+	}
+	const recorded = meta.record.files.find((f) => f.name === file.name)
+	if (recorded === undefined) {
+		return none
+	}
+	const drafted = recorded.steps.flatMap(stepStatements)
+	let next = 0
+	const reviewed = written.map((w) => {
+		const d = drafted[next]
+		if (d !== undefined && writtenAsRecorded(d, statementTokens(w))) {
+			next++
+			return false
+		}
+		return true
+	})
+	return next === drafted.length ? { advice: recorded.advice, reviewed } : none
+}
 
 /** A committed folder's meta.json as readMeta reads it. */
 export type ReadMeta =

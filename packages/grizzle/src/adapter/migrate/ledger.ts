@@ -189,6 +189,9 @@ export const headParams = (folder: ParsedFolder, ordinal: number): ReadonlyArray
 ]
 
 /** A file's row: $1 folder, $2 ordinal, $3 file, $4 source, $5 target, $6 files, $7 digest of the applied text. */
+/** A file's transaction's advice set (LedgerStatements `advise`): $1 the advice its statements next run under. */
+export const adviceParams = (advice: string): ReadonlyArray<ParamText> => [textParam(advice)]
+
 export const fileParams = (folder: ParsedFolder, file: ParsedFile): ReadonlyArray<ParamText> => [
 	textParam(folder.name),
 	countParam(file.ordinal),

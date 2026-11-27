@@ -59,7 +59,12 @@ import {
 	type OrderKey,
 	together as ordersTogether
 } from "#compiler/physical/indexes/chains.ts"
-import { type IndexRef, type IndexResolver, indexRef } from "#compiler/physical/indexes/ref.ts"
+import {
+	type IndexRef,
+	type IndexResolver,
+	type IndexServing,
+	indexRef
+} from "#compiler/physical/indexes/ref.ts"
 import type { Node } from "#compiler/physical/obligations/graph.ts"
 import {
 	type DatumBound,
@@ -295,12 +300,13 @@ export interface IndexSet {
 /**
  * What index planning gives the installation (see `planIndexes`): every index it holds, a key's or enforcement's and
  * each the engine created, with the requests each serves; the set they are as coverage reads them, which the snapshot
- * records; and the resolver of that set.
+ * records; and the resolver of that set and its partial form (`resolverOf`, `servingOf`).
  */
 export interface IndexPlan {
 	readonly indexes: ReadonlyArray<PlannedIndex>
 	readonly set: IndexSet
 	readonly resolve: IndexResolver
+	readonly serving: IndexServing
 }
 
 /**
@@ -1191,7 +1197,8 @@ const justificationOrder: Comparator<IndexRequest> = (a, b) => {
  * any compile after, to the index it lands on among them, named by its reference (physical/indexes/ref.ts IndexRef):
  * one function of the set and the request, so planning and every served compile resolve a read alike, and a request no
  * index serves is an internal compiler error wherever it is asked, every request planned here landing by construction
- * of the walk below. The plan is settled against the keys the installation met (core/canonical.ts KeyLedger): one
+ * of the walk below, on the index resolution sends it to (`hostIn`), its reasons added to that index's object; and the
+ * resolver's partial form (IndexPlan `serving`, `servingOf`), none where no index serves a request. The plan is settled against the keys the installation met (core/canonical.ts KeyLedger): one
  * refused here or before leaves no resolver, its installation refused naming them all. Adds the new index objects and
  * the served reasons to the graph.
  *
@@ -1603,7 +1610,8 @@ const planOver = (
 		return {
 			indexes: candidates.map((c): PlannedIndex => ({ ...c.index, requests: c.requests })),
 			set,
-			resolve: resolverOf(set, (relation) => b.checked.installedAs(relation))
+			resolve: resolverOf(set, (relation) => b.checked.installedAs(relation)),
+			serving: servingOf(set, (relation) => b.checked.installedAs(relation))
 		}
 	})
 
@@ -1656,33 +1664,61 @@ const hostIn = (set: IndexSet, entry: Covered): InstalledIndex | undefined => {
 }
 
 /**
- * The resolver of `set` (IndexSet), each request's relation read as it is installed (`installedAs`, analysis/schema.ts
- * CheckedSchema installedAs): the index the request lands on (`hostIn`), read through the one derivation of what serves a
- * request (`statedOf`, `coveredOf`) on the table `set` records of its relation, as planning lands every request it plans.
- * A request no index of `set` serves, one on a relation `set` holds no index of, or one its table cannot state, is a
- * missed index, the asker's internal compiler error, never an index guessed.
+ * Where a request lands among the indexes of `set` (IndexSet), its relation read as it is installed (`installedAs`,
+ * analysis/schema.ts CheckedSchema installedAs): the index it lands on (`hostIn`), read through the one derivation of
+ * what serves a request (`statedOf`, `coveredOf`) on the table `set` records of its relation, as planning lands every
+ * request it plans; else why no index serves it: its relation one `set` holds no index of, a request its table cannot
+ * state, or one no index of the table serves. The one landing `servingOf` and `resolverOf` read.
  */
-export const resolverOf = (
+const landingIn = (
 	set: IndexSet,
-	installedAs: (relation: string) => string
-): IndexResolver => {
-	return (request) => {
-		const relation = installedAs(request.relation)
-		const asked = relation === request.relation ? request : { ...request, relation }
-		const missed = (why: string): never =>
-			defect(`a missed index: the ${requestLabel(asked)} is served by no index ${why}`)
-		const table = Object.hasOwn(set.relations, relation) ? set.relations[relation] : undefined
-		if (table === undefined) {
-			return missed(`of ${relation}, which the installation indexes none of`)
-		}
-		const covered = catchRefusal(() => coveredOf(statedOf(asked, table)))
-		if (!covered.ok) {
-			return missed(`of ${relation}, whose table refuses it: ${covered.error.message}`)
-		}
-		const held = `the installation holds on ${relation}`
-		return hostIn(set, covered.value)?.ref ?? missed(held)
+	installedAs: (relation: string) => string,
+	request: IndexRequest
+):
+	| { readonly kind: "served"; readonly index: IndexRef }
+	| { readonly kind: "unserved"; readonly label: string; readonly why: string } => {
+	const relation = installedAs(request.relation)
+	const asked = relation === request.relation ? request : { ...request, relation }
+	const unserved = (why: string) => ({ kind: "unserved", label: requestLabel(asked), why }) as const
+	const table = Object.hasOwn(set.relations, relation) ? set.relations[relation] : undefined
+	if (table === undefined) {
+		return unserved(`of ${relation}, which the installation indexes none of`)
 	}
+	const covered = catchRefusal(() => coveredOf(statedOf(asked, table)))
+	if (!covered.ok) {
+		return unserved(`of ${relation}, whose table refuses it: ${covered.error.message}`)
+	}
+	const host = hostIn(set, covered.value)
+	return host === undefined
+		? unserved(`the installation holds on ${relation}`)
+		: { kind: "served", index: host.ref }
 }
+
+/**
+ * The index of `set` each request lands on (`landingIn`), none where no index of `set` serves it: what a migration's
+ * data step reads through, its requests planned no index (sql/bind.ts BoundReads `whole`), each read at a constant
+ * sought where an index serves it and read whole beside its filter where none does.
+ */
+export const servingOf =
+	(set: IndexSet, installedAs: (relation: string) => string): IndexServing =>
+	(request) => {
+		const landing = landingIn(set, installedAs, request)
+		return landing.kind === "served" ? landing.index : undefined
+	}
+
+/**
+ * The resolver of `set` (IndexSet): the index each request lands on (`landingIn`), as `servingOf` finds it, every
+ * request one an index serves. A request no index of `set` serves is a missed index, the asker's internal compiler
+ * error, never an index guessed.
+ */
+export const resolverOf =
+	(set: IndexSet, installedAs: (relation: string) => string): IndexResolver =>
+	(request) => {
+		const landing = landingIn(set, installedAs, request)
+		return landing.kind === "served"
+			? landing.index
+			: defect(`a missed index: the ${landing.label} is served by no index ${landing.why}`)
+	}
 
 /** The requests the draft of the index created for the unserved `plan[at]` reads ahead (see `planIndexes`): the later
  * requests of its relation no planned index serves yet, those of its own access method first. */

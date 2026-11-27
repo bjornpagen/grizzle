@@ -341,7 +341,8 @@ const abandonedLoss = (statement: string): DraftedStep => ({
 
 /** A draft's files as generate drafts them, every statement by its text: statements spelt each apart from every other,
  * one holding a placeholder, a confirmed group of two, and in Setup the loss of an abandoned schema's rows where the
- * draft starts its schema beside one. */
+ * draft starts its schema beside one; the first file's transaction under no advice, the second's under advice of its
+ * data steps' plans. */
 const draftedOf = (lossDrawn: boolean): ReadonlyArray<DraftedFile> => {
 	let n = 0
 	const fresh = (verb: string): string => {
@@ -356,7 +357,8 @@ const draftedOf = (lossDrawn: boolean): ReadonlyArray<DraftedFile> => {
 				{ kind: "statement", statement: fresh("ADD COLUMN") },
 				{ kind: "statement", statement: fresh(`ALTER COLUMN "a" SET DEFAULT ${placeholderToken}`) }
 			],
-			locks: 1
+			locks: 1,
+			advice: ""
 		},
 		{
 			name: fileNames[1],
@@ -364,7 +366,8 @@ const draftedOf = (lossDrawn: boolean): ReadonlyArray<DraftedFile> => {
 				{ kind: "statement", statement: fresh("OWNER") },
 				{ kind: "confirm", statements: [fresh("RENAME ASIDE"), fresh("RENAME ASIDE")] }
 			],
-			locks: 1
+			locks: 1,
+			advice: "SEQ_SCAN(r1)"
 		}
 	]
 }

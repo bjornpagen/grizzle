@@ -19,6 +19,8 @@ import {
 	type ReadMeta,
 	resolveVariables,
 	splitStatements,
+	type StatedAdvice,
+	statedAdvice,
 	type Token
 } from "#compiler/plan/migration.ts"
 import type { DeploySnapshot } from "#compiler/plan/serve.ts"
@@ -107,6 +109,11 @@ export interface ParsedFile {
 	/** The file's statements, each as reviewed with its variables filled: the one SQL grizzle sends that its printer did
 	 * not print. */
 	readonly statements: ReadonlyArray<MigrationText>
+	/** The plan advice its transaction runs under, statement by statement, as its folder's meta.json states it
+	 * (deploy/render/folder.ts statedAdvice): its data steps' plans joined over each recorded statement, none over a
+	 * reviewer's between them; none at all for a file of no data step, one whose recorded statements no longer all
+	 * stand, and a custom migration's. */
+	readonly advice: StatedAdvice
 }
 
 export interface ParsedFolder {
@@ -260,7 +267,8 @@ export const parseTarget = (
 				text,
 				digest: sha256ChunksHex(text),
 				noTransaction: isNoTransaction(new ChunkView(text)),
-				statements
+				statements,
+				advice: statedAdvice(meta.success, { name, text })
 			})
 		}
 		folders.push({

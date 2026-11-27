@@ -43,6 +43,7 @@ import {
 	parseMigrationName,
 	provedRecord,
 	recordsAsWritten,
+	statedAdvice,
 	statedLocks,
 	writeMeta
 } from "#compiler/deploy/render/folder.ts"
@@ -454,6 +455,32 @@ export const generateProvesADraftsRecordRefusingADecisionWrittenAsAnotherStateme
 						const written = { name: f.name, text: chunked(writtenText(f)) }
 						assert.ok(recordsAsWritten(read, written), `${f.name} is recorded as written`)
 						assert.equal(statedLocks(read, written), f.locks, `${f.name}'s locks`)
+						const statements = splitStatements(new ChunkView(written.text))
+						assert.deepEqual(
+							statedAdvice(read, written),
+							{ advice: f.advice, reviewed: Arr.map(statements, () => false) },
+							`${f.name}'s advice, as written, over each of its statements`
+						)
+						const reviewed = { name: f.name, text: chunked(`SELECT 1;\n${writtenText(f)}`) }
+						assert.deepEqual(
+							statedAdvice(read, reviewed),
+							{ advice: f.advice, reviewed: [true, ...Arr.map(statements, () => false)] },
+							`${f.name} with a reviewer's statement before its own keeps its advice over its own, none over the reviewer's`
+						)
+						const reordered = {
+							name: f.name,
+							text: chunked(
+								Arr.join(
+									Arr.map(Arr.reverse(statements), (x) => `${x};`),
+									"\n"
+								)
+							)
+						}
+						assert.deepEqual(
+							statedAdvice(read, reordered),
+							{ advice: "", reviewed: Arr.map(statements, () => false) },
+							`${f.name} with its recorded statements out of their order runs under no advice`
+						)
 					}
 					c.note("a record proved, each statement by its digest")
 					if (Arr.some(recorded, (f) => Arr.some(f.steps, (s) => s.kind === "statement"))) {
@@ -471,6 +498,13 @@ export const generateProvesADraftsRecordRefusingADecisionWrittenAsAnotherStateme
 				original: "\t\tconst fault = indistinct(spelled)",
 				replacement: "\t\tconst fault = undefined",
 				why: "generate records a draft whose decision is written as another drafted statement, which no reader proves again, so a review cannot tell the two apart (lane META8)."
+			},
+			{
+				file: "packages/engine/src/deploy/render/folder.ts",
+				original: "\t\tconst d = drafted[next]\n",
+				replacement:
+					"\t\tconst d = drafted.find((x) => writtenAsRecorded(x, statementTokens(w)))\n",
+				why: "A file's recorded statements are matched in any order, so a file whose statements a reviewer moved keeps its advice, and its transaction runs under plans proved of statements in another order."
 			},
 			{
 				file: "packages/engine/src/deploy/render/folder.ts",

@@ -205,7 +205,8 @@ export const folderOf = (texts: ReadonlyArray<string>): ReadonlyArray<DraftedFil
 	{
 		name: "04-validate.sql",
 		steps: Arr.map(texts, (statement) => ({ kind: "statement" as const, statement })),
-		locks: 0
+		locks: 0,
+		advice: ""
 	}
 ]
 

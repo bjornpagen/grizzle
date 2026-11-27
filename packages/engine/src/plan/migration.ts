@@ -67,6 +67,8 @@ export {
 	parseMigrationName,
 	readDecodedMeta,
 	type ReadMeta,
+	type StatedAdvice,
+	statedAdvice,
 	statedLocks,
 	timestampParts,
 	timestampText
