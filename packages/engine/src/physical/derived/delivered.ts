@@ -153,7 +153,6 @@ class Delivered {
 			case "least":
 			case "coalesce":
 			case "call":
-			case "mergeAction":
 			case "domainValue":
 			case "user":
 			case "plVar":

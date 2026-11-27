@@ -9,27 +9,18 @@ import {
 import type { StoredRelationName } from "#compiler/core/ids.ts"
 import { factNe, typedEq } from "#compiler/ir/compare.ts"
 import { fieldNames, type LawField } from "#compiler/ir/law.ts"
-import { either, type Needs } from "#compiler/ir/needs.ts"
+import type { Needs } from "#compiler/ir/needs.ts"
 import type { StatementRole } from "#compiler/ir/products.ts"
 import type { KeySet } from "#compiler/ir/rel.ts"
-import {
-	type ColumnMap,
-	emptyEnv,
-	extendEnv,
-	WriteParams
-} from "#compiler/lower/conservative/context.ts"
-import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
+import { WriteParams } from "#compiler/lower/conservative/context.ts"
 import type { WriteParamSlot } from "#compiler/lower/conservative/types.ts"
-import { textItself } from "#compiler/lower/delivery.ts"
 import { namesOrUnit } from "#compiler/runtime/lower/tree.ts"
-import { wildcardText } from "#compiler/scalar/compute/types.ts"
 import type {
 	Assignment,
 	Cte,
 	EmittedSql,
 	Expr,
 	Insert,
-	Merge,
 	Select,
 	SetCore,
 	StatementText,
@@ -43,10 +34,8 @@ import {
 	col,
 	cte,
 	cteRef,
-	eq,
 	join,
 	lit,
-	ne,
 	provedCore,
 	provedSelect,
 	select,
@@ -92,7 +81,6 @@ import {
 import { buildProbe, probeArms } from "#compiler/write/insert/unique.ts"
 import { joinedAtKey } from "#compiler/write/probe.ts"
 import type { InPlace, KeyArbiter } from "#compiler/write/put/choose.ts"
-import type { MergeScope } from "#compiler/write/put/proof.ts"
 import { type RefusalArm, refusalGuard, refusalRank } from "#compiler/write/refusal.ts"
 
 /** What the rows of a put statement that updates in place mean. A refusal is never a row: a same-key pair within the
@@ -114,22 +102,13 @@ export type PutResult =
 			readonly key: KeySet
 			readonly old: number
 	  }
-	| {
-			readonly kind: "merge"
-			readonly relation: StoredRelationName
-			readonly columns: ReadonlyArray<ResultColumn>
-			readonly action: number
-			readonly fields: ReadonlyArray<string>
-			readonly first: number
-			readonly key: KeySet
-	  }
 
 /** One put statement, in the shape of `WriteStatement`.
  *
  * The put statements that update in place, on a mutable relation.
  *
  * The DELETE-then-insert pair is the displacing deletion (delete/) followed by the insert protocol as the put's insert
- * half (insert/); this module builds the three targets that replace the pair on a mutable relation. Each is one
+ * half (insert/); this module builds the two targets that replace the pair on a mutable relation. Each is one
  * statement in the write chain's form, the input CTE then the data-modifying CTE then an outer SELECT that casts every
  * column to its result text, and each returns complete facts, so the outcome's
  * deltas and counts are read and netted by fact identity:
@@ -158,25 +137,11 @@ export type PutResult =
  *            WHERE "r3"."k" = "r1"."c1" AND ("r3"."p", ...) <> ("r1"."c2", ...) [AND NOT EXISTS (SELECT 1 FROM "r4")]
  *            RETURNING new."k" AS ..., new."p" AS ..., old."k" AS ..., old."p" AS ...)
  *
- * - MERGE, a put with the deletion of absent keys under a proved scope (`mergeScopeProof`):
- *
- *     r2 AS (MERGE INTO "s"."t" AS "r3" USING "r1" ON "r3"."k" = "r1"."c1"
- *            WHEN MATCHED AND (payload differs) [AND NOT EXISTS r4] THEN UPDATE SET "p" = "r1"."c2", ...
- *            WHEN NOT MATCHED [AND NOT EXISTS r4] THEN INSERT (k..., p...) VALUES (...)
- *            WHEN NOT MATCHED BY SOURCE AND <scope over r3> [AND NOT EXISTS r4] THEN DELETE
- *            RETURNING merge_action() AS ..., "r3"."k" AS ..., "r3"."p" AS ...)
- *
- *   A MERGE's RETURNING names the target's columns, which are the new row for an INSERT or UPDATE and the old row for a
- *   DELETE, never a source column, which a NOT MATCHED BY SOURCE row lacks. An INSERT or UPDATE row is a
- *   fact the put made present; a DELETE row is a fact the deletion member requested, counted as deleted. It is sent
- *   wherever either action's rows may exist, its put input's facts or the deletion's (MergeScope `deleted`): a put of
- *   no fact still deletes its scope's every row, as the pair it stands for does.
- *
  * No UPDATE assigns a key: the key is the arbiter and the match.
  *
- * The UPDATE and the MERGE report a same-key pair within their input as the insert protocol does: the statement changes
- * nothing, and the outer SELECT's second arm returns the input's facts at that key with the marker c9 true, the key
- * law, never an abort. */
+ * The UPDATE reports a same-key pair within its input as the insert protocol does: the statement changes nothing, and
+ * the outer SELECT's second arm returns the input's facts at that key with the marker c9 true, the key law, never an
+ * abort. */
 export interface PutStatement<T extends StatementText = EmittedSql> {
 	readonly role: StatementRole
 	readonly ast: WithSelect
@@ -626,172 +591,6 @@ export const buildUpdateFrom = <T extends StatementText>(
 			ctes,
 			{ body, columns: [...fresh.columns, ...old.columns, c9] },
 			(rv) => [sameKeyRefusal(spec, rv, c9, fresh.of)],
-			text
-		)
-		return { ast, result, ...shared }
-	})
-}
-
-/** A MERGE's spec: also the primary key compared for equality that it matches on, and the scope of the deletion it
- * absorbs. */
-interface MergeSpec extends PutSpec {
-	readonly arbiter: KeyArbiter
-	readonly scope: MergeScope
-}
-
-/** The scope predicate over the MERGE target's columns (`MergeScope`). */
-const scopePredicate = (w: WriteContext, spec: MergeSpec, r3: string): Expr | undefined => {
-	const { relation, scope } = spec
-	const map: Map<string, Expr> = new Map()
-	for (const [column, field] of scope.fieldOf) {
-		map.set(column, col(r3, w.names.column(relation.name, field)))
-	}
-	const columns: ColumnMap = map
-	const env = extendEnv(
-		emptyEnv,
-		scope.nodes.map((n) => [n, columns] as const)
-	)
-	/** The proof binds each constant to a column of the relation's own occurrence, a Base of the relation
-	 * (`scopedFacts`), so each is a field of the relation. */
-	const parts: Array<Expr> = [
-		...scope.predicates.map((p) => lowerExpr(w.cx, p, env)),
-		...scope.constants.map((c) =>
-			w.cx.equal(
-				c.expr.pgType,
-				col(r3, w.names.column(relation.name, c.field)),
-				lowerExpr(w.cx, c.expr, env)
-			)
-		)
-	]
-	return isNonEmpty(parts) ? and(parts) : undefined
-}
-
-/** MERGE INTO r USING (input) ON key WHEN MATCHED AND differs THEN UPDATE WHEN NOT MATCHED THEN INSERT WHEN NOT
- * MATCHED BY SOURCE AND <scope> THEN DELETE RETURNING merge_action(), <fact>. */
-export const buildMerge = <T extends StatementText>(
-	w: StatementWriting<T>,
-	spec: MergeSpec
-): PutStatement<T> => {
-	const { relation, input } = spec
-	const at = `put merge ${relation.name}`
-	return buildPut(w, (supply) => {
-		const head = putHead(w, spec, supply, at)
-		const { all, written, pk, payload, r1, r2, r3, r4, inCol, ctes, gate, column } = head
-		const actionCol = supply.column(internal("merge action"))
-		const returned = fieldColumns(all, () => supply.column(internal("returned column")))
-		const c9 = r4 === undefined ? undefined : supply.column(internal("same-key marker"))
-		const gatedBy = (condition: Expr): Expr =>
-			gate === undefined ? condition : and([condition, gate])
-		const gated = (condition: Expr | undefined): Expr | undefined =>
-			condition === undefined ? gate : gatedBy(condition)
-		const scope = scopePredicate(w, spec, r3)
-		const notMatched = gated(undefined)
-		const bySource = gated(scope)
-		const merge: Merge = {
-			kind: "merge",
-			table: w.names.relation(relation.name),
-			alias: r3,
-			using: cteRef(r1),
-			on: and(mapNonEmpty(pk, (f) => typedEq(f.type, col(r3, column(f)), inCol(f), w.names))),
-			whens: [
-				{
-					match: "MATCHED",
-					condition: gatedBy(
-						factNe(
-							{
-								fields: payload,
-								typeOf: (f) => f.type,
-								left: (f) => col(r3, column(f)),
-								right: inCol
-							},
-							w.names
-						)
-					),
-					action: {
-						kind: "update",
-						set: assignments(
-							w.generation(relation.name),
-							r3,
-							mapNonEmpty(payload, (f) => ({ column: column(f), value: inCol(f) }))
-						)
-					}
-				},
-				{
-					match: "NOT MATCHED",
-					condition: notMatched,
-					action: {
-						kind: "insert",
-						row: mapNonEmpty(written, (f) => ({ column: column(f), value: inCol(f) }))
-					}
-				},
-				{
-					match: "NOT MATCHED BY SOURCE",
-					condition: bySource,
-					action: { kind: "delete" }
-				}
-			],
-			returning: [
-				targetAs({ kind: "mergeAction" }, actionCol),
-				...returned.pairs.map((p) => targetAs(col(r3, column(p.field)), p.column))
-			],
-			with: undefined
-		}
-		ctes.push(cte(r2, merge))
-		const text = (alias: string): ReadonlyArray<ReturnedColumn> => [
-			{ expr: col(alias, actionCol), delivered: textItself, alias: actionCol },
-			...returned.pairs.map((p) => returnedColumn(col(alias, p.column), rowType(p.field), p.column))
-		]
-		const result: PutResult = {
-			kind: "merge",
-			relation: relation.name,
-			columns: [{ name: "action", type: wildcardText }, ...factColumns(all)],
-			action: 0,
-			fields: fieldNames(all),
-			first: 1,
-			key: fieldNames(pk)
-		}
-		const deleted = lit.text("DELETE", types.text)
-		const shared = {
-			/** Its rows: its put input's facts, inserted or updated, and the scope's rows its NOT MATCHED BY SOURCE
-			 * action deletes, which need no fact of the put input (MergeScope `deleted`). */
-			needs: either([inputNeeds(input), spec.scope.deleted]),
-			returning: {
-				cte: r2,
-				kind: "both",
-				added: { columns: returned, conditions: [ne(col(r2, actionCol), deleted)] },
-				removed: { columns: returned, conditions: [eq(col(r2, actionCol), deleted)] }
-			}
-		} as const
-		if (c9 === undefined || r4 === undefined) {
-			return {
-				ast: {
-					...returnedRows("keyed", text(r2), [cteRef(r2)], undefined),
-					with: { ctes, recursive: false }
-				},
-				result,
-				...shared
-			}
-		}
-		/** The verdict rows: every fact the MERGE changed with its action, then the same-key pair. */
-		const body: Select["body"] = unionAll("disjoint", [
-			provedCore(
-				"keyed",
-				[
-					targetAs(col(r2, actionCol), actionCol),
-					...returned.columns.map((c) => targetAs(col(r2, c), c)),
-					targetAs(lit.bool(false), c9)
-				],
-				[cteRef(r2)],
-				undefined
-			),
-			sameKeyArm(w, head, r4, [target(lit.text("INSERT", types.text))], [returned])
-		])
-		const ast = guardedPut(
-			w,
-			supply,
-			ctes,
-			{ body, columns: [actionCol, ...returned.columns, c9] },
-			(rv) => [sameKeyRefusal(spec, rv, c9, returned.of)],
 			text
 		)
 		return { ast, result, ...shared }

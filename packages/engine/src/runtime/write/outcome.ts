@@ -118,8 +118,7 @@ type ChangesConverter = (row: ReadonlyArray<OutputText>) => ReadonlyArray<RowCha
 
 /** The changes of one write statement's rows, converted as its StatementSpec converts them, by its result
  * (`changeTags`): an insert's rows are facts its action made present, a deletion's facts made absent; an upsert's rows
- * are a put's facts, an update's each a put's fact and the occupant it displaced, a MERGE's a put's fact or a fact its
- * absorbed deletion removed. */
+ * are a put's facts, an update's each a put's fact and the occupant it displaced. */
 const changesConverter = (result: WriteStepResult, codes: Codebook): ChangesConverter => {
 	switch (result.kind) {
 		case "insert": {
@@ -132,8 +131,7 @@ const changesConverter = (result: WriteStepResult, codes: Codebook): ChangesConv
 			return (row) => [{ tag, fact: convert(row).fact }]
 		}
 		case "upsert":
-		case "update":
-		case "merge": {
+		case "update": {
 			const convert = putRowConverter(result, codes)
 			return (row): ReadonlyArray<RowChange> => {
 				const r = convert(row)
@@ -145,8 +143,6 @@ const changesConverter = (result: WriteStepResult, codes: Codebook): ChangesConv
 							{ tag: "displaced", fact: r.old },
 							{ tag: "put", fact: r.fact }
 						]
-					case "removed":
-						return [{ tag: "delete", fact: r.fact }]
 				}
 			}
 		}

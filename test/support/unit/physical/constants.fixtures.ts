@@ -477,7 +477,6 @@ const evaluate = (e: Expr, value: HostValue, constants: Constants, schema: strin
 		case "greatest":
 		case "least":
 		case "coalesce":
-		case "mergeAction":
 		case "plSpecial":
 		case "field":
 		case "complement":

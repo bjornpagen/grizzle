@@ -260,7 +260,6 @@ class Rewriter {
 			case "inList":
 			case "least":
 			case "literal":
-			case "mergeAction":
 			case "param":
 			case "clock":
 			case "plSpecial":
@@ -367,7 +366,6 @@ export const readsAlias = (e: Expr, alias: string): boolean => {
 		case "excluded":
 		case "field":
 		case "literal":
-		case "mergeAction":
 		case "param":
 		case "clock":
 		case "plSpecial":

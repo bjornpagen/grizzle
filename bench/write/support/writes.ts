@@ -340,7 +340,6 @@ const writeText = (relation: string, result: WriteStepResult): string => {
 			return result.mode === "exact" ? `delete ${relation}` : `delete ${relation} (displacing)`
 		case "upsert":
 		case "update":
-		case "merge":
 			return `${result.kind} ${relation}`
 	}
 }
@@ -397,9 +396,9 @@ export const writesOf = (
 		return Arr.filter(writes, (w) => w.relation === relation)
 	})
 
-/** Whether a write updates its relation in place: an UPDATE, an upsert or a MERGE. */
+/** Whether a write updates its relation in place: an UPDATE or an upsert. */
 const updatesInPlace = (write: WriteLabel): boolean =>
-	write.result.kind === "update" || write.result.kind === "upsert" || write.result.kind === "merge"
+	write.result.kind === "update" || write.result.kind === "upsert"
 
 /** A put realized in place: the relation's one write, which updates in place. */
 export const writtenInPlace = (writes: ReadonlyArray<WriteLabel>): boolean => {

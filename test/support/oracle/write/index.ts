@@ -119,7 +119,6 @@ export const writeSituations = [
 	"put target deleteThenInsert",
 	"put target onConflictDoUpdate",
 	"put target updateFrom",
-	"put target merge",
 	"outcome accepted",
 	"outcome no-change",
 	"outcome invariant-rejected",

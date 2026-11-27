@@ -164,7 +164,7 @@ export type WBinding = "passed" | "bound" | "bound as streams"
  * - a parameter member: the facts of a relation parameter of the target's heading, a described member that reads no
  *   stored relation;
  * - the reread pair: a put of a relation parameter beside a deletion of every fact of the relation within a scope
- *   whose key is not in that parameter, the shape a MERGE realizes on a mutable relation;
+ *   whose key is not in that parameter, a scoped replace on a mutable relation;
  * - a top member, planted only: the first k facts by key of a relation, per value of one of its columns that a
  *   relation parameter names, a take bound to the parameter's rows, whose statement chooses its form by the
  *   parameter's distinct fact count;
@@ -268,11 +268,11 @@ interface ReadSketch {
  * - "projected key taken": the stored facts hold a flagged fact selected at b, and the change adds a second selected
  *   at the same b, refused by the projected key;
  * - "scoped merge": a put of a relation parameter beside the deletion of every fact of the mutable relation in a scope
- *   whose key is not in that parameter, which the compiler realizes as one MERGE; the stored facts hold a fact the put
- *   changes and one the deletion removes, and the put adds a fact at a key none holds, which only the MERGE's WHEN NOT
- *   MATCHED inserts;
- * - "toast repeat": the same MERGE putting a stored fact holding a TOAST-sized text, exactly as stored, beside the
- *   deletion of a scope no fact holds, which changes nothing;
+ *   whose key is not in that parameter, a scoped replace, which the compiler realizes as the scope's deletion and the
+ *   put's pair; the stored facts hold a fact the put changes and one the deletion removes, and the put adds a fact at a
+ *   key none holds;
+ * - "toast repeat": the same scoped replace putting a stored fact holding a TOAST-sized text, exactly as stored, beside
+ *   the deletion of a scope no fact holds, which changes nothing;
  * - "toast change": an enumerated put on the mutable relation alone, an ON CONFLICT DO UPDATE, of a stored fact's key
  *   with the TOAST-sized text that differs from the stored one in its last code point alone, which changes it;
  * - "described put": a put on the mutable relation of its own facts at one b, their keys kept and their text a
@@ -359,7 +359,7 @@ export interface ChangeSetSketch {
 
 /**
  * The features a ChangeSet's swarm turns on, off or thins: each kind of member source beyond an enumerated array, more
- * than one stratum, read-backs, the MERGE near misses of the reread pair, a projection's parameter
+ * than one stratum, read-backs, the near misses of the reread pair, a projection's parameter
  * spelling a text longer than its field's domain admits, Stream members and parameters, ChangeSet.bind, db.compile,
  * and field-equality deletions.
  */
@@ -718,9 +718,9 @@ export const plantedChangeSet = (group: WGroup, arm: PlantedArm): WChangeSet => 
 	): WChangeSet => sequenced([members], reads, params)
 	/**
 	 * A put of the relation parameter rp0 on the mutable relation beside the deletion of its facts whose b is p1 and whose
-	 * key rp0 does not hold: one MERGE.
+	 * key rp0 does not hold: a scoped replace.
 	 */
-	const scopedMerge = (put: ReadonlyArray<Fact>, scope: number): WChangeSet =>
+	const scopedReplace = (put: ReadonlyArray<Fact>, scope: number): WChangeSet =>
 		changeSet(
 			[
 				fromParam("put", p.merged, "rp0"),
@@ -787,7 +787,7 @@ export const plantedChangeSet = (group: WGroup, arm: PlantedArm): WChangeSet => 
 				{}
 			)
 		case "scoped merge":
-			return scopedMerge(
+			return scopedReplace(
 				[
 					{ a: armKey, b: armKey, c: "x" },
 					{ a: thirdKey, b: armKey, c: "y" }
@@ -795,7 +795,7 @@ export const plantedChangeSet = (group: WGroup, arm: PlantedArm): WChangeSet => 
 				armKey
 			)
 		case "toast repeat":
-			return scopedMerge([{ a: armKey, b: armKey, c: planted.toastSized }], otherKey)
+			return scopedReplace([{ a: armKey, b: armKey, c: planted.toastSized }], otherKey)
 		case "toast change":
 			return changeSet(
 				[enumerated("put", p.merged, [{ a: armKey, b: armKey, c: planted.toastAfter }])],
@@ -1188,10 +1188,9 @@ export const resolveChangeSet =
 						param: scalar(at(typeInfo[scopeColumn.kind].values, m.filter.value))
 					}
 					/**
-					 * A near miss of the MERGE proof (a deletion that is exactly "every fact of r in a scope whose key is not in
-					 * the put input", and nothing else added to r), which must be realized by separate statements, or by a
-					 * MERGE only where it still means the same: the deletion excludes the keys of another relation parameter
-					 * (its facts reversed, the last dropped), or the stratum adds a further fact to r beside the put.
+					 * A near miss of the reread pair (a deletion that is exactly "every fact of r in a scope whose key is not in
+					 * the put input", and nothing else added to r): the deletion excludes the keys of another relation
+					 * parameter (its facts reversed, the last dropped), or the stratum adds a further fact to r beside the put.
 					 */
 					const miss = kept("nearMisses") ? m.op : 0
 					const other =

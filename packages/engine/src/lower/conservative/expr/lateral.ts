@@ -195,7 +195,6 @@ class CoreBinder {
 			case "literal":
 			case "exists":
 			case "array":
-			case "mergeAction":
 			case "domainValue":
 			case "user":
 			case "plVar":

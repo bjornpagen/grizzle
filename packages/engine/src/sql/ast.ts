@@ -681,7 +681,6 @@ export type Expr =
 			readonly kind: "coalesce"
 			readonly args: NonEmptyReadonlyArray<Expr>
 	  }
-	| { readonly kind: "mergeAction" }
 	| { readonly kind: "domainValue" }
 	| User
 	| PlRecord
@@ -1624,7 +1623,6 @@ export interface Merge {
 	readonly using: FromItem
 	readonly on: Expr
 	readonly whens: NonEmptyReadonlyArray<MergeWhen>
-	/** May name merge_action(). */
 	readonly returning: ReadonlyArray<Target>
 }
 

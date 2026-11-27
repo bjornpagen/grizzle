@@ -198,9 +198,6 @@ export const expectedOf = (uniques: Uniques, form: Form): Choice => {
 	}
 	switch (form) {
 		case "replace":
-			return uniques === "key(c)"
-				? { target: "deleteThenInsert", reason: "mergeUnique" }
-				: { target: "merge", reason: "scopedMerge" }
 		case "replace beside an insert":
 		case "own facts beside a deletion":
 			return { target: "deleteThenInsert", reason: "unproved" }

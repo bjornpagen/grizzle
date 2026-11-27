@@ -404,7 +404,8 @@ const resolveGroup =
  * - `flagged(a int4, b int4, c bool)`, of which at most one fact whose c is true per value of b: a projected key, a
  *   UNIQUE over its selected side;
  * - `merged(a int4, b int4, c memo)`, whose payload b is a deletion's scope and c an unbounded text, so a
- *   put on it beside a scoped deletion is a MERGE, an enumerated one alone an ON CONFLICT DO UPDATE, and a described
+ *   put on it beside a scoped deletion is the deletion and the put's pair, an enumerated one alone an ON CONFLICT DO
+ *   UPDATE, and a described
  *   one reading its own keys an UPDATE ... FROM;
  * - `wide(a int4, b text6)` and `narrow(a int4, b text, c text)`, a described member reading the wide text into both
  *   narrow fields, which the narrow text's one domain types;

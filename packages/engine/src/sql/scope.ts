@@ -452,7 +452,6 @@ class ScopeWalk {
 			case "returning":
 			case "param":
 			case "literal":
-			case "mergeAction":
 			case "domainValue":
 			case "user":
 			case "plSpecial":

@@ -52,7 +52,7 @@ export const deliveredColumn = (type: ScalarType): DeliveredColumn =>
 /** A column whose value is a text already, a fused attachment's array: its result text is itself cast to text. */
 export const textColumn: DeliveredColumn = Object.freeze({ kind: "text", casts: ["text"] as const })
 
-/** A column whose value is its own result text, a MERGE's merge_action(): no cast. */
+/** A column whose value is its own result text, a bytes value's hexadecimal digest: no cast. */
 export const textItself: TextDelivered = Object.freeze({ kind: "text", casts: [] as const })
 
 /** The cell kind a delivered column's cell travels as. */

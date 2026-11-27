@@ -351,8 +351,34 @@ const distinctConjuncts = (conjuncts: ReadonlyArray<Expr>): ReadonlyArray<Expr> 
 	})
 }
 
+/**
+ * The equalities a builtin equality of two rows of one arity is, as PostgreSQL's parser reads it (parse_expr.c
+ * make_row_comparison_op): `(a, b) = (c, d)` is `a = c AND b = d`, true, false or null alike, so each pair a conjunct
+ * of its own, which a read binds by; none for any other expression.
+ */
+const rowEqualities = (e: Expr): ReadonlyArray<Expr> | undefined => {
+	if (
+		e.kind !== "binary" ||
+		e.op !== "=" ||
+		e.schema !== undefined ||
+		e.left.kind !== "row" ||
+		e.right.kind !== "row" ||
+		e.left.items.length !== e.right.items.length
+	) {
+		return undefined
+	}
+	const right = e.right.items
+	return e.left.items.map((l, i) =>
+		eq(l, right[i] ?? defect("a row's item at each place of the row it equals"))
+	)
+}
+
 const conjunctsIn = (e: Expr | undefined): ReadonlyArray<Expr> =>
-	e === undefined ? [] : e.kind === "and" ? e.args.flatMap(conjunctsIn) : [asRead(e)]
+	e === undefined
+		? []
+		: e.kind === "and"
+			? e.args.flatMap(conjunctsIn)
+			: (rowEqualities(e)?.flatMap(conjunctsIn) ?? [asRead(e)])
 
 /**
  * The conjuncts of a condition, each AND's arguments in turn, each as PostgreSQL reads it (`asRead`), each once
@@ -942,17 +968,17 @@ const zeroOffset = (e: Expr | undefined): boolean =>
  * 7 bound it, and Span's 24 where 8 did, growing with the unit). None where no projection folds.
  */
 const takenThrough = (
-	core: SelectCore,
+	taken: SelectCore,
 	orderBy: ReadonlyArray<OrderItem>
 ): { readonly core: SelectCore; readonly orderBy: ReadonlyArray<OrderItem> } | undefined => {
-	const [source, ...more] = core.from
+	const [source, ...more] = taken.from
 	if (
 		source?.kind !== "derived" ||
 		source.lateral ||
 		more.length > 0 ||
-		core.groupBy.length > 0 ||
-		core.having !== undefined ||
-		core.distinct !== false
+		taken.groupBy.length > 0 ||
+		taken.having !== undefined ||
+		taken.distinct !== false
 	) {
 		return undefined
 	}
@@ -977,7 +1003,7 @@ const takenThrough = (
 	const alias = source.alias
 	/** `e` with each column of the projection read as the target that delivers it; none where one delivers none. */
 	const through = (e: Expr): Expr | undefined => {
-		let read = true
+		const missing = new Set<string>()
 		const out = new (class extends Transform {
 			override readonly expr = (x: Expr): Expr => {
 				if (x.kind !== "column" || x.table !== alias) {
@@ -985,16 +1011,16 @@ const takenThrough = (
 				}
 				const to = columns.get(x.column)
 				if (to === undefined) {
-					read = false
+					missing.add(x.column)
 					return x
 				}
 				return to
 			}
 		})(identityHooks).expr(e)
-		return read ? out : undefined
+		return missing.size === 0 ? out : undefined
 	}
 	const targets: Array<Target> = []
-	for (const t of core.targets) {
+	for (const t of taken.targets) {
 		const expr = through(t.expr)
 		if (expr === undefined) {
 			return undefined
@@ -1014,8 +1040,8 @@ const takenThrough = (
 		}
 		ordered.push({ ...o, expr })
 	}
-	const where = core.where === undefined ? undefined : through(core.where)
-	if (core.where !== undefined && where === undefined) {
+	const where = taken.where === undefined ? undefined : through(taken.where)
+	if (taken.where !== undefined && where === undefined) {
 		return undefined
 	}
 	const folded: SelectCore = {
@@ -2580,10 +2606,9 @@ class Binder {
 	 * SOURCE), so it stays as it was written: no conjunct of it binds a read or moves, and the target is never read
 	 * through an inner join with the source, which would drop every source row that matches no target row before its
 	 * WHEN NOT MATCHED could insert it. Its target is read whole, first, and its source, the level's one other item,
-	 * bound with no conjunct of the ON, is joined to it by a hash. Every MERGE grizzle sends of a stored table has a
-	 * WHEN NOT MATCHED BY SOURCE (a scoped put's absorbed deletion, write/put/statement.ts buildMerge; a data step's
-	 * refill, physical/ddl/recheck.ts), which PostgreSQL plans as a FULL join, reading every row of the target whatever
-	 * reads it, so that is its plan. A keyed MERGE of a stored table without one joins its target to its source alone,
+	 * bound with no conjunct of the ON, is joined to it by a hash. The one MERGE grizzle sends, a data step's refill
+	 * (physical/ddl/recheck.ts), has a WHEN NOT MATCHED BY SOURCE, which PostgreSQL plans as a FULL join, reading every
+	 * row of the target whatever reads it, so that is its plan. A keyed MERGE of a stored table without one joins its target to its source alone,
 	 * which an outer probe of it at the ON's key would read at the tuple id it finds; no MERGE needs that form, so none
 	 * is bound: it is an internal compiler error, never a whole read where a probe stands.
 	 */

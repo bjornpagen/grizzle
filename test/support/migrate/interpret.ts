@@ -1100,7 +1100,6 @@ const evaluate = (e: Expr, scope: Scope): SqlValue => {
 		case "inQuery":
 		case "equalsAny":
 		case "least":
-		case "mergeAction":
 		case "param":
 		case "plSpecial":
 		case "plVar":
@@ -1173,7 +1172,6 @@ const callsAggregate = (e: Expr): boolean => {
 		case "exists":
 		case "field":
 		case "literal":
-		case "mergeAction":
 		case "param":
 		case "clock":
 		case "plSpecial":

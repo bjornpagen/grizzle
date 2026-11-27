@@ -59,7 +59,6 @@ import {
 	type InPlace,
 	type KeyArbiter
 } from "#compiler/write/put/choose.ts"
-import type { MergeScope } from "#compiler/write/put/proof.ts"
 import { deltaTarget } from "#compiler/write/readback/deltas.ts"
 
 /** An action a planned statement realizes: its stratum, its position among the stratum's actions
@@ -99,8 +98,7 @@ type Claimed = Extract<ClaimsCheck, { readonly kind: "claimed" }>
  * or a put's insert half, an exact deletion with the stratum's additions it excepts (D EXCEPT A), a deletion whose
  * member is anchored on an occurrence of its relation with the anchor, a put's displacing deletion over the relation's
  * payload and its insert half, and the in-place puts with what their choice proved (an upsert reads its slot's
- * relation input, a MERGE carries the scope it was proved over); the deletion a MERGE absorbs has no statement of its
- * own. */
+ * relation input). */
 type WriteOpStep =
 	| { readonly op: "insert"; readonly stamps: ReadonlyArray<Stamped> }
 	| { readonly op: "exactDelete"; readonly except: ReadonlyArray<WriteInput> }
@@ -114,12 +112,6 @@ type WriteOpStep =
 			readonly arbiter: KeyArbiter
 	  }
 	| { readonly op: "updateFrom"; readonly inPlace: InPlace }
-	| {
-			readonly op: "merge"
-			readonly inPlace: InPlace
-			readonly arbiter: KeyArbiter
-			readonly scope: MergeScope
-	  }
 
 /** A write action's statement in a stratum. */
 export type PlannedWrite = {
@@ -334,7 +326,6 @@ const plannedWrite = (
 		case "displace":
 		case "upsert":
 		case "updateFrom":
-		case "merge":
 			return { kind: "write", ...at, ...step }
 	}
 }
@@ -361,7 +352,6 @@ const statementStep = (
 		case "displace":
 		case "upsert":
 		case "updateFrom":
-		case "merge":
 			return plannedWrite(draft, step, input, except)
 	}
 }
@@ -498,11 +488,6 @@ const putOps = (put: Extract<ChosenAction, { readonly op: "put" }>): ReadonlyArr
 					? []
 					: [{ op: "updateFrom", inPlace: choice.inPlace } as const]),
 				{ op: "putInsert" }
-			]
-		case "merge":
-			return [
-				...claimedPrecheckOf(put),
-				{ op: "merge", inPlace: choice.inPlace, arbiter: choice.arbiter, scope: choice.merge.scope }
 			]
 	}
 }
@@ -846,7 +831,7 @@ interface ReadBackPlacement {
 /** The sides of its relation's delta a write's statement makes, by the rows it returns (write/program/artifact.ts
  * changeTags): an insertion's, a put's insert half's and an upsert's the facts they made present, an arbitrated
  * insertion's also the stored facts it met (insert/protocol.ts writesMet), a deletion's and a put's displacing
- * deletion's those they made absent, an update's and a MERGE's the facts made present and absent. */
+ * deletion's those they made absent, an update's the facts made present and absent. */
 const opSides = (write: PlannedWrite): ReadonlyArray<DeltaSide> => {
 	switch (write.op) {
 		case "insert":
@@ -859,7 +844,6 @@ const opSides = (write: PlannedWrite): ReadonlyArray<DeltaSide> => {
 		case "displace":
 			return ["removed"]
 		case "updateFrom":
-		case "merge":
 			return ["added", "removed"]
 	}
 }
@@ -1163,8 +1147,8 @@ const placeReadBacks = (
  * - an insertion: the insert protocol for its relation and member shape, followed, into a span primary key, by the
  *   statement that classifies each requested fact it did not insert;
  * - a put: its target's statements: the displacing deletion and the insert protocol as its insert half for the
- *   DELETE-then-insert pair (a pure set keyed by scalars alone displaces nothing), or the one ON CONFLICT DO UPDATE,
- *   UPDATE ... FROM or MERGE statement, which absorbs the deletion it was proved with.
+ *   DELETE-then-insert pair (a pure set keyed by scalars alone displaces nothing), or the one ON CONFLICT DO UPDATE or
+ *   UPDATE ... FROM statement.
  *
  * Where each described member is evaluated. Every member of a stratum is evaluated against the state before the
  * stratum's writes, once. A member is a leading CTE of the statement that consumes it when that statement is its only
@@ -1263,24 +1247,12 @@ export const planWrite = (
 				check: { kind: "outside", entry: refused.entry }
 			})
 		}
-		/** The positions of the deletions a MERGE absorbs. */
-		const absorbed = new Set<number>(
-			actions.flatMap((a) =>
-				a.op === "put" && a.choice.target === "merge" ? [a.choice.merge.deletion] : []
-			)
-		)
-		const drafted = actions.flatMap((action, index): ReadonlyArray<ActionDraft> =>
-			absorbed.has(index)
-				? []
-				: [
-						{
-							at: { stratum: s, index, dependsOn: action.dependsOn },
-							action,
-							steps: opsOf(action),
-							excepts: exceptsOf(actions, action)
-						}
-					]
-		)
+		const drafted = actions.map((action, index): ActionDraft => ({
+			at: { stratum: s, index, dependsOn: action.dependsOn },
+			action,
+			steps: opsOf(action),
+			excepts: exceptsOf(actions, action)
+		}))
 		/** A stratum one statement realizes runs its family statements after that statement, whose snapshot is the
 		 * stratum's starting state, so one whose schedule runs a family statement before any of its actions is realized
 		 * sequentially, its members carried where an earlier statement wrote what they read. */

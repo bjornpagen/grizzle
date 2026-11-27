@@ -5,12 +5,9 @@
  *
  * - A unique object reading a field outside the primary key, key(d), makes every put the pair (candidateKey): an UPDATE
  *   checks it at each row, so a statement moving a value between facts would raise 23505 on a lawful final state.
- * - A put of a relation parameter beside the deletion `R where d = $scope and (b, c) not in the parameter` is one MERGE
- *   absorbing it (scopedMerge), unless an object besides the primary key holds apart two facts of different primary
- *   keys, key(c) inside the primary key, which a MERGE meets at an insert before its NOT MATCHED BY SOURCE action
- *   deletes the occupant (the pair, mergeUnique); a key over a selected side of the whole primary key never does,
- *   since two facts it could hold apart share their primary key. Beside an insert into R too, the deletion reads the
- *   stratum's additions, so the put is the pair (unproved).
+ * - A put of a relation parameter beside the deletion `R where d = $scope and (b, c) not in the parameter`, a scoped
+ *   replace, is the pair (unproved), beside its deletion's own statement, alone or beside an insert into R: no target
+ *   absorbs the deletion, which reads the scope by its key where one MERGE read R whole.
  * - A put of R's own facts, each key a stored fact's, is an UPDATE ... FROM (existingKeys) when the stratum deletes
  *   nothing of R, and the pair (unproved) beside a deletion, whose key the UPDATE would leave no row to update. So is a
  *   put of R's fact at a parameter key joined with S's, which the navigation reads a step a relation (ir/rel.ts Step):
@@ -18,8 +15,8 @@
  *   row found at the parameters, or at the columns S's step bound before it, the key each row carries being a stored
  *   fact of R's (write/put/proof.ts existingKeysProofOver).
  * - An enumerated put is an ON CONFLICT DO UPDATE (enumerated), unless another stratum writes R too: the netting of its
- *   strata needs every fact the put displaces, whose old version neither ON CONFLICT DO UPDATE nor MERGE returns, so the
- *   put is the pair (netting).
+ *   strata needs every fact the put displaces, whose old version ON CONFLICT DO UPDATE never returns, so the put is the
+ *   pair (netting).
  *
  * And what its statement reads its input as: an enumerated put's facts are distinct and unique at R's key by the codec's
  * normalization, and a put of R's own facts is unique at R's key by the key its member proves, so neither statement
@@ -56,10 +53,8 @@ export const aPutsStatementIsTheOneItsRelationsUniqueObjectsAndItsStratumsOtherA
 		needs: {},
 		situations: [
 			"deleteThenInsert (candidateKey)",
-			"deleteThenInsert (mergeUnique)",
 			"deleteThenInsert (unproved)",
 			"deleteThenInsert (netting)",
-			"merge (scopedMerge)",
 			"updateFrom (existingKeys)",
 			"onConflictDoUpdate (enumerated)"
 		] satisfies ReadonlyArray<Reached<ChoiceFeature>>,

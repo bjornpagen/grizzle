@@ -1938,11 +1938,9 @@ const mergeOf = (
 	const deletes = Arr.some(whens, (w) => w.action.kind === "delete")
 	const sourceless = Arr.some(whens, (w) => w.match === "NOT MATCHED BY SOURCE")
 	const sides = [...(inserts ? [] : (["old"] as const)), ...(deletes ? [] : (["new"] as const))]
-	const action: Returnable = { expr: { kind: "mergeAction" }, type: "text" }
 	const returned = returningOf(
 		d,
 		withItems(tableItems(rel.alias, t), [
-			action,
 			...(sourceless ? [] : columnItems(source.rels)),
 			...imageItems(rel, sides)
 		]),

@@ -371,7 +371,7 @@ const plantedRaces = [
 	"span put over another key",
 	"update beside an ON CONFLICT put",
 	"update beside an UPDATE ... FROM put",
-	"update beside a MERGE put",
+	"update beside a scoped replace put",
 	"pure set put beside its insert",
 	"copied put beside a deletion of its source"
 ] as const
@@ -512,7 +512,7 @@ const plantedRace = (name: PlantedRace, { k, k2, l1, l2, l3, z }: PlantedValues)
 				update,
 				grizzle("app", ops([{ kind: "move", id: k, label: l3 }]))
 			)
-		case "update beside a MERGE put":
+		case "update beside a scoped replace put":
 			return race(
 				{ Note: [[k, l1]] },
 				update,
@@ -946,8 +946,8 @@ const factsOf = (op: GrizzleOp): CallFacts => {
 
 /**
  * The put targets a served write runs, as its statements' steps say them (runtime/write/steps.ts WriteStep): an
- * upsert's ON CONFLICT DO UPDATE, an update in place's UPDATE ... FROM, a MERGE, and a DELETE of the occupants a put
- * displaces, the pair's first half.
+ * upsert's ON CONFLICT DO UPDATE, an update in place's UPDATE ... FROM, and a DELETE of the occupants a put displaces,
+ * the pair's first half.
  */
 const putTargetsOf = (change: RoleChange): ReadonlyArray<RaceFeature> =>
 	Arr.flatMap(change.change.entry.program.statements, ({ step }): ReadonlyArray<RaceFeature> => {
@@ -963,8 +963,6 @@ const putTargetsOf = (change: RoleChange): ReadonlyArray<RaceFeature> =>
 					return ["put target onConflictDoUpdate"]
 				case "update":
 					return ["put target updateFrom"]
-				case "merge":
-					return ["put target merge"]
 				case "delete":
 					return result.mode === "displacing" ? ["put target deleteThenInsert"] : []
 				case "insert":
@@ -1052,7 +1050,6 @@ export const situations: Arr.NonEmptyReadonlyArray<RaceFeature> = [
 	"put target deleteThenInsert",
 	"put target onConflictDoUpdate",
 	"put target updateFrom",
-	"put target merge",
 	"pair reason candidateKey",
 	"pair reason spanKey",
 	"pair reason pureSet",

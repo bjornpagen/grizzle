@@ -305,7 +305,6 @@ const makerOf = (result: WriteStepResult): Maker | undefined => {
 		case "upsert":
 			return "put"
 		case "update":
-		case "merge":
 			return undefined
 	}
 }

@@ -244,7 +244,6 @@ export class Transform {
 			case "column":
 			case "excluded":
 			case "returning":
-			case "mergeAction":
 			case "domainValue":
 			case "user":
 			case "plVar":
@@ -2426,7 +2425,6 @@ class Visit {
 			case "returning":
 			case "param":
 			case "literal":
-			case "mergeAction":
 			case "domainValue":
 			case "user":
 			case "plVar":

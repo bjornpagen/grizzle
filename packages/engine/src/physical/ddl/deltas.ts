@@ -607,7 +607,6 @@ const overDelta = (
 			case "row":
 			case "case":
 			case "call":
-			case "mergeAction":
 			case "domainValue":
 			case "user":
 			case "plVar":

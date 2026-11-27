@@ -174,7 +174,7 @@ const violated = (laws: ReadonlyArray<LawSpec>, state: State): ReadonlyArray<Law
  * - enumerated: facts given as values, inserted, deleted or put;
  * - move: a put of Note's fact at `id` with `label`, described over Note itself (UPDATE ... FROM);
  * - scoped: a put of Note's facts given as a relation parameter beside the deletion of every Note fact labelled `scope`
- *   whose key the parameter does not hold (MERGE);
+ *   whose key the parameter does not hold (the scope's deletion and the put's pair);
  * - copied: a put into Note of the Item fact at `id`, described over Item, which nothing proves in place.
  */
 export type Member =

@@ -280,7 +280,6 @@ export class Tracer {
 			case "exists":
 			case "array":
 			case "row":
-			case "mergeAction":
 			case "domainValue":
 			case "user":
 			case "plVar":

@@ -2123,14 +2123,14 @@ export const addWorlds = (
 		}
 		/** A role's world views: the ones its compile computed, which an extension hands over, else computed here by the
 		 * one function of the role's world (physical/access/world-views.ts roleWorldViews), once. */
-		const worldViews = ({ views, checked }: CheckedRole): ReadonlyArray<WorldView> =>
-			handed.find((h) => h.login === login.login.name && h.role === checked.world.role.name)
+		const worldViews = (role: CheckedRole): ReadonlyArray<WorldView> =>
+			handed.find((h) => h.login === login.login.name && h.role === role.checked.world.role.name)
 				?.views ??
 			roleWorldViews({
 				names: b.names,
 				evidence: cx.catalog,
-				checked,
-				views,
+				checked: role.checked,
+				views: role.views,
 				catalog: servedCatalog(b.model, b.names, [])
 			})
 		const added = addLogin(

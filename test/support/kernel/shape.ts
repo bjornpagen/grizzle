@@ -151,7 +151,6 @@ const roleOf = (e: Expr): Role => {
 		case "greatest":
 		case "least":
 		case "coalesce":
-		case "mergeAction":
 		case "domainValue":
 		case "plVar":
 		case "plSpecial":
@@ -287,7 +286,6 @@ const exprFeature = (e: Expr): ReadonlyArray<ShapeFeature> => {
 		case "not":
 		case "isTrue":
 		case "row":
-		case "mergeAction":
 		case "domainValue":
 		case "plVar":
 		case "plSpecial":

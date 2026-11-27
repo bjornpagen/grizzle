@@ -193,7 +193,8 @@ const schedSchema = (name: string) => schema(name, Rec.values(relations), statem
  *
  * The relations, each the shape of a put target or a transient reason:
  * - Item: `mutable`, keyed by id, the target of Ref's deferred foreign key: a put in place, ON CONFLICT DO UPDATE;
- * - Note: `mutable`, keyed by id: a put in place, ON CONFLICT DO UPDATE, UPDATE ... FROM or MERGE by its member;
+ * - Note: `mutable`, keyed by id: a put in place, ON CONFLICT DO UPDATE or UPDATE ... FROM, or the pair, by its
+ *   member;
  * - Code: `mutable`, keyed by id, with the candidate key code: a unique object beside the arbiter (UnseenOccupant), and
  *   a put that stays the pair for its candidate key;
  * - Room: `mutable`, a span key (room, during): WITHOUT OVERLAPS (SpanKeyChange), a put that stays the pair;

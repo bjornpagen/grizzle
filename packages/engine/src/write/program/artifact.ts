@@ -50,8 +50,6 @@ const changeTags = (
 			return { added: "put", removed: undefined }
 		case "update":
 			return { added: "put", removed: "displaced" }
-		case "merge":
-			return { added: "put", removed: "delete" }
 	}
 }
 
@@ -358,7 +356,6 @@ export const resultHeading = (result: (WriteStatement | PutStatement)["result"])
 		case "delete":
 		case "upsert":
 		case "update":
-		case "merge":
 			return result.columns
 		case "carrier":
 		case "entryCheck":

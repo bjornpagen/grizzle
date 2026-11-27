@@ -201,12 +201,7 @@ import {
 	chosenIn,
 	type PutChoice
 } from "#compiler/write/put/choose.ts"
-import {
-	buildMerge,
-	buildUpdateFrom,
-	buildUpsert,
-	type PutStatement
-} from "#compiler/write/put/statement.ts"
+import { buildUpdateFrom, buildUpsert, type PutStatement } from "#compiler/write/put/statement.ts"
 import {
 	carriedNames,
 	carriedStash,
@@ -298,17 +293,11 @@ export interface CompiledWrite extends ProgramArtifacts<WriteParamSlot> {
 	readonly binding: Binding
 }
 
-/** What decides which of a write op's unique violations abort the apply: a MERGE; any other probed statement; or
- * none. */
-type AbortKind =
-	| { readonly kind: "merge" }
-	| { readonly kind: "probed" }
-	| { readonly kind: "other" }
+/** What decides which of a write op's unique violations abort the apply: a probed statement; or none. */
+type AbortKind = { readonly kind: "probed" } | { readonly kind: "other" }
 
-/** The 23505 and 23P01 violations at a statement into `relation` that abort the apply: a MERGE insert at the primary
- * key its put targets, or at a unique object besides it, which compares every field of that key (`uniqueBesideKey`),
- * so it is the same concurrent commit; and a probed insert's, at every unique object besides its arbiter, which after
- * the probe only an occupant its snapshot did not see raises. */
+/** The 23505 and 23P01 violations at a statement into `relation` that abort the apply: a probed insert's, at every
+ * unique object besides its arbiter, which after the probe only an occupant its snapshot did not see raises. */
 export const uniqueAbortsOf = (
 	relation: WrittenRelation,
 	kind: AbortKind
@@ -318,14 +307,12 @@ export const uniqueAbortsOf = (
 		reason: UniqueAbort["reason"]
 	): ReadonlyArray<UniqueAbort> =>
 		objects.map((u) => ({ constraint: u.name, relation: relation.name, reason }))
-	const { arbiter, others } = relation.uniques
+	const { others } = relation.uniques
 	switch (kind.kind) {
 		case "other":
 			return []
 		case "probed":
 			return aborts(others, "UnseenOccupant")
-		case "merge":
-			return aborts([arbiter, ...others], "PutTargetConflict")
 	}
 }
 
@@ -1778,14 +1765,6 @@ const buildWriteOp = <T extends StatementText>(
 			})
 		case "updateFrom":
 			return buildUpdateFrom(w, { relation, input, inPlace: step.inPlace })
-		case "merge":
-			return buildMerge(w, {
-				relation,
-				input,
-				inPlace: step.inPlace,
-				arbiter: step.arbiter,
-				scope: step.scope
-			})
 	}
 }
 
@@ -1796,8 +1775,6 @@ const abortsOf = (step: PlannedWrite): AbortKind => {
 		case "putInsert":
 		case "upsert":
 			return { kind: "probed" }
-		case "merge":
-			return { kind: "merge" }
 		case "exactDelete":
 		case "anchoredDelete":
 		case "displace":

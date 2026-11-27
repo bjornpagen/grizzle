@@ -70,7 +70,6 @@ const anyCall = (e: Expr, test: (call: CallExpr) => boolean): boolean => {
 		case "exists":
 		case "subquery":
 		case "array":
-		case "mergeAction":
 		case "domainValue":
 		case "plVar":
 		case "plSpecial":

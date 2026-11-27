@@ -950,8 +950,6 @@ const expr = (e: Expr): Printed => {
 			)
 		case "coalesce":
 			return printedOf(`COALESCE(${e.args.map((arg) => printExpr(arg)).join(", ")})`, "atom")
-		case "mergeAction":
-			return printedOf("merge_action()", "atom")
 		case "domainValue":
 			return printedOf("VALUE", "atom")
 		case "user":

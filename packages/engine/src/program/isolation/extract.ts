@@ -490,7 +490,6 @@ const operandsOf = (e: Expr): ReadonlyArray<Expr> => {
 		case "excluded":
 		case "field":
 		case "literal":
-		case "mergeAction":
 		case "param":
 		case "clock":
 		case "plSpecial":
@@ -707,7 +706,6 @@ const callValue = (e: Expr, own: ReadonlySet<string>): boolean => {
 		case "domainValue":
 		case "excluded":
 		case "field":
-		case "mergeAction":
 		case "plSpecial":
 		case "plVar":
 		case "regclass":

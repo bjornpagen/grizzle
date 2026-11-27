@@ -618,7 +618,6 @@ const holdsNullOnEmpty = (e: Expr): boolean => {
 		case "param":
 		case "clock":
 		case "literal":
-		case "mergeAction":
 		case "domainValue":
 		case "user":
 		case "plVar":
@@ -1153,7 +1152,7 @@ const requiredBreakTable = breakTable([
 		}
 	},
 	{
-		name: "merge_action(), VALUE or TG_TABLE_NAME where PostgreSQL does not define it",
+		name: "VALUE or TG_TABLE_NAME where PostgreSQL does not define it",
 		rule: "context",
 		holes: {
 			...noHoles,
@@ -1162,7 +1161,6 @@ const requiredBreakTable = breakTable([
 					return []
 				}
 				const misplaced: ReadonlyArray<Expr> = [
-					{ kind: "mergeAction" },
 					{ kind: "domainValue" },
 					{ kind: "plSpecial", name: "TG_TABLE_NAME" }
 				]

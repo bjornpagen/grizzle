@@ -261,7 +261,6 @@ const childrenOf = (e: SubqueryExpr): ReadonlyArray<SubqueryExpr> => {
 		case "exists":
 		case "subquery":
 		case "array":
-		case "mergeAction":
 		case "domainValue":
 		case "user":
 		case "plVar":

@@ -141,7 +141,6 @@ const refineFused = (cx: LowerContext, tracer: Tracer, t: Target, outer: Scope):
 			case "greatest":
 			case "least":
 			case "coalesce":
-			case "mergeAction":
 			case "domainValue":
 			case "user":
 			case "plVar":

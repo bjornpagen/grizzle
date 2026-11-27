@@ -20,7 +20,8 @@ import { checking } from "#test/support/policy.ts"
  *
  * - M, mutable, keyed by k, its x a payload: every put of it lowers in place, by the form its ChangeSet's shape chooses
  *   (write/put/choose.ts): an enumerated put an ON CONFLICT DO UPDATE, a put of M's own facts read with x a parameter an
- *   UPDATE ... FROM, a put of a relation parameter beside the deletion of M's other facts in its scope a MERGE; and an
+ *   UPDATE ... FROM, a put of a relation parameter beside the deletion of M's other facts in its scope the scope's
+ *   deletion and the put's pair; and an
  *   insert's repeat and an exact deletion compare a stored fact with the one written;
  * - I, mutable, keyed by k, whose put reads back the facts it removed, so it is the DELETE-then-insert pair
  *   (write/put/choose.ts removedRead), its deletion displacing a fact that differs;
@@ -191,7 +192,6 @@ export const features: Arr.NonEmptyReadonlyArray<Feature> = [
 	]),
 	"put target onConflictDoUpdate",
 	"put target updateFrom",
-	"put target merge",
 	"put target deleteThenInsert",
 	"two zero keys refused as one key"
 ]

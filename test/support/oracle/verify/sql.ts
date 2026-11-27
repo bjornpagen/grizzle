@@ -237,22 +237,18 @@ interface ExprContext {
 	 * write/insert/protocol.ts's met marker). Undefined where they are `returningSides`.
 	 */
 	readonly underIsTrue: ReadonlySet<"old" | "new"> | undefined
-	/** Whether merge_action() is in reach: inside MERGE ... RETURNING. */
-	readonly mergeAction: boolean
 	/** Whether the expression is inside PL/pgSQL, where its variables and NEW, OLD and TG_* are defined. */
 	readonly pl: boolean
 }
 
 /**
- * An expression context of `mode`, inside PL/pgSQL where `pl` says so, with neither EXCLUDED, RETURNING nor
- * merge_action() in reach.
+ * An expression context of `mode`, inside PL/pgSQL where `pl` says so, with neither EXCLUDED nor RETURNING in reach.
  */
 const context = (mode: ExprContext["mode"], pl: boolean): ExprContext => ({
 	mode,
 	excluded: false,
 	returningSides: undefined,
 	underIsTrue: undefined,
-	mergeAction: false,
 	pl
 })
 
@@ -810,11 +806,6 @@ class StatementAuditor {
 			case "least":
 			case "coalesce":
 				this.exprs(e.args, ctx, "args")
-				return
-			case "mergeAction":
-				if (!ctx.mergeAction) {
-					this.report("context", "merge_action() outside MERGE ... RETURNING")
-				}
 				return
 			case "domainValue":
 				if (ctx.mode !== "domain") {
@@ -1715,8 +1706,7 @@ class StatementAuditor {
 			merge.returning,
 			{
 				...context("query", pl),
-				returningSides: sides,
-				mergeAction: true
+				returningSides: sides
 			},
 			topLevel
 		)
@@ -2779,7 +2769,6 @@ const forEachAggregateCall = (e: Expr, f: (call: FunctionCall) => void): void =>
 		case "exists":
 		case "subquery":
 		case "array":
-		case "mergeAction":
 		case "domainValue":
 		case "plVar":
 		case "plSpecial":

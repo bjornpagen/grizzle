@@ -123,7 +123,6 @@ export const evaluate = (
 		case "equalsAny":
 		case "isTrue":
 		case "least":
-		case "mergeAction":
 		case "negate":
 		case "not":
 		case "plSpecial":
