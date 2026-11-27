@@ -67,8 +67,10 @@ import { trustedJson } from "#compiler/core/trusted.ts"
 import type { StatementSpec } from "#compiler/ir/products.ts"
 import type { IndexRef, IndexResolver } from "#compiler/physical/indexes/ref.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
+import { compileParsed, parsedChange, servableEntry } from "#compiler/plan/change.ts"
 import {
 	type InstalledSource,
+	type Isolation,
 	noClock,
 	type SchemaArtifacts,
 	transactionClock
@@ -81,7 +83,7 @@ import {
 } from "#compiler/plan/read.ts"
 import type { AnyContext, AnySchema } from "#compiler/public/schema.ts"
 import { printAdvice } from "#compiler/sql/advice.ts"
-import type { EmittedSql, ObjectName } from "#compiler/sql/ast.ts"
+import { type EmittedSql, type ObjectName, transitionTables } from "#compiler/sql/ast.ts"
 import {
 	joinPlans,
 	type PlanLevel,
@@ -608,6 +610,8 @@ export interface LawNode {
 	readonly joined: ReadonlyArray<ColumnRef>
 	readonly equated: ReadonlyArray<readonly [ColumnRef, ColumnRef]>
 	readonly stored: boolean
+	/** The stored relation it scans, `schema.name` where VERBOSE prints its schema, its name alone where not. */
+	readonly relation: Option.Option<string>
 	readonly children: ReadonlyArray<LawNode>
 }
 
@@ -663,6 +667,12 @@ const lawNodeOf = (targets: ReadonlyMap<number, string>, o: Json): LawNode => ({
 	joined: columnsAt(o, ["Join Filter", "Hash Cond", "Merge Cond"]),
 	equated: Option.match(textAt(o, "Join Filter"), { onNone: () => [], onSome: equalitiesIn }),
 	stored: o["Relation Name"] !== undefined,
+	relation: Option.map(textAt(o, "Relation Name"), (name) =>
+		Option.match(textAt(o, "Schema"), {
+			onNone: () => name,
+			onSome: (schema) => `${schema}.${name}`
+		})
+	),
 	children: childrenOf(targets, o)
 })
 
@@ -750,7 +760,7 @@ export const advisedPlanOf = (cell: unknown): Result.Result<AdvisedPlan, Malform
 	})
 
 /** Every node of a plan, its root first. */
-function* lawNodes(n: LawNode): Generator<LawNode> {
+export function* lawNodes(n: LawNode): Generator<LawNode> {
 	yield n
 	for (const c of n.children) {
 		yield* lawNodes(c)
@@ -767,7 +777,17 @@ function* lawNodes(n: LawNode): Generator<LawNode> {
  */
 export type Vehicle =
 	| { readonly kind: "flight"; readonly advice: string }
-	| { readonly kind: "routine"; readonly routine: ObjectName }
+	| { readonly kind: "routine"; readonly routine: ObjectName; readonly fires: RoutineFiring }
+
+/**
+ * Where a routine's queries are planned, as PostgreSQL plans them: a function's at its call (`called`), whose every name
+ * is the installation's or a stand-up's; a rule capture's (sql/ast.ts CreateTransitionTrigger) inside the statement
+ * trigger that fires it on `table`, whose queries read the trigger's transition tables (sql/ast.ts transitionTables),
+ * which exist only there.
+ */
+export type RoutineFiring =
+	| { readonly kind: "called" }
+	| { readonly kind: "capture"; readonly table: ObjectName }
 
 /**
  * A read the binding law judges: the alias of its relation's occurrence, its target (the alias, `@` the level the scope
@@ -788,6 +808,16 @@ export interface ScopeStatement {
 }
 
 /**
+ * Which of its transaction's statements a scope's `statements` are: `every` statement it may send, so each atom of its
+ * advice is matched in exactly one of them; or the statements one call `sent`, a write's, whose parted statements send
+ * the units its call's facts need and whose read-backs and refused COMMIT's witness are sent where it needs them, so each
+ * atom is matched in at most one of them, an atom of what the call did not send in none (Law 3).
+ */
+export const scopeSends = ["every", "sent"] as const
+
+export type ScopeSends = (typeof scopeSends)[number]
+
+/**
  * An advice scope as the laws read it (CARRY-CONTRACT §4, sql/naming.ts AdviceScope): its label; the advice grizzle
  * carries for it; its plan's names, each item's alias and its target once for each item it scans (a whole view's alias,
  * the view body's, stands at each level that reads it, its targets apart by their levels) and each level it named once
@@ -796,6 +826,7 @@ export interface ScopeStatement {
  */
 export interface LawScope {
 	readonly label: string
+	readonly sends: ScopeSends
 	readonly advice: string
 	readonly aliases: ReadonlyArray<string>
 	readonly targets: ReadonlyArray<string>
@@ -860,13 +891,40 @@ export const routineScopes = (installation: Installation): ReadonlyArray<LawScop
 			: [
 					{
 						label: `the routine ${routine.fn.schema}.${routine.fn.name}`,
+						sends: "every",
 						advice: printAdvice(routine.plan),
 						...planFacts(routine.plan),
 						statements: [first, ...rest],
-						vehicle: { kind: "routine", routine: routine.fn }
+						vehicle: {
+							kind: "routine",
+							routine: routine.fn,
+							fires: firingOf(installation, routine.fn)
+						}
 					}
 				]
 	})
+
+/**
+ * How `fn`'s queries are planned (RoutineFiring): inside the statement trigger that fires it where a transition trigger
+ * of the installation executes it, on the one table every such trigger of it is on; at its call otherwise.
+ */
+const firingOf = (installation: Installation, fn: ObjectName): RoutineFiring => {
+	const tables = Arr.dedupeWith(
+		Arr.flatMap(installation.statements, (s): ReadonlyArray<ObjectName> =>
+			s.kind === "createTransitionTrigger" &&
+			s.function.schema === fn.schema &&
+			s.function.name === fn.name
+				? [s.table]
+				: []
+		),
+		(a: ObjectName, b: ObjectName) => a.schema === b.schema && a.name === b.name
+	)
+	const [table, ...more] = tables
+	if (more.length > 0) {
+		return malformed(`a capture ${fn.schema}.${fn.name} fired on ${tables.length} tables`)
+	}
+	return table === undefined ? { kind: "called" } : { kind: "capture", table }
+}
 
 /**
  * A client flight's scope: the statements `sent` one transaction may send, each its text and the plan it was bound with
@@ -883,6 +941,7 @@ export const flightScope = (
 	const plan = resolvePlan(joinPlans(Arr.map(sent, (s) => s.plan)), resolve)
 	return {
 		label,
+		sends: "every",
 		advice: printAdvice(plan),
 		...planFacts(plan),
 		statements: Arr.map(sent, (s, at): ScopeStatement => ({
@@ -943,6 +1002,48 @@ export const servedRead = (
 			)
 		}
 	})
+
+/**
+ * The plan of the write a served Db of `role` makes of the ChangeSet `changes` at `level`, the isolation its role is
+ * certified at, as the one compile `grizzle generate` commits makes it (adapter/served/forms.ts writeEntry: the
+ * ChangeSet parsed over the role's schema and compiled over its artifacts, engine program/workload/change.ts
+ * compileParsed), every statement its flight may send bound under its transaction's one scope (ServableWrite `plan`),
+ * each read resolved as the role resolves it.
+ */
+export const servedWritePlan = (
+	installed: Installed,
+	role: AnyLoginRole,
+	changes: unknown,
+	level: Isolation
+): Effect.Effect<ReadPlan<IndexRef>, CompileError | RoleSetupError> =>
+	Effect.gen(function* () {
+		const context = yield* servedRoleContext(installed, role)
+		const change = yield* fromEngine(parsedChange(context.schema, changes))
+		const entry = yield* fromEngine(
+			compileParsed(context.artifacts, change, new Set(), level, noClock, context.clock)
+		)
+		return resolvePlan(servableEntry(entry).compiled.plan, context.resolve)
+	})
+
+/**
+ * The scope of one call a served Db made (`label`): its transaction's plan `plan`, resolved; the statements it sent past
+ * its prologue, each by the text its session parsed, which are every statement it may send (`every`, a read's one) or
+ * those its call needed (`sent`, a write's: ScopeSends); and the advice its served record ships, which its prologue set.
+ */
+export const callScope = (
+	label: string,
+	sends: ScopeSends,
+	plan: ReadPlan<IndexRef>,
+	statements: Arr.NonEmptyReadonlyArray<ScopeStatement>,
+	shipped: string
+): LawScope => ({
+	label,
+	sends,
+	advice: printAdvice(plan),
+	...planFacts(plan),
+	statements,
+	vehicle: { kind: "flight", advice: shipped }
+})
 
 /**
  * A page as a served Db of `role` runs it (adapter/served/forms.ts compileReadForm's page): its ordered query compiled
@@ -1214,7 +1315,8 @@ const repeated = (
 
 /**
  * Law 3 over `scope`, `planned`: no two items of its plan share a target and no two of its levels a name, and every atom
- * of its advice is matched in exactly one of its statements.
+ * of its advice is matched in exactly one of its statements, or, of the statements one call sent, in at most one
+ * (ScopeSends).
  */
 const scopeLaw = (scope: LawScope, planned: PlannedScope): ReadonlyArray<string> => [
 	...repeated(scope.label, "items", scope.targets),
@@ -1227,7 +1329,7 @@ const scopeLaw = (scope: LawScope, planned: PlannedScope): ReadonlyArray<string>
 					? [s.label]
 					: []
 		)
-		return matchedIn.length === 1
+		return matchedIn.length === 1 || (scope.sends === "sent" && matchedIn.length === 0)
 			? []
 			: [
 					`${scope.label}: ${t} is matched in ${matchedIn.length} of its statements${matchedIn.length > 0 ? ` (${Arr.join(matchedIn, ", ")})` : ""}`
@@ -1244,17 +1346,26 @@ export const lawsOver = (scope: LawScope, planned: PlannedScope): ReadonlyArray<
 
 /**
  * The function every law plans a statement through, made in the session's own pg_temp: EXPLAIN (GENERIC_PLAN, COSTS
- * OFF, PLAN_ADVICE, VERBOSE, FORMAT JSON) of the statement's text, run as dynamic SQL, so its typed placeholders are
- * the generic plan's own parameters. Sent over the extended protocol, the one every test session speaks, a text with
- * `$n` in it asks the call for those values, and EXPLAIN (GENERIC_PLAN) plans at them.
+ * OFF, PLAN_ADVICE, VERBOSE, RANGE_TABLE, FORMAT JSON) of the statement's text, run as dynamic SQL, so its typed
+ * placeholders are the generic plan's own parameters. Sent over the extended protocol, the one every test session
+ * speaks, a text with `$n` in it asks the call for those values, and EXPLAIN (GENERIC_PLAN) plans at them. A
+ * transaction a test opens its own way (a Db's frame) defines it with `lawPlanner` and plans each statement by
+ * `lawPlanOf`, its text the one parameter.
  */
-const lawPlanner =
+export const lawPlanner =
 	"CREATE OR REPLACE FUNCTION pg_temp.gz_laws_plan(statement text) RETURNS json LANGUAGE plpgsql AS $$ " +
 	"DECLARE plan json; BEGIN EXECUTE 'EXPLAIN (GENERIC_PLAN, COSTS OFF, PLAN_ADVICE, VERBOSE, RANGE_TABLE, FORMAT JSON) ' || statement INTO plan; RETURN plan; END $$"
 
+/** The query that plans the statement its one parameter's text holds, through `lawPlanner`: one cell, the plan. */
+export const lawPlanOf = "SELECT pg_temp.gz_laws_plan($1::text)::text"
+
+/** The query that answers the advice in force where it runs: one cell, the empty text where none is. */
+export const adviceInForce =
+	"SELECT pg_catalog.coalesce(pg_catalog.current_setting('pg_plan_advice.advice', true), '')"
+
 /** A statement's plan for the laws, through the session's planner function (`lawPlanner`). */
 const lawPlan = (session: BenchSession, sql: string) =>
-	Effect.flatMap(session.values("SELECT pg_temp.gz_laws_plan($1::text)::text", [sql]), (rows) =>
+	Effect.flatMap(session.values(lawPlanOf, [sql]), (rows) =>
 		Effect.fromResult(advisedPlanOf(rows[0]?.[0]))
 	)
 
@@ -1300,9 +1411,71 @@ export const plannedScope = (
 ): Effect.Effect<PlannedScope, SqlError | MalformedAdvice> =>
 	Effect.gen(function* () {
 		const inForce = yield* holdVehicle(session, scope)
-		yield* session.values(lawPlanner, [])
-		const plans = yield* Effect.forEach(scope.statements, (s) => lawPlan(session, s.sql))
+		const vehicle = scope.vehicle
+		const plans =
+			vehicle.kind === "routine" && vehicle.fires.kind === "capture"
+				? yield* capturedPlans(session, vehicle.fires.table, scope.statements)
+				: yield* Effect.andThen(
+						session.values(lawPlanner, []),
+						Effect.forEach(scope.statements, (s) => lawPlan(session, s.sql))
+					)
 		return { inForce, plans }
+	})
+
+/**
+ * A capture's queries planned where PostgreSQL plans them, inside a statement trigger on `table` whose transition tables
+ * its queries read (RoutineFiring `capture`), in the transaction `session` holds open, under the advice in force there:
+ * a trigger of the harness's own on `table`, AFTER UPDATE with the capture's REFERENCING (`news` the rows after, `olds`
+ * before), fired once by an UPDATE of no row (a statement trigger fires for a statement that writes none), each query's
+ * EXPLAIN (GENERIC_PLAN, COSTS OFF, PLAN_ADVICE, VERBOSE, RANGE_TABLE, FORMAT JSON) EXECUTEd in its body, where
+ * PL/pgSQL holds the transition tables for every query it runs, as the capture's own queries read them; then dropped.
+ * The capture itself stays as installed and fires too, on rows of none: the harness plans its queries beside it, since
+ * EXPLAIN inside its own body is no statement grizzle installs, and outside a trigger no transition table exists to read.
+ */
+const capturedPlans = (
+	session: BenchSession,
+	table: ObjectName,
+	statements: ReadonlyArray<ScopeStatement>
+): Effect.Effect<ReadonlyArray<AdvisedPlan>, SqlError | MalformedAdvice> =>
+	Effect.gen(function* () {
+		const quoted = `${quoteIdent(table.schema)}.${quoteIdent(table.name)}`
+		yield* session.values(
+			"CREATE TEMPORARY TABLE IF NOT EXISTS gz_laws_captured (n int4 PRIMARY KEY, statement text NOT NULL, plan json)",
+			[]
+		)
+		yield* session.values("DELETE FROM pg_temp.gz_laws_captured", [])
+		yield* Effect.forEach(
+			statements,
+			(s, at) =>
+				session.values(
+					"INSERT INTO pg_temp.gz_laws_captured (n, statement) VALUES ($1::int4, $2::text)",
+					[String(at), s.sql]
+				),
+			{ discard: true }
+		)
+		yield* session.values(
+			"CREATE OR REPLACE FUNCTION pg_temp.gz_laws_capture() RETURNS trigger LANGUAGE plpgsql AS $$ " +
+				"DECLARE r record; p json; BEGIN FOR r IN SELECT n, statement FROM pg_temp.gz_laws_captured ORDER BY n LOOP " +
+				"EXECUTE 'EXPLAIN (GENERIC_PLAN, COSTS OFF, PLAN_ADVICE, VERBOSE, RANGE_TABLE, FORMAT JSON) ' || r.statement INTO p; " +
+				"UPDATE pg_temp.gz_laws_captured SET plan = p WHERE n = r.n; END LOOP; RETURN NULL; END $$",
+			[]
+		)
+		yield* session.values(
+			`CREATE TRIGGER gz_laws_capture AFTER UPDATE ON ${quoted} REFERENCING NEW TABLE AS ${transitionTables.news} OLD TABLE AS ${transitionTables.olds} FOR EACH STATEMENT EXECUTE FUNCTION pg_temp.gz_laws_capture()`,
+			[]
+		)
+		const [column] = yield* session.values(
+			"SELECT pg_catalog.quote_ident(a.attname::text) FROM pg_catalog.pg_attribute AS a WHERE a.attrelid = $1::text::pg_catalog.regclass AND a.attnum > 0 AND NOT a.attisdropped AND a.attgenerated = '' ORDER BY a.attnum LIMIT 1",
+			[quoted]
+		)
+		const updated = String(defined(column?.[0], `a column of ${quoted} to update`))
+		yield* session.values(`UPDATE ${quoted} SET ${updated} = ${updated} WHERE false`, [])
+		yield* session.values(`DROP TRIGGER gz_laws_capture ON ${quoted}`, [])
+		const rows = yield* session.values(
+			"SELECT plan::text FROM pg_temp.gz_laws_captured ORDER BY n",
+			[]
+		)
+		return yield* Effect.forEach(rows, (row) => Effect.fromResult(advisedPlanOf(row[0])))
 	})
 
 /**
@@ -1789,7 +1962,9 @@ export const budgetOfPlan = (
  * The budget held over each statement of `scope` that reads no parameter, a query (`SELECT`) run on filled data as its
  * vehicle's advice holds it, in the transaction `session` holds open (EXPLAIN (ANALYZE, BUFFERS, VERBOSE, TIMING OFF,
  * SETTINGS, FORMAT JSON), bench/harness/explain.ts explain), each plan's problems `budgetOfPlan` finds. A statement
- * that reads parameters waits on the values a caller binds; its budget is its caller's.
+ * that reads parameters waits on the values a caller binds; its budget is its caller's. A capture's statements read
+ * the transition tables of the statement that fires it, the rows that statement wrote, which exist inside its trigger
+ * alone (RoutineFiring `capture`): their budget is the firing write's, held where a test writes.
  */
 export const budgetOfScope = (
 	session: BenchSession,
@@ -1797,6 +1972,9 @@ export const budgetOfScope = (
 	scope: LawScope
 ): Effect.Effect<ReadonlyArray<string>, SqlError | MalformedPlan> =>
 	Effect.gen(function* () {
+		if (scope.vehicle.kind === "routine" && scope.vehicle.fires.kind === "capture") {
+			return []
+		}
 		yield* holdVehicle(session, scope)
 		const problems: Array<string> = []
 		for (const s of scope.statements) {

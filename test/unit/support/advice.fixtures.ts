@@ -666,6 +666,7 @@ const flight = (
 	statement: ScopeStatement
 ): LawScope => ({
 	label: "the flight",
+	sends: "every",
 	advice,
 	aliases,
 	targets,
@@ -780,6 +781,7 @@ const cases: { readonly [C in AdviceCase]: readonly [LawScope, PlannedScope] } =
 	reused: [
 		{
 			label: "the flight",
+			sends: "every",
 			advice:
 				"INDEX_SCAN(r1 public.doc_pkey) NO_GATHER(r1) INDEX_SCAN(r1 public.node_pkey) NO_GATHER(r1)",
 			aliases: ["r1", "r1"],
@@ -811,6 +813,7 @@ const cases: { readonly [C in AdviceCase]: readonly [LawScope, PlannedScope] } =
 	scope: [
 		{
 			label: "the flight",
+			sends: "every",
 			advice:
 				"INDEX_SCAN(r1 public.doc_pkey) NO_GATHER(r1) SEQ_SCAN(r2) INDEX_SCAN(r3@r4 public.node_pkey) NO_GATHER(r2) NO_GATHER(r3@r4)",
 			aliases: ["r1", "r2", "r3", "r4"],
@@ -887,6 +890,7 @@ const cases: { readonly [C in AdviceCase]: readonly [LawScope, PlannedScope] } =
 	views: [
 		{
 			label: "the flight",
+			sends: "every",
 			advice:
 				"SEQ_SCAN(r1) INDEX_SCAN(v1@r4 public.node_doc_f1) INDEX_SCAN(v1@r6 public.node_pkey) NO_GATHER(r1 v1@r4 v1@r6)",
 			aliases: ["r1", "r4", "v1", "r6", "v1"],

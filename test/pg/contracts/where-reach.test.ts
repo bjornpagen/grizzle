@@ -6,8 +6,9 @@
  * equality between the relation's `doc` and the row in hand's is a key of rows in hand, as a match's shared variable
  * is: the bound is the keyed read's O(k log n), whichever way the read states it.
  *
- * Oracle: PostgreSQL's generic plan of every statement a call sends (observed.ts), each scan's index condition read
- * against the leading run of the index it reads (copies.ts indexesOf).
+ * Oracle: the plan laws over every call's flight (laws.ts keyedReach, test/support/advice.ts lawsOver): PostgreSQL's plan
+ * of every statement a call sends under the advice its Db's frame held (observed.ts), each scan found by its target and
+ * bound by every column the where binds.
  *
  * Space: drawn shapes (shapes.ts whereShapeGen), each read's binding stated in its match or by a where.
  */
@@ -41,7 +42,7 @@ export const aBindingStatedByAWhereCarriesEveryColumnItBindsIntoEveryScan = prop
 				),
 		oracle: {
 			kind: "postgresql",
-			name: "PostgreSQL's generic plan of every statement a call sends, each scan's index condition against the leading run of its index"
+			name: "PostgreSQL's plan of every statement a call sends under the advice its frame held: the plan laws, and each scan's binding by its target against the where's"
 		},
 		budget: { runs: 48, steered: 48 },
 		show: Formatter.format,

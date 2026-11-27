@@ -7,12 +7,12 @@
  * pages at its 1x bar, its bound about 300).
  *
  * The claim is the model's of each read (shapes.ts askedOf), its binding reaching every occurrence of a member in a live
- * derived relation's definition, a negation's among them, and the stored table of a stored one, and the plan-local
- * binding of every scan a write makes (plan-bindings.ts): each member's key columns its plan offers it, the keys of the
- * facts the write holds. The
- * oracle is PostgreSQL's generic plan of every statement a call sends, as the session holds it (observed.ts), its index
- * conditions read off EXPLAIN (VERBOSE), at the sizes as installed and again with every table at scale (observed.ts
- * atScale), sizes that straddle every cost tie between a few pages and millions of rows.
+ * derived relation's definition, a negation's among them, and the stored table of a stored one, and the binding of
+ * every scan a write makes, which its plan states (Law 2: each column a read binds an index condition of its scan). The
+ * oracle is the plan laws over every call's flight (test/support/advice.ts lawsOver): PostgreSQL's plan of every
+ * statement a call sends under the advice its Db's frame held (observed.ts), as installed and replanned at scale
+ * (observed.ts atScale), sizes that straddle every cost tie between a few pages and millions of rows, each scan found by
+ * its target, its index condition read off EXPLAIN (VERBOSE).
  *
  * Space: drawn shapes (shapes.ts): a unit's members, derived relations over them and over each other, published content
  * read through its fact, and writes in one stratum, in two and with a carried binding.
@@ -51,7 +51,7 @@ export const everyScanOfAKeyedRelationBindsEveryKeyColumnTheCallBindsThroughEver
 				),
 		oracle: {
 			kind: "postgresql",
-			name: "PostgreSQL's generic plan of every statement a call sends, as installed and at scale, its index conditions against the read's binding and each scan's offered key"
+			name: "PostgreSQL's plan of every statement a call sends under the advice its frame held, as installed and replanned at scale: the plan laws, and each scan's binding by its target against the read's model"
 		},
 		budget: { runs: 16, steered: 16 },
 		show: Formatter.format,

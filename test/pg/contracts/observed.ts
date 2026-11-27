@@ -1,29 +1,42 @@
 /**
  * What the plan contracts observe of a drawn shape (shapes.ts), installed as `grizzle generate` drafts and serves it on
  * PostgreSQL 19: every call of its workload made once through a Db of its login's full role, over a session of its own
- * through a protocol tap (test/support/wire-tap.ts), and each statement the call sent planned as the session plans it.
+ * through a protocol tap (test/support/wire-tap.ts), and each statement the call sent planned as the plan laws read a
+ * plan (test/support/advice.ts), in its Db's own frame, whose prologue sets the advice the call's served record ships.
  *
  * - **What a call sends** is read off the wire: each statement it executes, by the name it is prepared under on the
  *   session and the text the session parsed under that name, with the parameters it bound; a write is called twice,
  *   its first call standing the write up on the session (README "A session's first call of a write stands the write
  *   up"), its second the call the contracts judge.
- * - **Its plan** is the generic plan the session holds for it: `EXPLAIN (VERBOSE, FORMAT JSON) EXECUTE <name>(...)` of
- *   the session's own prepared statement, every parameter NULL, in a transaction framed and begun by the Db's own
- *   prologue and rolled back. Every login's role stores plan_cache_mode at force_generic_plan (physical/ddl/roles.ts),
- *   so the session plans each statement it prepares generically; the test sets nothing.
- * - **At scale** the same statements are planned again on the same session, every table that holds a page recorded in
- *   pg_class as a million rows (`atScale`): the sizes a population of a few pages and one of millions plan at straddle
- *   every cost tie between them, and a law holds at both (contractCase). A flip between two plans that do the same
- *   bounded keyed work, a hash's and a sort's, is a tie the law admits; a scan where a probe should be is not.
+ * - **Its scope** is its transaction's as the role compiles it (advice.ts callScope): a read's plan as a served Db of
+ *   the role compiles the read (servedRead), a write's as it compiles its ChangeSet at the role's isolation
+ *   (servedWritePlan), each read resolved as the role resolves it, beside the texts the call sent and the advice its
+ *   served record ships.
+ * - **Its plans as installed** are PostgreSQL's generic plans of those texts, EXPLAIN (GENERIC_PLAN, COSTS OFF,
+ *   PLAN_ADVICE, VERBOSE, RANGE_TABLE, FORMAT JSON) in a transaction the Db's own frame opens (adapter wire/batch.ts
+ *   writeFrame, its prologue setting the call's advice) and rolls back, beside the advice in force there.
+ * - **Its plans replanned at scale** are the session's own prepared statements EXECUTEd again (EXPLAIN (PLAN_ADVICE,
+ *   VERBOSE, RANGE_TABLE, FORMAT JSON) EXECUTE <name>(...), every parameter NULL) in the Db's frame once every table
+ *   that holds a page is recorded in pg_class as a million rows (`atScale`): PostgreSQL plans a prepared statement again
+ *   at its next EXECUTE once its relations' sizes moved, so the plan is the one a later call's flight replans under the
+ *   advice its own prologue set, never the one its first call cached (CARRY THE PLAN: the advice is in force at every
+ *   plan and replan). pg_plan_advice records a cached plan's advice only under always_store_advice_details, which the
+ *   frame sets for itself, an observation that changes no plan. Every login's role stores plan_cache_mode at
+ *   force_generic_plan (physical/ddl/roles.ts), so each plan is generic; the test sets no planner setting.
  */
 
 import { assert, defined } from "@bjornpagen/testing/assert"
-import { Array as Arr, Effect, Option, Result, type Scope, String as Str } from "effect"
+import { Array as Arr, Effect, Option, type Scope, String as Str } from "effect"
 import { memberCalls } from "#adapter/db/handles.ts"
-import { excludesNothing, oneShotStatement, runFramed, writeFrame } from "#adapter/wire/batch.ts"
-import { type EstimatedNode, parsePlanTree } from "#bench/harness/explain.ts"
+import {
+	type BatchOutcome,
+	excludesNothing,
+	type OneShotStatement,
+	oneShotStatement,
+	runFramed,
+	writeFrame
+} from "#adapter/wire/batch.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { quoteIdent } from "#compiler/core/text.ts"
 import type { Advice } from "#compiler/sql/advice.ts"
 import { carrierSetting, settingCarrier } from "#compiler/sql/carriers.ts"
 import { lexemesOf } from "#compiler/sql/lexer.ts"
@@ -40,30 +53,42 @@ import {
 	strataWrite,
 	writeCalls
 } from "#test/pg/contracts/shapes.ts"
-import { type CopyIndex, indexesOf } from "#test/pg/physical/copies.ts"
-import { scanBindings } from "#test/pg/physical/plan-bindings.ts"
+import {
+	type AdvisedPlan,
+	adviceInForce,
+	advisedPlanOf,
+	callScope,
+	type LawScope,
+	lawPlanner,
+	lawPlanOf,
+	type MalformedAdvice,
+	type PlannedScope,
+	type ScopeStatement,
+	servedRead,
+	servedWritePlan
+} from "#test/support/advice.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { succeeded } from "#test/support/assert.ts"
 import { readOnce, writeAnswerOf, writeOnce } from "#test/support/calls.ts"
 import { type Installed, installGenerated } from "#test/support/install-migrate.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { member, openServedDb } from "#test/support/served-db.ts"
+import type { RoleSetupError } from "#test/support/served-role.ts"
 import { testSql } from "#test/support/sql.ts"
 import { Substrate, type SubstrateShape } from "#test/support/substrate/substrate.ts"
 import { makeTap } from "#test/support/wire-tap.ts"
+import { paramText } from "#test/support/wire.ts"
 
-/** One statement a call executed: its prepared name, its text, the parameters it bound, and the session's plan of it. */
+/** One statement a call executed: its prepared name, its text and the parameters it bound. */
 export interface Sent {
 	readonly name: string
 	readonly text: string
 	readonly params: number
-	readonly plan: EstimatedNode
 }
 
 /**
  * One call: its program's name, whether it reads or writes, the statements of the Db's prologue it executed (its
- * ledger's fence and its snapshot's guard, which every Db transaction sends), and every other statement it executed, in
- * order.
+ * ledger's fence and its snapshot's guard, which every Db transaction sends), every other statement it executed, in
+ * order, its scope (advice.ts LawScope) and the plans of those statements under the advice its frame held.
  */
 export interface Called {
 	readonly program: string
@@ -72,25 +97,19 @@ export interface Called {
 	/** The statements past its prologue the compiler states the call sends (runtime/write/flight.ts ServedWrite `sends`), a read's one. */
 	readonly stated: number
 	readonly sent: ReadonlyArray<Sent>
+	readonly scope: LawScope
+	readonly planned: PlannedScope
 }
 
 /**
- * A shape as the contracts observe it: its installation, each of its programs' judged call, and the indexes of each
- * table a call's plan scans, by `<schema>.<table>`, as the catalog holds them (copies.ts indexesOf).
+ * A shape as the contracts observe it: its installation, and each of its programs' judged call planned as installed
+ * (`calls`) and replanned at scale (`scaled`).
  */
 export interface Observed {
 	readonly installed: Installed
 	readonly calls: ReadonlyArray<Called>
-	/** The same calls' statements planned again with every table that holds a page at scale (`atScale`). */
+	/** The same calls' statements replanned with every table that holds a page at scale (`atScale`). */
 	readonly scaled: ReadonlyArray<Called>
-	readonly indexes: ReadonlyMap<string, ReadonlyArray<CopyIndex>>
-}
-
-/** A statement executed by name, before its plan is read: its name, text and bound parameters. */
-interface Executed {
-	readonly name: string
-	readonly text: string
-	readonly params: number
 }
 
 /**
@@ -129,13 +148,38 @@ const atScale = (substrate: SubstrateShape, schema: string) =>
 		assert.deepEqual(refused, [["0"]], "every table of a page sized at scale")
 	})
 
+/** A judged call before its plans are read: what it sent, its scope and the advice its served record ships. */
+interface Judged {
+	readonly program: string
+	readonly kind: "read" | "write"
+	readonly stated: number
+	readonly prologue: number
+	readonly sent: Arr.NonEmptyReadonlyArray<Sent>
+	readonly scope: LawScope
+	readonly advice: Advice
+}
+
+/** The statements one call sent past its prologue as its scope's statements, each by its prepared name. */
+const scopeStatements = (
+	sent: Arr.NonEmptyReadonlyArray<Sent>
+): Arr.NonEmptyReadonlyArray<ScopeStatement> =>
+	Arr.map(sent, (s): ScopeStatement => ({ label: s.name, sql: s.text }))
+
+/** The plan an EXPLAIN (FORMAT JSON) outcome answered, read for the laws. */
+const planIn = (outcome: BatchOutcome | undefined): Effect.Effect<AdvisedPlan, MalformedAdvice> =>
+	Effect.fromResult(advisedPlanOf(outcome?.rows[0]?.[0]))
+
 /**
- * The shape `s` installed, its workload called and each judged call's statements planned (see the header). A shape the
- * compiler refuses fails with the refusal.
+ * The shape `s` installed, its workload called and each judged call's statements planned as installed and replanned at
+ * scale (see the header). A shape the compiler refuses fails with the refusal.
  */
 const observed = (
 	s: ShapeSketch
-): Effect.Effect<Observed, CompileError | SqlError, Substrate | Scope.Scope> =>
+): Effect.Effect<
+	Observed,
+	CompileError | SqlError | RoleSetupError | MalformedAdvice,
+	Substrate | Scope.Scope
+> =>
 	Effect.gen(function* () {
 		const generated = yield* installGenerated(
 			(name) => {
@@ -146,9 +190,10 @@ const observed = (
 		)
 		const installed = generated.installed
 		const b = built(s, installed.declared)
+		const role = b.world.server.roles.app
 		const substrate = yield* Substrate
 		const tap = makeTap(substrate.cluster)
-		const db = yield* Effect.orDie(openServedDb(installed, b.world.server.roles.app, {}))
+		const db = yield* Effect.orDie(openServedDb(installed, role, {}))
 		const pool = yield* poolFor(installed.as(b.world.server), {
 			...defaultPool,
 			transport: { kind: "given", transport: tap.transport },
@@ -163,7 +208,7 @@ const observed = (
 				const mark = tap.mark()
 				yield* Effect.orDie(call)
 				const window = tap.since(mark)
-				const executed: Array<Executed> = []
+				const executed: Array<Sent> = []
 				for (const m of window.frontend) {
 					if (m.type === "P") {
 						texts.set(m.name, m.text)
@@ -182,13 +227,18 @@ const observed = (
 			ctx.prologue.fence.text.name,
 			ctx.prologue.enter.name
 		])
-		const judged: Array<{
-			readonly program: string
-			readonly kind: "read" | "write"
-			readonly stated: number
-			readonly executed: ReadonlyArray<Executed>
-			readonly advice: Advice
-		}> = []
+		/** What a call executed past its prologue, and how many of its prologue's statements it executed. */
+		const pastPrologue = (program: string, executed: ReadonlyArray<Sent>) => ({
+			prologue: Arr.filter(executed, (e) => prologue.has(e.name)).length,
+			sent: Arr.match(
+				Arr.filter(executed, (e) => !prologue.has(e.name)),
+				{
+					onEmpty: () => assert.fail(`${program} sent no statement past its prologue`),
+					onNonEmpty: (sent) => sent
+				}
+			)
+		})
+		const judged: Array<Judged> = []
 		const reads = [
 			...Arr.map(s.reads, (read, at) => ({
 				program: readName(at),
@@ -204,15 +254,24 @@ const observed = (
 				readOnce(memberCalls(ctx, member(loaded, read.program)))({ params: read.params, facts: {} })
 			)
 			const loadedRead = member(loaded, read.program)
+			const advice =
+				loadedRead.kind === "change"
+					? assert.fail(`${read.program} loads as one read`)
+					: loadedRead.read.advice
+			const compiled = yield* servedRead(installed, role, b.programs[read.program], read.program)
+			const { prologue: inPrologue, sent } = pastPrologue(read.program, executed)
 			judged.push({
 				program: read.program,
 				kind: "read",
 				stated: 1,
-				executed,
-				advice:
-					loadedRead.kind === "change"
-						? assert.fail(`${read.program} loads as one read`)
-						: loadedRead.read.advice
+				prologue: inPrologue,
+				sent,
+				scope: {
+					...compiled.scope,
+					statements: scopeStatements(sent),
+					vehicle: { kind: "flight", advice }
+				},
+				advice
 			})
 		}
 		for (const [at, write] of writeCalls(s).entries()) {
@@ -230,94 +289,78 @@ const observed = (
 					? loadedWrite.variants.change.entry.program
 					: assert.fail(`${write.program} loads as one change`)
 			const executed = yield* executedBy(call(1))
+			const plan = yield* servedWritePlan(installed, role, b.programs[write.program], ctx.isolation)
+			const { prologue: inPrologue, sent } = pastPrologue(write.program, executed)
 			judged.push({
 				program: write.program,
 				kind: "write",
 				stated: program.sends,
-				executed,
+				prologue: inPrologue,
+				sent,
+				scope: callScope(write.program, "sent", plan, scopeStatements(sent), program.advice),
 				advice: program.advice
 			})
 		}
-		const planned = Effect.scoped(
-			Effect.flatMap(Effect.orDie(pool.lease), (session) =>
-				Effect.forEach(judged, (j) =>
-					Effect.map(
-						Effect.orDie(
-							runFramed(
-								session,
-								{
-									...writeFrame(ctx.prologue, ctx.isolation, excludesNothing, j.advice),
-									end: "ROLLBACK"
-								},
-								[
-									...carriersEmptied(Arr.filter(j.executed, (e) => !prologue.has(e.name))),
-									...Arr.map(
-										Arr.filter(j.executed, (e) => !prologue.has(e.name)),
-										(e) =>
-											oneShotStatement(
-												testSql(
-													`EXPLAIN (VERBOSE, FORMAT JSON) EXECUTE ${e.name}${
-														e.params === 0
-															? ""
-															: `(${Arr.join(
-																	Array.from({ length: e.params }, () => "NULL"),
-																	", "
-																)})`
-													}`
-												),
-												[]
-											)
-									)
-								]
+		/**
+		 * Each judged call's statements planned in a transaction its Db's own frame opens and rolls back, its prologue
+		 * setting the call's advice: the carriers its statements read emptied, the advice in force read, then `planning`'s
+		 * statements, each answering one plan.
+		 */
+		const framed = (planning: (j: Judged) => ReadonlyArray<OneShotStatement>) =>
+			Effect.scoped(
+				Effect.flatMap(Effect.orDie(pool.lease), (session) =>
+					Effect.forEach(judged, (j) =>
+						Effect.gen(function* () {
+							const emptied = carriersEmptied(j.sent)
+							const outcomes = yield* Effect.orDie(
+								runFramed(
+									session,
+									{
+										...writeFrame(ctx.prologue, ctx.isolation, excludesNothing, j.advice),
+										end: "ROLLBACK"
+									},
+									[...emptied, oneShotStatement(testSql(adviceInForce), []), ...planning(j)]
+								)
 							)
-						),
-						(outcomes): Called => ({
-							program: j.program,
-							kind: j.kind,
-							prologue: Arr.filter(j.executed, (e) => prologue.has(e.name)).length,
-							stated: j.stated,
-							sent: Arr.map(
-								Arr.zip(
-									Arr.filter(j.executed, (e) => !prologue.has(e.name)),
-									Arr.drop(
-										outcomes,
-										carriersEmptied(Arr.filter(j.executed, (e) => !prologue.has(e.name))).length
-									)
-								),
-								([e, outcome]) => ({
-									...e,
-									plan: succeeded(
-										Result.mapError(parsePlanTree(outcome.rows[0]?.[0]), (f) => f.message),
-										`the session's plan of ${e.name}`
-									)
-								})
-							)
+							const [held, ...rest] = Arr.drop(outcomes, emptied.length)
+							const plans = yield* Effect.forEach(Arr.takeRight(rest, j.sent.length), planIn)
+							return {
+								program: j.program,
+								kind: j.kind,
+								prologue: j.prologue,
+								stated: j.stated,
+								sent: j.sent,
+								scope: j.scope,
+								planned: { inForce: String(held?.rows[0]?.[0] ?? ""), plans }
+							} satisfies Called
 						})
 					)
 				)
 			)
-		)
-		const calls = yield* planned
+		const calls = yield* framed((j) => [
+			oneShotStatement(testSql(lawPlanner), []),
+			...Arr.map(j.sent, (e) => oneShotStatement(testSql(lawPlanOf), [paramText(e.text)]))
+		])
 		yield* atScale(substrate, installed.schema)
-		const scaled = yield* planned
-
-		const scanned = new Map<string, string>()
-		for (const call of [...calls, ...scaled]) {
-			for (const sent of call.sent) {
-				for (const scan of scanBindings(sent.plan)) {
-					scanned.set(
-						`${scan.schema}.${scan.relation}`,
-						`${quoteIdent(scan.schema)}.${quoteIdent(scan.relation)}`
-					)
-				}
-			}
-		}
-		const indexes = new Map<string, ReadonlyArray<CopyIndex>>()
-		for (const [table, quoted] of scanned) {
-			const held = yield* indexesOf(quoted)
-			indexes.set(table, held)
-		}
-		return { installed, calls, scaled, indexes }
+		const scaled = yield* framed((j) => [
+			oneShotStatement(testSql("SET pg_plan_advice.always_store_advice_details = on"), []),
+			...Arr.map(j.sent, (e) =>
+				oneShotStatement(
+					testSql(
+						`EXPLAIN (PLAN_ADVICE, VERBOSE, RANGE_TABLE, FORMAT JSON) EXECUTE ${e.name}${
+							e.params === 0
+								? ""
+								: `(${Arr.join(
+										Array.from({ length: e.params }, () => "NULL"),
+										", "
+									)})`
+						}`
+					),
+					[]
+				)
+			)
+		])
+		return { installed, calls, scaled }
 	})
 
 /**
@@ -326,7 +369,7 @@ const observed = (
  * transaction alone, so a plan PostgreSQL makes again there, its cached one invalidated meanwhile, reads the setting
  * as it plans.
  */
-const carriersEmptied = (executed: ReadonlyArray<Executed>) => {
+const carriersEmptied = (executed: ReadonlyArray<Sent>): ReadonlyArray<OneShotStatement> => {
 	const settings = [
 		...new Set(
 			Arr.flatMap(executed, (e) =>

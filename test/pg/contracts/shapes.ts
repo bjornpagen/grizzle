@@ -370,7 +370,7 @@ const carriedTarget = (s: ShapeSketch): number =>
  * them, every one at the read's binding, `doc` and `k0` where the read binds it, which every arm, match and negation of
  * every definition holds as its own `doc` and `k0`, whether a parameter binds `doc` or the row of Owner the read keys,
  * which it reads once at its `id`. L's read asks Seen for `doc`, and reads F, or I0 and I1 where F is
- * live, at the packages Seen's rows name, which the plan's joins bind (plan-bindings.ts binding).
+ * live, at the packages Seen's rows name, which the plan binds (test/support/advice.ts, Law 2).
  */
 export interface ReadAsks {
 	readonly fields: ReadonlyMap<string, ReadonlySet<string>>

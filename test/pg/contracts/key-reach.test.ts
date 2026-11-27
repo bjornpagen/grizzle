@@ -9,8 +9,10 @@
  * and every scan descends to them by it, a member read at a key of `k0` alone (the first member's, `globalKey`) at its
  * one row, the rest at the document that row names, or through an index leading with `k0`.
  *
- * Oracle: PostgreSQL's generic plan of every statement a call sends (observed.ts), each scan's index condition read
- * against the leading run of the index it reads (copies.ts indexesOf).
+ * Oracle: the plan laws over every call's flight (laws.ts keyedReach, test/support/advice.ts lawsOver), PostgreSQL's
+ * plan of every statement a call sends under the advice its Db's frame held, as installed and replanned at scale
+ * (observed.ts): the plan it makes is the one the call carries, every column a read binds an index condition of its
+ * scan (Law 2), and every scan of a member the model reads by `k0` binds it, or a whole key.
  *
  * Space: drawn shapes (shapes.ts keyShapeGen), reads binding `k0` alone among them, the first member keyed by `k0`
  * alone half the time; aimed, where no witness has yet, at a live derivation read by its key alone (shapes.ts
@@ -47,7 +49,7 @@ export const aReadByAKeyAloneCarriesTheKeyIntoEveryScanThroughEveryDerivation = 
 				),
 		oracle: {
 			kind: "postgresql",
-			name: "PostgreSQL's generic plan of every statement a call sends, each scan's index condition against the leading run of its index"
+			name: "PostgreSQL's plan of every statement a call sends under the advice its frame held, as installed and replanned at scale: the plan laws, and each scan's binding by its target against the read's model"
 		},
 		budget: { runs: 16, steered: 16 },
 		show: Formatter.format,

@@ -6,7 +6,7 @@
  */
 
 import { Array as Arr, Option, Record as Rec } from "effect"
-import type { Called, Observed, Sent } from "#test/pg/contracts/observed.ts"
+import type { Called, Observed } from "#test/pg/contracts/observed.ts"
 import {
 	type ReadAsks,
 	askedOf,
@@ -21,8 +21,13 @@ import {
 	readName,
 	type ShapeSketch
 } from "#test/pg/contracts/shapes.ts"
-import type { CopyIndex } from "#test/pg/physical/copies.ts"
-import { readText, type ScanBinding, scanBindings } from "#test/pg/physical/plan-bindings.ts"
+import {
+	type AdvisedPlan,
+	type LawNode,
+	lawNodes,
+	lawsOver,
+	type ScopeStatement
+} from "#test/support/advice.ts"
 
 /** Every relation of the shape, by its declared name: its members, its derived relations, and its content's. */
 const relationNames = (s: ShapeSketch): ReadonlyArray<string> => [
@@ -84,8 +89,9 @@ const isDerived = (s: ShapeSketch, relation: string): boolean =>
 /** The relation a scan reads, by its table, or none for a table of no relation of the shape. */
 const scannedRelation = (
 	tables: ReadonlyMap<string, string>,
-	scan: ScanBinding
-): Option.Option<string> => Option.fromUndefinedOr(tables.get(`${scan.schema}.${scan.relation}`))
+	scan: LawNode
+): Option.Option<string> =>
+	Option.flatMap(scan.relation, (table) => Option.fromUndefinedOr(tables.get(table)))
 
 /** Whether a derived relation of the shape is stored in a table of its own. */
 const isStored = (o: Observed, relation: string): boolean =>
@@ -103,11 +109,25 @@ const readAsked = (s: ShapeSketch, o: Observed, program: string): Option.Option<
 		(asked) => asInstalled(s, o, asked)
 	)
 
-/** Every scan of a table in each statement a call sent, with the statement. */
+/** Every scan of a stored relation in each statement a call sent, with the statement, as its plan shows it. */
 const scansOf = (
 	call: Called
-): ReadonlyArray<{ readonly sent: Sent; readonly scan: ScanBinding }> =>
-	Arr.flatMap(call.sent, (sent) => Arr.map(scanBindings(sent.plan), (scan) => ({ sent, scan })))
+): ReadonlyArray<{ readonly sent: ScopeStatement; readonly scan: LawNode }> =>
+	Arr.flatMap(
+		Arr.zip<ScopeStatement, AdvisedPlan>(call.scope.statements, call.planned.plans),
+		([sent, plan]) =>
+			Arr.flatMap([...lawNodes(plan.root)], (scan) => (scan.stored ? [{ sent, scan }] : []))
+	)
+
+/** A scan as a contract's failure names it: its type, its target, and its index where it reads one. */
+const scanText = (scan: LawNode): string =>
+	`${scan.nodeType} of ${Option.getOrElse(scan.target, () => "an unnamed occurrence")}${Option.match(
+		scan.index,
+		{
+			onNone: () => "",
+			onSome: (i) => ` using ${i}`
+		}
+	)}`
 
 /** The columns of `relation` holding `fields`. */
 const columnsOf = (
@@ -117,97 +137,76 @@ const columnsOf = (
 ): ReadonlyArray<string> =>
 	Arr.map([...fields], (f) => o.installed.installation.names.column(relation, f))
 
-/** The primary key's fields of the relation `relation`, a member's: the unit's field and its own keys; none for any other. */
-const keyFieldsOf = (s: ShapeSketch, relation: string): ReadonlyArray<string> =>
-	Option.match(
-		Arr.findFirst(s.members, (_, at) => memberName(at) === relation),
-		{ onNone: () => [], onSome: memberKey }
-	)
-
-/** The leading run of `index`'s columns a scan's index condition binds by equality: the prefix it descends by. */
-const runOf = (index: CopyIndex, scan: ScanBinding): ReadonlyArray<string> => {
-	const run: Array<string> = []
-	for (const c of index.columns) {
-		if (!scan.bound.has(c)) {
-			break
-		}
-		run.push(c)
-	}
-	return run
-}
-
 /**
- * The columns a scan binds in the leading run of an index it reads (`runOf`), each index's: what it descends by. A
- * column bound past an unbound one, a skip scan's, is read at every value of the columns before it, as many descents
- * as they hold values, and binds nothing of the run.
+ * The keys of a relation of the shape, each its columns: a member's primary key (its unit's field and its own keys) and
+ * the first member's key of `k0` alone where the shape declares it; none of any other relation.
  */
-const leadingRun = (indexes: ReadonlyArray<CopyIndex>, scan: ScanBinding): ReadonlySet<string> => {
-	const run = new Set<string>()
-	for (const i of indexes) {
-		if (scan.indexes.includes(i.name)) {
-			for (const c of runOf(i, scan)) {
-				run.add(c)
-			}
-		}
-	}
-	return run
-}
-
-/** Whether a scan reads at most one row by a key: every column of a unique index it reads in its leading run. */
-const byKey = (indexes: ReadonlyArray<CopyIndex>, scan: ScanBinding): boolean =>
-	Arr.some(
-		indexes,
-		(i) => i.unique && scan.indexes.includes(i.name) && runOf(i, scan).length === i.columns.length
+const keysOf = (
+	s: ShapeSketch,
+	o: Observed,
+	relation: string
+): ReadonlyArray<ReadonlyArray<string>> =>
+	Arr.flatMap(s.members, (m, at) =>
+		memberName(at) === relation
+			? [
+					columnsOf(o, relation, memberKey(m)),
+					...(s.globalKey && at === 0 ? [columnsOf(o, relation, ["k0"])] : [])
+				]
+			: []
 	)
 
 /**
- * C3, keyed reach: every scan of a keyed relation carries every key column the read binds in its index condition,
- * through every derivation between the read and the relation. The bound is the one a keyed read is priced by: a read of
- * k rows of a relation of n reads O(k log n) pages exactly where each of its scans descends an index by every column
- * the read fixes, and a scan that leaves one out reads every row of the rest, a number that grows with the population.
+ * C3, keyed reach: every scan of a keyed relation binds every key column the read binds, through every derivation
+ * between the read and the relation. The bound is the one a keyed read is priced by: a read of k rows of a relation of n
+ * reads O(k log n) pages exactly where each of its scans descends an index by every column the read fixes, and a scan
+ * that leaves one out reads every row of the rest, a number that grows with the population.
  *
+ * - The plan laws hold over each call (test/support/advice.ts lawsOver): the plan PostgreSQL makes is the one the
+ *   call's scope carries, every column a read of it binds an index condition of its scan (Law 2), and its targets are
+ *   its own (Law 3), so a write's scan of a member reads at the keys its plan binds, never the rows of their unit by
+ *   part of them, which a unit's history grows.
  * - A read's binding is the model's (shapes.ts askedOf): its `doc`, and its `k0` where it binds it, or its `k0` alone,
  *   reach every occurrence of a member in a live derived relation's definition, as the rule's shared variables equate
- *   them, and the stored table of a stored one; each scan of such a relation binds them in the leading run of an index
- *   it reads (`leadingRun`), never past a column it leaves unbound, which a skip scan reads at every value of, or
- *   reads at most one row by a key (`byKey`), as a probe of a key of `k0` alone does.
- * - Every scan a write's statement makes of a member binds in its index condition every column of the member's key its
- *   plan offers it, its own equalities' and the join's that probes its side (plan-bindings.ts binding): a write of k
- *   facts reads each member at the keys of the facts it holds, never the rows of their unit by part of them, which a
- *   unit's history grows. A read's join inside its unit may hash the rows its binding already bounds: its own rows are
- *   the unit's at the binding, so the bound is the read's binding reaching every scan, not each join's.
+ *   them, and the stored table of a stored one; the plan binds each scan of such a relation by them (its read's bound
+ *   columns, by the scan's target), or by a whole key of the relation, a read of at most one row, as a probe of a key
+ *   of `k0` alone is. A read's join inside its unit may hash the rows its binding already bounds: its own rows are the
+ *   unit's at the binding, so the bound is the read's binding reaching every scan, not each join's.
  */
 export const keyedReach = (s: ShapeSketch, o: Observed): ReadonlyArray<string> => {
 	const tables = relationsByTable(s, o)
 	return Arr.flatMap(o.calls, (call) => {
 		const asked = call.kind === "read" ? readAsked(s, o, call.program) : Option.none()
-		return Arr.flatMap(scansOf(call), ({ sent, scan }) =>
-			Option.match(scannedRelation(tables, scan), {
-				onNone: () => [],
-				onSome: (relation) => {
-					const fromRead = Option.match(asked, {
-						onNone: () => [],
-						onSome: (a) => columnsOf(o, relation, a.fields.get(relation) ?? [])
-					})
-					const offered =
-						call.kind === "write"
-							? Arr.filter(columnsOf(o, relation, keyFieldsOf(s, relation)), (c) =>
-									scan.binding.has(c)
+		return [
+			...lawsOver(call.scope, call.planned),
+			...Arr.flatMap(scansOf(call), ({ sent, scan }) =>
+				Option.match(scannedRelation(tables, scan), {
+					onNone: () => [],
+					onSome: (relation) => {
+						const needed = Option.match(asked, {
+							onNone: () => [],
+							onSome: (a) => columnsOf(o, relation, a.fields.get(relation) ?? [])
+						})
+						const bound = Option.match(scan.target, {
+							onNone: (): ReadonlyArray<string> => [],
+							onSome: (target) =>
+								Option.match(
+									Arr.findFirst(call.scope.reads, (r) => r.target === target),
+									{ onNone: (): ReadonlyArray<string> => [], onSome: (r) => r.bound }
 								)
-							: []
-					const indexes = o.indexes.get(`${scan.schema}.${scan.relation}`) ?? []
-					const run = leadingRun(indexes, scan)
-					const missing = byKey(indexes, scan)
-						? []
-						: Arr.dedupe(Arr.filter([...fromRead, ...offered], (c) => !run.has(c)))
-					return missing.length === 0
-						? []
-						: [
-								`${call.program}'s ${sent.name} reads ${relation} as ${scan.alias} by ${readText(scan)}, the leading run of its index binding (${Arr.join([...run], ", ")}), where the ${call.kind} binds (${Arr.join(missing, ", ")}) too`
-							]
-				}
-			})
-		)
+						})
+						const byKey = Arr.some(keysOf(s, o, relation), (k) =>
+							Arr.every(k, (c) => bound.includes(c))
+						)
+						const missing = byKey ? [] : Arr.dedupe(Arr.filter(needed, (c) => !bound.includes(c)))
+						return missing.length === 0
+							? []
+							: [
+									`${call.program}'s ${sent.label} reads ${relation} by its ${scanText(scan)}, its plan binding (${Arr.join(bound, ", ")}), where the read binds (${Arr.join(missing, ", ")}) too`
+								]
+					}
+				})
+			)
+		]
 	})
 }
 
@@ -274,7 +273,7 @@ export const publicationFacts = (s: ShapeSketch, o: Observed): ReadonlyArray<str
 							onSome: (relation) =>
 								content.has(relation)
 									? [
-											`${call.program}'s ${sent.name} scans ${relation}, the content F is the fact of, by ${readText(scan)}`
+											`${call.program}'s ${sent.label} scans ${relation}, the content F is the fact of, by its ${scanText(scan)}`
 										]
 									: []
 						})
