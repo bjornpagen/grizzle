@@ -75,6 +75,7 @@ const DICTIONARY_MINTS = [
 	"test/types/query/take.dictionary.ts",
 	"test/types/query/union-join.dictionary.ts",
 	"test/types/schema/agreement.dictionary.ts",
+	"test/types/schema/budget/depth.dictionary.ts",
 	"test/types/schema/budget/extension.dictionary.ts",
 	"test/types/schema/budget/families.dictionary.ts",
 	"test/types/schema/budget/invariance.dictionary.ts",
