@@ -15,6 +15,7 @@ import {
 	type StatementRoots,
 	type StatementTree
 } from "#compiler/runtime/lower/tree.ts"
+import { emitText, costChosen } from "#compiler/sql/emit.ts"
 
 import type {
 	DeliveredPart,
@@ -30,7 +31,7 @@ import {
 import { bodyPositionNames, type SelectBody, type Target, type TypeRef } from "#compiler/sql/ast.ts"
 import { builtinType } from "#compiler/sql/build.ts"
 import { type Lexed, lex } from "#compiler/sql/lexer.ts"
-import { printStatement, printType } from "#compiler/sql/print.ts"
+import { printType } from "#compiler/sql/print.ts"
 import { problem, type VerificationProblem } from "#test/support/oracle/verify/problems.ts"
 import { rowsViolations } from "#test/support/oracle/verify/rows.ts"
 import {
@@ -88,8 +89,8 @@ const statementSql = (
 	for (const v of rowsViolations(s.ast)) {
 		out.push(problem("statementRows", where, v))
 	}
-	if (printStatement(s.ast) !== s.sql.text) {
-		out.push(problem("statementText", where, "the text the AST prints"))
+	if (s.sql.source !== s.ast) {
+		out.push(problem("statementText", where, "the text emitted from the AST it holds"))
 	}
 	for (const v of auditTextViolations(s.sql.text, guardedTermsOf(s.ast))) {
 		out.push(problem("statementText", where, `${v.rule} at ${v.where}: ${v.detail}`))
@@ -486,7 +487,8 @@ export const channelProblems = (
 	appendAll(out, slotProblems(sent, audit, label))
 	appendAll(out, partProblems(program, label))
 	if (program.parts.kind === "one") {
-		const delivered = program.parts.delivered
+		const part = program.parts.delivered
+		const delivered = { ...part, sql: emitText(part.ast, part.sql.nameMap, costChosen()) }
 		const where = `${label} part 0`
 		appendAll(out, statementSql(delivered, auditStatementDetailed(delivered.ast), where))
 		appendAll(out, resultProblems(delivered, where))

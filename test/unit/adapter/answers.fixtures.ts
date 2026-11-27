@@ -27,6 +27,7 @@ import { statementOutput } from "#compiler/runtime/lower/tree.ts"
 import { record } from "#compiler/schema/record.ts"
 import { servedSource } from "#compiler/served/read.ts"
 import { servedSpine } from "#compiler/served/spine.ts"
+import { noAdvice } from "#compiler/sql/advice.ts"
 import { succeeded } from "#test/support/assert.ts"
 import {
 	codebookFor,
@@ -283,6 +284,7 @@ const compiled = succeeded(compiledPageResult(ascendingTasks, testCompile))
 
 /** The window's read of the ascending tasks, as its runtime runs it. */
 export const windowProgram = compiledPageRuntime({
+	advice: noAdvice,
 	page: { ...compiled.page, artifact: compiled.baseline },
 	params: compiled.query.params,
 	spine: servedSpine(succeeded(queryInput(ascendingTasks)).desc),

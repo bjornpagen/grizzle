@@ -104,9 +104,9 @@ export const writeOracle = property.explore(perturbedRunGen, {
 		},
 		{
 			file: "packages/engine/src/write/program/slot-carriers.ts",
-			original: "\t\tconst fill = fillOf(s)",
+			original: "\t\tconst fill = fillOf(s, binding)",
 			replacement:
-				"\t\tconst other = slotReaders(placed).find(\n\t\t\t(o) => o.first.slot !== s.first.slot && sameHeading(o.first, s.first)\n\t\t)\n\t\tconst fill = fillOf(other === undefined ? s : { ...s, first: { ...s.first, slot: other.first.slot } })",
+				"\t\tconst other = slotReaders(placed).find(\n\t\t\t(o) => o.first.slot !== s.first.slot && sameHeading(o.first, s.first)\n\t\t)\n\t\tconst fill = fillOf(other === undefined ? s : { ...s, first: { ...s.first, slot: other.first.slot } }, binding)",
 			why: "A staged member slot's carrier is filled from another slot of the same heading (write/program/slot-carriers.ts), so every statement that reads the carrier reads that slot's facts: the optimized program's outcome or stored state leaves the conservative realization's, as the planted arm \"twin replaces\" stages two carriers of one heading."
 		},
 		{

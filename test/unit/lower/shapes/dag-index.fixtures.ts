@@ -18,7 +18,7 @@ import { emptyCtePlan } from "#compiler/lower/optimize/cte-policy/index.ts"
 import { OptimizedDelivery, optimizedDispatch, ShapeState } from "#compiler/lower/shapes/index.ts"
 import { noKeys } from "#compiler/lower/shapes/share/keyed.ts"
 import type { EmittedSql } from "#compiler/sql/ast.ts"
-import { emitText } from "#compiler/sql/emit.ts"
+import { costChosen, sentText } from "#compiler/sql/emit.ts"
 import { asc, Q, T, Task } from "#test/unit/lower/conservative/fixtures.ts"
 import { shapedFacts, testOptions } from "#test/unit/lower/shapes/support.ts"
 
@@ -102,9 +102,12 @@ export const lowered = (
 		state.evaluationHolding,
 		dispatching.carrying
 	)
-	new OptimizedDelivery<never, EmittedSql>(cx, facts, state, emitText).optimizedProgram(
-		query.dag.roots[0]
-	)
+	new OptimizedDelivery<never, EmittedSql>(
+		cx,
+		facts,
+		state,
+		sentText(costChosen())
+	).optimizedProgram(query.dag.roots[0])
 	return {
 		visits: cx.indexVisits,
 		regions: Arr.filter(topoOrder(query.dag), (n) => n.kind === "MatchRegion").length

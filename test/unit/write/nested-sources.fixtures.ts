@@ -24,6 +24,7 @@ import { str } from "#compiler/public/text.ts"
 import { bindWrite } from "#compiler/runtime/write/bind.ts"
 import type { FlightStatement, FlightWrite } from "#compiler/runtime/write/flight.ts"
 import { inForce, type Transport } from "#compiler/runtime/write/transport.ts"
+import { noAdvice } from "#compiler/sql/advice.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
 import { flightOf, servableWrite } from "#compiler/write/program/served.ts"
@@ -239,7 +240,7 @@ export const property = (sketch: Sketch, c: Case<Feature>) =>
 		const value = changeOf(sketch)
 		const program = succeeded(compileWrite(checking(Sources), descOf(value), reality))
 		const members = yield* collectInputs(program.binding.groups, parsedOf(value).inputs)
-		const flight = flightOf(servableWrite(program), program.frontend.codes)
+		const flight = flightOf(servableWrite(program), program.frontend.codes, noAdvice)
 		const bind = (write: FlightWrite) =>
 			boundOf(bindWrite(write, { members, params: {}, transport: inForce(bindFrame) }))
 		const whole = bind(flight)

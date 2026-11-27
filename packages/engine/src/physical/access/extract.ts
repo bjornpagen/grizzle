@@ -75,7 +75,7 @@ interface ExtractOptions {
  * (physical/ddl/roles.ts worldView), which PostgreSQL never flattens into its reader and passes only the reader's
  * leakproof quals (allpaths.c qual_is_pushdown_safe), so the reads beneath it are its definition's, read at those quals
  * alone: its definition's IR as its view's lowering rewrites it (`root`), and its heading's columns whose equality is
- * leaky (physical/access/seeks.ts leakyEquality), which stay above the barrier.
+ * leaky (physical/access/catalog.ts leakyEquality), which stay above the barrier.
  */
 export interface WorldView {
 	readonly root: RelNode

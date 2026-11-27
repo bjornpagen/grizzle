@@ -17,7 +17,7 @@ import {
 import { type BatchStatement, oneShotStatement, sentAnswer } from "#adapter/wire/batch.ts"
 import type { CatalogQuery } from "#adapter/wire/statement.ts"
 import { C, databaseLock, emptyNameMap, type UninstallStatement } from "#compiler/plan/catalog.ts"
-import { defect, emit, emitCatalog } from "#compiler/plan/common.ts"
+import { costChosen, defect, emit, emitCatalog } from "#compiler/plan/common.ts"
 import {
 	identifierOf,
 	identity,
@@ -168,7 +168,7 @@ const sent = (statement: UninstallStatement): BatchStatement =>
 
 /** The database lock, as a statement of uninstall's transaction (sql/catalog.ts databaseLock). */
 const privilegeLock = (): BatchStatement => {
-	const lock = emit(databaseLock, emptyNameMap)
+	const lock = emit(databaseLock, emptyNameMap, costChosen())
 	if (!lock.ok) {
 		defect("the database lock prints")
 	}
@@ -177,7 +177,7 @@ const privilegeLock = (): BatchStatement => {
 
 /** A statement of the SQL AST as uninstall sends it, printed. */
 const emitted = (statement: Parameters<typeof emit>[0]): BatchStatement => {
-	const printed = emit(statement, emptyNameMap)
+	const printed = emit(statement, emptyNameMap, costChosen())
 	if (!printed.ok) {
 		defect(`uninstall's ${statement.kind} prints`)
 	}

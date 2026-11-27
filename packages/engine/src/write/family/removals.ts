@@ -454,7 +454,7 @@ export const removalsSql = (
 	if (firstReturning === undefined) {
 		defect("a family write that removes returns its deletions")
 	}
-	return taggedRows(supply, ctes, [firstReturning, ...restReturnings], params, [])
+	return taggedRows(supply, ctes, [firstReturning, ...restReturnings], params, [], w.binding)
 }
 
 /**

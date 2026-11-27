@@ -21,6 +21,7 @@ import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput, flight } from "#compiler/lower/conservative/types.ts"
 import { annotatedInput, lowerOptimized } from "#compiler/lower/optimize/pipeline.ts"
 import { statementOutput } from "#compiler/runtime/lower/tree.ts"
+import { costChosen } from "#compiler/sql/emit.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { admitGenerated } from "#test/support/compile.ts"
 import { genCatalog } from "#test/support/evidence.ts"
@@ -75,6 +76,7 @@ export const theScalarTypesOfLoweredStatementsAreTheRegistrysEveryPlainOrWildcar
 					const admission = admitGenerated(query)
 					const optimized = admission.ok
 						? lowerOptimized(succeeded(annotatedInput(admission.value, queryEvidence)), {
+								binding: costChosen(),
 								names,
 								context: "snapshot",
 								catalog,

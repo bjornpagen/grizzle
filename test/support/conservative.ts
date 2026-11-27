@@ -27,7 +27,9 @@ import type { QueryTemplate } from "#compiler/program/compile.ts"
 import type { SchemaArtifacts } from "#compiler/program/schema.ts"
 import { writeWorldOf } from "#compiler/program/write-world.ts"
 import { servedSpine } from "#compiler/served/spine.ts"
+import { noAdvice } from "#compiler/sql/advice.ts"
 import type { EmittedSql } from "#compiler/sql/ast.ts"
+import { costChosen } from "#compiler/sql/emit.ts"
 import { StatementShare } from "#compiler/write/insert/statement.ts"
 import type { WriteArtifact } from "#compiler/write/program/artifact.ts"
 import {
@@ -114,13 +116,15 @@ export const conservativePageRuntime = (
 						checked: template.programs.checked,
 						optimized: template.programs.optimized,
 						stated,
-						names: artifacts.reads
+						names: artifacts.reads,
+						binding: costChosen()
 					},
 					runtime.page
 				)
 			),
 			(artifact) => ({
 				runtime: compiledPageRuntime({
+					advice: noAdvice,
 					page: {
 						order: runtime.page.order,
 						comparators: runtime.page.comparators,
@@ -158,7 +162,7 @@ export const conservativeChange = (
 			return {
 				entry: {
 					...entry,
-					program: flightOf(servable, entry.names.codes),
+					program: flightOf(servable, entry.names.codes, noAdvice),
 					compiled: servable,
 					readBacks: readBacks(servable.readBacks, entry.names.codes)
 				},
@@ -267,7 +271,7 @@ const conservativeArtifact = (
 			}
 		}
 	}
-	return finish(b, write.carriers, write.cx, params)
+	return finish(b, write.carriers, write.cx, params, costChosen())
 }
 
 /**

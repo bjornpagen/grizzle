@@ -36,7 +36,7 @@ import {
 	variantsMap
 } from "#compiler/program/workload/change.ts"
 import type { LockTable, ObjectName } from "#compiler/sql/ast.ts"
-import { emitText } from "#compiler/sql/emit.ts"
+import { costChosen, emitText } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 
 /**
@@ -116,7 +116,7 @@ const exclusionOf = <S extends ParamSource>(
 			exclusion: {
 				kind: "lock",
 				relations: mapNonEmpty(locked, (l) => l.relation),
-				text: prepared(emitText(lock, emptyNameMap).text)
+				text: prepared(emitText(lock, emptyNameMap, costChosen()).text)
 			}
 		}
 	}

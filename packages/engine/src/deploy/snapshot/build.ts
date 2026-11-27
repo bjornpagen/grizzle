@@ -940,8 +940,8 @@ const indexesCreatedBy = (
 /** The installation's derived runtime facts, which snapshot.json records beside the snapshot's content (SnapshotDerived):
  * each closed relation's constants as readers address them, the installation's plan's, the foreign key graph's
  * cycles, its law model's, which planned them from every law, every table it installs with its
- * indexes (snapshotTablesOf), its live source, and the types its plan casts its served parameters to
- * (InstallPlan.installedParams). */
+ * indexes (snapshotTablesOf), its live source, the types its plan casts its served parameters to
+ * (InstallPlan.installedParams), and the index each access request resolved to (Installation `resolutions`). */
 export const derivedOf = (installation: Installation): SnapshotDerived => ({
 	...derivedFacts(
 		installation.closed,
@@ -954,7 +954,8 @@ export const derivedOf = (installation: Installation): SnapshotDerived => ({
 	params: installation.installedParams,
 	liveDerived: liveDerivedOf(installation),
 	proved: provedOf(installation),
-	planned: plannedGraph(installation.statements)
+	planned: plannedGraph(installation.statements),
+	resolved: installation.resolutions
 })
 
 /**
@@ -1549,6 +1550,15 @@ const derivedForm = <S>(d: SnapshotDerived, units: Units<S>): RecordOf<S> => ({
 	library: d.library,
 	liveDerived: d.liveDerived,
 	planned: plannedForm(d.planned, units),
+	resolved: d.resolved.map((r) => ({
+		request: r.request,
+		index: {
+			name: { schema: r.index.name.schema, name: r.index.name.name },
+			method: r.index.method,
+			stores: r.index.stores,
+			returns: r.index.returns
+		}
+	})),
 	proved: Object.fromEntries(
 		Object.entries(d.proved).map(([law, relations]) => [
 			law,

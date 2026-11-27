@@ -5,13 +5,12 @@ import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { identity } from "#compiler/core/identity.ts"
-import { printedSeeks } from "#compiler/physical/access/seeks.ts"
+import type { AccessIndexRequest } from "#compiler/ir/products.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { key, on, relation, schema } from "#compiler/public/schema.ts"
-import type { SqlStatement } from "#compiler/sql/ast.ts"
-import { seekProgram } from "#compiler/sql/seeks.ts"
+import { planRequests, type ReadPlan } from "#compiler/sql/plan.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { succeeded } from "#test/support/assert.ts"
 import {
@@ -249,9 +248,8 @@ const store = (
  * insert on every write bought for nothing.
  */
 const everyPathPrinted = (
-	installed: Installed,
 	options: TestNaming,
-	statement: { readonly ast: SqlStatement },
+	statement: { readonly spec: { readonly plan: ReadPlan<AccessIndexRequest> } },
 	c: object
 ): void => {
 	const planned = succeeded(
@@ -262,17 +260,12 @@ const everyPathPrinted = (
 		),
 		"the workload plans"
 	)
-	const relations = new Set(
-		Arr.flatMap(printedSeeks(seekProgram([statement.ast]), installed.installation.seeks), (p) => [
-			p.relation
-		])
-	)
+	const relations = new Set(Arr.map(planRequests(statement.spec.plan), (r) => r.relation))
 	assert.equal(
 		Arr.join(
 			unprintedPaths(
-				installed.installation,
 				Arr.filter(planned.requests, (r) => relations.has(r.relation)),
-				[statement.ast]
+				[statement.spec.plan]
 			),
 			", "
 		),
@@ -373,7 +366,7 @@ export const runControls = (
 					`${Formatter.format(c)}: the read of child 1's stage beside ${String(children)} children reads ${String(work)} rows, past its bound ${String(bound)}\n${statement.sql}`
 				)
 			})
-		everyPathPrinted(installed, options, template.run.statement, c)
+		everyPathPrinted(options, template.run.statement, c)
 		yield* bounded(c.children)
 		yield* store(installed, connection, c, c.children + 1, c.children + c.more)
 		yield* bounded(c.children + c.more)
@@ -515,7 +508,7 @@ export const runProbes = (
 					`${Formatter.format(c)}: the read of the batch beside ${String(stages)} stages reads ${String(work)} rows, past its bound ${String(bound)}\n${statement.sql}`
 				)
 			})
-		everyPathPrinted(installed, options, template.run.statement, c)
+		everyPathPrinted(options, template.run.statement, c)
 		yield* bounded(c.stages)
 		for (const sql of storedScores(installed, c, c.stages, c.stages + c.more - 1)) {
 			yield* connection.query(sql, [])

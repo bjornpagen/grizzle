@@ -8,6 +8,7 @@ import {
 	type Node,
 	qualifiedIdent
 } from "#compiler/physical/obligations/graph.ts"
+import { noAdvice } from "#compiler/sql/advice.ts"
 import type {
 	CreateGuardTrigger,
 	Expr,
@@ -61,7 +62,7 @@ const isolationFunctionDdl = (schema: string): readonly [PlFunction, Revoke] => 
 	return [
 		{
 			kind: "createFunction",
-			advice: undefined,
+			advice: noAdvice,
 			language: "plpgsql",
 			name,
 			params: [],

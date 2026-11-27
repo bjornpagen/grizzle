@@ -40,7 +40,6 @@ import {
 } from "#compiler/ir/law.ts"
 import { lawColumnType } from "#compiler/ir/physical.ts"
 import {
-	type AccessIndexRequest,
 	type AccessUse,
 	type IndexRequest,
 	indexOpclassText,
@@ -61,7 +60,15 @@ import {
 	type OrderKey,
 	together as ordersTogether
 } from "#compiler/physical/indexes/chains.ts"
-import { type IndexRef, type IndexResolver, indexRef } from "#compiler/physical/indexes/ref.ts"
+import {
+	type IndexRef,
+	type IndexResolutions,
+	type IndexResolver,
+	indexRef,
+	type RequestContent,
+	requestContent,
+	resolverOf
+} from "#compiler/physical/indexes/ref.ts"
 import type { Node } from "#compiler/physical/obligations/graph.ts"
 import {
 	type DatumBound,
@@ -240,23 +247,11 @@ export interface PlannedIndex extends KeyedIndex {
  */
 export interface IndexPlan {
 	readonly indexes: ReadonlyArray<PlannedIndex>
+	/** The index each access request landed on, as data (ref.ts IndexResolutions), which the snapshot records. */
+	readonly resolutions: IndexResolutions
+	/** The resolver of `resolutions` (ref.ts resolverOf). */
 	readonly resolve: IndexResolver
 }
-
-/**
- * An access request's content, every field of it, as the resolver keys it: equal requests, however many statements
- * make them, land on one index (the plan is a function of what requests ask, `canonical`), so a request resolves by
- * what it asks, never by which object asked it.
- */
-type RequestContent = ReadonlyArray<string | number>
-
-const requestContent = (r: AccessIndexRequest): RequestContent => [
-	r.relation,
-	r.method,
-	r.use,
-	r.fixed,
-	...r.keys.flatMap((k) => [String(k.expr), k.dir, indexOpclassText(k.opclass) ?? ""])
-]
 
 /**
  * Whether an index of `method` over columns of `carriers` returns the values it stores (amcanreturn), which an
@@ -1498,9 +1493,6 @@ const planOver = (
 		for (const index of indexes) {
 			const ref = refOf(index)
 			for (const r of index.requests) {
-				if (r.role !== "access") {
-					continue
-				}
 				const content = requestContent(r)
 				const earlier = resolved.get(content)
 				invariant(
@@ -1511,21 +1503,20 @@ const planOver = (
 			}
 		}
 		for (const { request } of plan) {
-			if (request.role === "access" && !resolved.has(requestContent(request))) {
+			if (!resolved.has(requestContent(request))) {
 				defect(
 					`a missed index: the ${requestLabel(request)} landed on no index of ${request.relation}, which every planned request lands on`
 				)
 			}
 		}
+		const resolutions: IndexResolutions = [...resolved].map(([request, index]) => ({
+			request,
+			index
+		}))
 		return {
 			indexes,
-			resolve: (request) =>
-				resolved.get(
-					requestContent({ ...request, relation: b.checked.installedAs(request.relation) })
-				) ??
-				defect(
-					`a missed index: the ${requestLabel(request)} is no request the installation's indexes were planned from`
-				)
+			resolutions,
+			resolve: resolverOf(resolutions, (relation) => b.checked.installedAs(relation))
 		}
 	})
 

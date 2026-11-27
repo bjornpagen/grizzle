@@ -28,7 +28,7 @@ import { quoteIdent } from "#compiler/core/text.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { admitIr } from "#compiler/ir/pattern.ts"
 import { createDomain } from "#compiler/physical/ddl/domains.ts"
-import { emit } from "#compiler/sql/emit.ts"
+import { emit, costChosen } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 import {
 	analyzeText,
@@ -428,7 +428,7 @@ const agreeOn = (
 					{ schema, name },
 					() => identity.domainCheck(named).identifier
 				)
-				const ddl = succeeded(emit(statement, emptyNameMap)).text
+				const ddl = succeeded(emit(statement, emptyNameMap, costChosen())).text
 				yield* db.query(ddl, [])
 				domainType = `${quoteIdent(schema)}.${quoteIdent(name)}`
 				note("domain enforced")

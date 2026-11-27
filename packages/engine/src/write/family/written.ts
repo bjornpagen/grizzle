@@ -67,7 +67,7 @@ import {
 	unionAll,
 	windowOf
 } from "#compiler/sql/build.ts"
-import { emitText } from "#compiler/sql/emit.ts"
+import { emitText, type Emitting } from "#compiler/sql/emit.ts"
 import { assignments } from "#compiler/sql/generation.ts"
 import { namedBody, type NameSupply } from "#compiler/sql/naming.ts"
 import {
@@ -383,7 +383,8 @@ export const taggedRows = (
 	ctes: Array<Cte>,
 	returnings: NonEmptyReadonlyArray<FamilyReturning>,
 	params: WriteParams,
-	refusals: ReadonlyArray<Expr>
+	refusals: ReadonlyArray<Expr>,
+	binding: Emitting
 ): FamilyWriteSql => {
 	const width = maxOf(
 		returnings.map((r) => r.columns.length),
@@ -417,7 +418,7 @@ export const taggedRows = (
 	}
 	return {
 		ast,
-		sql: emitText(ast, supply.map()),
+		sql: emitText(ast, supply.map(), binding),
 		params: Object.freeze([...params.slots]),
 		parts: mapNonEmpty(returnings, (r) => ({
 			relation: r.relation,

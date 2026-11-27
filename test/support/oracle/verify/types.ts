@@ -7,6 +7,7 @@ import { flight } from "#compiler/lower/conservative/types.ts"
 import type { FusedStatement, StatementParts } from "#compiler/lower/shapes/index.ts"
 import { statementOutput, type StatementRoots } from "#compiler/runtime/lower/tree.ts"
 import type { TypeRef } from "#compiler/sql/ast.ts"
+import { emitText, costChosen } from "#compiler/sql/emit.ts"
 import { lex } from "#compiler/sql/lexer.ts"
 import { printStatement, printType } from "#compiler/sql/print.ts"
 import { elementAt } from "#test/support/oracle/pick.ts"
@@ -62,7 +63,10 @@ export const programJudged = (
 ): ReadonlyArray<Judged> => {
 	const parts = program.parts
 	if (parts.kind === "one") {
-		return [{ where, statement: parts.delivered }]
+		const part = parts.delivered
+		return [
+			{ where, statement: { ...part, sql: emitText(part.ast, part.sql.nameMap, costChosen()) } }
+		]
 	}
 	const relations = flight(program.roots)
 	return Arr.flatMap(parts.parts, (part, tag) =>

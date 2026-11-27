@@ -114,6 +114,7 @@ import {
 } from "#compiler/write/entry/precheck.ts"
 
 import { type StratumAt, strataAt } from "#compiler/ir/stratum.ts"
+import { servedCatalog } from "#compiler/physical/access/catalog.ts"
 import type { Binding } from "#compiler/runtime/write/binding.ts"
 import { noExclusion, type StandUp, type WriteExclusion } from "#compiler/runtime/write/flight.ts"
 import { sentLayout } from "#compiler/runtime/write/nesting.ts"
@@ -121,6 +122,8 @@ import type { FamilyWriteStep } from "#compiler/runtime/write/steps.ts"
 import type { UniqueAbort, WriteStep } from "#compiler/runtime/write/steps.ts"
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
 import { unprintedText } from "#compiler/sql/emit.ts"
+import type { Emitting } from "#compiler/sql/emit.ts"
+import { AdviceScope } from "#compiler/sql/naming.ts"
 import { type AddedRows, unitSql } from "#compiler/write/delete/unit.ts"
 import {
 	type AppendedMember,
@@ -876,6 +879,7 @@ export const placeFamily = (
 		step,
 		Object.freeze({
 			sql: ridden.sql.text,
+			plan: ridden.sql.plan,
 			paramSlots: ridden.params,
 			heading: [
 				{ name: "tag", type: plainType("int4") },
@@ -982,7 +986,14 @@ const ridingFamily = (
 		}
 	})
 	return {
-		...ridingFamilyStatement(sql, deltaCtes, deltaNames, [...placed, ...stashes], cursor),
+		...ridingFamilyStatement(
+			sql,
+			deltaCtes,
+			deltaNames,
+			[...placed, ...stashes],
+			cursor,
+			context.binding
+		),
 		riders: placed.map((p) => p.rider)
 	}
 }
@@ -1038,7 +1049,7 @@ export const placeStatement = (
 
 /** A single statement's text, sent by its units. */
 const partedText = (single: SingleStatement): FormText =>
-	Object.freeze({ kind: "parted", units: single.units })
+	Object.freeze({ kind: "parted", units: single.units, bound: single.bound })
 
 /**
  * Which statement admits the caller parameters of a read-back's write, lowered after the statements `b` places so far
@@ -1092,14 +1103,15 @@ const sessionTyping =
 		sessionTypeRef(names, t)
 
 /** The artifact of the statements built and their carriers, its caller parameters `params` admitted as `cx` checks
- * them (admission.ts admittedFlight). */
+ * them (admission.ts admittedFlight), each admitted statement bound under `binding`. */
 export const finish = (
 	b: ArtifactBuilder,
 	carriers: ReadonlyArray<WriteCarrier>,
 	cx: LowerContext,
-	params: ReadonlyArray<CallerParamDecl>
+	params: ReadonlyArray<CallerParamDecl>,
+	binding: Emitting
 ): WriteArtifact =>
-	settledArtifact(admittedFlight(b.statements, cx, params), Object.freeze([...carriers]))
+	settledArtifact(admittedFlight(b.statements, cx, params, binding), Object.freeze([...carriers]))
 
 /** How the optimized artifact's described members lower: its shape state, whose log holds the CTEs of the statement
  * being lowered, the sharing of sub-queries across its statements, and the context its statements are built in. */
@@ -1131,10 +1143,16 @@ const optimizedArtifact = (
 	const staged = withStagedSlots(
 		optimizedPlacement(frontend, plan, lowering, options).statements,
 		plan.carriers,
-		plan.declaring
+		plan.declaring,
+		lowering.w.binding
 	)
 	return settledArtifact(
-		admittedFlight(staged.statements, lowering.w.cx, callerParams(frontend.params)),
+		admittedFlight(
+			staged.statements,
+			lowering.w.cx,
+			callerParams(frontend.params),
+			lowering.w.binding
+		),
 		staged.carriers
 	)
 }
@@ -1166,6 +1184,7 @@ const optimizedPlacement = (
 	}
 	/** How the read-backs lower: over the installed names, each Delta node read where its program says. */
 	const readBackOptions = {
+		binding: w.binding,
 		names: options.names,
 		reads: options.reads,
 		entries: frontend.deltaEntries,
@@ -1314,7 +1333,8 @@ const optimizedPlacement = (
 									frontend,
 									made: plan.made,
 									lower: (read, deltas, start) =>
-										lowerRidingReadBack(read, deltas, start, readBackOptions)
+										lowerRidingReadBack(read, deltas, start, readBackOptions),
+									binding: w.binding
 								}
 							}
 						: { kind: "none" }
@@ -1441,11 +1461,16 @@ const optimizedPlacement = (
 								frontend,
 								made: plan.made,
 								lower: (read, deltas, start) =>
-									lowerRidingReadBack(read, deltas, start, readBackOptions)
+									lowerRidingReadBack(read, deltas, start, readBackOptions),
+								binding: w.binding
 							})
 						: (() => {
 								const parts = built(buildParts)
-								return { single: singleOf(parts, noRiding), writes: parts.writes, riders: [] }
+								return {
+									single: singleOf(parts, noRiding, w.binding),
+									writes: parts.writes,
+									riders: []
+								}
 							})()
 				/** What the parts read, past the shared sub-queries the statement now carries, and what its riding
 				 * read-backs read. */
@@ -1530,8 +1555,8 @@ interface BuiltParts {
 	readonly start: NameSupplyStart
 }
 
-/** The single statement of `built`'s parts, `riding` riding it. */
-const singleOf = (built: BuiltParts, riding: Riding): SingleStatement =>
+/** The single statement of `built`'s parts, `riding` riding it, bound under `binding`. */
+const singleOf = (built: BuiltParts, riding: Riding, binding: Emitting): SingleStatement =>
 	singleStatement(
 		built.shares,
 		mapNonEmpty(built.writes, (x) => ({
@@ -1539,7 +1564,8 @@ const singleOf = (built: BuiltParts, riding: Riding): SingleStatement =>
 			width: resultHeading(x.step.result).length
 		})),
 		riding,
-		built.start
+		built.start,
+		binding
 	)
 
 /** Where the names of the single statement of `built`'s parts end: past its parts' names and each write part's own CTE
@@ -1586,6 +1612,8 @@ interface RidingContext {
 		deltas: DeltasOf,
 		start: NameSupplyStart
 	) => ReadBackProgram<UnprintedSql>
+	/** What the statement is bound under (sql/emit.ts Emitting), its write's. */
+	readonly binding: Emitting
 }
 
 /**
@@ -1715,7 +1743,7 @@ const ridingSingle = (
 		}
 	}
 	return {
-		single: singleOf(built, riding()),
+		single: singleOf(built, riding(), context.binding),
 		writes: built.writes,
 		riders: placed.map((p) => p.rider)
 	}
@@ -1996,6 +2024,14 @@ const compileAt = (
 	const { schema, frontend, chosen } = prepared
 	const options: CompileWriteOptions = { ...prepared.options, level }
 	const placed = writeFacts(placement)
+	/**
+	 * What every statement the write's transaction may send is bound under (sql/emit.ts Emitting): one advice scope for
+	 * all of them, its statements', its read-backs' and its stand-ups', and the catalog of the installation it writes.
+	 */
+	const binding: Emitting = {
+		scope: new AdviceScope(),
+		catalog: servedCatalog(options.laws, options.names)
+	}
 	/** The statements every lowering below builds, shared where their requests are equal. */
 	const share = new StatementShare<EmittedSql>()
 	/** A write's described members lower statement by statement, and no CTE policy shares their stages. */
@@ -2035,7 +2071,8 @@ const compileAt = (
 			level: options.level,
 			generation: generations(options.laws, options.world),
 			templates,
-			bound: (param) => bound.get(param)
+			bound: (param) => bound.get(param),
+			binding
 		})
 	}
 	const plan = planWrite(restated, chosenIn(chosen, frontend.restate), {

@@ -13,6 +13,7 @@ import { Array as Arr, Order } from "effect"
 import { filed } from "#compiler/deploy/render/filed.ts"
 import type { DraftedFile } from "#compiler/deploy/render/folder.ts"
 import { recordedObject, type SourceDigest } from "#compiler/deploy/snapshot/recorded.ts"
+import { noAdvice } from "#compiler/sql/advice.ts"
 import type { PlFunction, PlStatement } from "#compiler/sql/ast.ts"
 import {
 	col,
@@ -82,7 +83,7 @@ const probeOf = (probe: ProbeShape, at: number): PlStatement => ({
 /** The PL/pgSQL function named `name` whose body is `body`, as grizzle's upkeeps and judges are declared. */
 export const plFunction = (name: string, body: ReadonlyArray<PlStatement>): PlFunction => ({
 	kind: "createFunction",
-	advice: undefined,
+	advice: noAdvice,
 	language: "plpgsql",
 	name: { schema: "source_digests", name },
 	volatility: "VOLATILE",

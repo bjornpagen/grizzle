@@ -88,6 +88,7 @@ import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import { headIdentities, type InstallNames } from "#compiler/physical/ddl/names.ts"
 import { enforcement, type Node } from "#compiler/physical/obligations/graph.ts"
+import { noAdvice } from "#compiler/sql/advice.ts"
 import type {
 	ColumnDef,
 	CreateTable,
@@ -357,7 +358,7 @@ const stampFunction = (
 	}
 	return {
 		kind: "createFunction",
-		advice: undefined,
+		advice: noAdvice,
 		language: "plpgsql",
 		name,
 		params,

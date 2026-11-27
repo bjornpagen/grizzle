@@ -25,7 +25,8 @@ import {
 	type ParsedChangeSet,
 	type ServableEntry,
 	servableEntry,
-	type WriteNames
+	type WriteNames,
+	writeAdvice
 } from "#compiler/plan/change.ts"
 import {
 	type BindContext,
@@ -47,12 +48,15 @@ import {
 	type SchemaFingerprint,
 	SourceLoc
 } from "#compiler/plan/common.ts"
+import type { Advice, IndexResolver } from "#compiler/plan/migration.ts"
 import {
 	compilePageOf,
+	pageAdvice,
 	type PageTemplate,
 	type QueryTemplate,
 	queryInput,
 	queryState,
+	readBinding,
 	servedPage,
 	servedSource,
 	servedSpine,
@@ -167,6 +171,8 @@ interface PageTemplateInput {
 	readonly template: QueryTemplate
 	readonly desc: QueryDesc
 	readonly artifacts: SchemaArtifacts
+	/** How the installation behind `artifacts` resolves each read's index (served/role.ts RoleContext `resolve`). */
+	readonly resolve: IndexResolver
 }
 
 /**
@@ -187,18 +193,23 @@ export interface CompiledPageTemplate {
 export const compiledPageTemplateFor = (
 	input: PageTemplateInput
 ): Result.Result<CompiledPageTemplate, CompileError> => {
-	const { template, desc, artifacts } = input
+	const { template, desc, artifacts, resolve } = input
 	return Result.gen(function* () {
 		/** The location compileQuery checks the template's Description at (program/compile.ts, label "query"). */
 		const stated = yield* toResult(statedOrderOf(desc, SourceLoc("query", [])))
 		const compiled = yield* toResult(
-			compilePageOf(template.programs, { stated, names: artifacts.reads })
+			compilePageOf(template.programs, {
+				stated,
+				names: artifacts.reads,
+				binding: readBinding(artifacts)
+			})
 		)
 		const runtime = compiledPageRuntime({
 			page: compiled,
 			params: template.params,
 			codes: artifacts.names.codes,
-			spine: servedSpine(desc)
+			spine: servedSpine(desc),
+			advice: pageAdvice(compiled, resolve)
 		})
 		return { runtime, template: compiled }
 	})
@@ -210,6 +221,8 @@ interface CompiledPageParts {
 	readonly params: ReadonlyArray<CallerParamDecl>
 	readonly codes: Codebook
 	readonly spine: ServedSpine
+	/** What its transaction is planned under (engine program/served.ts pageAdvice). */
+	readonly advice: Advice
 }
 
 /**
@@ -218,7 +231,7 @@ interface CompiledPageParts {
  */
 export const compiledPageRuntime = (parts: CompiledPageParts): PageRuntime =>
 	pageRuntimeOf({
-		page: servedPage(parts.page, parts.codes),
+		page: servedPage(parts.page, parts.codes, parts.advice),
 		params: parts.params,
 		codes: parts.codes,
 		spine: parts.spine
@@ -259,7 +272,8 @@ const compiledPageTemplate = (
 				pageTemplateFor({
 					template: compiled.template,
 					desc: compiled.desc,
-					artifacts
+					artifacts,
+					resolve: role.resolve
 				}),
 				(runtime): CompiledPage => ({
 					compiled,
@@ -290,10 +304,11 @@ export const runtimeEntry = (
 	entry: ServableEntry<InstalledSource>,
 	codes: Codebook,
 	witness: InstallationWitness,
-	bind: BindContext
+	bind: BindContext,
+	resolve: IndexResolver
 ): CompiledEntry =>
 	installedEntry(entry, ({ compiled, schema, names, change }) => ({
-		program: flightOf(compiled, codes),
+		program: flightOf(compiled, codes, writeAdvice(compiled, resolve)),
 		compiled,
 		schema,
 		names,
@@ -328,7 +343,8 @@ const writeEntry = (
 				servableEntry(entry),
 				role.artifacts.names.codes,
 				role.witness,
-				role.bind
+				role.bind,
+				role.resolve
 			),
 			program: entry.compiled
 		})

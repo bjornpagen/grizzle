@@ -57,10 +57,17 @@ export const aRuleOverAQueryAsksAnIndexOfEachReadItsJudgeMakesAWholeRulesLedByIt
 				why: "A judged read's equality lookups are asked from its IR again beside its statements' seeks: a whole rule's check over every row asks an index of the scan it starts from, led by the literal it reads U at, w, not by the unit, an index every write of U pays for a read one migration makes."
 			},
 			{
-				file: "packages/engine/src/sql/seeks.ts",
-				original: "\t\t\tif (x.table !== undefined && aliases.has(x.table)) {\n",
-				replacement: "\t\t\tif (x.table !== undefined) {\n",
-				why: "A navigation step's `column = channel` reads as a column of its own level, the row before it read as a join, so a probe's lookup of U by the join is no seek its judge's program asks an index for, and PostgreSQL reads every row of U's package at each row of T's delta; the property fails."
+				file: "packages/engine/src/sql/bind.ts",
+				original: "\t\t\t\treturn d !== undefined && d.depth < here.depth\n",
+				replacement: "\t\t\t\treturn false\n",
+				why: "A navigation step's `column = channel`, a column of the enclosing level, fixes nothing, so a probe's lookup of U by the join binds none of it and its judge's plan asks no index of it, and PostgreSQL reads every row of U's package at each row of T's delta; the property fails."
+			},
+			{
+				file: "packages/engine/src/physical/ddl/rules.ts",
+				original:
+					"\treturn isNonEmpty(bound) ? (isNonEmpty(rest) ? [bound, rest] : [bound]) : [keys]",
+				replacement: "\treturn [keys]",
+				why: "A whole rule's request is one block, so the engine merges it into the index Q's probes ask of U by g, led by g: the whole rule's read is served by an index whose scan by g reads every unit's rows of that value, which PostgreSQL may AND into another read, as qti.node's path-led indexes were for the manifest rules; the property fails."
 			}
 		]
 	})

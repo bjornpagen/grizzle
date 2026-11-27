@@ -19,7 +19,8 @@
  * - for each stored relation, its scan: `SEQ_SCAN(t)` read whole; `INDEX_ONLY_SCAN(t <index>)` through an index that
  *   returns what it stores and stores every column the statement reads of it, else `INDEX_SCAN(t <index>)`, each
  *   disabling every other index of the relation and every other scan kind; `TID_SCAN(t)` at tuple ids;
- * - `NO_GATHER(t)` for every item, every range-table entry of the level, so no read runs in parallel.
+ * - `NO_GATHER(t)` for every item, every range-table entry of the level, a UNION ALL's members it flattens into an
+ *   append relation among them, so no read runs in parallel.
  * Nothing else: no semi-join item (no sublink the binding leaves is one PostgreSQL flattens), no Memoize or Materialize
  * (a nested loop is plain), no Gather.
  *
@@ -28,11 +29,15 @@
  * doubled, otherwise. An index is printed schema-qualified, each part so.
  */
 import { nominal } from "#compiler/core/brand.ts"
-import type { IndexRef } from "#compiler/physical/indexes/ref.ts"
+import type { AccessIndexRequest } from "#compiler/ir/products.ts"
+import type { IndexRef, IndexResolver } from "#compiler/physical/indexes/ref.ts"
 import type { ObjectName } from "#compiler/sql/ast.ts"
 import {
 	type JoinMethod,
+	joinPlans,
 	levelItems,
+	resolvePlan,
+	scannedItems,
 	type PlanItem,
 	type PlanLevel,
 	type PlanName,
@@ -141,26 +146,35 @@ const noGather = (at: string): string => `NO_GATHER(${at})`
 /** A level's atoms, in the order the header states. */
 const levelAtoms = (level: PlanLevel<IndexRef>): ReadonlyArray<string> => {
 	const items = levelItems(level)
+	const scanned = scannedItems(level)
 	const at = (item: PlanItem<IndexRef>) => target(item, level.name)
 	return [
 		...(level.joined.length === 0 ? [] : [`JOIN_ORDER(${items.map(at).join(" ")})`]),
 		...level.joined.map((j) => `${methodTag[j.join]}(${at(j.item)})`),
-		...items.flatMap((item) => scanAtom(item, at(item))),
-		...items.map((item) => noGather(at(item)))
+		...scanned.flatMap((item) => scanAtom(item, at(item))),
+		...scanned.map((item) => noGather(at(item)))
 	]
 }
 
-/** A plan's advice (see the header), none where it holds no level: a statement that reads no relation. */
-export const printAdvice = (plan: ReadPlan<IndexRef>): Advice | undefined => {
-	const atoms = plan.levels.flatMap(levelAtoms)
-	return atoms.length === 0 ? undefined : mint(atoms.join(" "))
-}
+/**
+ * The advice of no atom: a routine's whose statements read no relation, which it sets all the same, so they are planned
+ * under no advice, never its caller's (sql/print.ts adviceClause); an application's declared function's, whose body
+ * grizzle binds no statement of.
+ */
+export const noAdvice: Advice = mint("")
+
+/** A plan's advice (see the header): `noAdvice` where it holds no level, a statement's that reads no relation. */
+export const printAdvice = (plan: ReadPlan<IndexRef>): Advice =>
+	mint(plan.levels.flatMap(levelAtoms).join(" "))
 
 /**
- * The advice of several plans of one scope, each statement's or each routine's: their items in order, none where none
- * holds any. A scope's aliases are its own, so the joined items still name one relation each.
+ * The advice of a transaction that may send the statements of `plans`, every one bound under its one scope (sql/naming.ts
+ * AdviceScope), each read resolved to the index the installation planned for it (`resolve`): their plans' atoms, which
+ * hold whichever of the statements a call sends, an atom of an unsent one targeting no relation the call's statements
+ * read. What a served read, page and write is planned under (served/forms.ts ServedRead, ServedPage;
+ * runtime/write/flight.ts ServedWrite).
  */
-export const joinAdvice = (parts: ReadonlyArray<Advice | undefined>): Advice | undefined => {
-	const held = parts.filter((p) => p !== undefined)
-	return held.length === 0 ? undefined : mint(held.join(" "))
-}
+export const transactionAdvice = (
+	plans: ReadonlyArray<ReadPlan<AccessIndexRequest>>,
+	resolve: IndexResolver
+): Advice => printAdvice(resolvePlan(joinPlans(plans), resolve))

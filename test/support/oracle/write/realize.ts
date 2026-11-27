@@ -27,7 +27,7 @@ import { roleUpdates } from "#compiler/physical/ddl/roles.ts"
 
 import type { CarrierCasts } from "#compiler/runtime/write/steps.ts"
 import type { EmittedSql } from "#compiler/sql/ast.ts"
-import { emitText } from "#compiler/sql/emit.ts"
+import { emitText, costChosen } from "#compiler/sql/emit.ts"
 import { emptyNameMap, freshNames } from "#compiler/sql/naming.ts"
 import {
 	buildFillCarrier,
@@ -167,6 +167,7 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 	const bound = new Map<ParamId, BoundCarrier>()
 	const boundRows: BoundCarrierOf = (param) => bound.get(param)
 	const w: StatementWriting<EmittedSql> = writeContext(ir.dag, {
+		binding: costChosen(),
 		templates,
 		level: options.level,
 		names: options.names,
@@ -378,7 +379,7 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 					statement: Object.freeze({
 						role: "carrier" as const,
 						ast,
-						sql: emitText(ast, emptyNameMap),
+						sql: emitText(ast, emptyNameMap, costChosen()),
 						params: [],
 						result: Object.freeze({ kind: "carrier" as const, carrier: carrier.name }),
 						needs: always

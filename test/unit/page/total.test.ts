@@ -1,3 +1,15 @@
+import { assert } from "@bjornpagen/testing/assert"
+import { type Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect } from "effect"
+import { compiledPageRuntime } from "#adapter/served/forms.ts"
+import { SourceLoc } from "#compiler/core/loc.ts"
+import { callerParams } from "#compiler/ir/products.ts"
+import { queryEvidence } from "#compiler/logical/annotate.ts"
+import { lowerConservative } from "#compiler/lower/conservative/index.ts"
+import { conservativeInput, flight } from "#compiler/lower/conservative/types.ts"
+import { annotatedInput, lowerOptimized } from "#compiler/lower/optimize/pipeline.ts"
+import { compilePage } from "#compiler/lower/shapes/page/compile.ts"
 /**
  * The page compiler and the page runtime template are total on generated ordered queries, without a database.
  *
@@ -18,18 +30,8 @@
  * Features: a page of heading groups, a page with attachments, and a page whose attachment takes its other form per
  * execution.
  */
-import { assert } from "@bjornpagen/testing/assert"
-import { type Reached } from "@bjornpagen/testing/features"
-import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect } from "effect"
-import { compiledPageRuntime } from "#adapter/served/forms.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
-import { callerParams } from "#compiler/ir/products.ts"
-import { queryEvidence } from "#compiler/logical/annotate.ts"
-import { lowerConservative } from "#compiler/lower/conservative/index.ts"
-import { conservativeInput, flight } from "#compiler/lower/conservative/types.ts"
-import { annotatedInput, lowerOptimized } from "#compiler/lower/optimize/pipeline.ts"
-import { compilePage } from "#compiler/lower/shapes/page/compile.ts"
+import { noAdvice } from "#compiler/sql/advice.ts"
+import { costChosen } from "#compiler/sql/emit.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { admitGenerated } from "#test/support/compile.ts"
 import { conservativePage } from "#test/support/conservative.ts"
@@ -83,6 +85,7 @@ export const thePageCompilerAndThePageRuntimeTemplateCompileEveryGeneratedOrdere
 				const admission = admitGenerated(query)
 				const optimized = admission.ok
 					? lowerOptimized(succeeded(annotatedInput(admission.value, queryEvidence)), {
+							binding: costChosen(),
 							names,
 							context: "snapshot",
 							catalog,
@@ -100,6 +103,7 @@ export const thePageCompilerAndThePageRuntimeTemplateCompileEveryGeneratedOrdere
 					catalog
 				})
 				const pageInput = {
+					binding: costChosen(),
 					checked: query,
 					optimized: optimized.value,
 					names,
@@ -121,6 +125,7 @@ export const thePageCompilerAndThePageRuntimeTemplateCompileEveryGeneratedOrdere
 					c.note("attachments")
 				}
 				const runtime = compiledPageRuntime({
+					advice: noAdvice,
 					page: template,
 					params: callerParams(query.params),
 					spine: everyColumnCarried(query.dag),

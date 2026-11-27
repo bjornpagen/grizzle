@@ -36,6 +36,7 @@ import {
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { answered, paged } from "#compiler/public/workload.ts"
+import { noAdvice } from "#compiler/sql/advice.ts"
 import { printObjectName, printStatement } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -1482,6 +1483,7 @@ export const runPage = (
 		const compiled = succeeded(compiledPageResult(windows[c.window], options), "the page compiles")
 		const runtimeOf = (page: PageTemplate): PageRuntime =>
 			compiledPageRuntime({
+				advice: noAdvice,
 				page,
 				params: compiled.query.params,
 				codes,

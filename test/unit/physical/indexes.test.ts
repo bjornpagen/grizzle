@@ -582,7 +582,7 @@ export const everyAccessRequestResolvesByWhatItAsksToTheIndexItLandedOn = proper
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/physical/indexes/engine.ts",
+				file: "packages/engine/src/physical/indexes/ref.ts",
 				original:
 					'\t...r.keys.flatMap((k) => [String(k.expr), k.dir, indexOpclassText(k.opclass) ?? ""])\n',
 				replacement: "",
@@ -603,9 +603,11 @@ export const everyAccessRequestResolvesByWhatItAsksToTheIndexItLandedOn = proper
 				why: "A B-tree held to return nothing: no read through one is ever an index-only scan, though every column it needs is stored."
 			},
 			{
-				file: "packages/engine/src/physical/indexes/engine.ts",
-				original: "\t\t\t\tresolved.get(\n",
-				replacement: "\t\t\t\t[...resolved.values()][0] ?? resolved.get(\n",
+				file: "packages/engine/src/physical/indexes/ref.ts",
+				original:
+					"\t\tresolved.get(requestContent({ ...request, relation: installedAs(request.relation) })) ??\n",
+				replacement:
+					"\t\t[...resolved.values()][0] ?? resolved.get(requestContent({ ...request, relation: installedAs(request.relation) })) ??\n",
 				why: "Every request resolved to the first index any request landed on: a request planned elsewhere names an index that does not serve it, and one never planned names an index all the same."
 			}
 		]

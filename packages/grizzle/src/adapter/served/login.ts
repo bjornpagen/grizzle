@@ -63,6 +63,7 @@ import {
 	transactionClock,
 	type WorldStem
 } from "#compiler/plan/common.ts"
+import type { IndexResolver } from "#compiler/plan/migration.ts"
 import { templateFor } from "#compiler/plan/read.ts"
 import {
 	type CompileFacts,
@@ -263,7 +264,13 @@ const layerVariants = (
 	variants: ServableVariants<InstalledSource>
 ): Result.Result<ChangeVariants, CompileError> => {
 	if (variants.kind === "form") {
-		const entry = runtimeEntry(variants.entry, role.artifacts.names.codes, witness, role.bind)
+		const entry = runtimeEntry(
+			variants.entry,
+			role.artifacts.names.codes,
+			witness,
+			role.bind,
+			role.resolve
+		)
 		return Result.map(boundChangeForm(entry, variants.decoder), (form): ChangeVariants => ({
 			kind: "form",
 			form
@@ -420,7 +427,8 @@ const layerRole = (
 	workload: ReadonlyArray<AnyWorkload>,
 	bind: BindContext,
 	above: LawsAbove,
-	clock: ClockSource
+	clock: ClockSource,
+	resolve: IndexResolver
 ): Effect.Effect<LayerRole, WorkloadRefused> =>
 	Effect.gen(function* () {
 		const refused = roleRefused(name)
@@ -441,7 +449,8 @@ const layerRole = (
 				})),
 			witness: installationWitness(artifacts, above),
 			bind,
-			clock
+			clock,
+			resolve
 		}
 		const contexts = yield* Effect.mapError(fromEngine(typedContexts(artifacts)), refused)
 		const forms = yield* Effect.fromResult(
@@ -512,7 +521,8 @@ export const plannedLoginRoles = (
 	changes: ReadonlyMap<string, ServableRole<Isolation, InstalledSource>>,
 	artifacts: InstalledArtifacts,
 	above: LawsAbove,
-	clock: ClockSource
+	clock: ClockSource,
+	resolve: IndexResolver
 ): Effect.Effect<ReadonlyArray<LayerRole>, WorkloadRefused> => {
 	const bind: BindContext = { options: rowOptions, names: codeNames(artifacts.names.codes) }
 	return Effect.forEach(login.roles, (parsed) => {
@@ -521,7 +531,7 @@ export const plannedLoginRoles = (
 		if (role === undefined) {
 			defect(`the change compile of role ${name}, a role of its login`)
 		}
-		return layerRole(name, role, login.workload, bind, above, clock)
+		return layerRole(name, role, login.workload, bind, above, clock, resolve)
 	})
 }
 
@@ -534,10 +544,11 @@ export const loginRoles = (
 	login: LoginInput,
 	owned: OwnedLogin,
 	artifacts: InstalledArtifacts,
-	above: LawsAbove
+	above: LawsAbove,
+	resolve: IndexResolver
 ): Effect.Effect<ReadonlyArray<LayerRole>, WorkloadRefused> =>
 	Effect.flatMap(
 		loginChangesOver(login, owned, artifacts, "serializable", transactionClock),
 		(changes) =>
-			plannedLoginRoles(login, servableRoles(changes), artifacts, above, transactionClock)
+			plannedLoginRoles(login, servableRoles(changes), artifacts, above, transactionClock, resolve)
 	)

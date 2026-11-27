@@ -9,7 +9,12 @@ import { closedTableOf } from "#compiler/analysis/schema.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { prepared } from "#compiler/core/prepared.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
-import { type CallerParamDecl, callerParams, type ClockParamDecl } from "#compiler/ir/products.ts"
+import {
+	type AccessIndexRequest,
+	type CallerParamDecl,
+	callerParams,
+	type ClockParamDecl
+} from "#compiler/ir/products.ts"
 import type {
 	DeclaredValue,
 	RelationColumn,
@@ -17,6 +22,7 @@ import type {
 	SlotColumn,
 	WriteParamSlot
 } from "#compiler/lower/conservative/types.ts"
+import type { IndexResolver } from "#compiler/physical/indexes/ref.ts"
 import type { HostBinding } from "#compiler/runtime/write/bind.ts"
 import { type Binding, prepareBinding } from "#compiler/runtime/write/binding.ts"
 import type { ClosedTable } from "#compiler/runtime/write/fill.ts"
@@ -34,11 +40,12 @@ import type { OwnStep, UniqueAbort } from "#compiler/runtime/write/steps.ts"
 import type { PatternReads } from "#compiler/scalar/regex/patterns.ts"
 import type { ServedReadBack } from "#compiler/served/read.ts"
 import { servedReadBacks } from "#compiler/served/spine.ts"
+import { type Advice, transactionAdvice } from "#compiler/sql/advice.ts"
 import type { EmittedText, SqlStatement } from "#compiler/sql/ast.ts"
-import { emitText } from "#compiler/sql/emit.ts"
+import { costChosen, emitText } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
+import { joinPlans, type ReadPlan } from "#compiler/sql/plan.ts"
 import { type Reach, ReachOf } from "#compiler/sql/reach.ts"
-import { type SeekProgram, seekProgram } from "#compiler/sql/seeks.ts"
 import type { CarrierColumn } from "#compiler/write/carriers/carriers.ts"
 import type { WriteFrontend } from "#compiler/write/frontend/compile.ts"
 import type { ArtifactStatement, FormText } from "#compiler/write/program/artifact.ts"
@@ -96,7 +103,12 @@ const servedPartedForm = (form: {
 	if (form.text.kind !== "parted") {
 		defect("a single statement is sent by its units")
 	}
-	const parted = partedOf(form.ast, form.params.map(servedWriteSlot), form.text.units)
+	const parted = partedOf(
+		form.ast,
+		form.text.bound,
+		form.params.map(servedWriteSlot),
+		form.text.units
+	)
 	return Object.freeze({ units: mapNonEmpty(parted.units, (unit) => Object.freeze(unit)) })
 }
 
@@ -175,8 +187,8 @@ const servedStatements = (
  * parameters, its binding; and of its front end the schema it compiled against, the relations it writes and the codes it reads. A compiled write's
  * artifact holds each statement's SQL AST beside its text, which its certification's facts read and nothing after
  * (program/isolation/member-facts.ts), so the servable write holds no AST, no schedule, no placement and no analysis:
- * what the missed-index check reads of its statements is their seek program (`seeks`), which names tables and columns
- * alone.
+ * what the installation reads of its statements is the plan they were bound with (`plan`), which names aliases,
+ * index requests and join methods alone.
  */
 export interface ServableWrite {
 	readonly level: Isolation
@@ -190,19 +202,18 @@ export interface ServableWrite {
 	readonly binding: Binding
 	readonly frontend: Pick<WriteFrontend, "schema" | "written" | "codes">
 	/**
-	 * What every statement its flight may send seeks (sql/seeks.ts seekProgram), read off each statement's AST before
-	 * the AST goes: each statement, the read-backs' own and the admission among them, which generate judges at the
-	 * installation's indexes once they are planned (physical/access/seeks.ts judgeSeeks, adapter/served/compile.ts
-	 * servedEntry), so a write's seek no index serves is an internal compiler error of generate's. A staged form is the
-	 * inline form with each FROM item of its nested rows read from a carrier under the same alias, rows no index serves
-	 * either way, so it seeks what its inline form seeks; a stand-up reads the session's carriers alone, or calls the
-	 * judge's stand-up, which the installation installs and holds to its indexes itself.
+	 * The plan of every statement its flight may send, each bound under its transaction's one scope (sql/bind.ts), so no
+	 * two of them share an alias: each statement, the read-backs' own and the admission among them, a single statement's
+	 * every unit. The installation asks an index for each of its requests and resolves them (physical/install/compile.ts),
+	 * and generate prints its advice, the one its transaction sends whichever of its statements and units a call sends,
+	 * since an atom of an unsent one targets no relation of the call's (sql/advice.ts). A stand-up calls the judge's
+	 * stand-up, which the installation advises itself.
 	 */
-	readonly seeks: SeekProgram
+	readonly plan: ReadPlan<AccessIndexRequest>
 	/**
 	 * What every statement its flight may send reaches as PostgreSQL runs it (sql/reach.ts), read off each statement's
-	 * AST before the AST goes, as `seeks` is: each statement, the read-backs' own and the admission among them, and its
-	 * stand-ups' calls, which a bound of the queries one call plans follows into the installation (program/planned.ts).
+	 * AST before the AST goes: each statement, the read-backs' own and the admission among them, and its stand-ups'
+	 * calls, which a bound of the queries one call plans follows into the installation (program/planned.ts).
 	 */
 	readonly reach: Reach
 }
@@ -212,7 +223,10 @@ export const servableWrite = (compiled: CompiledWrite): ServableWrite => {
 	const { artifact } = compiled
 	const standUps = Object.freeze(
 		compiled.standUps.map((s): ServedStandUp =>
-			Object.freeze({ kind: "judged", call: prepared(emitText(s.call, emptyNameMap).text) })
+			Object.freeze({
+				kind: "judged",
+				call: prepared(emitText(s.call, emptyNameMap, costChosen()).text)
+			})
 		)
 	)
 	const statementAsts = artifact.statements.map((s) => s.ast)
@@ -240,7 +254,7 @@ export const servableWrite = (compiled: CompiledWrite): ServableWrite => {
 			written: compiled.frontend.written,
 			codes: compiled.frontend.codes
 		}),
-		seeks: seekProgram(statementAsts),
+		plan: joinPlans(artifact.statements.map((s) => s.spec.plan)),
 		reach: reach.reach()
 	})
 }
@@ -252,7 +266,7 @@ export const servableWrite = (compiled: CompiledWrite): ServableWrite => {
  * level, the statements one call sends, its own and its read-backs' after the last stratum, and its written relations'
  * headings.
  */
-export const projectWrite = (compiled: ServableWrite): ServedWrite =>
+export const projectWrite = (compiled: ServableWrite, advice: Advice): ServedWrite =>
 	Object.freeze({
 		params: compiled.params,
 		binding: compiled.binding,
@@ -271,14 +285,23 @@ export const projectWrite = (compiled: ServableWrite): ServedWrite =>
 					)
 				})
 			)
-		)
+		),
+		advice
 	})
 
-/** A write compiled in process as an application runs it: projected at the level it was compiled for and loaded, as a
- * served one is. */
-export const flightOf = (compiled: ServableWrite, codes: Codebook): FlightWrite =>
+/**
+ * What a write of `compiled` is planned under (runtime/write/flight.ts ServedWrite `advice`): the plan of every
+ * statement its flight may send (ServableWrite `plan`), each read resolved by the installation that serves it
+ * (`resolve`).
+ */
+export const writeAdvice = (compiled: ServableWrite, resolve: IndexResolver): Advice =>
+	transactionAdvice([compiled.plan], resolve)
+
+/** A write compiled in process as an application runs it: projected at the level it was compiled for, planned under
+ * `advice` (`writeAdvice`), and loaded, as a served one is. */
+export const flightOf = (compiled: ServableWrite, codes: Codebook, advice: Advice): FlightWrite =>
 	loadWrite(
-		projectWrite(compiled),
+		projectWrite(compiled, advice),
 		codes,
 		closedTableOf(compiled.frontend.schema),
 		compiled.frontend.schema.patterns

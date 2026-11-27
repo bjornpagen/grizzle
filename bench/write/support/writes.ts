@@ -47,7 +47,7 @@ import { trusted, trustedJson } from "#compiler/core/trusted.ts"
 import { isolationGuardName } from "#compiler/physical/ddl/isolation.ts"
 import { snapshotGuardName } from "#compiler/physical/ddl/ledger.ts"
 import { levelChain, type RowDecoder } from "#compiler/plan/common.ts"
-import { servedSnapshot } from "#compiler/plan/serve.ts"
+import { servedSnapshot, snapshotResolver } from "#compiler/plan/serve.ts"
 import type { WriteStepResult } from "#compiler/runtime/write/steps.ts"
 import type { Insert, SqlStatement, With } from "#compiler/sql/ast.ts"
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
@@ -190,7 +190,13 @@ const servedRoleOf = (
 			)
 		)
 		const roles = yield* Effect.mapError(
-			loginRoles({ ...login, workload: [] }, owned, artifacts, lawsAbove(snapshot)),
+			loginRoles(
+				{ ...login, workload: [] },
+				owned,
+				artifacts,
+				lawsAbove(snapshot),
+				snapshotResolver(snapshot, artifacts.derived.schema)
+			),
 			(refused) => refused.error
 		)
 		const found = Option.getOrUndefined(Arr.findFirst(roles, (r) => r.role.name === role.role.name))

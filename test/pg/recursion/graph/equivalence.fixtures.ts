@@ -5,6 +5,7 @@ import type { Budget, Case, Kill } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { rooted } from "#compiler/ir/dag.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
+import { costChosen } from "#compiler/sql/emit.ts"
 import {
 	formsBroken,
 	type GraphOptimizedFeature,
@@ -167,6 +168,7 @@ export const optimizedAt = (note: Note, which: 0 | 1): Lowering => ({
 		const dag = rooted([root, ...Arr.filter(c.query.dag.roots, (r) => r !== root)])
 		return Result.map(
 			lowerAligned({ dag, params: genParamDecls(c.query) }, "query", {
+				binding: costChosen(),
 				names,
 				context: "snapshot",
 				catalog: genCatalog(c.schema)

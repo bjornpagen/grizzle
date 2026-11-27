@@ -93,7 +93,8 @@ export {
 	flightOf,
 	projectWrite,
 	type ServableWrite,
-	servableWrite
+	servableWrite,
+	writeAdvice
 } from "#compiler/write/program/served.ts"
 export {
 	interpretRows,

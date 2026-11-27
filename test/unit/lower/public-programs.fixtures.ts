@@ -23,6 +23,7 @@ import { closedId, pg } from "#compiler/public/fields.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
+import { costChosen } from "#compiler/sql/emit.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { type FixtureSchema, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { Id } from "#test/support/ids.ts"
@@ -79,6 +80,7 @@ export const lowered = (schemaValue: FixtureSchema, read: unknown): Lowered => {
 	const rewritten = optimizing.query
 	const catalog = evidenceCatalog(artifacts)
 	const optimized = lowerOptimized(optimizing, {
+		binding: costChosen(),
 		names: artifacts.names,
 		subject: { kind: "query" },
 		catalog,

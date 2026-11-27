@@ -25,6 +25,7 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
+import { noAdvice } from "#compiler/sql/advice.ts"
 import { projectWrite, servableWrite } from "#compiler/write/program/served.ts"
 import {
 	bindingInKeyOrder,
@@ -47,8 +48,11 @@ export const aMemberOfSeveralFamiliesIsLaidOutAndNamedTheSameWhateverOrderTheLaw
 		] satisfies ReadonlyArray<Reached<PickFeature>>,
 		check: (_, c: Case<PickFeature>) => (drawn) =>
 			Effect.sync(() => {
-				const own = projectWrite(servableWrite(compiledInOrder(drawn.shape, stated)))
-				const ordered = projectWrite(servableWrite(compiledInOrder(drawn.shape, drawn.order)))
+				const own = projectWrite(servableWrite(compiledInOrder(drawn.shape, stated)), noAdvice)
+				const ordered = projectWrite(
+					servableWrite(compiledInOrder(drawn.shape, drawn.order)),
+					noAdvice
+				)
 				const order = Formatter.format(Arr.map(drawn.order, (f) => `${f.id.owner}.${f.id.count}`))
 				assert.deepEqual(
 					ordered.statements,

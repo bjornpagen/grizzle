@@ -25,6 +25,7 @@ import { isQueryValue, queryOver, type QueryValue, varsOver } from "#compiler/qu
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { spelling } from "#compiler/scalar/compute/spelling.ts"
+import { costChosen } from "#compiler/sql/emit.ts"
 import {
 	columnFacts,
 	groupFields,
@@ -3405,6 +3406,7 @@ const pageOf = (spec: QuerySpec): PageVerdict => {
 				Result.flatMap(queryInput(ordered), (input) =>
 					Result.flatMap(statedOrderOf(input.desc, SourceLoc("query", [])), (stated) =>
 						compilePage({
+							binding: costChosen(),
 							checked: template.programs.checked,
 							stated,
 							optimized: template.programs.optimized,

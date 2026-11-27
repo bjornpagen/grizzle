@@ -58,7 +58,7 @@ import {
 	targetAs,
 	types
 } from "#compiler/sql/build.ts"
-import { emit } from "#compiler/sql/emit.ts"
+import { costChosen, emit } from "#compiler/sql/emit.ts"
 import { assignments, ungenerated } from "#compiler/sql/generation.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 import { claimsSettingName } from "#compiler/sql/print.ts"
@@ -420,7 +420,7 @@ export const ledgerPublished = (
 })
 
 const emitted = (statement: SqlStatement): EmittedSql => {
-	return unwrap(emit(statement, emptyNameMap))
+	return unwrap(emit(statement, emptyNameMap, costChosen()))
 }
 
 /** The INSERT of a ledger row: a folder's row (ordinal 0, file meta.json), if absent; or a file's. */

@@ -244,7 +244,7 @@ export type {
 } from "#compiler/sql/ast.ts"
 export { lit, types } from "#compiler/sql/build.ts"
 export { explainAnalyzeOf, explainOf } from "#compiler/runtime/explain.ts"
-export { emit, emitCatalog, emitCommands, emitText } from "#compiler/sql/emit.ts"
+export { costChosen, emit, emitCatalog, emitCommands, emitText } from "#compiler/sql/emit.ts"
 export { differenceShown, escaped } from "#compiler/sql/escape.ts"
 export { looksLikeLiteralPack, printCommentTarget, printObjectName } from "#compiler/sql/print.ts"
 export type {

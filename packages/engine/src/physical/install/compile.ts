@@ -22,15 +22,8 @@ import type { LibraryFn } from "#compiler/ir/physical.ts"
 import type { AccessPath, IndexRequest, InstallationManifest } from "#compiler/ir/products.ts"
 import type { RegexRef } from "#compiler/ir/scalar.ts"
 import type { LivePlan } from "#compiler/live/notify.ts"
-import { pathRequest } from "#compiler/physical/access/paths.ts"
-import {
-	judgeSeeks,
-	keyTableIndexes,
-	plannedTableIndexes,
-	seekPaths,
-	type SeekTargets,
-	seekTargets
-} from "#compiler/physical/access/seeks.ts"
+import { installCatalog } from "#compiler/physical/access/catalog.ts"
+import { pathOf } from "#compiler/physical/access/paths.ts"
 import { addClockGuards } from "#compiler/physical/ddl/clocked.ts"
 import { addClosedRelations, addRosters } from "#compiler/physical/ddl/constants.ts"
 import { InstallBuilder, type InstallSettings } from "#compiler/physical/ddl/context.ts"
@@ -50,7 +43,7 @@ import { addLibrary } from "#compiler/physical/ddl/library.ts"
 import { addLiveSource } from "#compiler/physical/ddl/live.ts"
 import { addDataStepRecheck, type DataStepRecheck } from "#compiler/physical/ddl/recheck.ts"
 import { addWorlds, grantedPrivileges, type InstalledLogin } from "#compiler/physical/ddl/roles.ts"
-import { addRules } from "#compiler/physical/ddl/rules.ts"
+import { addRules, routineRequests } from "#compiler/physical/ddl/rules.ts"
 import { addSeals } from "#compiler/physical/ddl/seal.ts"
 import { addStamps } from "#compiler/physical/ddl/stamps.ts"
 import { addTables } from "#compiler/physical/ddl/tables.ts"
@@ -62,7 +55,7 @@ import {
 	planIndexes,
 	reverseRequests
 } from "#compiler/physical/indexes/engine.ts"
-import type { IndexResolver } from "#compiler/physical/indexes/ref.ts"
+import type { IndexRef, IndexResolutions, IndexResolver } from "#compiler/physical/indexes/ref.ts"
 import { commentsOf } from "#compiler/physical/install/comments.ts"
 import type {
 	InstallExtension,
@@ -81,8 +74,12 @@ import { assertCreatesOwned } from "#compiler/physical/obligations/created.ts"
 import { refinedConstantsExtension } from "#compiler/physical/refined/constants.ts"
 import { addSpanStorage } from "#compiler/physical/span/storage.ts"
 import { type Owned, ownedIdentities, rostersOf } from "#compiler/schema/own.ts"
-import type { OperandSelect, SqlStatement } from "#compiler/sql/ast.ts"
-import { seekProgram } from "#compiler/sql/seeks.ts"
+import { printAdvice } from "#compiler/sql/advice.ts"
+import type { ObjectName, OperandSelect, SqlStatement } from "#compiler/sql/ast.ts"
+import { nameKey } from "#compiler/sql/ast.ts"
+import { bindRoutine } from "#compiler/sql/bind.ts"
+import { AdviceScope } from "#compiler/sql/naming.ts"
+import { planRequests, type ReadPlan, resolvePlan } from "#compiler/sql/plan.ts"
 
 /** The settings the installation runs under (`InstallSettings`: the PostgreSQL schema; the vector extension's and
  * btree_gist's schemas; the logins over the schema), the
@@ -123,8 +120,20 @@ export interface Installation extends InstallPlan {
 	readonly textDomains: ReadonlyArray<TextDomain>
 	readonly indexes: ReadonlyArray<PlannedIndex>
 	/** The index each access request the installation's indexes were planned from resolves to (physical/indexes/engine.ts
-	 * planIndexes), total over them. */
+	 * planIndexes), total over them, as data (ref.ts IndexResolutions), which its snapshot records, and its resolver. */
+	readonly resolutions: IndexResolutions
 	readonly resolve: IndexResolver
+	/**
+	 * Every routine the installation installs, each bound under a scope of its own (sql/bind.ts bindRoutine): its name;
+	 * the plan of its statements, every index it reads through resolved, which its advice is printed from (CreateFunction
+	 * `advice`); and each query PL/pgSQL hands the planner, in body order, every PL/pgSQL name it reads a typed
+	 * placeholder `$n::<type>` (BoundRoutine `planned`), what the plan laws plan the routine by.
+	 */
+	readonly routines: ReadonlyArray<{
+		readonly fn: ObjectName
+		readonly plan: ReadPlan<IndexRef>
+		readonly planned: ReadonlyArray<string>
+	}>
 	/** The logins and their roles, in name order. */
 	readonly worlds: ReadonlyArray<InstalledLogin>
 	/** Every identity the installation named an object by, ownership's, the law model's and the installer's, each as
@@ -142,15 +151,9 @@ export interface Installation extends InstallPlan {
 	 */
 	readonly ruleChecks: ReadonlyMap<LawId, OperandSelect>
 	/**
-	 * Every stored table with the indexes planned on it, and every view a role reads its relations through
-	 * (physical/access/seeks.ts SeekTargets): what each statement the installation installs is held to, and each read
-	 * and write a login's served file sends (judgeSeeks).
-	 */
-	readonly seeks: SeekTargets
-	/**
-	 * Each served program's access paths, by its login and its name, every seek its statements make (physical/access/
-	 * seeks.ts seekPaths), which the installation asked an index for: what the snapshot records of a ChangeSet beside the
-	 * paths its plan reads off its IR (program/workload/compile.ts changeSetAccess).
+	 * Each served program's access paths, by its login and its name, every read its bound statements make
+	 * (physical/access/paths.ts pathOf), which the installation asked an index for: what the snapshot records of a
+	 * ChangeSet beside the paths its plan reads off its IR (program/workload/compile.ts changeSetAccess).
 	 */
 	readonly programAccess: ReadonlyArray<{
 		readonly login: string
@@ -475,9 +478,7 @@ export const installationOfPlan = (
 		}
 		/** The judge after the extensions, whose stored derived relations' tables its upkeep writes and its captures
 		 * stand on. */
-		const rules = phased(phases, { name: "judge", of: [] }, () =>
-			addRules(b, seekTargets(b, keyTableIndexes(b, keyIndexes), []))
-		)
+		const rules = phased(phases, { name: "judge", of: [] }, () => addRules(b))
 		const recheck = addDataStepRecheck(b, rules.checks)
 		const paramDomains = addParamDomains(b, plan.paramDomains)
 
@@ -500,24 +501,74 @@ export const installationOfPlan = (
 			rules.standUps
 		)
 		addLiveSource(b, live)
-		/** Each served program's paths, every seek its statements make at the installation's tables and views before any
-		 * index is planned, whose items of one row are the planned installation's (seeks.ts keyTableIndexes). */
-		const preplanned = seekTargets(b, keyTableIndexes(b, keyIndexes), b.graph.statements())
+		/**
+		 * Every routine the installation installs, each bound under a scope of its own over the installation's catalog
+		 * (sql/bind.ts bindRoutine): what each reads, the one derivation of the requests its reads make, a judge's
+		 * function's asked as its requester asks them (physical/ddl/rules.ts routineRequests), every other's as the
+		 * workload's, and of the advice it is planned under.
+		 */
+		const catalog = installCatalog(b)
+		const routines = new Map(
+			b.graph
+				.statements()
+				.flatMap((s) =>
+					s.kind === "createFunction"
+						? [[s, bindRoutine(s, new AdviceScope(), catalog)] as const]
+						: []
+				)
+		)
+		const routineAsks = [...routines].flatMap(([fn, bound]) => {
+			const by = rules.requesters.get(nameKey(fn.name))
+			const asked = planRequests(bound.plan)
+			return by === undefined ? asked : routineRequests(b, by, asked)
+		})
+		/** Each served program's paths, every read its bound statements make (write/program/served.ts ServableWrite). */
+		const stored = new Set(b.indexedViews().map((v) => v.relation))
 		const programAccess = programs.map((p) => ({
 			login: p.login,
 			program: p.program,
-			paths: p.seeks.flatMap((program) => seekPaths(program, preplanned))
+			paths: p.plans.flatMap((read) =>
+				planRequests(read).map((r) => pathOf(r, stored.has(r.relation)))
+			)
 		}))
 		const requests = [
 			...reverseRequests(b),
 			...rules.requests,
 			...extensionRequests,
-			...programAccess.flatMap((p) =>
-				p.paths.map((path) => pathRequest(path, b.settings.vectorSchema))
-			)
+			...routineAsks,
+			...programs.flatMap((p) => p.plans.flatMap(planRequests))
 		]
-		const { indexes, resolve } = phased(phases, { name: "indexes", of: [] }, () =>
+		const { indexes, resolutions, resolve } = phased(phases, { name: "indexes", of: [] }, () =>
 			unwrap(planIndexes(b, keyIndexes, requests))
+		)
+		/**
+		 * Each routine with its plan resolved, a judge's each read by the law's request its requester asked it as
+		 * (`routineAsks`), and its advice printed of it (sql/advice.ts printAdvice).
+		 */
+		const advised = new Map(
+			[...routines].map(([fn, bound]) => {
+				const by = rules.requesters.get(nameKey(fn.name))
+				const resolved = resolvePlan(
+					bound.plan,
+					by === undefined
+						? resolve
+						: (r) =>
+								resolve(
+									defined(
+										routineRequests(b, by, [r])[0],
+										`the request of ${fn.name.name}'s read of ${r.relation}, a relation an index serves`
+									)
+								)
+				)
+				return [
+					fn,
+					{
+						fn: { ...bound.fn, advice: printAdvice(resolved) },
+						plan: resolved,
+						planned: bound.planned
+					}
+				] as const
+			})
 		)
 
 		const identities = [...ownedIdentities(owned), ...model.identities, ...b.named()]
@@ -527,17 +578,17 @@ export const installationOfPlan = (
 			publicRevokes: worlds.publicRevokes
 		})
 		assertCreatesOwned(ordered.objects)
-		const seeks = seekTargets(
-			b,
-			plannedTableIndexes(indexes),
-			ordered.objects.flatMap((o) => o.ddl)
-		)
-		for (const o of ordered.objects) {
-			judgeSeeks(seekProgram(o.ddl), seeks, o.ident)
-		}
-		const created = ordered.objects.flatMap((o) => o.ddl)
+		const objects = ordered.objects.map((o) => ({
+			...o,
+			ddl: o.ddl.map((s) =>
+				s.kind === "createFunction"
+					? defined(advised.get(s), `the routine ${s.name.name}, bound`).fn
+					: s
+			)
+		}))
+		const created = objects.flatMap((o) => o.ddl)
 		const comments = commentsOf(created, census)
-		const manifest = { ...ordered, comments }
+		const manifest = { ...ordered, objects, comments }
 		const statements = [
 			...wholeTables(created),
 			...worlds.publicRevokes,
@@ -551,13 +602,18 @@ export const installationOfPlan = (
 			statements,
 			textDomains: plan.textPlans.map((p) => p.domain),
 			indexes,
+			resolutions,
 			resolve,
+			routines: [...advised.values()].map((r) => ({
+				fn: r.fn.name,
+				plan: r.plan,
+				planned: r.planned
+			})),
 			worlds: worlds.worlds,
 			identities,
 			certification,
 			live,
 			ruleChecks: rules.checks,
-			seeks,
 			programAccess,
 			recheck
 		}

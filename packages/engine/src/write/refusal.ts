@@ -6,6 +6,7 @@ import { type Sqlstate, sqlstates } from "#compiler/core/sqlstate.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { BreachGuard, DeliveredBreach } from "#compiler/lower/conservative/types.ts"
 import { changeTag, type ConcurrentChangeTag, keyTag } from "#compiler/runtime/write/refusal.ts"
+import { noAdvice } from "#compiler/sql/advice.ts"
 import type {
 	CreateFunction,
 	QualifiedFunctionRef,
@@ -81,7 +82,7 @@ export const refusalFunctionDdl = (schema: string): readonly [CreateFunction, Re
 	return [
 		{
 			kind: "createFunction",
-			advice: undefined,
+			advice: noAdvice,
 			language: "plpgsql",
 			name: { schema, name: refusalFunctionName },
 			params: refusalParams,

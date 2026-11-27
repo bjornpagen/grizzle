@@ -30,6 +30,7 @@ import { bindFrame } from "#adapter/wire/batch.ts"
 import { fin, mutable, on, ordered, schema } from "#compiler/public/schema.ts"
 import { bindWrite } from "#compiler/runtime/write/bind.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
+import { noAdvice } from "#compiler/sql/advice.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
 import { flightOf, servableWrite } from "#compiler/write/program/served.ts"
@@ -99,7 +100,7 @@ export const aWriteThatNamesRowsByAPrimaryKeyRefusesAPutOrADeleteWhosePrimaryKey
 					const program = succeeded(compiled, "a write that names its rows by stated fields")
 					const members = yield* collectInputs(program.binding.groups, parsedOf(value).inputs)
 					const bound = succeeded(
-						bindWrite(flightOf(servableWrite(program), program.frontend.codes), {
+						bindWrite(flightOf(servableWrite(program), program.frontend.codes, noAdvice), {
 							members,
 							params: {},
 							transport: inForce(bindFrame)

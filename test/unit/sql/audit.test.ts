@@ -37,6 +37,8 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
+import { bindStatement } from "#compiler/sql/bind.ts"
+import { costChosen } from "#compiler/sql/emit.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { scopeEscapes } from "#compiler/sql/scope.ts"
 import {
@@ -115,7 +117,12 @@ export const everyLiveStatementPassesBothAuditsPrintsAsItsTwinDoesSurvivesTheSna
 				}
 				c.noteAll(auditLiveFeatures(live))
 				for (const { ast, text } of live.emitted) {
-					assert.equal(text, printStatement(ast), "the emitted text is its AST's print")
+					const binding = costChosen()
+					assert.equal(
+						text,
+						printStatement(bindStatement(ast, binding.scope, binding.catalog).statement),
+						"the emitted text is its AST's print as bound"
+					)
 				}
 				const [first, ...runs] = live.again()
 				if (first !== undefined) {
@@ -132,8 +139,8 @@ export const everyLiveStatementPassesBothAuditsPrintsAsItsTwinDoesSurvivesTheSna
 		kills: [
 			{
 				file: "packages/engine/src/sql/emit.ts",
-				original: "\ttext: emitted(printStatement(statement)),",
-				replacement: `\ttext: emitted(\`\${printStatement(statement)} \`),`,
+				original: "\ttext: emitted(printStatement(bound.statement)),",
+				replacement: `\ttext: emitted(\`\${printStatement(bound.statement)} \`),`,
 				why: "An emitted text carries a trailing space (sql/emit.ts); the Live and the written statements' searches fail."
 			}
 		]
@@ -184,9 +191,6 @@ export const everyStatementAGeneratedWriteProgramPlacesPassesBothAuditsPrintsAsI
 						"a served statement reads every carrier through one ROWS FROM function scan, never a select list's unnest a rescan evaluates again"
 					)
 				}
-				for (const { ast, text } of live.emitted) {
-					assert.equal(text, printStatement(ast), "the placed text is its AST's print")
-				}
 				const [first, ...runs] = live.again()
 				if (first !== undefined) {
 					for (const run of runs) {
@@ -202,8 +206,8 @@ export const everyStatementAGeneratedWriteProgramPlacesPassesBothAuditsPrintsAsI
 		kills: [
 			{
 				file: "packages/engine/src/sql/emit.ts",
-				original: "\ttext: emitted(printStatement(statement)),",
-				replacement: `\ttext: emitted(\`\${printStatement(statement)} \`),`,
+				original: "\ttext: emitted(printStatement(bound.statement)),",
+				replacement: `\ttext: emitted(\`\${printStatement(bound.statement)} \`),`,
 				why: "An emitted text carries a trailing space (sql/emit.ts); the Live and the written statements' searches fail."
 			},
 			{

@@ -16,6 +16,7 @@ import type {
 import type { PageVariant } from "#compiler/lower/shapes/page/seek.ts"
 import { sentSpec } from "#compiler/lower/template.ts"
 import { loginStartupOptions, ownerStartupOptions } from "#compiler/physical/ddl/roles.ts"
+import type { IndexResolver } from "#compiler/physical/indexes/ref.ts"
 import type { QueryTemplate } from "#compiler/program/compile.ts"
 import { pageStatementSlotOf } from "#compiler/runtime/lower/slots.ts"
 import type {
@@ -32,9 +33,10 @@ import type {
 } from "#compiler/served/forms.ts"
 import { servedHeading, servedProgram, servedSource } from "#compiler/served/read.ts"
 import { servedSpine } from "#compiler/served/spine.ts"
+import { type Advice, transactionAdvice } from "#compiler/sql/advice.ts"
 import type { EmittedText } from "#compiler/sql/ast.ts"
 import * as C from "#compiler/sql/catalog.ts"
-import { emitCatalog, emitText } from "#compiler/sql/emit.ts"
+import { emitCatalog, costChosen, emitText } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 
 /**
@@ -49,15 +51,38 @@ export const servedRead = (
 	desc: QueryDesc,
 	decoder: RowDecoder<unknown>,
 	key: ServedKey,
-	live: ServedReadLive
+	live: ServedReadLive,
+	advice: Advice
 ): ServedRead => ({
 	params: template.params,
 	source: servedSource(template.run),
 	spine: servedSpine(desc),
 	decoder: decoder.form,
 	key,
-	live
+	live,
+	advice
 })
+
+/**
+ * What a read of `template` is planned under (served/forms.ts ServedRead `advice`): its statement's plan, each read
+ * resolved by the installation that serves it (`resolve`).
+ */
+export const readAdvice = (template: QueryTemplate, resolve: IndexResolver): Advice =>
+	transactionAdvice([template.run.statement.spec.plan], resolve)
+
+/**
+ * What a page of `page` is planned under (served/forms.ts ServedPage `advice`): every window variant's statement's
+ * plan, one scope's, each read resolved by the installation that serves it (`resolve`).
+ */
+export const pageAdvice = (page: PageTemplate, resolve: IndexResolver): Advice => {
+	const { requests } = page.artifact
+	return transactionAdvice(
+		[requests.first, requests.after, requests.last, requests.before, requests.at].map(
+			(r) => r.program.statement.sql.plan
+		),
+		resolve
+	)
+}
 
 /**
  * The key a template's rows are delivered under (served/forms.ts ServedKey): the fields of the completed orders of the
@@ -126,7 +151,7 @@ const servedPageProgram = <F extends PageFill>(
  * An ordered query's page, served (served/forms.ts ServedPage): its order, comparators and heading, and each window
  * variant's program with its statement's spec emitted now under the installation's codes `codes`.
  */
-export const servedPage = (page: PageTemplate, codes: Codebook): ServedPage => {
+export const servedPage = (page: PageTemplate, codes: Codebook, advice: Advice): ServedPage => {
 	const { requests } = page.artifact
 	const request = <V extends PageVariant>(
 		program: PageRequestProgram<V>
@@ -148,13 +173,14 @@ export const servedPage = (page: PageTemplate, codes: Codebook): ServedPage => {
 			last: request(requests.last),
 			before: request(requests.before),
 			at: request(requests.at)
-		}
+		},
+		advice
 	}
 }
 
 /** A write's BEGIN at `isolation`. */
 const beginWrite = (isolation: Isolation): EmittedText =>
-	emitText({ kind: "beginWrite", isolation }, emptyNameMap).text
+	emitText({ kind: "beginWrite", isolation }, emptyNameMap, costChosen()).text
 
 const pgSettings = C.from("pg_settings", "s")
 
@@ -201,11 +227,11 @@ export const servedSession: ServedSession = {
 	startup: loginStartupOptions,
 	ownerStartup: ownerStartupOptions,
 	begin: {
-		read: emitText({ kind: "beginRead" }, emptyNameMap).text,
+		read: emitText({ kind: "beginRead" }, emptyNameMap, costChosen()).text,
 		write: { serializable: beginWrite("serializable"), readCommitted: beginWrite("readCommitted") }
 	},
-	commit: emitText({ kind: "commit" }, emptyNameMap).text,
-	rollback: emitText({ kind: "rollback" }, emptyNameMap).text,
+	commit: emitText({ kind: "commit" }, emptyNameMap, costChosen()).text,
+	rollback: emitText({ kind: "rollback" }, emptyNameMap, costChosen()).text,
 	reapWindow: reapWindowRead
 }
 

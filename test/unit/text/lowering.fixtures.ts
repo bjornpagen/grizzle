@@ -10,7 +10,7 @@ import { identity } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { RegexCheck } from "#compiler/ir/scalar.ts"
 import { createDomain } from "#compiler/physical/ddl/domains.ts"
-import { emit } from "#compiler/sql/emit.ts"
+import { emit, costChosen } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 import {
 	analyzeText,
@@ -257,7 +257,8 @@ export const domainBytes = (check: RegexCheck): number =>
 					{ schema: "text", name: formDomain.identifier },
 					() => identity.domainCheck(formDomain).identifier
 				),
-				emptyNameMap
+				emptyNameMap,
+				costChosen()
 			),
 			"a text domain prints"
 		).text

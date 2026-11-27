@@ -10,6 +10,7 @@ import { type BindResult, bindWrite } from "#compiler/runtime/write/bind.ts"
 import { memberFactsOf } from "#compiler/runtime/write/members.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import type { UnservedMember } from "#compiler/served/unserved.ts"
+import { noAdvice } from "#compiler/sql/advice.ts"
 import { type ParsedChangeSet, parseChangeSet } from "#compiler/write/changeset/value.ts"
 import type { EntryClaims } from "#compiler/write/frontend/entry.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
@@ -109,7 +110,7 @@ export const offlineServedBind = (
 	Engine.flatMap(servedMembers(program.binding.members, change.opaque), (members) =>
 		Engine.flatMap(memberFactsOf(facts, members), (read) =>
 			withinMessage(
-				bindWrite(flightOf(servableWrite(program), program.frontend.codes), {
+				bindWrite(flightOf(servableWrite(program), program.frontend.codes, noAdvice), {
 					members: read,
 					params: {},
 					transport: inForce(bindFrame)
@@ -128,7 +129,7 @@ export const offlineBind = (
 ): Effect.Effect<Engine.Result<BindResult, EncodingFailure | CompileError>> =>
 	Effect.map(collectInputs(program.binding.groups, change.inputs), (members) =>
 		withinMessage(
-			bindWrite(flightOf(servableWrite(program), program.frontend.codes), {
+			bindWrite(flightOf(servableWrite(program), program.frontend.codes, noAdvice), {
 				members,
 				params: {},
 				transport: inForce(bindFrame)

@@ -69,6 +69,8 @@ import { mergeHeadingGroups } from "#compiler/runtime/lower/union.ts"
 import { hasCapability } from "#compiler/scalar/registry.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { storedValue } from "#compiler/scalar/values/identity.ts"
+import { noAdvice } from "#compiler/sql/advice.ts"
+import { costChosen } from "#compiler/sql/emit.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { admitGenerated, filledSql, programAsts } from "#test/support/compile.ts"
@@ -1448,6 +1450,7 @@ export const generatedProperty = (
 			const admission = admitGenerated(query)
 			const optimized = admission.ok
 				? lowerOptimized(succeeded(annotatedInput(admission.value, queryEvidence)), {
+						binding: costChosen(),
 						names,
 						context: "snapshot",
 						catalog,
@@ -1473,6 +1476,7 @@ export const generatedProperty = (
 			/** The generated order is stated at a location of its own, which a refusal to complete it names. */
 			const statedAt = SourceLoc("generated orderBy", [])
 			const pageInput = {
+				binding: costChosen(),
 				checked: query,
 				optimized: optimized.value,
 				names,
@@ -1486,6 +1490,7 @@ export const generatedProperty = (
 			}
 			const template = page.value
 			const runtime = compiledPageRuntime({
+				advice: noAdvice,
 				page: template,
 				params: callerParams(query.params),
 				codes,

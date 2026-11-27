@@ -69,6 +69,7 @@ import { revokeOf } from "#compiler/physical/ddl/deltas.ts"
 import type { InstallNames } from "#compiler/physical/ddl/names.ts"
 import { recordedLaw } from "#compiler/runtime/law-entry.ts"
 import type { Owned, SealedUnit, UnitMember } from "#compiler/schema/own.ts"
+import { noAdvice } from "#compiler/sql/advice.ts"
 import {
 	type ColumnDef,
 	type CreateTable,
@@ -329,7 +330,7 @@ const triggerFunction = (
 ): readonly [PlFunction, Revoke] => [
 	{
 		kind: "createFunction",
-		advice: undefined,
+		advice: noAdvice,
 		language: "plpgsql",
 		name,
 		params: [],

@@ -17,6 +17,7 @@ import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import { bindWrite } from "#compiler/runtime/write/bind.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
+import { noAdvice } from "#compiler/sql/advice.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { flightOf, servableWrite } from "#compiler/write/program/served.ts"
 import { paramArrayElements } from "#test/support/arrays.ts"
@@ -54,7 +55,7 @@ export const aWritesEnumeratedMembersLowerToArraysAndAnInputOfAnyCountBindsEvery
 				const changes = ChangeSet.empty(Shop).insert(Item, rows)
 				const compiled = program(changes)
 				const members = yield* collectInputs(compiled.binding.groups, parsedOf(changes).inputs)
-				const flight = flightOf(servableWrite(compiled), compiled.frontend.codes)
+				const flight = flightOf(servableWrite(compiled), compiled.frontend.codes, noAdvice)
 				const bound = succeeded(
 					bindWrite(flight, { members, params: {}, transport: inForce(bindFrame) })
 				)

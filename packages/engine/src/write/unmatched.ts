@@ -50,7 +50,7 @@ import {
 	target,
 	types
 } from "#compiler/sql/build.ts"
-import { emitText } from "#compiler/sql/emit.ts"
+import { costChosen, emitText } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 import { lawKeyDetail } from "#compiler/write/refusal.ts"
 
@@ -179,6 +179,6 @@ export const unmatchedQueryOf = (
 		constraint,
 		owner: key.relation.ident,
 		relation: key.relation.name,
-		sql: emitText(query, emptyNameMap).text
+		sql: emitText(query, emptyNameMap, costChosen()).text
 	}
 }

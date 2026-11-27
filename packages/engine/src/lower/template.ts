@@ -277,6 +277,7 @@ export const sentSpec = <Slot extends ConservativeParamSlot, P>(
 	slotOf: (slot: Slot) => P
 ): StatementSpec<P> => ({
 	sql: statement.sql.text,
+	plan: statement.sql.plan,
 	paramSlots: statement.params.map(slotOf),
 	heading: sentHeading(parts, roots),
 	role: "main",

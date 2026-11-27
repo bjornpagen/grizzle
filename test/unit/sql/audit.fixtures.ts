@@ -8,8 +8,9 @@ import { Array as Arr, Order, String as Str } from "effect"
 import { decode, encode, everyProperty, noRevivers } from "#compiler/core/canonical.ts"
 import { writeJsonText } from "#compiler/deploy/snapshot/build.ts"
 import type { CteBody, Expr, SqlStatement, TypeRef } from "#compiler/sql/ast.ts"
+import { bindStatement } from "#compiler/sql/bind.ts"
 import { builtinType } from "#compiler/sql/build.ts"
-import { emit } from "#compiler/sql/emit.ts"
+import { emit, costChosen } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 import { printStatement, printType } from "#compiler/sql/print.ts"
 import type { ScopeEscape } from "#compiler/sql/scope.ts"
@@ -118,7 +119,11 @@ const placeholderTypes = (s: SqlStatement): ReadonlyMap<number, ReadonlySet<stri
 	return types
 }
 
-/** The universal checks every Live statement passes. */
+/**
+ * The universal checks every Live statement passes. Emitting one binds it (sql/emit.ts), so its text is the print of
+ * the statement as bound, two bindings of one statement under fresh scopes printing alike; a routine is bound once, by
+ * the installation that installs it (physical/install/compile.ts), and printed as it stands, never bound again.
+ */
 export const universal = (t: Twinned): void => {
 	const s = t.statement
 	const text = printStatement(s)
@@ -148,8 +153,18 @@ export const universal = (t: Twinned): void => {
 		succeeded(encode(s, everyProperty), "the statement's canonical text"),
 		"the snapshot stores the statement as itself and reads it back as itself"
 	)
-	const emitted = succeeded(emit(s, emptyNameMap), "emit emits an admitted statement")
-	assert.equal<string>(emitted.text, text, "emit prints the statement")
+	if (s.kind !== "createFunction") {
+		const emitted = succeeded(
+			emit(s, emptyNameMap, costChosen()),
+			"emit emits an admitted statement"
+		)
+		const binding = costChosen()
+		assert.equal<string>(
+			emitted.text,
+			printStatement(bindStatement(s, binding.scope, binding.catalog).statement),
+			"emit prints the statement as it binds it, two bindings of it under fresh scopes alike"
+		)
+	}
 	const order: ReadonlyArray<TypeRef> = auditStatementDetailed(s).params
 	const used = placeholderTypes(s)
 	assert.equal(order.length, used.size, "one type per placeholder index")

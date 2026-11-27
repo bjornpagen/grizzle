@@ -15,6 +15,7 @@ import {
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, String as Str } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import { noAdvice } from "#compiler/sql/advice.ts"
 import type {
 	Expr,
 	PerformQuery,
@@ -357,7 +358,7 @@ export const resolveBlock = (sketch: BlockSketch): PlBlock => {
 /** A trigger function of a block: the function body a block is printed in beside a DO block. */
 export const triggerFunction = (block: PlBlock): PlFunction => ({
 	kind: "createFunction",
-	advice: undefined,
+	advice: noAdvice,
 	language: "plpgsql",
 	name: objectName("audit", "law"),
 	params: [],

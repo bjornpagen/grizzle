@@ -1,7 +1,8 @@
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
-import type { StatementSpec } from "#compiler/ir/products.ts"
+import type { AccessIndexRequest, StatementSpec } from "#compiler/ir/products.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import type {
 	DeclaredParamSlot,
@@ -25,8 +26,10 @@ import {
 } from "#compiler/runtime/write/steps.ts"
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
 import { plainType } from "#compiler/scalar/native.ts"
-import type { SqlStatement, UnprintedSql } from "#compiler/sql/ast.ts"
+import type { EmittedText, Select, SqlStatement } from "#compiler/sql/ast.ts"
+import { emitSelect, emitText, type Emitting } from "#compiler/sql/emit.ts"
 import type { NameMap } from "#compiler/sql/naming.ts"
+import type { ReadPlan } from "#compiler/sql/plan.ts"
 import type { WriteCarrier } from "#compiler/write/carriers/carriers.ts"
 import type { WriteStatement } from "#compiler/write/insert/statement.ts"
 import type { SingleStatement, UnitShape } from "#compiler/write/program/single.ts"
@@ -114,7 +117,7 @@ export type ReadBackCarried =
  */
 export interface RiddenArtifact {
 	readonly delivery: ProgramDelivery
-	readonly parts: StatementParts<DeclaredParamSlot, UnprintedSql>
+	readonly parts: StatementParts
 	readonly roots: StatementRoots<DeliveredPart>
 }
 
@@ -140,10 +143,45 @@ export interface RidingReadBack extends RidingPart {
  */
 export type FormText =
 	| { readonly kind: "whole" }
-	| { readonly kind: "parted"; readonly units: NonEmptyReadonlyArray<UnitShape> }
+	| {
+			readonly kind: "parted"
+			readonly units: NonEmptyReadonlyArray<UnitShape>
+			/** The statement as it was bound (sql/bind.ts), whose print the whole text is, and its units are cut from. */
+			readonly bound: Select
+	  }
 
 /** A statement sent whole. */
 export const wholeText: FormText = Object.freeze({ kind: "whole" })
+
+/**
+ * The form `ast` emitted under `binding` (sql/emit.ts), sent as `text` says: its text and the plan it was bound with,
+ * and a parted text's units cut from the statement as bound (FormText `bound`), a single statement's, a SELECT. What a
+ * rewrite of a placed statement's AST emits again, so its text, plan and units are one binding's.
+ */
+export const emittedForm = (
+	ast: SqlStatement,
+	nameMap: NameMap,
+	text: FormText,
+	binding: Emitting
+): {
+	readonly sql: EmittedText
+	readonly plan: ReadPlan<AccessIndexRequest>
+	readonly text: FormText
+} => {
+	if (text.kind === "whole") {
+		const emitted = emitText(ast, nameMap, binding)
+		return { sql: emitted.text, plan: emitted.plan, text }
+	}
+	if (ast.kind !== "select") {
+		return defect("a form sent by its units is a single statement, a SELECT")
+	}
+	const emitted = emitSelect(ast, nameMap, binding)
+	return {
+		sql: emitted.sql.text,
+		plan: emitted.sql.plan,
+		text: Object.freeze({ ...text, bound: emitted.ast })
+	}
+}
 
 /** One statement of an artifact: its position, its step, its spec and its AST, which `spec.sql` prints, and how its
  * text is sent. */
@@ -335,6 +373,7 @@ export const writeStatementSpec = (
 ): StatementSpec<WriteParamSlot> =>
 	Object.freeze({
 		sql: statement.sql.text,
+		plan: statement.sql.plan,
 		paramSlots: statement.params,
 		heading: resultHeading(statement.result),
 		role: statement.role,
@@ -349,6 +388,7 @@ export const singleStatementSpec = (
 ): StatementSpec<WriteParamSlot> =>
 	Object.freeze({
 		sql: statement.sql.text,
+		plan: statement.sql.plan,
 		paramSlots: statement.params,
 		heading: [
 			{ name: "tag", type: plainType("int4") },

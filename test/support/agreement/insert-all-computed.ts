@@ -9,6 +9,7 @@ import { fin, on, ordered, relation, schema, tree } from "#compiler/public/schem
 import { str } from "#compiler/public/text.ts"
 import { bindWrite } from "#compiler/runtime/write/bind.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
+import { noAdvice } from "#compiler/sql/advice.ts"
 import {
 	changeSetDesc,
 	changeSetOver as ChangeSet,
@@ -239,7 +240,7 @@ export const insertAllComputedVerdict = (
 	}
 	const program = compiled.value
 	const members = Effect.runSync(collectInputs(program.binding.groups, parsed.inputs))
-	const bound = bindWrite(flightOf(servableWrite(program), program.frontend.codes), {
+	const bound = bindWrite(flightOf(servableWrite(program), program.frontend.codes, noAdvice), {
 		members,
 		params: paramsOf(c),
 		transport: inForce(bindFrame)

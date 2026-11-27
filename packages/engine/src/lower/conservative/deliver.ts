@@ -86,7 +86,7 @@ import {
 	types,
 	windowOf
 } from "#compiler/sql/build.ts"
-import { emit } from "#compiler/sql/emit.ts"
+import { costChosen, emit } from "#compiler/sql/emit.ts"
 import {
 	namedQuery,
 	type NameOrigin,
@@ -115,7 +115,7 @@ const printedStatement = (
 	supply: NameSupply
 ): { readonly ast: Select; readonly sql: EmittedSql } => {
 	const ast = deliveredStatement(query, names, supply)
-	return { ast, sql: unwrap(emit(ast, supply.map())) }
+	return { ast, sql: unwrap(emit(ast, supply.map(), costChosen())) }
 }
 
 const sameOrder = (a: CompletedOrder, b: CompletedOrder): boolean =>

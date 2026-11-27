@@ -17,6 +17,7 @@ import {
 import type { Source } from "@bjornpagen/testing/source"
 import { bigint, double, float } from "@bjornpagen/testing/values"
 import { Array as Arr, Effect, Option } from "effect"
+import { noAdvice } from "#compiler/sql/advice.ts"
 import type {
 	AlterDefaultPrivileges,
 	Expr,
@@ -66,7 +67,7 @@ export const booleanFunction = (
 	body: PlFunction["body"]["body"]
 ): PlFunction => ({
 	kind: "createFunction",
-	advice: undefined,
+	advice: noAdvice,
 	language: "plpgsql",
 	name: objectName(schema, name),
 	params: [],

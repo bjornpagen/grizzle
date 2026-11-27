@@ -25,6 +25,7 @@ import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
 import type { EmittedText } from "#compiler/sql/ast.ts"
 import type { CarrierName } from "#compiler/sql/naming.ts"
+import type { ReadPlan } from "#compiler/sql/plan.ts"
 
 /**
  * Codec contracts ("codec"). Codecs are straight-line closures with no eval.
@@ -347,6 +348,12 @@ export type WriteSlot = Exclude<ParamSlot, { readonly kind: "page" }>
 export interface StatementSpec<S = ParamSlot> {
 	/** The emitted text; placeholder $n is paramSlots[n - 1]. */
 	readonly sql: EmittedText
+	/**
+	 * The plan `sql` was bound with (sql/bind.ts): every stored read it makes and how it is reached, each index it
+	 * reads through still a request, which the installation resolves once it plans its indexes and prints as the
+	 * advice the statement's transaction sends (sql/advice.ts). Compile-time alone: no served record holds it.
+	 */
+	readonly plan: ReadPlan<AccessIndexRequest>
 	readonly paramSlots: ReadonlyArray<S>
 	readonly heading: Heading
 	readonly role: StatementRole

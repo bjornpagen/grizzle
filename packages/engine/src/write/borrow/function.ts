@@ -10,6 +10,7 @@
  */
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
+import { noAdvice } from "#compiler/sql/advice.ts"
 import type {
 	CreateFunction,
 	Expr,
@@ -76,7 +77,7 @@ const lockAt = (lock: "pg_advisory_xact_lock" | "pg_advisory_xact_lock_shared") 
 export const borrowFunctionDdl = (schema: string): readonly [CreateFunction, Revoke] => [
 	{
 		kind: "createFunction",
-		advice: undefined,
+		advice: noAdvice,
 		language: "plpgsql",
 		name: { schema, name: borrowFunctionName },
 		params: [idsParam, exclusiveParam],

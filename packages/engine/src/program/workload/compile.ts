@@ -57,6 +57,7 @@ import { keyJoinNormalDag } from "#compiler/lower/optimize/eliminate/index.ts"
 import { optimizedInput, rewrittenQuery } from "#compiler/lower/optimize/pipeline.ts"
 import { allenNormalDag } from "#compiler/lower/optimize/simplify/allen.ts"
 import { asItStands, type PageWindow, windowDriver } from "#compiler/lower/shapes/page/driver.ts"
+import { leakyEquality } from "#compiler/physical/access/catalog.ts"
 import { type WorkloadPhysical, workloadRequests } from "#compiler/physical/access/extension.ts"
 import {
 	declaredKeys,
@@ -68,7 +69,6 @@ import {
 	type WorldViews
 } from "#compiler/physical/access/extract.ts"
 import { uniquePaths } from "#compiler/physical/access/paths.ts"
-import { leakyEquality } from "#compiler/physical/access/seeks.ts"
 import { type ServedTypes, servedTogether, servedTypesOf } from "#compiler/physical/ddl/domains.ts"
 import { namedRole, worldNames } from "#compiler/physical/ddl/names.ts"
 import type { RoleCall, RoleCarriers, ServedProgram } from "#compiler/physical/install/extension.ts"
@@ -92,7 +92,7 @@ import { workloadState } from "#compiler/program/workload/value.ts"
 import { inlineWorlds } from "#compiler/program/workload/world.ts"
 import { hostArguments } from "#compiler/query/build/host.ts"
 import { ownBuiltRole, type OwnedRole } from "#compiler/schema/own.ts"
-import type { SeekProgram } from "#compiler/sql/seeks.ts"
+import type { ReadPlan } from "#compiler/sql/plan.ts"
 import { compileChangeSet, type WriteFrontend } from "#compiler/write/frontend/compile.ts"
 import { primaryKeyShape } from "#compiler/write/frontend/targets.ts"
 import type { ServableWrite } from "#compiler/write/program/served.ts"
@@ -560,12 +560,11 @@ const loweredIr = (
 	)
 
 /**
- * The access paths a ChangeSet's IR gives that its statements' seeks do not: a join's key, a range, a prefix search, a
- * take's or a page's seek, a span predicate, an approximate retrieval, a text search, a network containment, each of
- * which its statements order, span or match by. A lookup by equalities alone is its served write's program's to ask, the
- * one source the missed-index check reads too (physical/access/seeks.ts seekPaths, physical/install/compile.ts
- * programAccess), never its IR's, whose lowering lands a filter's constant, a step's bound column or a computed value on
- * a seek the IR does not show.
+ * The access paths a ChangeSet's IR gives that its statements' bound reads do not: a join's key, a range, a prefix
+ * search, a take's or a page's seek, a span predicate, an approximate retrieval, a text search, a network containment,
+ * each of which its statements order, span or match by. A lookup by equalities alone is its served write's plan's to
+ * ask (write/program/served.ts ServableWrite `plan`, physical/install/compile.ts programAccess), never its IR's, whose
+ * lowering lands a filter's constant, a step's bound column or a computed value on a read the IR does not show.
  */
 const changeSetAccess = (ir: ProgramIr, reads: WorkloadReads): ProgramAccess => ({
 	paths: irAccess(ir, reads.artifacts.laws, reads.worlds).paths.filter(
@@ -607,8 +606,8 @@ export const withProgramAccess = (
 
 /**
  * Each login's served ChangeSets as the installation indexes them (physical/install/extension.ts ServedProgram), by the
- * login's name and the program's, in that order: the seek program of each compile of it its served file sends, every
- * role's and every variant's (write/program/served.ts ServableWrite `seeks`).
+ * login's name and the program's, in that order: the plan of each compile of it its served file sends, every role's
+ * and every variant's (write/program/served.ts ServableWrite `plan`).
  */
 export const servedPrograms = (
 	changes: ServedWorkloadPlan["changes"]
@@ -616,18 +615,18 @@ export const servedPrograms = (
 	[...changes]
 		.toSorted(([a], [b]) => compareStrings(a, b))
 		.flatMap(([login, roles]) => {
-			const byProgram = new Map<string, Array<SeekProgram>>()
+			const byProgram = new Map<string, Array<ReadPlan<AccessIndexRequest>>>()
 			for (const role of roles.values()) {
 				for (const [program, variants] of role.members) {
 					appendAll(
 						byProgram.getOrInsertComputed(program, () => []),
-						variantsEntries(variants).map((entry) => entry.compiled.seeks)
+						variantsEntries(variants).map((entry) => entry.compiled.plan)
 					)
 				}
 			}
 			return [...byProgram]
 				.toSorted(([a], [b]) => compareStrings(a, b))
-				.map(([program, seeks]): ServedProgram => ({ login, program, seeks }))
+				.map(([program, plans]): ServedProgram => ({ login, program, plans }))
 		})
 
 /**

@@ -26,6 +26,7 @@ import { type AnySchema, contained, on, relation, schema } from "#compiler/publi
 import { inForce, type Transport } from "#compiler/runtime/write/transport.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
 import { insertableNamesOf } from "#compiler/schema/world.ts"
+import { noAdvice } from "#compiler/sql/advice.ts"
 import { changeSetOver as ChangeSet, parseChangeSet } from "#compiler/write/changeset/value.ts"
 import { flightOf, servableWrite } from "#compiler/write/program/served.ts"
 import {
@@ -218,7 +219,8 @@ export const servedWrite = (
 				noClock,
 				transactionClock
 			),
-			({ compiled }) => previewWriteOf(compiled.frontend, flightOf(servableWrite(compiled), codes))
+			({ compiled }) =>
+				previewWriteOf(compiled.frontend, flightOf(servableWrite(compiled), codes, noAdvice))
 		)
 	)
 }

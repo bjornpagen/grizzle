@@ -24,7 +24,7 @@ import {
 	target,
 	types
 } from "#compiler/sql/build.ts"
-import { emit } from "#compiler/sql/emit.ts"
+import { emit, costChosen } from "#compiler/sql/emit.ts"
 import { assignments, ungenerated } from "#compiler/sql/generation.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 import { printExpr, printObjectName } from "#compiler/sql/print.ts"
@@ -113,7 +113,7 @@ export interface DirectSql {
 const none: Reads = { kind: "none" }
 
 const emitted = (ast: SqlStatement): Effect.Effect<string> => {
-	const text = emit(ast, emptyNameMap)
+	const text = emit(ast, emptyNameMap, costChosen())
 	return text.ok
 		? Effect.succeed(text.value.text)
 		: Effect.die(new Error(`a direct statement does not emit: ${text.error.message}`))

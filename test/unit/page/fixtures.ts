@@ -14,6 +14,7 @@ import { bytes, closedId, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, contained, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import { costChosen } from "#compiler/sql/emit.ts"
 import { compileTemplate, inputArtifacts, type TestCompileOptions } from "#test/support/compile.ts"
 import { conservativePage } from "#test/support/conservative.ts"
 import { Id } from "#test/support/ids.ts"
@@ -197,6 +198,7 @@ export const compiledPageResult = (
 		const desc = parsed.desc
 		const stated = yield* toResult(statedOrderOf(desc, SourceLoc("query", [])))
 		const input = {
+			binding: costChosen(),
 			checked: template.programs.checked,
 			stated,
 			optimized: template.programs.optimized,

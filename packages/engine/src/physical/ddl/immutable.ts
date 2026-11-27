@@ -7,6 +7,7 @@ import { type Identity, identifierOf, identity } from "#compiler/core/identity.t
 import type { RelationInfo } from "#compiler/ir/law.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import { enforcement } from "#compiler/physical/obligations/graph.ts"
+import { noAdvice } from "#compiler/sql/advice.ts"
 import type {
 	CreateImmutableGuardTrigger,
 	EmittedText,
@@ -20,7 +21,7 @@ import type {
 	Revoke
 } from "#compiler/sql/ast.ts"
 import { call, calledAlone, eq, lit, objectName, types } from "#compiler/sql/build.ts"
-import { emitText } from "#compiler/sql/emit.ts"
+import { costChosen, emitText } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 
 /** What a closed relation's guards fire on, one trigger each (sql/ast.ts CreateImmutableGuardTrigger). */
@@ -81,8 +82,8 @@ export const guardBracketTexts = (
 ): { readonly before: EmittedText; readonly after: EmittedText } => {
 	const { unguard, reguard } = guardBracket(scope)
 	return {
-		before: emitText(unguard, emptyNameMap).text,
-		after: emitText(reguard, emptyNameMap).text
+		before: emitText(unguard, emptyNameMap, costChosen()).text,
+		after: emitText(reguard, emptyNameMap, costChosen()).text
 	}
 }
 
@@ -111,8 +112,10 @@ export const dataStepBracket = (
 		after: [
 			...(isNonEmpty(rechecks)
 				? [
-						emitText({ kind: "setConstraintsImmediate" }, emptyNameMap).text,
-						...rechecks.map((recheck) => emitText(calledAlone(recheck), emptyNameMap).text)
+						emitText({ kind: "setConstraintsImmediate" }, emptyNameMap, costChosen()).text,
+						...rechecks.map(
+							(recheck) => emitText(calledAlone(recheck), emptyNameMap, costChosen()).text
+						)
 					]
 				: []),
 			...lifted.map((b) => b.after)
@@ -126,7 +129,7 @@ export const dataStepBracket = (
  * transaction, alone before them, each committing its session's tables for every statement after.
  */
 export const standUpCalls = (standUps: ReadonlyArray<ObjectName>): ReadonlyArray<EmittedText> =>
-	standUps.map((standUp) => emitText(calledAlone(standUp), emptyNameMap).text)
+	standUps.map((standUp) => emitText(calledAlone(standUp), emptyNameMap, costChosen()).text)
 
 /** The fields of `relation` its guard holds fixed: every field its rows never change in place, but a generated one. */
 const fixedFields = (relation: RelationInfo): ReadonlyArray<string> =>
@@ -224,7 +227,7 @@ export const addImmutableGuards = (b: InstallBuilder): void => {
 		const ddl: readonly [PlFunction, Revoke] = [
 			{
 				kind: "createFunction",
-				advice: undefined,
+				advice: noAdvice,
 				language: "plpgsql",
 				name: fn,
 				params: [],

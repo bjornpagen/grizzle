@@ -25,7 +25,7 @@ import { blockSize } from "#compiler/core/page.ts"
 import { temporarySchema } from "#compiler/core/temporary.ts"
 import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import { messageMaxBytes } from "#compiler/core/wire.ts"
-import type { Advice } from "#compiler/sql/advice.ts"
+import { type Advice, noAdvice } from "#compiler/sql/advice.ts"
 import {
 	type AlterDomainAction,
 	type AlterRoleAction,
@@ -1413,7 +1413,7 @@ const passedThrough = (core: SelectCore, named: boolean): SelectCore | undefined
  * or a derived table's that names no columns, a loop's record; one that names its columns, or a test of rows, reads
  * them by place.
  */
-const foldedCore = (core: SelectCore, named: boolean): SelectCore => {
+export const foldedCore = (core: SelectCore, named: boolean): SelectCore => {
 	const folded = passedThrough(core, named)
 	return folded === undefined ? core : foldedCore(folded, named)
 }
@@ -2252,6 +2252,35 @@ const performLine = (out: Lines, query: PerformQuery): void =>
 		})};`
 	)
 
+/**
+ * The query a PL/pgSQL statement hands the planner, as the statement prints it (sql/bind.ts plannedOf): a FOR's and a
+ * RETURN QUERY's query; a PERFORM's, the SELECT its keyword replaces (pl_exec.c exec_stmt_perform); a probe's,
+ * `SELECT 1 FROM (<query>) AS "found"`; and an expression's, `SELECT <expr>` (exec_eval_expr).
+ */
+export const printPlannedQuery = (
+	query:
+		| { readonly kind: "query"; readonly query: OperandSelect }
+		| { readonly kind: "perform"; readonly query: PerformQuery }
+		| { readonly kind: "found"; readonly query: OperandSelect }
+		| { readonly kind: "expr"; readonly expr: Expr }
+): string => {
+	switch (query.kind) {
+		case "query":
+			return printSelectInline(query.query, "named")
+		case "perform": {
+			const performed = query.query
+			return inlineText((row) => {
+				coreClauses(row, performed.body, "SELECT", bodyReader(performed, "placed"))
+				tailClauses(row, performed)
+			})
+		}
+		case "found":
+			return `SELECT 1 FROM ${nestedSelect(query.query, "placed")} AS ${quoteIdent("found")}`
+		case "expr":
+			return `SELECT ${printExpr(query.expr)}`
+	}
+}
+
 /** A RAISE EXCEPTION and its USING options, on the one line a block's statement takes (proceduralBlock). */
 const raiseText = (statement: Extract<PlStatement, { readonly kind: "raise" }>): string => {
 	const head = `RAISE EXCEPTION ${quoteString(statement.message)}`
@@ -2506,10 +2535,10 @@ const parallelClause = (parallel: CreateFunction["parallel"]): string =>
 /**
  * A routine's advice as its SET clause, after its search_path's (sql/ast.ts CreateFunction `advice`): PostgreSQL sets it
  * on every call and restores the caller's on return, so each plan and replan of the routine's statements, PL/pgSQL's
- * cached ones included, is made under its own advice and never its caller's. None where it carries none.
+ * cached ones included, is made under its own advice and never its caller's, the empty advice included.
  */
-const adviceClause = (advice: Advice | undefined): string =>
-	advice === undefined ? "" : ` SET ${adviceSettingName} = ${quoteString(advice)}`
+const adviceClause = (advice: Advice): string =>
+	` SET ${adviceSettingName} = ${quoteString(advice)}`
 
 const createFunctionBlock = (out: Lines, fn: CreateFunction): void => {
 	out.line(
@@ -2576,7 +2605,7 @@ export const declaredSearchPath = (
  * (`r<n>`), which a body may spell too, so an inherited item that met a relation the body reads under the same alias
  * would constrain the body's plan by a scan grizzle proved of another statement.
  */
-const declaredAdviceClause = ` SET ${adviceSettingName} = ${quoteString("")}`
+const declaredAdviceClause = adviceClause(noAdvice)
 
 const createDeclaredFunction = (out: Lines, fn: CreateDeclaredFunction): void => {
 	out.line(

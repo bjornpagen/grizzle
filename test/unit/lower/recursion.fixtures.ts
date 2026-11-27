@@ -22,6 +22,7 @@ import type {
 	Select,
 	SelectCore
 } from "#compiler/sql/ast.ts"
+import { costChosen } from "#compiler/sql/emit.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { lowerAligned, programAsts } from "#test/support/compile.ts"
 import { ownedSchemaFixture } from "#test/support/evidence.ts"
@@ -70,6 +71,7 @@ export const names = productionNames(
 export const optimize = (q: LogicalQuery): OptimizedProgram =>
 	succeeded(
 		lowerAligned(q, "query", {
+			binding: costChosen(),
 			names,
 			context: "snapshot",
 			catalog: graphCatalog

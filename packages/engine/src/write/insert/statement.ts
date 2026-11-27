@@ -57,7 +57,7 @@ import {
 	targetAs,
 	types
 } from "#compiler/sql/build.ts"
-import { emitText, type TextOf } from "#compiler/sql/emit.ts"
+import { sentText, type Emitting, type TextOf } from "#compiler/sql/emit.ts"
 import type { TableGeneration } from "#compiler/sql/generation.ts"
 import { namedQuery, NameSupply, type NameSupplyStart } from "#compiler/sql/naming.ts"
 import type { FieldColumns } from "#compiler/write/defined.ts"
@@ -276,6 +276,11 @@ export interface WriteContext {
 	/** What an UPDATE of a relation's table meets of its stored generated columns, as the compilation's updater runs it
 	 * (laws/model/generation.ts generations), which every UPDATE's SET list is built against (sql/generation.ts). */
 	readonly generation: (relation: string) => TableGeneration
+	/**
+	 * What every statement the write's transaction may send is bound under where it is emitted (sql/emit.ts Emitting):
+	 * the transaction's advice scope, which mints every alias of every one of them, and the installation's catalog.
+	 */
+	readonly binding: Emitting
 }
 
 /**
@@ -309,6 +314,8 @@ interface WriteContextOptions {
 	readonly templates: DagTemplates
 	/** Where its InputSets of the relation parameters its ChangeSet binds to queries read (WriteLowering `bound`). */
 	readonly bound: BoundCarrierOf
+	/** What its statements are bound under (WriteContext `binding`). */
+	readonly binding: Emitting
 }
 
 /** The write context of a compilation's statements, each printed, as a statement sent alone is (StatementWriting). */
@@ -332,9 +339,10 @@ export const writeContext = (
 		names: options.names,
 		level: options.level,
 		start: ownStatement,
-		text: emitText,
+		text: sentText(options.binding),
 		share: options.share,
-		generation: options.generation
+		generation: options.generation,
+		binding: options.binding
 	}
 }
 

@@ -408,10 +408,7 @@ export const runMemberControl = (
 			"the workload plans"
 		)
 		assert.equal(
-			Arr.join(
-				unprintedPaths(installed.installation, planned.requests, [template.run.statement.ast]),
-				", "
-			),
+			Arr.join(unprintedPaths(planned.requests, [template.run.statement.spec.plan]), ", "),
 			"",
 			`${Formatter.format(c)}: paths the workload's access asks at a binding no statement of the read prints`
 		)

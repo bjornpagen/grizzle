@@ -7,10 +7,7 @@
 import { Array as Arr, Option, Order } from "effect"
 import { type PlanNode, planNodes } from "#bench/harness/explain.ts"
 import type { AccessIndexRequest } from "#compiler/ir/products.ts"
-import { printedSeeks } from "#compiler/physical/access/seeks.ts"
-import type { Installation } from "#compiler/physical/install/compile.ts"
-import type { SqlStatement } from "#compiler/sql/ast.ts"
-import { seekProgram } from "#compiler/sql/seeks.ts"
+import { planRequests, type ReadPlan } from "#compiler/sql/plan.ts"
 import type { PgConnection } from "#test/support/pg.ts"
 
 /** An index no key's unique constraint installs: its name, and its table's with its columns, `table(a, b)`. */
@@ -59,18 +56,21 @@ export const unreadIndexes = (
 	)
 }
 
+/** The fields a request binds by equality, its first `fixed` keys'. */
+const fixedFields = (r: AccessIndexRequest): ReadonlySet<string> =>
+	new Set(Arr.map(r.keys.slice(0, r.fixed), (k) => String(k.expr)))
+
 /**
- * The converse of the missed-index check (engine physical/access/seeks.ts): each equality path a workload's access asks
- * (`requests`, its plan's AccessIndexRequest `equality lookup`s) at a binding none of `statements`, the statements its
- * reads send, prints of its table, each spelled `relation(a, b)`: a path of a chain no statement prints, whose index no
- * plan reads, a B-tree insert on every write bought for nothing. None where every path is one a statement seeks by.
+ * Each equality path a workload's access asks (`requests`, its plan's AccessIndexRequest `equality lookup`s) at a
+ * binding no read of `plans`, the bound plans of the statements its reads send (sql/plan.ts planRequests), makes of its
+ * relation, each spelled `relation(a, b)`: a path of a chain no statement binds, whose index no plan reads, a B-tree
+ * insert on every write bought for nothing. None where every path is one a statement reads by.
  */
 export const unprintedPaths = (
-	installation: Installation,
 	requests: ReadonlyArray<AccessIndexRequest>,
-	statements: ReadonlyArray<SqlStatement>
+	plans: ReadonlyArray<ReadPlan<AccessIndexRequest>>
 ): ReadonlyArray<string> => {
-	const printed = printedSeeks(seekProgram(statements), installation.seeks)
+	const read = Arr.flatMap(plans, planRequests)
 	const same = (a: ReadonlySet<string>, b: ReadonlySet<string>): boolean =>
 		a.size === b.size && Arr.every([...a], (c) => b.has(c))
 	return Arr.sort(
@@ -78,11 +78,10 @@ export const unprintedPaths = (
 			if (r.use !== "equality lookup") {
 				return []
 			}
-			const fields = Arr.map(r.keys.slice(0, r.fixed), (k) => String(k.expr))
-			const columns = new Set(Arr.map(fields, (f) => installation.names.column(r.relation, f)))
-			return Arr.some(printed, (p) => p.relation === r.relation && same(p.bound, columns))
+			const fields = fixedFields(r)
+			return Arr.some(read, (p) => p.relation === r.relation && same(fixedFields(p), fields))
 				? []
-				: [`${r.relation}(${Arr.join(fields, ", ")})`]
+				: [`${r.relation}(${Arr.join([...fields], ", ")})`]
 		}),
 		Order.String
 	)

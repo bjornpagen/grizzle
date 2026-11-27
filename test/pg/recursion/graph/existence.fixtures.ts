@@ -11,6 +11,7 @@ import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, schema as declareSchema, on, relation } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import { costChosen } from "#compiler/sql/emit.ts"
 import { logicalOf, publicCase } from "#test/pg/recursion/graph/support.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { lowerAligned } from "#test/support/compile.ts"
@@ -160,11 +161,7 @@ const Existing = query(Network).recursive("Existing", {
 
 /** A case's optimized lowering in `context`, under `names` and the network's deferred catalog. */
 const optimized = (c: QueryCase, names: PhysicalNames, context: TemplateContext) =>
-	lowerAligned(logicalOf(c), "query", {
-		names,
-		context,
-		catalog
-	})
+	lowerAligned(logicalOf(c), "query", { binding: costChosen(), names, context, catalog })
 
 export const optimizedIn = (context: TemplateContext): Lowering => ({
 	name: `optimized (${context})`,

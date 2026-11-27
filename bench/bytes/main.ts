@@ -14,7 +14,7 @@ import { trusted } from "#compiler/core/trusted.ts"
 import type { OutputRows } from "#compiler/core/wire.ts"
 import { deliveredRows, deliveryOfColumns, textColumn } from "#compiler/lower/delivery.ts"
 import { col, provedCore, table, targetAs } from "#compiler/sql/build.ts"
-import { emitText } from "#compiler/sql/emit.ts"
+import { emitText, costChosen } from "#compiler/sql/emit.ts"
 import { NameSupply } from "#compiler/sql/naming.ts"
 import { InitializedCluster } from "#test/support/cluster.ts"
 import { sweep } from "#test/support/substrate/shared.ts"
@@ -118,7 +118,7 @@ const readOf = (schema: string, name: string, chunkLength: number): string => {
 		supply,
 		chunkLength
 	)
-	return emitText(read, supply.map()).text
+	return emitText(read, supply.map(), costChosen()).text
 }
 
 const columns = deliveryOfColumns([textColumn, { kind: "bytes" }])

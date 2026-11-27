@@ -20,6 +20,7 @@ import { query, v } from "#compiler/public/query.ts"
 import { closed, contained, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { queryValueDesc } from "#compiler/query/build/query.ts"
+import { costChosen } from "#compiler/sql/emit.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { lowerAligned } from "#test/support/compile.ts"
 import { exactValue } from "#test/support/equivalence.ts"
@@ -503,6 +504,7 @@ export const generatedQuery = (c: RecursiveCase): LogicalQuery => ({
 /** The optimized program of a generated case, aligned with its conservative program. */
 export const optimizedOf = (c: RecursiveCase): OptimizedProgram => {
 	const r = lowerAligned(generatedQuery(c), "query", {
+		binding: costChosen(),
 		names: caseNames(c.schema),
 		context: "snapshot",
 		catalog: genCatalog(c.schema)

@@ -6,9 +6,11 @@ import type { ClockUnit } from "#compiler/core/clock.ts"
 import type { DeclaredLanguage } from "#compiler/core/function.ts"
 import type { IndexMethod } from "#compiler/core/identity.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
+import type { AccessIndexRequest } from "#compiler/ir/products.ts"
 import type { Advice } from "#compiler/sql/advice.ts"
 import type { Assignments } from "#compiler/sql/generation.ts"
 import type { NameMap } from "#compiler/sql/naming.ts"
+import type { ReadPlan } from "#compiler/sql/plan.ts"
 
 /** A schema object's name, always schema-qualified: every object grizzle installs or names lives in a named schema. */
 export interface ObjectName {
@@ -2415,8 +2417,8 @@ export type PlStatement =
 			 * Statements that read what they read whole, once, at no binding: a data step's re-check (physical/ddl/recheck.ts),
 			 * each stored relation's refill from its whole definition and each rule's check over every row, which a migration
 			 * runs once, so PostgreSQL plans each read a scan joined by a hash or a merge, never a seek per row a touched key
-			 * bounds. The missed-index check judges keyed reads, bounded by the keys a write touches, and none of these
-			 * (sql/seeks.ts `keyedReads`), as it judges no fill. Printed as its statements, in their order.
+			 * bounds: the binding joins their reads by hash, each whole or at the values it fixes (sql/bind.ts). Printed as its
+			 * statements, in their order.
 			 */
 			readonly kind: "wholeReads"
 			readonly body: NonEmptyReadonlyArray<PlStatement>
@@ -2534,8 +2536,9 @@ export interface FunctionParam {
  * property of the function, as its volatility does, never a planner directive.
  *
  * `advice` is the plan advice its statements are planned under (sql/advice.ts), every plan and replan of them, printed
- * `SET pg_plan_advice.advice = '<advice>'` beside its search_path: none where its statements read no relation, and none
- * as a builder states it, since only the installation knows the indexes it names, once it has planned them
+ * `SET pg_plan_advice.advice = '<advice>'` beside its search_path, so none is ever its caller's: the empty advice
+ * (noAdvice) where its statements read no relation, and as a builder states it, since only the installation knows the
+ * indexes its plan reads through, once it has planned them, and advises every routine it installs from its bound plan
  * (physical/install/compile.ts).
  */
 export type CreateFunction =
@@ -2547,7 +2550,7 @@ export type CreateFunction =
 			readonly parallel: "SAFE" | "UNSAFE"
 			readonly security: "DEFINER"
 			readonly body: PlBlock
-			readonly advice: Advice | undefined
+			readonly advice: Advice
 	  } & (
 			| { readonly returns: "trigger"; readonly params: readonly [] }
 			| { readonly returns: "boolean"; readonly params: ReadonlyArray<FunctionParam> }
@@ -2564,7 +2567,7 @@ export type CreateFunction =
 			readonly returns: "boolean"
 			readonly params: ReadonlyArray<FunctionParam>
 			readonly body: Expr
-			readonly advice: Advice | undefined
+			readonly advice: Advice
 	  }
 
 /**
@@ -2894,10 +2897,20 @@ export type SqlStatement = Dml | Ddl | TransactionControl | FillStored
 export type EmittedText = string & { readonly [emittedTextBrand]: true }
 declare const emittedTextBrand: unique symbol
 
-/** The emitted product of one statement: its text and the generated-name map diagnostics show. */
+/**
+ * The emitted product of one statement: the text of its bound form (sql/bind.ts), the plan that binding proved
+ * (sql/plan.ts), whose requests its installation plans its indexes from and whose advice it is planned under, and the
+ * generated-name map diagnostics show.
+ */
 export interface EmittedSql {
 	readonly text: EmittedText
+	readonly plan: ReadPlan<AccessIndexRequest>
 	readonly nameMap: NameMap
+	/**
+	 * The statement as its builder stated it, which `text` is the bound print of (sql/emit.ts): what every analysis of
+	 * the statement reads, so a holder of it beside the text holds this one.
+	 */
+	readonly source: SqlStatement
 }
 
 /**

@@ -45,7 +45,8 @@ export const pageRuntime = (compiled: Compiled): BenchPages => {
 	const built = compiledPageTemplateFor({
 		template: compiled.compiled.template,
 		desc: compiled.desc,
-		artifacts: compiled.artifacts
+		artifacts: compiled.artifacts,
+		resolve: compiled.resolve
 	})
 	if (Result.isFailure(built)) {
 		throw new GateSetupError({ what: `the page template: ${built.failure.message}` })

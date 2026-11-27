@@ -11,6 +11,7 @@ import {
 } from "#compiler/core/page.ts"
 import { temporarySchema } from "#compiler/core/temporary.ts"
 import { quoteIdent, quoteString } from "#compiler/core/text.ts"
+import { noAdvice } from "#compiler/sql/advice.ts"
 import { objectName } from "#compiler/sql/build.ts"
 import { printStatement, sessionTableEmptied, sessionTableKeptBytes } from "#compiler/sql/print.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
@@ -102,7 +103,7 @@ const createSql = `CREATE TEMPORARY TABLE pg_temp.${quoteIdent(sessionTable)} (c
 /** The session function that empties the table by its emptying (sql/print.ts sessionTableEmptied). */
 const emptyingSql = printStatement({
 	kind: "createFunction",
-	advice: undefined,
+	advice: noAdvice,
 	language: "plpgsql",
 	name: objectName(temporarySchema, sessionTable),
 	params: [],

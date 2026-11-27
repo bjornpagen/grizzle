@@ -66,6 +66,7 @@ import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import { revokeOf } from "#compiler/physical/ddl/deltas.ts"
 import { headStamper } from "#compiler/physical/ddl/stamps.ts"
 import { enforcement } from "#compiler/physical/obligations/graph.ts"
+import { noAdvice } from "#compiler/sql/advice.ts"
 import {
 	type CreateConstraintTrigger,
 	type CreateTransitionTrigger,
@@ -246,7 +247,7 @@ const guardFunction = (
 ): readonly [PlFunction, ReturnType<typeof revokeOf>] => [
 	{
 		kind: "createFunction",
-		advice: undefined,
+		advice: noAdvice,
 		language: "plpgsql",
 		name,
 		params: [],

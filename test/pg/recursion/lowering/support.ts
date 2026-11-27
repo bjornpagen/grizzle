@@ -9,7 +9,7 @@ import type { ParamDecl } from "#compiler/ir/products.ts"
 import type { OptimizedProgram } from "#compiler/lower/optimize/pipeline.ts"
 import type { OperandBody, OperandSelect } from "#compiler/sql/ast.ts"
 import { setQueryOf } from "#compiler/sql/build.ts"
-import { emit } from "#compiler/sql/emit.ts"
+import { emit, costChosen } from "#compiler/sql/emit.ts"
 import { printObjectName, printStatement } from "#compiler/sql/print.ts"
 import { lowerAligned, partStatement, filledSql } from "#test/support/compile.ts"
 import { genCatalog } from "#test/support/evidence.ts"
@@ -80,6 +80,7 @@ export const lowerCase = (
 	names: LoweringInput["names"]
 ): Result.Result<OptimizedProgram, CompileError> =>
 	lowerAligned({ dag: c.query.dag, params: caseParams(c) }, "query", {
+		binding: costChosen(),
 		names,
 		context: "snapshot",
 		catalog: genCatalog(c.schema)
@@ -213,7 +214,7 @@ export const feedbackUnionAll = (
 		),
 		"the I8 rewrite, which rewrites only a recursive CTE"
 	)
-	return Result.map(emit(ast, statement.sql.nameMap), (sql) => ({
+	return Result.map(emit(ast, statement.sql.nameMap, costChosen()), (sql) => ({
 		program: { ...program, statement: { ...statement, ast, sql } },
 		sites
 	}))

@@ -47,6 +47,7 @@ import type { TemplateContext } from "#compiler/ir/evidence.ts"
 import type { OptimizedProgram } from "#compiler/lower/optimize/pipeline.ts"
 import type { DeliveredPart } from "#compiler/lower/shapes/index.ts"
 import { ledgerTableName } from "#compiler/physical/ddl/ledger.ts"
+import type { IndexResolver } from "#compiler/physical/indexes/ref.ts"
 import { queryInput } from "#compiler/program/input.ts"
 import type { InstalledArtifacts } from "#compiler/program/schema.ts"
 import { servedSession } from "#compiler/program/served.ts"
@@ -346,6 +347,8 @@ export interface Compiled {
 	/** What it compiled over, the installation's own (test/support/compile.ts installedArtifacts): a gate runs only what
 	 * its installation stands behind, so no parameter is cast to a type the installation lacks. */
 	readonly artifacts: InstalledArtifacts
+	/** How its installation resolves each read's index (physical/indexes/ref.ts IndexResolver), which its page is advised by. */
+	readonly resolve: IndexResolver
 	readonly spine: ServedSpine
 	/** The first compilation, and the compilations of the same query after it. */
 	readonly compileFirstMs: number
@@ -426,6 +429,7 @@ export const compile = <S>(
 		decoder: query.rows,
 		desc,
 		artifacts,
+		resolve: fixture.installed.installation.resolve,
 		spine: servedSpine(desc),
 		compileFirstMs,
 		compileWarmMs: summarize(warm)

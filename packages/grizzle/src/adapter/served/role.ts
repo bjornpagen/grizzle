@@ -8,6 +8,7 @@ import type {
 	ParsedRole,
 	RoleDesc
 } from "#compiler/plan/common.ts"
+import type { IndexResolver } from "#compiler/plan/migration.ts"
 import type { CompiledTemplate, ExecutionRequest, QueryInput } from "#compiler/plan/read.ts"
 
 /**
@@ -53,6 +54,12 @@ export interface RoleContext {
 	 * (adapter/public/compile.ts compileServedMoved), which its clocked reads and its ChangeSets compile under.
 	 */
 	readonly clock: ClockSource
+	/**
+	 * The index each read of the role's programs reaches through, as the installation behind its artifacts resolved it
+	 * (engine physical/indexes/ref.ts resolverOf over the snapshot's `resolved`): what every program compiled through
+	 * the role is advised by (engine sql/advice.ts transactionAdvice).
+	 */
+	readonly resolve: IndexResolver
 }
 
 /** A query's template compiled for one request, with the artifacts it was compiled against, which its page reads. */

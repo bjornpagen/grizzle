@@ -23,6 +23,7 @@ import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Order } from "effect"
 import { prepared } from "#compiler/core/prepared.ts"
+import { noAdvice } from "#compiler/sql/advice.ts"
 import { flightOf, servableWrite } from "#compiler/write/program/served.ts"
 import { wholeForm } from "#test/support/whole-forms.ts"
 import {
@@ -64,7 +65,7 @@ export const aSingleStatementSendsExactlyThePartsItsCallsInputsMayGiveRowsAssemb
 			Effect.gen(function* () {
 				const changes = changesOf(box.rider)
 				const program = programOf(changes)
-				const flight = flightOf(servableWrite(program), program.frontend.codes)
+				const flight = flightOf(servableWrite(program), program.frontend.codes, noAdvice)
 				const parted = Arr.filter(flight.statements, (s) => s.kind === "parted")
 				assert.equal(parted.length, 1, "the five writes are one single statement")
 				const single = defined(parted[0], "the single statement")

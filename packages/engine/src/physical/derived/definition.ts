@@ -10,7 +10,7 @@ import { fieldColumnType, type PhysicalNames } from "#compiler/ir/physical.ts"
 import type { Heading, RootedDag } from "#compiler/ir/rel.ts"
 import { baseOf, numericTypmodOf, type ScalarType, vectorTypmodOf } from "#compiler/ir/scalar.ts"
 import { queryEvidence } from "#compiler/logical/annotate.ts"
-import { lowerOptimized, optimizedInput } from "#compiler/lower/optimize/pipeline.ts"
+import { lowerComposed, optimizedInput } from "#compiler/lower/optimize/pipeline.ts"
 import { structuralRegex } from "#compiler/physical/ddl/domains.ts"
 import { deliveredTypes } from "#compiler/physical/derived/delivered.ts"
 import type {
@@ -266,7 +266,7 @@ export const lowerDefinition = (
 	if (!annotated.ok) {
 		return annotated
 	}
-	const lowered = lowerOptimized(annotated.value, {
+	const lowered = lowerComposed(annotated.value, {
 		names: options.names,
 		subject: { kind: "derivedDefinition" },
 		context: "transaction",

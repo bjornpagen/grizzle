@@ -17,8 +17,7 @@ import {
 	programsOn,
 	type RoleChanges,
 	type ServableRole,
-	servableRoles,
-	variantsEntries
+	servableRoles
 } from "#compiler/plan/change.ts"
 import {
 	type ClockSource,
@@ -34,11 +33,8 @@ import {
 	transactionClock
 } from "#compiler/plan/common.ts"
 import {
-	judgeSeeks,
 	loginFootprints,
 	type ProgramFootprints,
-	type SeekTargets,
-	seekProgram,
 	servedText,
 	type UnservedMember,
 	type WorkloadPlanRefused
@@ -47,6 +43,7 @@ import {
 	type ServedRecords,
 	type ServedSnapshot,
 	servedSnapshot,
+	snapshotResolver,
 	type UncoveredRead
 } from "#compiler/plan/serve.ts"
 
@@ -174,8 +171,10 @@ const compileServed = Effect.fn("compileServed")(function* (
 		fromEngine(servedSnapshot(snapshot, levelChain(login.login.base.desc).length - 1)),
 		atLogin
 	)
+	/** The installation's resolutions its snapshot records, the one resolver of every read the login's programs make. */
+	const resolve = snapshotResolver(served, artifacts.derived.schema)
 	const roles = yield* Effect.mapError(
-		plannedLoginRoles(login.login, changes, artifacts, lawsAbove(served), clock),
+		plannedLoginRoles(login.login, changes, artifacts, lawsAbove(served), clock, resolve),
 		atRole
 	)
 	const { footprint } = yield* Effect.mapError(workloadReach(login.login, login.owned), atRole)
@@ -239,58 +238,12 @@ export const servedEntry = (
 	snapshot: unknown,
 	artifacts: InstalledArtifacts,
 	changes: ReadonlyMap<string, ServableRole<Isolation, InstalledSource>>,
-	footprints: ProgramFootprints,
-	seeks: SeekTargets
+	footprints: ProgramFootprints
 ): Effect.Effect<ServedEntry, ServedRefusal> =>
 	Effect.flatMap(
 		compileServed(login, snapshot, artifacts, changes, footprints, transactionClock),
-		(compiled) => {
-			judgeServedSeeks(compiled, changes, seeks)
-			return servedEntryOf(compiled)
-		}
+		servedEntryOf
 	)
-
-/**
- * Every read and write a login's served file sends held to the indexes of the installation it is drafted beside, `seeks`
- * (engine physical/access/seeks.ts judgeSeeks): each statement of each read, key and page of every role's workload,
- * read into its seek program here (engine sql/seeks.ts seekProgram), and each variant of each
- * change member of every role, `changes`, by the program its compile read off its statements before the installation
- * existed (engine write/program/served.ts ServableWrite `seeks`). A read or a write no index serves is an internal
- * compiler error of generate's, never a scan found where the file is served.
- */
-const judgeServedSeeks = (
-	compiled: CompiledServed,
-	changes: ReadonlyMap<string, ServableRole<Isolation, InstalledSource>>,
-	seeks: SeekTargets
-): void => {
-	for (const role of compiled.roles) {
-		for (const form of role.workload) {
-			if (form.kind === "change") {
-				continue
-			}
-			const templates =
-				form.kind === "paged"
-					? [form.form.bound.compiled.compiled.template, form.form.page.compiled.template]
-					: [form.form.bound.compiled.compiled.template]
-			judgeSeeks(
-				seekProgram(Arr.map(templates, (t) => t.run.statement.ast)),
-				seeks,
-				`the read ${form.name} of role ${role.role.name} of login ${compiled.login.name}`
-			)
-		}
-	}
-	for (const [name, role] of changes) {
-		for (const [member, variants] of role.members) {
-			for (const entry of variantsEntries(variants)) {
-				judgeSeeks(
-					entry.compiled.seeks,
-					seeks,
-					`the write ${member} of role ${name} of login ${compiled.login.name}`
-				)
-			}
-		}
-	}
-}
 
 /**
  * The compile of `login` under `snapshot` alone, no installation compiled beside it: the installation's artifacts

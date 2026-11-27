@@ -10,7 +10,11 @@ import { topoOrder } from "#compiler/ir/dag.ts"
 import type { EvidenceCatalog, TemplateContext } from "#compiler/ir/evidence.ts"
 import type { RelDag } from "#compiler/ir/rel.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
-import { conservativeInput, flight } from "#compiler/lower/conservative/types.ts"
+import {
+	conservativeInput,
+	type DeclaredParamSlot,
+	flight
+} from "#compiler/lower/conservative/types.ts"
 import type { DedupPlan } from "#compiler/lower/optimize/dedup/plan.ts"
 import {
 	conservativeStatement,
@@ -20,9 +24,9 @@ import {
 } from "#compiler/lower/shapes/index.ts"
 import { mapTree } from "#compiler/runtime/lower/tree.ts"
 import { plainType } from "#compiler/scalar/native.ts"
-import type { Select } from "#compiler/sql/ast.ts"
+import type { Select, UnprintedSql } from "#compiler/sql/ast.ts"
 import { types } from "#compiler/sql/build.ts"
-import { printStatement } from "#compiler/sql/print.ts"
+import { emitText, costChosen } from "#compiler/sql/emit.ts"
 import { identityHooks, transformSelect } from "#compiler/sql/transform.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { genCatalog } from "#test/support/evidence.ts"
@@ -392,8 +396,10 @@ const sentAs = (
 /** The program with its one part's lowered statement changed, where it has one part `keep` holds of. */
 const oneAs = (
 	p: ChannelProgram,
-	keep: (s: FusedStatement) => boolean,
-	change: (s: FusedStatement) => FusedStatement
+	keep: (s: FusedStatement<DeclaredParamSlot, UnprintedSql>) => boolean,
+	change: (
+		s: FusedStatement<DeclaredParamSlot, UnprintedSql>
+	) => FusedStatement<DeclaredParamSlot, UnprintedSql>
 ): ReadonlyArray<ChannelProgram> =>
 	p.parts.kind === "one" && keep(p.parts.delivered)
 		? [{ ...p, parts: { kind: "one", delivered: change(p.parts.delivered) } }]
@@ -451,9 +457,7 @@ export const channelBreaks: Readonly<
 > = {
 	"the text edited": {
 		expect: exactly("statementText"),
-		sites: (p) => [
-			sentAs(p, (s) => ({ ...s, sql: { ...s.sql, text: testSql(`${s.sql.text}\n`) } }))
-		]
+		sites: (p) => [sentAs(p, (s) => ({ ...s, ast: { ...s.ast } }))]
 	},
 	"the slots dropped": {
 		expect: exactly("placeholders"),
@@ -591,7 +595,7 @@ export const channelBreaks: Readonly<
 								present(aliasesOf(s.ast)[0], "an alias"),
 								"x_respelled"
 							)
-							return { ...s, ast, sql: { ...s.sql, text: testSql(printStatement(ast)) } }
+							return { ...s, ast, sql: emitText(ast, s.sql.nameMap, costChosen()) }
 						})
 					]
 				: []

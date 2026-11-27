@@ -22,7 +22,7 @@ import type {
 	Target
 } from "#compiler/sql/ast.ts"
 import { setQueryOf, withArms } from "#compiler/sql/build.ts"
-import { emit } from "#compiler/sql/emit.ts"
+import { emit, costChosen } from "#compiler/sql/emit.ts"
 
 /** The node each relation alias of a statement names. */
 export const aliasOrigins = (
@@ -485,7 +485,7 @@ export const rewriteProgram = (
 		if (ast === statement.ast) {
 			return Result.ok(statement)
 		}
-		return Result.map(emit(ast, statement.sql.nameMap), (sql) => ({
+		return Result.map(emit(ast, statement.sql.nameMap, costChosen()), (sql) => ({
 			...statement,
 			ast,
 			sql

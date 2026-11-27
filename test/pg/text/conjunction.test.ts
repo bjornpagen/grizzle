@@ -26,7 +26,7 @@ import { quoteIdent } from "#compiler/core/text.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { createDomain } from "#compiler/physical/ddl/domains.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
-import { emit } from "#compiler/sql/emit.ts"
+import { emit, costChosen } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 import { analyzeText, textDomainDefinition } from "#compiler/text/refinement.ts"
 import {
@@ -129,7 +129,7 @@ export const aConjunctionOfPatternsECMAScriptHostProductDFAAndPostgreSQLsCHECKAg
 							{ schema, name: named.identifier },
 							() => identity.domainCheck(named).identifier
 						)
-						yield* db.query(succeeded(emit(ddl, emptyNameMap)).text, [])
+						yield* db.query(succeeded(emit(ddl, emptyNameMap, costChosen())).text, [])
 					}
 					const all = ["", ...texts]
 					const rows = yield* db.values(

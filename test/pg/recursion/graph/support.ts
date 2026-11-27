@@ -20,6 +20,7 @@ import type { OptimizedProgram } from "#compiler/lower/optimize/pipeline.ts"
 import type { DeliveredPart } from "#compiler/lower/shapes/index.ts"
 import { queryValueDesc } from "#compiler/query/build/query.ts"
 import type { OperandSelect } from "#compiler/sql/ast.ts"
+import { costChosen } from "#compiler/sql/emit.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import {
 	type FixtureSchema,
@@ -383,6 +384,7 @@ export const optimizedLoweringWith = (note: Note, context: TemplateContext): Low
 	lower: ({ case: c, names }) =>
 		Result.map(
 			lowerAligned(logicalOf(c), "query", {
+				binding: costChosen(),
 				names,
 				context,
 				catalog: genCatalog(c.schema)

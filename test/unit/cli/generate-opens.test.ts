@@ -1,3 +1,4 @@
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import * as Engine from "@bjornpagen/grizzle-text/base/result"
 import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
@@ -14,6 +15,7 @@ import { silentPhases } from "#compiler/core/phase.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { installBasis } from "#compiler/physical/install/plan.ts"
+import type { IndexResolver } from "#compiler/plan/migration.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
 import { selectMaxEntries } from "#compiler/sql/print.ts"
 import { defineConfig } from "#index.ts"
@@ -32,6 +34,14 @@ import {
 	type Width,
 	widthsOf
 } from "#test/unit/cli/generate-opens.fixtures.ts"
+
+/**
+ * The resolver of no installation: the layer's roles compile over artifacts no installation stands behind, and its
+ * workload's one read is advised only where it is served (adapter/served/project.ts), which the draft's own snapshot
+ * resolves; a read resolved here is the compile's internal compiler error.
+ */
+const noInstallation: IndexResolver = (request) =>
+	defect(`the read of ${request.relation}, resolved where no installation stands`)
 
 /** Generate and DbLayer.make compile a login's programs alike at the select list's bound and beside it: what generate drafts opens the layer, and what the layer refuses refuses the draft with the layer's own refusal. */
 export const generateAndDbLayerMakeCompileALoginsProgramsAlikeAtTheSelectListsBoundAndBesideItWhatGenerateDraftsOpensTheLayerAndWhatTheLayerRefusesRefusesTheDraftWithTheLayersOwnRefusal =
@@ -93,7 +103,13 @@ export const generateAndDbLayerMakeCompileALoginsProgramsAlikeAtTheSelectListsBo
 						),
 						(artifacts) =>
 							Effect.mapError(
-								loginRoles(compiledLogin.login, compiledLogin.owned, artifacts, noLevelAbove),
+								loginRoles(
+									compiledLogin.login,
+									compiledLogin.owned,
+									artifacts,
+									noLevelAbove,
+									noInstallation
+								),
 								(refused) => refused.error
 							)
 					)

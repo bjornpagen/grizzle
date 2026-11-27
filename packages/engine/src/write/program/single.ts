@@ -33,7 +33,7 @@ import {
 	types,
 	unionAll
 } from "#compiler/sql/build.ts"
-import { emitText } from "#compiler/sql/emit.ts"
+import { emitSelect, emitText, type Emitting } from "#compiler/sql/emit.ts"
 import { lexemesOf } from "#compiler/sql/lexer.ts"
 import {
 	namedBody,
@@ -117,6 +117,8 @@ export type UnitShape =
 export interface SingleStatement {
 	readonly ast: Select
 	readonly sql: EmittedSql
+	/** The statement as it was bound (sql/bind.ts), which `sql` prints and its units are cut from (`partedOf`). */
+	readonly bound: Select
 	readonly params: ReadonlyArray<WriteParamSlot>
 	/** The widest part's columns, which every row carries after its tag. */
 	readonly width: number
@@ -181,7 +183,8 @@ export const singleStatement = (
 	shares: ReadonlyArray<SharedPart>,
 	writes: NonEmptyReadonlyArray<WritePart>,
 	riding: Riding,
-	start: NameSupplyStart
+	start: NameSupplyStart,
+	binding: Emitting
 ): SingleStatement => {
 	const shareCtes: Array<Cte> = []
 	const params: Array<WriteParamSlot> = []
@@ -267,7 +270,8 @@ export const singleStatement = (
 				: []
 		)
 	)
-	return { ast, sql: emitText(ast, nameMap), params, width, units }
+	const emitted = emitSelect(ast, nameMap, binding)
+	return { ast, sql: emitted.sql, bound: emitted.ast, params, width, units }
 }
 
 /**
@@ -343,15 +347,17 @@ const readsCte = (arm: OperandBody, name: string): boolean => {
 
 /**
  * A single statement's text by its units (runtime/write/parted.ts Parted), read off its `ast` as the statement holds it,
- * placeholders `params` and all, after every rewrite of its forms (write/program/slot-carriers.ts): each unit's CTEs and
- * arms as the printer prints them in the whole (sql/print.ts printCteBlock, printArmBlock), its placeholders cut out as
- * PostgreSQL's scanner reads the text (sql/lexer.ts), so no `$` inside a literal or a quoted identifier is one. A
- * unit's placeholders are a block of the statement's, after the blocks of the units before it: each part was built as
- * a statement of its own, its placeholders numbered past the earlier parts' (`singleStatement`), and a rewrite numbers
- * the placeholders it keeps again in order.
+ * placeholders `params` and all, after every rewrite of its forms (write/program/slot-carriers.ts), and cut from
+ * `bound`, that AST as it was bound (sql/bind.ts), which keeps each CTE and each arm the AST printed once keeps, in
+ * order: each unit's CTEs and arms as the printer prints them in the whole (sql/print.ts printCteBlock,
+ * printArmBlock), its placeholders cut out as PostgreSQL's scanner reads the text (sql/lexer.ts), so no `$` inside a
+ * literal or a quoted identifier is one. A unit's placeholders are a block of the statement's, after the blocks of the
+ * units before it: each part was built as a statement of its own, its placeholders numbered past the earlier parts'
+ * (`singleStatement`), and a rewrite numbers the placeholders it keeps again in order.
  */
 export const partedOf = <Slot>(
 	ast: SqlStatement,
+	bound: Select,
 	params: ReadonlyArray<Slot>,
 	units: NonEmptyReadonlyArray<UnitShape>
 ): Parted<Slot> => {
@@ -362,8 +368,16 @@ export const partedOf = <Slot>(
 	if (printed.kind !== "select" || printed.with === undefined) {
 		defect("a single statement printed once is a SELECT under a WITH: its units' arms read CTEs")
 	}
-	const ctes = printed.with.ctes
-	const body = printed.body
+	const armsOf = (q: Select) => (q.body.kind === "setOp" ? q.body.arms.length : 1)
+	if (
+		bound.with === undefined ||
+		bound.with.ctes.length !== printed.with.ctes.length ||
+		armsOf(bound) !== armsOf(printed)
+	) {
+		defect("a single statement bound keeps each CTE and each arm it keeps printed once")
+	}
+	const ctes = bound.with.ctes
+	const body = bound.body
 	const arms = body.kind === "setOp" ? body.arms : [body]
 	let cte = 0
 	let arm = 0
@@ -476,7 +490,8 @@ export const ridingFamilyStatement = (
 	deltas: ReadonlyArray<Cte>,
 	deltaNames: NameMap,
 	riders: ReadonlyArray<{ readonly part: ReadBackPart; readonly tag: number }>,
-	cursor: NameSupplyStart
+	cursor: NameSupplyStart,
+	binding: Emitting
 ): {
 	readonly ast: Select
 	readonly sql: EmittedSql
@@ -538,5 +553,5 @@ export const ridingFamilyStatement = (
 			ctes: extendNonEmpty(family.ctes, [...deltas, ...rides.map((r) => r.own)])
 		}
 	}
-	return { ast, sql: emitText(ast, nameMap), params, width }
+	return { ast, sql: emitText(ast, nameMap, binding), params, width }
 }

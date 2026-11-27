@@ -29,6 +29,7 @@ export type AdviceFeature =
 	| "named level"
 	| "quoted name"
 	| "a tag's name"
+	| "an append member"
 
 export const adviceFeatures = [
 	"join order",
@@ -39,7 +40,8 @@ export const adviceFeatures = [
 	"tid scan",
 	"named level",
 	"quoted name",
-	"a tag's name"
+	"a tag's name",
+	"an append member"
 ] as const satisfies ReadonlyArray<Reached<AdviceFeature>>
 
 /** The columns an index stores and a read needs, from one small pool, so covering is often met and often missed. */
@@ -107,7 +109,13 @@ export const planGen: Gen<ReadPlan<IndexRef>> = (source) => {
 				{ min: 0, max: 3 }
 			)
 		)
-		return { name, first, joined }
+		const appended = source.draw(
+			array((): PlanItem<IndexRef> => ({ alias: alias(), scan: { kind: "rows" } }), {
+				min: 0,
+				max: 2
+			})
+		)
+		return { name, first, joined, appended }
 	}
 	return { levels: source.draw(array(level, { min: 1, max: 3 })) }
 }
@@ -277,7 +285,8 @@ export const parsedAtoms = (advice: string): ReadonlyArray<Atom> => {
  * The atoms a plan states (CARRY-CONTRACT.md §5), the specification the printer is held to: for each level, its join
  * order over every item where it joins two or more; for each item after its first, the method that puts it inner, a
  * nested loop's plain one or a hash join; for each stored relation its scan, an index-only scan only where its index
- * returns what it stores and stores every column the read needs; and for every item, no Gather.
+ * returns what it stores and stores every column the read needs; and for every item, an append relation's members
+ * among them, no Gather.
  */
 export const statedAtoms = (plan: ReadPlan<IndexRef>): ReadonlyArray<Atom> =>
 	Arr.flatMap(plan.levels, (level) => {
@@ -310,7 +319,8 @@ export const statedAtoms = (plan: ReadPlan<IndexRef>): ReadonlyArray<Atom> =>
 				}
 			}
 		}
-		const scans = Arr.flatMap(items, scanOf)
+		const scanned = [...items, ...level.appended]
+		const scans = Arr.flatMap(scanned, scanOf)
 		return [
 			...(items.length > 1
 				? [{ tag: "JOIN_ORDER", targets: Arr.map(items, targetOf), index: undefined }]
@@ -319,6 +329,6 @@ export const statedAtoms = (plan: ReadPlan<IndexRef>): ReadonlyArray<Atom> =>
 				one(j.join === "hash" ? "HASH_JOIN" : "NESTED_LOOP_PLAIN", j.item)
 			),
 			...scans,
-			...Arr.map(items, (item) => one("NO_GATHER", item))
+			...Arr.map(scanned, (item) => one("NO_GATHER", item))
 		]
 	})

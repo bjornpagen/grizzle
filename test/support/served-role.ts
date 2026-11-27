@@ -12,7 +12,7 @@ import type { ApplyOutcome } from "#adapter/types/db.ts"
 import { lawsAbove } from "#adapter/witness/keylaw.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { levelChain, type RowDecoder } from "#compiler/plan/common.ts"
-import { servedSnapshot } from "#compiler/plan/serve.ts"
+import { servedSnapshot, snapshotResolver } from "#compiler/plan/serve.ts"
 import type { AnyLoginRole } from "#compiler/types/schema/world.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
 import { snapshotValue } from "#test/support/snapshot-json.ts"
@@ -65,7 +65,13 @@ export const servedRoleContext = (
 			)
 		)
 		const roles = yield* Effect.mapError(
-			loginRoles({ ...login, workload: [] }, owned, artifacts, lawsAbove(snapshot)),
+			loginRoles(
+				{ ...login, workload: [] },
+				owned,
+				artifacts,
+				lawsAbove(snapshot),
+				snapshotResolver(snapshot, artifacts.derived.schema)
+			),
 			(refused) => refused.error
 		)
 		const found = Arr.findFirst(roles, (r) => r.role.name === role.role.name)

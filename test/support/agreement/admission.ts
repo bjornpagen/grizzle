@@ -17,6 +17,7 @@ import { paramTerm } from "#compiler/query/build/terms.ts"
 import { computeCore, handleTerm } from "#compiler/scalar/compute/builders.ts"
 import { check } from "#compiler/schema/api.ts"
 import { closedIdOf } from "#compiler/schema/relation.ts"
+import { costChosen } from "#compiler/sql/emit.ts"
 import {
 	changeSetDesc,
 	changeSetOver,
@@ -473,6 +474,7 @@ const paged = (q: unknown, template: QueryTemplate): Result.Result<unknown, Comp
 		Result.flatMap(queryInput(q), (input) =>
 			Result.flatMap(statedOrderOf(input.desc, SourceLoc("query", [])), (stated) =>
 				compilePage({
+					binding: costChosen(),
 					checked: template.programs.checked,
 					stated,
 					optimized: template.programs.optimized,

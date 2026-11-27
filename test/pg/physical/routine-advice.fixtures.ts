@@ -5,7 +5,7 @@ import { quoteIdent } from "#compiler/core/text.ts"
 import { type Advice, printAdvice } from "#compiler/sql/advice.ts"
 import { type CreateDeclaredFunction, declaredBody, type PlFunction } from "#compiler/sql/ast.ts"
 import { call, eq, lit, types } from "#compiler/sql/build.ts"
-import { emit } from "#compiler/sql/emit.ts"
+import { emit, costChosen } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 import { adviceSettingName } from "#compiler/sql/print.ts"
 import type { PgConnection } from "#test/support/pg.ts"
@@ -76,7 +76,7 @@ const cells = (connection: PgConnection, sql: string, params: ReadonlyArray<unkn
  */
 export const runRoutine = (connection: PgConnection, x: RoutineCase) =>
 	Effect.gen(function* () {
-		const created = emit(routineOf(x.own), emptyNameMap)
+		const created = emit(routineOf(x.own), emptyNameMap, costChosen())
 		if (!created.ok) {
 			return yield* Effect.die(created.error)
 		}
@@ -133,7 +133,7 @@ const declaredOf: CreateDeclaredFunction = {
  */
 export const runDeclared = (connection: PgConnection, x: DeclaredCase) =>
 	Effect.gen(function* () {
-		const created = emit(declaredOf, emptyNameMap)
+		const created = emit(declaredOf, emptyNameMap, costChosen())
 		if (!created.ok) {
 			return yield* Effect.die(created.error)
 		}

@@ -29,7 +29,7 @@ import { relation, schema } from "#compiler/public/schema.ts"
 import { anyNumeric, wildcardText } from "#compiler/scalar/compute/types.ts"
 import type { Expr, TypeRef } from "#compiler/sql/ast.ts"
 import { cast, lit, provedSelect, targetAs, types } from "#compiler/sql/build.ts"
-import { emitText } from "#compiler/sql/emit.ts"
+import { emitText, costChosen } from "#compiler/sql/emit.ts"
 import { NameSupply } from "#compiler/sql/naming.ts"
 import { type LockKey, lockId } from "#compiler/write/borrow/lock.ts"
 import { type BorrowArm, borrowQuery } from "#compiler/write/borrow/statement.ts"
@@ -335,7 +335,7 @@ const rankLiteral =
 const borrowSql = (race: BorrowRace, call: BorrowCall, installedSchema: string): string => {
 	const supply = new NameSupply(ownStatement)
 	const ast = borrowQuery(installedSchema, Arr.map(call.borrows, armOf), rankLiteral(race), supply)
-	return emitText(ast, supply.map()).text
+	return emitText(ast, supply.map(), costChosen()).text
 }
 
 /** One statement reading every borrow's lock id (write/borrow/lock.ts lockId), in the race's calls' borrows' order. */
@@ -351,7 +351,8 @@ const idsSql = (race: BorrowRace): string => {
 	)
 	return emitText(
 		provedSelect("oneRow", nonEmptyList(targets, "the race's borrows"), [], undefined),
-		supply.map()
+		supply.map(),
+		costChosen()
 	).text
 }
 

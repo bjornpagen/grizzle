@@ -1,7 +1,7 @@
 /**
  * A step that binds a column to a term computed from the channels it passes in asks an index of that column beside
- * the others it binds (sql/seeks.ts, the judge's program of its statements as printed, the one source of its
- * equality requests): a term of a region's correlated variables, each fixed per evaluation, fixes the column it binds
+ * the others it binds (sql/bind.ts, the judge's bound plan of its statements, the one source of its equality
+ * requests): a term of a region's correlated variables, each fixed per evaluation, fixes the column it binds
  * as a channel does. PUBLISH2 found qti's placed variable
  * reference read beside its declaration by (package, resolution, assembly) alone, its identifier bound to the bounded
  * text of the declaration's attribute value, every unresolved reference of the assembly filtered per declaration.
@@ -43,10 +43,10 @@ export const aColumnAStepBindsToATermOfItsChannelsIsAKeyOfTheIndexTheStepAsks = 
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/sql/seeks.ts",
-				original: "\t\t\tif (x.table !== undefined && aliases.has(x.table)) {\n",
-				replacement: "\t\t\tif (x.table !== undefined) {\n",
-				why: "A term of the step's channels reads as columns of its own level, no fixed value, so the judge's program asks an index of package alone and PostgreSQL reads every U row of the package at each T row; the property fails."
+				file: "packages/engine/src/sql/bind.ts",
+				original: "\t\t\t\treturn d !== undefined && d.depth < here.depth\n",
+				replacement: "\t\t\t\treturn false\n",
+				why: "A term of the step's channels, an enclosing level's columns, fixes nothing, so the judge's plan binds U at package alone and asks an index of package alone, and PostgreSQL reads every U row of the package at each T row; the property fails."
 			}
 		]
 	}

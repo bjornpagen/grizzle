@@ -963,7 +963,7 @@ export const unitSql = (
 			rows: "facts"
 		}
 	})
-	return taggedRows(supply, ctes, returnings, params, [])
+	return taggedRows(supply, ctes, returnings, params, [], w.binding)
 }
 
 /** Every relation a stratum's unit deletes remove rows of: each root, then the relations below them, in order. */

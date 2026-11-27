@@ -36,9 +36,11 @@ import {
 	annotatedInput,
 	lowerOptimized,
 	type LowerOptimizedOptions,
-	type OptimizedProgram
+	type OptimizedProgram,
+	lowerComposed
 } from "#compiler/lower/optimize/pipeline.ts"
 import { catalogLowerers } from "#compiler/lower/shapes/catalog/native.ts"
+import { sentStatement } from "#compiler/lower/shapes/index.ts"
 import type { SentStatement, StatementParts } from "#compiler/lower/shapes/index.ts"
 import { type ServedTypes, servedTypesOf } from "#compiler/physical/ddl/domains.ts"
 import { namedRole } from "#compiler/physical/ddl/names.ts"
@@ -52,6 +54,7 @@ import {
 	noFences
 } from "#compiler/physical/install/extension.ts"
 import { installBasis, type ParamSource, unserved } from "#compiler/physical/install/plan.ts"
+import { noAdvice } from "#compiler/sql/advice.ts"
 import { textOfParam } from "#test/support/wire.ts"
 
 import { compileQuery, type QueryTemplate, querySchema } from "#compiler/program/compile.ts"
@@ -488,7 +491,15 @@ export const lowerAligned = (
 			Result.map(
 				Result.flatMap(admitGenerated(query), (q) =>
 					Result.flatMap(annotatedInput(q, queryEvidence), (input) =>
-						lowerOptimized(input, { ...options, subject: { kind } })
+						kind === "query"
+							? lowerOptimized(input, { ...options, subject: { kind } })
+							: Result.map(
+									lowerComposed(input, { ...options, subject: { kind } }),
+									(composed): OptimizedProgram => ({
+										...composed,
+										statement: sentStatement(composed.statement, options.binding)
+									})
+								)
 					)
 				),
 				(optimized) => {
@@ -707,7 +718,8 @@ export const nestedRowsColumn = (
 	relation: string,
 	part: number
 ): ReadonlyArray<string> => {
-	for (const statement of flightOf(servableWrite(program), program.frontend.codes).statements) {
+	for (const statement of flightOf(servableWrite(program), program.frontend.codes, noAdvice)
+		.statements) {
 		const at = Arr.findFirstIndex(
 			statement.kind === "whole" ? statement.form.paramSlots : [],
 			(s) => s.kind === "nestedRows" && s.relation === relation && s.part === part

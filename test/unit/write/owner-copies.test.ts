@@ -41,6 +41,7 @@ import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import { bindWrite } from "#compiler/runtime/write/bind.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
+import { noAdvice } from "#compiler/sql/advice.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
 import { flightOf, servableWrite } from "#compiler/write/program/served.ts"
 import { refused, succeeded } from "#test/support/assert.ts"
@@ -112,7 +113,7 @@ export const aMembersCopyOfItsOwnersFieldReadsTheOwnersRowsAsItsFamilyStatementH
 					}
 				}
 				const members = yield* collectInputs(program.binding.groups, parsedOf(value).inputs)
-				const flight = flightOf(servableWrite(program), program.frontend.codes)
+				const flight = flightOf(servableWrite(program), program.frontend.codes, noAdvice)
 				const bound = succeeded(
 					bindWrite(flight, { members, params: copying.params, transport: inForce(bindFrame) }),
 					"the call binds"

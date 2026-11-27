@@ -46,9 +46,6 @@ export const aPlansAdviceParsesAsPgPlanAdviceReadsItAndHoldsExactlyTheAtomsThePl
 		check: (_, c: Case<AdviceFeature>) => (plan) =>
 			Effect.sync(() => {
 				const advice = printAdvice(plan)
-				if (advice === undefined) {
-					assert.fail("a plan of a level, which names an item, has advice")
-				}
 				const sorted = (atoms: ReadonlyArray<Atom>) =>
 					Arr.sort(Arr.map(atoms, atomText), Order.String)
 				assert.deepEqual(sorted(parsedAtoms(advice)), sorted(statedAtoms(plan)))
@@ -62,6 +59,9 @@ export const aPlansAdviceParsesAsPgPlanAdviceReadsItAndHoldsExactlyTheAtomsThePl
 					}
 					if (level.name.kind === "named") {
 						c.note("named level")
+					}
+					if (level.appended.length > 0) {
+						c.note("an append member")
 					}
 					for (const { scan } of items) {
 						switch (scan.kind) {
@@ -102,9 +102,9 @@ export const aPlansAdviceParsesAsPgPlanAdviceReadsItAndHoldsExactlyTheAtomsThePl
 		kills: [
 			{
 				file: "packages/engine/src/sql/advice.ts",
-				original: "\t\t...items.map((item) => noGather(at(item)))",
+				original: "\t\t...scanned.map((item) => noGather(at(item)))",
 				replacement: "\t\t...[level.first].map((item) => noGather(at(item)))",
-				why: "A joined item may run under a Gather; its NO_GATHER atom is missing."
+				why: "A joined item or an append member may run under a Gather; its NO_GATHER atom is missing."
 			},
 			{
 				file: "packages/engine/src/sql/advice.ts",

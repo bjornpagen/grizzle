@@ -30,6 +30,7 @@ import {
 	statementOutput,
 	type StatementRoots
 } from "#compiler/runtime/lower/tree.ts"
+import { costChosen } from "#compiler/sql/emit.ts"
 
 import {
 	lowerOptimized,
@@ -785,6 +786,7 @@ const runDifferential = (
 				Engine.flatMap(admitGenerated(query), (q) => optimizedInput(q, checkerEvidence)),
 				(caseInput) =>
 					lowerOptimized(caseInput, {
+						binding: costChosen(),
 						names,
 						catalog,
 						subject: { kind: "query" },
@@ -983,6 +985,7 @@ export const typedPlants = (
 				Engine.flatMap(admitGenerated(query), (q) => optimizedInput(q, checkerEvidence)),
 				(caseInput) =>
 					lowerOptimized(caseInput, {
+						binding: costChosen(),
 						names,
 						catalog,
 						subject: { kind: "query" },

@@ -34,6 +34,7 @@ import {
 } from "#compiler/runtime/write/parted.ts"
 import type { OwnStep } from "#compiler/runtime/write/steps.ts"
 import type { PatternReads } from "#compiler/scalar/regex/patterns.ts"
+import type { Advice } from "#compiler/sql/advice.ts"
 import type { EmittedText } from "#compiler/sql/ast.ts"
 
 /** A form of a write statement as an execution sends it: its text with its name (core/prepared.ts), and what fills
@@ -122,6 +123,12 @@ export interface ServedWrite {
 	 */
 	readonly sends: number
 	readonly written: ReadonlyArray<WrittenHeading>
+	/**
+	 * What its transaction is planned under (sql/advice.ts transactionAdvice): the plan of every statement its flight may
+	 * send, each form of each, the read-backs' and the admission among them, a single statement's every unit, one
+	 * scope's.
+	 */
+	readonly advice: Advice
 }
 
 /** A form of a statement as an application sends it: its named text and the encoder of each placeholder. */

@@ -121,6 +121,7 @@ import type {
 	TypeSchema
 } from "#compiler/sql/ast.ts"
 
+import { noAdvice } from "#compiler/sql/advice.ts"
 import {
 	col,
 	lit,
@@ -932,7 +933,7 @@ const writePlan = (
 				ddl: [
 					{
 						kind: "createFunction",
-						advice: undefined,
+						advice: noAdvice,
 						language: "sql",
 						name: objectName(b.schema, probeIdent),
 						volatility: "STABLE",
@@ -985,7 +986,7 @@ const writePlan = (
 		ddl: [
 			{
 				kind: "createFunction",
-				advice: undefined,
+				advice: noAdvice,
 				language: "sql",
 				name: objectName(b.schema, fnIdent),
 				volatility: "STABLE",

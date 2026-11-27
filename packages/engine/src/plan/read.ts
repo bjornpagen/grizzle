@@ -53,10 +53,12 @@ export type {
 	VariantFill
 } from "#compiler/lower/shapes/page/seek.ts"
 export type { SpecifiedStatement } from "#compiler/lower/template.ts"
-export { type QueryTemplate } from "#compiler/program/compile.ts"
+export { type QueryTemplate, readBinding } from "#compiler/program/compile.ts"
 export { queryInput, type QueryInput } from "#compiler/program/input.ts"
 export {
+	pageAdvice,
 	pageKey,
+	readAdvice,
 	servedPage,
 	servedRead,
 	servedReadLive,

@@ -34,6 +34,7 @@ import { discardCertificates, shapeFactsFromPlan } from "#compiler/lower/shapes/
 import { isOrderedValue, isQueryValue } from "#compiler/query/build/query.ts"
 import { keyColumns, type RowsRole, type StatementRoots } from "#compiler/runtime/lower/tree.ts"
 import { hasCapability } from "#compiler/scalar/registry.ts"
+import { costChosen } from "#compiler/sql/emit.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { fixtureNeedBudget } from "#test/support/budgets.ts"
 import { admitGenerated, testArtifacts, testCompile } from "#test/support/compile.ts"
@@ -188,7 +189,13 @@ const optimizedOf = (
 	Engine.flatMap(
 		Engine.flatMap(admitGenerated(query), (q) => optimizedInput(q, checkerEvidence)),
 		(input) =>
-			lowerOptimized(input, { names, catalog, subject: { kind: "query" }, context: "snapshot" })
+			lowerOptimized(input, {
+				binding: costChosen(),
+				names,
+				catalog,
+				subject: { kind: "query" },
+				context: "snapshot"
+			})
 	)
 
 /** The case's query ordered by its root's heading, ascending, or none where a column of it has no admitted order. */
@@ -238,6 +245,7 @@ export const judgeCase = (c: QueryCase, note: (feature: KeySetFeature) => void):
 		return
 	}
 	const page = compilePage({
+		binding: costChosen(),
 		checked: ordered,
 		optimized: orderedProgram.value,
 		names,

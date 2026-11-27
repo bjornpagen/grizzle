@@ -1,5 +1,6 @@
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import type { CheckedSchema } from "#compiler/analysis/schema.ts"
 import { fromJson, noRevivers, type Path } from "#compiler/core/canonical.ts"
 import {
 	type CompileError,
@@ -29,6 +30,11 @@ import type { ReferenceChoice } from "#compiler/laws/model/plan.ts"
 import type { LiveSource } from "#compiler/live/notify.ts"
 import type { NamedClosed } from "#compiler/physical/ddl/constants.ts"
 import type { InstalledParams, TextDomainNames } from "#compiler/physical/ddl/domains.ts"
+import {
+	type IndexResolutions,
+	type IndexResolver,
+	resolverOf
+} from "#compiler/physical/indexes/ref.ts"
 import type { DescribedLaw } from "#compiler/physical/install/plan.ts"
 import type { PlannedGraph } from "#compiler/physical/planned/graph.ts"
 
@@ -82,6 +88,7 @@ const servedDerived = (derived: unknown): Result.Result<SnapshotDerived, Compile
 	const liveDerived = derived["liveDerived"]
 	const proved = derived["proved"]
 	const planned = derived["planned"]
+	const resolved = derived["resolved"]
 	if (!isRecord(closed)) {
 		return Result.err(underived(["derived", "closed"]))
 	}
@@ -118,6 +125,9 @@ const servedDerived = (derived: unknown): Result.Result<SnapshotDerived, Compile
 	if (!isRecord(planned)) {
 		return Result.err(underived(["derived", "planned"]))
 	}
+	if (!isList(resolved)) {
+		return Result.err(underived(["derived", "resolved"]))
+	}
 	return Result.ok({
 		closed: new Map(Object.entries(trusted<Readonly<Record<string, NamedClosed>>>(closed))),
 		fkCycles: trusted<FkCycles>(fkCycles),
@@ -130,7 +140,8 @@ const servedDerived = (derived: unknown): Result.Result<SnapshotDerived, Compile
 		params: trusted<InstalledParams>(params),
 		liveDerived: trusted<Readonly<Record<string, LiveDerived>>>(liveDerived),
 		proved: trusted<Readonly<Record<string, NonEmptyReadonlyArray<ProvedRelation>>>>(proved),
-		planned: trusted<PlannedGraph>(planned)
+		planned: trusted<PlannedGraph>(planned),
+		resolved: trusted<IndexResolutions>(resolved)
 	})
 }
 
@@ -225,3 +236,14 @@ export const snapshotIndexes = (json: unknown): Result.Result<InstalledIndexes, 
 	}
 	return Result.ok(out)
 }
+
+/**
+ * The resolver of the installation `snapshot` records (SnapshotDerived `resolved`, physical/indexes/ref.ts resolverOf),
+ * each request's relation read as `schema` installs it: what a served compile from the snapshot resolves every read
+ * of its programs by, generate's and an application's alike, so both print one advice.
+ */
+export const snapshotResolver = (
+	snapshot: ServedSnapshot,
+	schema: Pick<CheckedSchema, "installedAs">
+): IndexResolver =>
+	resolverOf(snapshot.derived.resolved, (relation) => schema.installedAs(relation))

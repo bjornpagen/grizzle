@@ -136,7 +136,7 @@ import type {
 	Select
 } from "#compiler/sql/ast.ts"
 import { and, binary, conjunction, keyedSet, select, unitRow } from "#compiler/sql/build.ts"
-import { emitText } from "#compiler/sql/emit.ts"
+import { type Emitting, sentText } from "#compiler/sql/emit.ts"
 
 /**
  * A page's program in its optimized artifact: one statement of parts, its page placeholders each filled by one of `F`.
@@ -215,6 +215,8 @@ export interface PageCompileInput {
 		readonly window: PageWindow
 	}
 	readonly names: PhysicalNames
+	/** What its optimized statements are bound under (sql/emit.ts Emitting): its read's transaction's. */
+	readonly binding: Emitting
 }
 
 /**
@@ -392,7 +394,12 @@ const optimizedKit = <F extends PageFill>(
 		state.evaluationHolding,
 		dispatching.carrying
 	)
-	const delivery = new OptimizedDelivery<PageParamSlot<F>, EmittedSql>(cx, facts, state, emitText)
+	const delivery = new OptimizedDelivery<PageParamSlot<F>, EmittedSql>(
+		cx,
+		facts,
+		state,
+		sentText(input.binding)
+	)
 	return {
 		cx,
 		delivery,

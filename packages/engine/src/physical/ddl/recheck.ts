@@ -34,6 +34,7 @@ import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import { revokeOf } from "#compiler/physical/ddl/deltas.ts"
 import { lastNumbered, tableNode } from "#compiler/physical/ddl/rules.ts"
 import { enforcement, type Node } from "#compiler/physical/obligations/graph.ts"
+import { noAdvice } from "#compiler/sql/advice.ts"
 import {
 	type CreateStoredTable,
 	type Merge,
@@ -112,8 +113,8 @@ export const violationCheck = (law: LawId, query: OperandSelect): PlBlock => ({
 /**
  * The re-check as one PL/pgSQL block (DataStepRecheck): its refills, then its checks, every one a whole read
  * (sql/ast.ts PlStatement `wholeReads`): each reads every row it reads once per data step, at no binding, so PostgreSQL
- * joins them by a hash or a merge, never a seek per row, and the missed-index check, which judges keyed reads, judges
- * none of them, as it judges no fill (sql/seeks.ts keyedReads). No index stands for a data step alone.
+ * joins them by a hash, never a probe per row (sql/bind.ts, a whole statement's binding), each read whole or at the
+ * values it fixes. No index stands for a data step alone.
  */
 const recheckBlock = (r: DataStepRecheck): PlBlock => {
 	const body: ReadonlyArray<PlStatement> = [
@@ -273,7 +274,7 @@ export const addDataStepRecheck = (
 	const ddl: readonly [PlFunction, ReturnType<typeof revokeOf>] = [
 		{
 			kind: "createFunction",
-			advice: undefined,
+			advice: noAdvice,
 			language: "plpgsql",
 			name: fn,
 			params: [],

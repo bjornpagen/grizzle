@@ -50,7 +50,7 @@ import {
 	type LawIndexRequest,
 	type TheoryTable
 } from "#compiler/ir/law.ts"
-import type { IndexRequest, PhysicalReason } from "#compiler/ir/products.ts"
+import type { AccessIndexRequest, IndexRequest, PhysicalReason } from "#compiler/ir/products.ts"
 import type { DeltaSide, RelNode } from "#compiler/ir/rel.ts"
 import type { Unit } from "#compiler/ir/unit.ts"
 import { evidenceCatalog, noViewEvidence } from "#compiler/laws/model/catalog.ts"
@@ -65,7 +65,6 @@ import {
 	keyOrdersOf,
 	noWorlds
 } from "#compiler/physical/access/extract.ts"
-import { type SeekTargets, tableSeeks } from "#compiler/physical/access/seeks.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import {
 	addReaders,
@@ -89,6 +88,7 @@ import {
 import type { JudgeStandUp } from "#compiler/physical/ddl/roles.ts"
 import { unaliased } from "#compiler/physical/derived/definition.ts"
 import { enforcement, type Node } from "#compiler/physical/obligations/graph.ts"
+import { noAdvice } from "#compiler/sql/advice.ts"
 import type {
 	ColumnDefinition,
 	CreateTransitionTrigger,
@@ -104,7 +104,7 @@ import type {
 	TransitionTable,
 	TypeRef
 } from "#compiler/sql/ast.ts"
-import { selectColumns, transitionTables } from "#compiler/sql/ast.ts"
+import { type NameKey, nameKey, selectColumns, transitionTables } from "#compiler/sql/ast.ts"
 import {
 	and,
 	col,
@@ -131,7 +131,6 @@ import {
 import { assignments, ungenerated } from "#compiler/sql/generation.ts"
 import { freshNames, NameSupply, namedQuery } from "#compiler/sql/naming.ts"
 import { printObjectName, sessionTablesStanding, stoodApart } from "#compiler/sql/print.ts"
-import { type SeekProgram, seekProgram } from "#compiler/sql/seeks.ts"
 import { type StoredColumns, storedColumns } from "#compiler/sql/stored.ts"
 import { identityHooks, Transform } from "#compiler/sql/transform.ts"
 import { type BorrowArm, borrowQuery } from "#compiler/write/borrow/statement.ts"
@@ -455,7 +454,7 @@ const requestsOf = (
  * relation's (ir/unit.ts StoredUnit `references`), each read at the keys its unit's rows name; and how a refusal names
  * it.
  */
-interface Requester {
+export interface Requester {
 	readonly justification: LawIndexRequest["justification"]
 	readonly unit: Unit | undefined
 	readonly references: ReadonlyArray<string>
@@ -571,8 +570,8 @@ const lookupRequestsOf = (
  * the fields `relation` holds its unit's key in (ir/unit.ts Unit holders) that the read binds, the longest run of them
  * from the first in the unit key's order, then the rest, so an index the request asks for never reads past the unit and
  * none another column leads serves it, and a lookup that binds every one of those fields reads one unit. A read that
- * binds no field of its unit, or of a relation outside it, is one block: every seek a judge prints is asked, the one
- * index the missed-index check holds it to (physical/access/seeks.ts). A relation the requester reads by reference
+ * binds no field of its unit, or of a relation outside it, is one block: every read a judge's plan binds is asked, the
+ * one index its advice reads it through (sql/advice.ts). A relation the requester reads by reference
  * stands in no unit of its: its read is a probe's, one block of its keys, at the key its unit's row names.
  */
 const unitLead = (
@@ -602,61 +601,35 @@ const unitLead = (
 }
 
 /**
- * The requests of the seeks a block's statements make (`Asked`), read off its function as it runs them (sql/seeks.ts
- * seekProgram) at the installation's tables before any index is planned, `targets` (physical/access/seeks.ts
- * keyTableIndexes): one for each seek of a stored table binding a column of many values, its keys the columns it binds
- * that a B-tree holds, a field by its handle and a law column by its identifier, led as its requester leads
- * (`unitLead`), and then, a block of its own, the column it reads a range of past them where it reads one (sql/seeks.ts
- * Seek `range`): one seek, one request, so the range is an index qual of the one index the seek reads, never a filter
- * beside an index of its equalities alone (a sitting's snapshots at (child, stage) after a session's beginning, at). A
- * seek's items of one row are the same before the plan and after, since the engine creates no unique index, so the
- * seeks asked are exactly the seeks the missed-index check judges the installed function by.
+ * The requests of a routine's plan (sql/plan.ts planRequests) as its requester asks them (`Requester`): each a law's
+ * maintenance request, its keys the fields the plan's read binds, led as its requester leads (`unitLead`), so every
+ * read the routine makes is asked and nothing else is. A read of a closed relation, which no index serves, asks none.
+ * The plan is the routine's bound statements' (sql/bind.ts), the one derivation of what each of its reads binds
+ * (physical/install/compile.ts).
  */
-const programRequests = (
+export const routineRequests = (
 	b: InstallBuilder,
-	targets: SeekTargets,
 	by: Requester,
-	program: SeekProgram
+	requests: ReadonlyArray<AccessIndexRequest>
 ): ReadonlyArray<IndexRequest> =>
-	tableSeeks(program, targets).flatMap(({ table, bound, range }): ReadonlyArray<IndexRequest> => {
-		const target = b.model.theory.relations[table.relation]
+	requests.flatMap((request): ReadonlyArray<IndexRequest> => {
+		const target = b.model.theory.relations[request.relation]
 		if (target === undefined || target.kind === "closed") {
 			return []
 		}
-		const columns = [...bound].filter((c) => table.holds.get(c) !== "none").toSorted(compareStrings)
-		if (!columns.some((c) => table.holds.get(c) === "many")) {
-			return []
-		}
-		const keys = columns.flatMap((c): ReadonlyArray<LawIndexKey> => {
-			const column = defined(table.columns.get(c), `the column ${c} of ${table.relation}`)
-			if (column.kind === "law") {
-				return [{ column, dir: "asc", opclass: defaultOpclass }]
-			}
-			const field = defined(
-				target.fields.find((f) => f.name === column.field),
-				`the field ${column.field} of ${table.relation}`
-			)
-			return [{ column: { kind: "field", field }, dir: "asc", opclass: defaultOpclass }]
+		const keys = request.keys.flatMap((k): ReadonlyArray<LawIndexKey> => {
+			const field = target.fields.find((f) => f.name === k.expr)
+			return field === undefined
+				? []
+				: [{ column: { kind: "field", field }, dir: k.dir, opclass: k.opclass }]
 		})
 		if (!isNonEmpty(keys)) {
 			return []
 		}
-		const led = unitLead(by, target, keys)
-		const ranged = range === undefined ? undefined : table.columns.get(range)
-		const ranges: ReadonlyArray<LawIndexKey> =
-			ranged === undefined || table.holds.get(range ?? "") === "none"
-				? []
-				: ranged.kind === "law"
-					? [{ column: ranged, dir: "asc", opclass: defaultOpclass }]
-					: target.fields.flatMap((f) =>
-							f.name === ranged.field
-								? [{ column: { kind: "field", field: f }, dir: "asc", opclass: defaultOpclass }]
-								: []
-						)
 		return [
 			{
 				relation: target.name,
-				blocks: isNonEmpty(ranges) ? [...led, ranges] : led,
+				blocks: unitLead(by, target, keys),
 				method: "btree",
 				role: "lawMaintenance",
 				use: "rule probe",
@@ -702,9 +675,9 @@ interface JudgedCall extends Asked {
 }
 
 /**
- * The block of a function of the judge, its variables and its statements, and who asks the indexes its seeks read
- * through (Requester): the function's program of them, as it runs them (sql/seeks.ts seekProgram), gives the requests,
- * one for each seek of a stored table, so every seek the judge prints is asked and nothing else is (`programRequests`).
+ * The block of a function of the judge, its variables and its statements, and who asks the indexes its reads go
+ * through (Requester): the function's bound plan (sql/bind.ts bindRoutine) gives the requests, one for each bound read
+ * of a stored table, so every read the judge's plan makes is asked and nothing else is (`routineRequests`).
  */
 interface Asked {
 	readonly by: Requester
@@ -1788,10 +1761,15 @@ const nettingsOf = (
  * planner can, and its cost follows the write.
  */
 export const addRules = (
-	b: InstallBuilder,
-	targets: SeekTargets
+	b: InstallBuilder
 ): {
 	readonly requests: ReadonlyArray<IndexRequest>
+	/**
+	 * Who asks the indexes each function of the judge reads through (`Requester`), by its name's key: the
+	 * installation asks its plan's requests as it asks them (`routineRequests`), once it has bound the function
+	 * (physical/install/compile.ts).
+	 */
+	readonly requesters: ReadonlyMap<NameKey, Requester>
 	readonly checks: ReadonlyMap<LawId, OperandSelect>
 	/** Each judged table's stand-up, by its relation's name (`addStandUps`). */
 	readonly standUps: ReadonlyMap<string, JudgeStandUp>
@@ -1807,6 +1785,7 @@ export const addRules = (
 	const deltaOf = (t: JudgedTable, side: ProbeSide): SessionDelta | undefined =>
 		t.sides.find((s) => s.side === side)?.delta
 	const requests: Array<IndexRequest> = []
+	const requesters = new Map<NameKey, Requester>()
 	/** What the probes prove a sibling's cover by (analysis/theory/query.ts Proofs): the theory's containments and keys. */
 	const proofs = proofsOf(
 		b.model.theory.regionFacts,
@@ -2622,7 +2601,7 @@ export const addRules = (
 		const fn = objectName(b.schema, b.name(call.named))
 		const running: PlFunction = {
 			kind: "createFunction",
-			advice: undefined,
+			advice: noAdvice,
 			language: "plpgsql",
 			name: fn,
 			params: [],
@@ -2633,7 +2612,7 @@ export const addRules = (
 			body: call.body
 		}
 		const ddl: readonly [PlFunction, Revoke] = [running, revokeOf(fn, [])]
-		appendAll(requests, programRequests(b, targets, call.by, seekProgram([running])))
+		requesters.set(nameKey(fn), call.by)
 		const node = b.add(
 			{
 				kind: "lawFunction",
@@ -2673,7 +2652,7 @@ export const addRules = (
 		const ddl: readonly [PlFunction, Revoke] = [
 			{
 				kind: "createFunction",
-				advice: undefined,
+				advice: noAdvice,
 				language: "plpgsql",
 				name: fn,
 				params: [{ name: writtenColumn, type: namesType }],
@@ -2807,7 +2786,7 @@ export const addRules = (
 	const judgeDdl: readonly [PlFunction, Revoke] = [
 		{
 			kind: "createFunction",
-			advice: undefined,
+			advice: noAdvice,
 			language: "plpgsql",
 			name: judge,
 			params: [],
@@ -2858,7 +2837,7 @@ export const addRules = (
 	for (const event of events) {
 		b.name(identity.captureTrigger(event))
 	}
-	return { requests, checks, standUps }
+	return { requests, requesters, checks, standUps }
 }
 
 /** A session's marker of a set of the judge's tables (identity.ruleStood: a closure's, `Closure`, or a table's,
@@ -2878,7 +2857,7 @@ const makerOf = (
 ): readonly [PlFunction, Revoke] => [
 	{
 		kind: "createFunction",
-		advice: undefined,
+		advice: noAdvice,
 		language: "plpgsql",
 		name: fn,
 		params: [],
@@ -3209,7 +3188,7 @@ const addCapture = (
 	const ddl: readonly [PlFunction, Revoke] = [
 		{
 			kind: "createFunction",
-			advice: undefined,
+			advice: noAdvice,
 			language: "plpgsql",
 			name: fn,
 			params: [],

@@ -163,6 +163,23 @@ const simpleTarget = (e: Expr): boolean => {
 	return simple
 }
 
+/**
+ * Whether PostgreSQL pulls a sub-query of this query up into its reader where it stands as a FROM item it flattens
+ * (prepjointree.c is_simple_subquery, as grizzle's queries meet it): one core of no WITH, ORDER BY, LIMIT, OFFSET,
+ * DISTINCT, GROUP BY or HAVING, each target simple (`simpleTarget`). The binding fences every derived table it leaves
+ * that is one (sql/bind.ts), so each is planned apart under its alias.
+ */
+export const simpleQuery = (q: OperandSelect): boolean =>
+	q.with === undefined &&
+	q.orderBy.length === 0 &&
+	q.limit === undefined &&
+	q.offset === undefined &&
+	q.body.kind === "core" &&
+	q.body.distinct === false &&
+	q.body.groupBy.length === 0 &&
+	q.body.having === undefined &&
+	q.body.targets.every((t) => simpleTarget(t.expr))
+
 /** What a flattenable sub-query is flattened from: its one core, and its target by each column its query names. */
 interface Flattenable {
 	readonly core: SelectCore
@@ -180,26 +197,10 @@ const flattenable = (
 ): Flattenable | undefined => {
 	const q = item.query
 	const names = selectColumns(q)
-	if (
-		item.lateral ||
-		pinned.aliases.has(item.alias) ||
-		q.with !== undefined ||
-		q.orderBy.length > 0 ||
-		q.limit !== undefined ||
-		q.offset !== undefined ||
-		q.body.kind !== "core"
-	) {
+	if (item.lateral || pinned.aliases.has(item.alias) || !simpleQuery(q) || q.body.kind !== "core") {
 		return undefined
 	}
 	const core = q.body
-	if (
-		core.distinct !== false ||
-		core.groupBy.length > 0 ||
-		core.having !== undefined ||
-		!core.targets.every((t) => simpleTarget(t.expr))
-	) {
-		return undefined
-	}
 	const read = references.counts.get(item.alias)
 	const aggregated = references.aggregated.get(item.alias)
 	const own = declaredAliases(core.from)

@@ -20,6 +20,7 @@ import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import { bindWrite } from "#compiler/runtime/write/bind.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
+import { noAdvice } from "#compiler/sql/advice.ts"
 import { flightOf, servableWrite } from "#compiler/write/program/served.ts"
 import { failed } from "#test/support/assert.ts"
 import { parsedOf } from "#test/unit/write/changeset/fixtures.ts"
@@ -82,11 +83,14 @@ export const theWriteProgramsRelationParametersBindsADescribedMembersRelationPar
 						})
 					)
 					const members = yield* collectInputs(program.binding.groups, parsedOf(value).inputs)
-					const bound = bindWrite(flightOf(servableWrite(program), program.frontend.codes), {
-						members,
-						params,
-						transport: inForce(bindFrame)
-					})
+					const bound = bindWrite(
+						flightOf(servableWrite(program), program.frontend.codes, noAdvice),
+						{
+							members,
+							params,
+							transport: inForce(bindFrame)
+						}
+					)
 					const faulty = Arr.filter(drawnMembers, (m) => m.given.kind !== "facts")
 					if (faulty.length === 0) {
 						c.note("every parameter given")

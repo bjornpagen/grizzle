@@ -10,6 +10,7 @@ import { compileInstallation } from "#compiler/program/install.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { key, on, schema } from "#compiler/public/schema.ts"
 import { relationBuilder } from "#compiler/schema/relation.ts"
+import { noAdvice } from "#compiler/sql/advice.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
 import { flightOf, projectWrite, servableWrite } from "#compiler/write/program/served.ts"
@@ -69,8 +70,8 @@ export const sentPairs = (n: number): ReadonlyArray<SentPair> => {
 		})
 	)
 	const servable = servableWrite(compiled)
-	const served = projectWrite(servable)
-	const flight = flightOf(servable, compiled.frontend.codes)
+	const served = projectWrite(servable, noAdvice)
+	const flight = flightOf(servable, compiled.frontend.codes, noAdvice)
 	return Arr.flatMap(served.statements, (s, index) => {
 		const loaded = flight.statements[index]
 		if (s.kind !== "parted" || loaded?.kind !== "parted") {

@@ -20,6 +20,7 @@ import type { Cells } from "#compiler/runtime/write/cells.ts"
 import { normalizeChangeSet } from "#compiler/runtime/write/normalize.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import { roleBuilder as role, wholeWritesOf } from "#compiler/schema/world.ts"
+import { noAdvice } from "#compiler/sql/advice.ts"
 import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
 import { flightOf, servableWrite } from "#compiler/write/program/served.ts"
@@ -722,7 +723,7 @@ export const property = (
 			return
 		}
 		const members = yield* collectInputs(program.value.binding.groups, parsedOf(all).inputs)
-		const write = flightOf(servableWrite(program.value), program.value.frontend.codes)
+		const write = flightOf(servableWrite(program.value), program.value.frontend.codes, noAdvice)
 		const bound = bindWrite(write, {
 			members,
 			params: {},

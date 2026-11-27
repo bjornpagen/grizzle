@@ -22,6 +22,7 @@ import type { OptimizedProgram } from "#compiler/lower/optimize/pipeline.ts"
 import { installOptions } from "#compiler/physical/install/compile.ts"
 import { queryInput } from "#compiler/program/input.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
+import { costChosen } from "#compiler/sql/emit.ts"
 
 import { Distance, Type } from "#compiler/public/compute.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -86,6 +87,7 @@ export const lowered = (
 	purpose: "query" | "derivedDefinition"
 ): Result.Result<OptimizedProgram, CompileError> =>
 	lowerAligned(q, purpose, {
+		binding: costChosen(),
 		names: installation.names,
 		context: "snapshot",
 		catalog

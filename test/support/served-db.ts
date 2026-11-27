@@ -23,6 +23,7 @@ import type { AnyLogin, AnyLoginRole, AnyRole } from "#compiler/public/schema.ts
 import type { ServedMember, ServedRoleForm, ServedVariants } from "#compiler/served/forms.ts"
 import { servedFile, servedText } from "#compiler/served/json.ts"
 import type { UnservedMember } from "#compiler/served/unserved.ts"
+import { noAdvice } from "#compiler/sql/advice.ts"
 import type { AnyWorkload } from "#compiler/types/db/workload.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { jsonOf } from "#test/support/chunked.ts"
@@ -141,7 +142,7 @@ const conservativeVariants = (
 					kind: "change",
 					change: {
 						...variants.change,
-						program: projectWrite(conservative.entry.compiled),
+						program: projectWrite(conservative.entry.compiled, noAdvice),
 						readBacks: conservative.entry.compiled.readBacks
 					}
 				}))

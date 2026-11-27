@@ -28,6 +28,7 @@ import { prepareBinding } from "#compiler/runtime/write/binding.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import { hostJudgement, type StatedRows } from "#compiler/runtime/write/witness.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
+import { noAdvice } from "#compiler/sql/advice.ts"
 import type { StatedLaw, Witness } from "#compiler/types/changeset/changeset.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
@@ -279,11 +280,14 @@ export const outcomeOn = (path: Path, value: unknown, missing: boolean) =>
 	Effect.map(
 		collectInputs(path.program.binding.groups, parsedOf(value).inputs),
 		(members): Outcome => {
-			const bound = bindWrite(flightOf(servableWrite(path.program), path.program.frontend.codes), {
-				members,
-				params: {},
-				transport: inForce(bindFrame)
-			})
+			const bound = bindWrite(
+				flightOf(servableWrite(path.program), path.program.frontend.codes, noAdvice),
+				{
+					members,
+					params: {},
+					transport: inForce(bindFrame)
+				}
+			)
 			if (!bound.ok) {
 				return { kind: "other", what: bound.error._tag }
 			}

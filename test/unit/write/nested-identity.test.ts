@@ -32,6 +32,7 @@ import { bindFrame } from "#adapter/wire/batch.ts"
 import { bindWrite } from "#compiler/runtime/write/bind.ts"
 import type { MemberFacts } from "#compiler/runtime/write/normalize.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
+import { noAdvice } from "#compiler/sql/advice.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { flightOf, servableWrite } from "#compiler/write/program/served.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -89,7 +90,7 @@ export const aNestedWritesIdentitiesDedupeItsFactsAndRowsByTheirWholeContentRefu
 					parsedOf(value).inputs
 				)
 				const bound = succeeded(
-					bindWrite(flightOf(servableWrite(program), program.frontend.codes), {
+					bindWrite(flightOf(servableWrite(program), program.frontend.codes, noAdvice), {
 						members,
 						params: {},
 						transport: inForce(bindFrame)

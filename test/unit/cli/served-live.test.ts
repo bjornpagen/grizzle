@@ -146,20 +146,6 @@ export const anInstallationsLivePlanIsExactlyTheUnionOfWhatItsServedReadsRouteBy
 				why: "A chain step seeks beside the columns the steps before it bind at none a literal the filter over its region states fixes: role0read1's take of Rel0x0 at bool = $1 and tick_0 = 0 asks a lookup at bool, a prefix of the key, and generate refuses the read as a missed index of (bool, tick_0)."
 			},
 			{
-				file: "packages/engine/src/sql/seeks.ts",
-				original: "\t\t\t\t\tpartitioned(refKey(c.table, c.column))\n",
-				replacement: "\t\t\t\t\twindows.length === 0\n",
-				why: "A core that calls a window function takes no reader's equality, even at a column every window partitions by: role0read1's take of Rel1x0 per parent is a seek at tick_0 alone, which no index leads with, and generate refuses the read as a missed index where PostgreSQL reads it by its key."
-			},
-			{
-				file: "packages/engine/src/sql/seeks.ts",
-				original:
-					'\t\t\treturn c.op === "=" ? [...side(c.left, c.right), ...side(c.right, c.left)] : []\n',
-				replacement:
-					'\t\t\treturn c.op === "=" && c.schema === undefined ? [...side(c.left, c.right), ...side(c.right, c.left)] : []\n',
-				why: "An equality through an extension's operator binds nothing: role0read0's read of Rel0x0 at its vector key and at tick_0 is a seek at tick_0 alone, which no index leads with, and generate refuses the read as a missed index where the key's index reads one row."
-			},
-			{
 				file: "packages/engine/src/physical/access/extract.ts",
 				original:
 					"\t\t\t\t\t\tthis.#wholeChildren.has(n) ? nothing : fixedOn(n.correlation.map((c) => c.child))\n",

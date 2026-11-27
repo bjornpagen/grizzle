@@ -95,7 +95,6 @@ import {
 	type PlannedDraft,
 	type ProgramFootprints,
 	renderMigration,
-	type SeekTargets,
 	type ServedWorkloadPlan,
 	servedPrograms,
 	servedWorkload,
@@ -339,15 +338,7 @@ export interface PlannedLogin {
  */
 export type ServedBasis =
 	| { readonly kind: "noLogin" }
-	| ({
-			readonly kind: "logins"
-			/**
-			 * The stored tables of the installation drafted beside the served files, with the indexes it plans on them,
-			 * and the views its roles read through, which every read and write a served file sends is held to
-			 * (adapter/served/compile.ts servedEntry).
-			 */
-			readonly seeks: SeekTargets
-	  } & ServedLogins)
+	| ({ readonly kind: "logins" } & ServedLogins)
 
 /** Each login's plan, with the certification and the fences of the logins' workloads: planned before the installation. */
 interface ServedLogins {
@@ -684,10 +675,7 @@ export const installationUnder = Effect.fn("installationUnder")(function* (
 							installation.names.vectorSchema
 						)
 					),
-		served:
-			planned === undefined
-				? { kind: "noLogin" }
-				: { kind: "logins", seeks: installation.seeks, ...planned.served }
+		served: planned === undefined ? { kind: "noLogin" } : { kind: "logins", ...planned.served }
 	}
 })
 
@@ -1029,14 +1017,7 @@ const servedEntries = Effect.fn("eachServedFile")(function* <A, E, R>(
 			phasedEffect(
 				phases,
 				{ name: "servedLogin", of: [login.owned.name] },
-				servedEntry(
-					login,
-					snapshot,
-					planned.artifacts,
-					planned.roles,
-					planned.footprints,
-					served.seeks
-				)
+				servedEntry(login, snapshot, planned.artifacts, planned.roles, planned.footprints)
 			),
 			(refusal) =>
 				cliError(

@@ -47,7 +47,7 @@ import { noKeys, queryKeys, type StatementKeys } from "#compiler/lower/shapes/sh
 import { type ShapeFacts, shapeFactsFromPlan } from "#compiler/lower/shapes/share/physical.ts"
 import { everyParentTakes } from "#compiler/lower/shapes/take/decorrelate.ts"
 import type { EmittedSql, StatementText, UnprintedSql } from "#compiler/sql/ast.ts"
-import { emitText, type TextOf, unprintedText } from "#compiler/sql/emit.ts"
+import { type Emitting, sentText, type TextOf, unprintedText } from "#compiler/sql/emit.ts"
 
 interface OptimizedOptions extends Omit<ConservativeOptions, "params" | "subject"> {
 	readonly subject: OptimizedSubject
@@ -58,11 +58,16 @@ interface OptimizedOptions extends Omit<ConservativeOptions, "params" | "subject
  * (RegionLowering); a derived relation's definition, which always wants every group; a write program's read-back; or a
  * write filter's membership at the row its caller names.
  */
+/** A derived relation's definition, which always wants every group. */
+interface DefinitionLowering {
+	readonly kind: "derivedDefinition"
+}
+
 type OptimizedSubject =
 	| { readonly kind: "query" }
 	| PageLowering
 	| RegionLowering
-	| { readonly kind: "derivedDefinition" }
+	| DefinitionLowering
 	| ReadBackLowering
 	| MembershipLowering
 
@@ -381,12 +386,13 @@ interface CompilationOptions extends OptimizedOptions {
 }
 
 /**
- * What `lowerOptimized` lowers and prints: a query, a derived relation's definition, and a read-back placed as a
- * statement of its own; never a rule's judged query or a write filter's membership, which another statement always
- * composes (lowerComposed).
+ * What `lowerOptimized` lowers and prints: a query, its pages', bound under `binding`, its transaction's (sql/emit.ts
+ * Emitting); never a rule's judged query, a write filter's membership, a derived relation's definition or a read-back,
+ * which another statement composes or a compile keeps across the transactions that send it (lowerComposed).
  */
 export interface LowerOptimizedOptions extends CompilationOptions {
-	readonly subject: Exclude<OptimizedSubject, RegionLowering | MembershipLowering>
+	readonly subject: Exclude<OptimizedSubject, ComposedSubject>
+	readonly binding: Emitting
 }
 
 /**
@@ -396,7 +402,7 @@ export interface LowerOptimizedOptions extends CompilationOptions {
  */
 export const rewrittenQuery = (
 	input: OptimizedInput,
-	options: LowerOptimizedOptions
+	options: CompilationOptions & { readonly subject: OptimizedSubject }
 ): Result.Result<LogicalQuery, CompileError> =>
 	rewritePipeline(options.subject.kind, input.analyses).run(
 		input.query,
@@ -409,16 +415,23 @@ export const lowerOptimized = (
 	options: LowerOptimizedOptions
 ): Result.Result<OptimizedProgram, CompileError> => {
 	const ctx = makePassContext({ evidenceContext: options.context, catalog: options.catalog })
-	return optimizedLowering(options, emitText).run(input, ctx)
+	return optimizedLowering(options, sentText(options.binding)).run(input, ctx)
 }
 
 /**
- * A subject whose statement another statement composes, so it is never printed apart: a rule's judged query, read by
- * the judge's statement through the deltas' readers (physical/ddl/deltas.ts headed), each delta a CTE of its name no
- * statement holds; a write filter's membership, read in an EXISTS of the statement that asks it at its row, which it
- * names by that statement's alias; and a read-back riding its write's single statement, which reads the write's CTEs.
+ * A subject whose statement is never printed where it is lowered: a rule's judged query, read by the judge's statement
+ * through the deltas' readers (physical/ddl/deltas.ts headed), each delta a CTE of its name no statement holds; a write
+ * filter's membership, read in an EXISTS of the statement that asks it at its row, which it names by that statement's
+ * alias; a derived relation's definition, which its view, its fill and its upkeep compose
+ * (physical/derived/definition.ts); and a read-back, which a compile keeps across the writes that send it, riding its
+ * write's single statement, which reads the write's CTEs, or printed where its write places it under its write's
+ * transaction's scope (write/readback/lower.ts lowerReadBack).
  */
-export type ComposedSubject = RegionLowering | MembershipLowering | ReadBackLowering
+export type ComposedSubject =
+	| RegionLowering
+	| MembershipLowering
+	| ReadBackLowering
+	| DefinitionLowering
 
 /** What a composed statement is lowered under: the optimized lowering's options, its subject a composed one. */
 export interface LowerComposedOptions extends CompilationOptions {

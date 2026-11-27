@@ -47,6 +47,7 @@ import { keptReadings } from "#compiler/runtime/write/decoded.ts"
 import type { FlightWrite } from "#compiler/runtime/write/flight.ts"
 import { levelNormalizer } from "#compiler/runtime/write/nesting.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
+import { noAdvice } from "#compiler/sql/advice.ts"
 import type { FactsRefused } from "#compiler/types/changeset/decode.ts"
 import { changeSetOver } from "#compiler/write/changeset/value.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
@@ -651,8 +652,8 @@ export const codings = ["the decoder's codes", "other codes"] as const
 
 /** The insert's flight under each coding (`codings`). */
 export const flights: Readonly<Record<(typeof codings)[number], FlightWrite>> = {
-	"the decoder's codes": flightOf(servableWrite(insertAll), insertAll.frontend.codes),
-	"other codes": flightOf(servableWrite(insertAll), shifted(insertAll.frontend.codes))
+	"the decoder's codes": flightOf(servableWrite(insertAll), insertAll.frontend.codes, noAdvice),
+	"other codes": flightOf(servableWrite(insertAll), shifted(insertAll.frontend.codes), noAdvice)
 }
 
 /** The transport every insert is bound under: the wire's. */

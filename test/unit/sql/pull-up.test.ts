@@ -88,8 +88,10 @@ export const everySimpleSubQueryOfAFromListIsPrintedFlattenedIntoItsReaderExactl
 		kills: [
 			{
 				file: "packages/engine/src/sql/pull-up.ts",
-				original: "\t\titem.lateral ||\n",
-				replacement: "",
+				original:
+					'\tif (item.lateral || pinned.aliases.has(item.alias) || !simpleQuery(q) || q.body.kind !== "core") {\n',
+				replacement:
+					'\tif (pinned.aliases.has(item.alias) || !simpleQuery(q) || q.body.kind !== "core") {\n',
 				why: "A LATERAL sub-query flattened: its references to the items before it, which PostgreSQL pulls up only under conditions of its own, moved into a FROM list that no longer says LATERAL."
 			},
 			{
@@ -112,19 +114,19 @@ export const everySimpleSubQueryOfAFromListIsPrintedFlattenedIntoItsReaderExactl
 			},
 			{
 				file: "packages/engine/src/sql/pull-up.ts",
-				original: "\t\tq.orderBy.length > 0 ||\n",
+				original: "\tq.orderBy.length === 0 &&\n",
 				replacement: "",
 				why: "A sub-query of its own ORDER BY flattened: the order it states, which PostgreSQL keeps by planning it as one, lost."
 			},
 			{
 				file: "packages/engine/src/sql/pull-up.ts",
-				original: "\t\tcore.distinct !== false ||\n",
+				original: "\tq.body.distinct === false &&\n",
 				replacement: "",
 				why: "A DISTINCT sub-query flattened: its duplicates kept in the reader."
 			},
 			{
 				file: "packages/engine/src/sql/pull-up.ts",
-				original: "\t\tcore.groupBy.length > 0 ||\n",
+				original: "\tq.body.groupBy.length === 0 &&\n",
 				replacement: "",
 				why: "A grouped sub-query flattened: one row per group becomes one row per row grouped."
 			},

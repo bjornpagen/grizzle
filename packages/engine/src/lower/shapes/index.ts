@@ -134,7 +134,8 @@ import {
 	type OrderItem,
 	type Select,
 	type SelectCore,
-	type StatementText
+	type StatementText,
+	type UnprintedSql
 } from "#compiler/sql/ast.ts"
 import {
 	and,
@@ -146,7 +147,13 @@ import {
 	select,
 	target
 } from "#compiler/sql/build.ts"
-import { emitText, type TextOf } from "#compiler/sql/emit.ts"
+import {
+	costChosen,
+	type Emitting,
+	emitText,
+	type TextOf,
+	unprintedText
+} from "#compiler/sql/emit.ts"
 import {
 	freshNames,
 	namedQuery,
@@ -204,11 +211,8 @@ export interface LoweredTaggedPart extends TaggedPart {
  * delivers as lowered (`delivered`, which an embedding reads, before its executable form casts its outputs to text);
  * or each behind its tag, the part's position in part order, each as lowered (LoweredTaggedPart).
  */
-export type StatementParts<
-	Slot extends ConservativeParamSlot = DeclaredParamSlot,
-	T extends StatementText = EmittedSql
-> =
-	| { readonly kind: "one"; readonly delivered: FusedStatement<Slot, T> }
+export type StatementParts<Slot extends ConservativeParamSlot = DeclaredParamSlot> =
+	| { readonly kind: "one"; readonly delivered: FusedStatement<Slot, UnprintedSql> }
 	| { readonly kind: "tagged"; readonly parts: NonEmptyReadonlyArray<LoweredTaggedPart> }
 
 /**
@@ -233,7 +237,7 @@ export interface PartedStatement<
 	T extends StatementText = EmittedSql
 > {
 	readonly statement: SentStatement<Slot, T>
-	readonly parts: StatementParts<Slot, T>
+	readonly parts: StatementParts<Slot>
 	readonly roots: StatementRoots<DeliveredPart>
 }
 
@@ -244,6 +248,19 @@ export interface OptimizedDeliveryProgram<
 > extends PartedStatement<Slot, T> {
 	readonly delivery: ProgramDelivery
 }
+
+/**
+ * A statement lowered composed (UnprintedSql), printed under `binding` (sql/emit.ts emitText), as the lowering that
+ * prints prints it: what a program kept across the transactions that send it is sent as by one of them.
+ */
+export const sentStatement = <Slot extends ConservativeParamSlot>(
+	statement: SentStatement<Slot, UnprintedSql>,
+	binding: Emitting
+): SentStatement<Slot> => ({
+	ast: statement.ast,
+	sql: emitText(statement.ast, statement.sql.nameMap, binding),
+	params: statement.params
+})
 
 /**
  * A conservative program's statements as the parts of one statement, as the runtime runs an optimized program's: the
@@ -269,7 +286,7 @@ export const partedConservative = <Slot extends ConservativeParamSlot>(
 		return {
 			statement: {
 				ast,
-				sql: emitText(ast, only.sql.nameMap),
+				sql: emitText(ast, only.sql.nameMap, costChosen()),
 				params: only.params
 			},
 			parts: { kind: "one", delivered },
@@ -309,7 +326,7 @@ export const partedConservative = <Slot extends ConservativeParamSlot>(
 	return {
 		statement: {
 			ast,
-			sql: emitText(ast, [...names, ...supply.map()]),
+			sql: emitText(ast, [...names, ...supply.map()], costChosen()),
 			params
 		},
 		parts: { kind: "tagged", parts: mapNonEmpty(tagged, (p) => p.shape) },
@@ -1052,7 +1069,7 @@ export class OptimizedDelivery<
 					kind: "one",
 					delivered: {
 						ast,
-						sql: this.#text(ast, nameMap),
+						sql: unprintedText(ast, nameMap),
 						params,
 						role: only.role,
 						heading: only.heading,

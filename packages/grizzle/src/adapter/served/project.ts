@@ -12,7 +12,8 @@ import {
 	closedTableOf,
 	projectWrite,
 	type ReadCalled,
-	type ServableWrite
+	type ServableWrite,
+	writeAdvice
 } from "#compiler/plan/change.ts"
 import {
 	type CompileError,
@@ -38,11 +39,13 @@ import {
 	servedMembers,
 	servedRosters,
 	servesRead,
+	type IndexResolver,
 	type UnservedMember
 } from "#compiler/plan/migration.ts"
 import {
 	pageKey,
 	type QueryTemplate,
+	readAdvice,
 	servedReadLive,
 	servedRead,
 	templateKey
@@ -124,10 +127,18 @@ const tablesOf = (installed: SnapshotTables, footprint: ReadonlySet<string>): Se
 const readOf = (
 	form: RowsForm<unknown>,
 	live: ServedReadLive,
-	key: (template: QueryTemplate) => ServedKey
+	key: (template: QueryTemplate) => ServedKey,
+	resolve: IndexResolver
 ): ServedRead => {
 	const { compiled } = form.bound.compiled
-	return servedRead(compiled.template, compiled.desc, form.decoder(), key(compiled.template), live)
+	return servedRead(
+		compiled.template,
+		compiled.desc,
+		form.decoder(),
+		key(compiled.template),
+		live,
+		readAdvice(compiled.template, resolve)
+	)
 }
 
 /**
@@ -136,7 +147,10 @@ const readOf = (
  * declaration bound and the array members a call supplies (servedMembers), or every reason no call can serve it
  * (UnservedMember: a Stream member, a bound value with no canonical text, two array members of one relation).
  */
-const variantsOf = (variants: ChangeVariants): Result.Result<ServedVariants, UnservedMember> => {
+const variantsOf = (
+	variants: ChangeVariants,
+	resolve: IndexResolver
+): Result.Result<ServedVariants, UnservedMember> => {
 	switch (variants.kind) {
 		case "form": {
 			const { entry, decoder } = variants.form
@@ -146,7 +160,7 @@ const variantsOf = (variants: ChangeVariants): Result.Result<ServedVariants, Uns
 					servedMembers(compiled.binding.members, entry.change.opaque)
 				)
 				const change: ServedChange = {
-					program: projectWrite(compiled),
+					program: projectWrite(compiled, writeAdvice(compiled, resolve)),
 					readBacks: compiled.readBacks,
 					decoder: decoder.form,
 					bound: entry.change.values,
@@ -157,8 +171,8 @@ const variantsOf = (variants: ChangeVariants): Result.Result<ServedVariants, Uns
 		}
 		case "split":
 			return Result.gen(function* () {
-				const holding = yield* variantsOf(variants.holding)
-				const lacking = yield* variantsOf(variants.lacking)
+				const holding = yield* variantsOf(variants.holding, resolve)
+				const lacking = yield* variantsOf(variants.lacking, resolve)
 				return { kind: "split", context: variants.context, holding, lacking }
 			})
 	}
@@ -173,7 +187,8 @@ const variantsOf = (variants: ChangeVariants): Result.Result<ServedVariants, Uns
 const memberOf = (
 	member: WorkloadForm,
 	footprints: ProgramFootprints,
-	names: SchemaArtifacts["names"]
+	names: SchemaArtifacts["names"],
+	resolve: IndexResolver
 ): Result.Result<ServedMemberForm, UnservedMember> => {
 	const { name } = member
 	const liveOf = (called: ReadCalled): ServedReadLive => {
@@ -196,26 +211,26 @@ const memberOf = (
 			return Result.succeed({
 				name,
 				kind: "read",
-				read: readOf(member.form, liveOf(member.called), templateKey)
+				read: readOf(member.form, liveOf(member.called), templateKey, resolve)
 			})
 		case "key":
 			return Result.succeed({
 				name,
 				kind: "key",
 				fields: member.fields,
-				read: readOf(member.form, liveOf(member.called), templateKey)
+				read: readOf(member.form, liveOf(member.called), templateKey, resolve)
 			})
 		case "paged": {
 			const page = member.form.page.runtime.page
 			return Result.succeed({
 				name,
 				kind: "paged",
-				read: readOf(member.form, liveOf(member.called), () => pageKey(page)),
+				read: readOf(member.form, liveOf(member.called), () => pageKey(page), resolve),
 				page
 			})
 		}
 		case "change":
-			return Result.map(variantsOf(member.variants), (variants): ServedMemberForm => ({
+			return Result.map(variantsOf(member.variants, resolve), (variants): ServedMemberForm => ({
 				name,
 				kind: "change",
 				variants
@@ -346,7 +361,9 @@ const roleOf = (
 ): Result.Result<ServedRoleForm, CompileError | UnservedMember> =>
 	Result.gen(function* () {
 		const forms = yield* Result.all(
-			Arr.map(role.workload, (member) => memberOf(member, footprints, role.artifacts.names))
+			Arr.map(role.workload, (member) =>
+				memberOf(member, footprints, role.artifacts.names, role.resolve)
+			)
 		)
 		const name = role.role.name
 		const refusals = refusalsOf(role)

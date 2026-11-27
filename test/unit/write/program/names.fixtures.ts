@@ -7,6 +7,7 @@ import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import { bindWrite } from "#compiler/runtime/write/bind.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
+import { noAdvice } from "#compiler/sql/advice.ts"
 import type { CompiledWrite } from "#compiler/write/program/compile.ts"
 import { flightOf, servableWrite } from "#compiler/write/program/served.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -36,7 +37,7 @@ export const bound = Effect.fn("bound")(function* (name: string) {
 		name
 	)
 	const members = yield* membersOf(program, value)
-	const flight = flightOf(servableWrite(program), program.frontend.codes)
+	const flight = flightOf(servableWrite(program), program.frontend.codes, noAdvice)
 	const b = succeeded(
 		bindWrite(flight, {
 			members,

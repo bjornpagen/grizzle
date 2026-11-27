@@ -9,7 +9,7 @@ import { pg } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import type { Expr } from "#compiler/sql/ast.ts"
 import { eq, lit, or, param, provedSelect, target, types } from "#compiler/sql/build.ts"
-import { emit } from "#compiler/sql/emit.ts"
+import { emit, costChosen } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 import { selectMaxEntries, statementMaxParams, printObjectName } from "#compiler/sql/print.ts"
 import { tableMaxColumns } from "#compiler/write/carriers/carriers.ts"
@@ -110,12 +110,12 @@ export const limits: {
 	},
 	selectList: {
 		limit: selectMaxEntries,
-		compile: (count) => emit(selectOf(count), emptyNameMap),
+		compile: (count) => emit(selectOf(count), emptyNameMap, costChosen()),
 		bound: (count) => ({ kind: "selectList", limit: selectMaxEntries, needed: count })
 	},
 	statementParams: {
 		limit: statementMaxParams,
-		compile: (count) => emit(placeholders(count), emptyNameMap),
+		compile: (count) => emit(placeholders(count), emptyNameMap, costChosen()),
 		bound: (count) => ({ kind: "statementParams", limit: statementMaxParams, needed: count })
 	}
 }

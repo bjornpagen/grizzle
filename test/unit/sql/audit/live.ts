@@ -31,6 +31,7 @@ import { installationsOf } from "#compiler/schema/own.ts"
 import { ownLogin, rostersOf } from "#compiler/schema/own.ts"
 import type { Expr, Select, SqlStatement } from "#compiler/sql/ast.ts"
 import { and, eq, lit, types } from "#compiler/sql/build.ts"
+import { costChosen, emitText } from "#compiler/sql/emit.ts"
 import {
 	batches,
 	reasons,
@@ -168,7 +169,12 @@ export interface Live {
 	readonly label: string
 	readonly statements: Arr.NonEmptyReadonlyArray<Twinned>
 	readonly features: ReadonlyArray<LiveFeature>
-	/** For a lowered case: each statement's AST beside the text the lowering emitted for it. */
+	/**
+	 * For a lowered case: each statement's AST beside the text the lowering emitted for it, bound under a scope of its own
+	 * over no catalog (sql/emit.ts costChosen), as a case's lowering binds it. A write's statements are bound under its
+	 * transaction's one scope over its installation's catalog, each text emitted from the AST it is placed with at the
+	 * site that places it (write/program/artifact.ts emittedForm), and are held to their AST by the write suites.
+	 */
 	readonly emitted: ReadonlyArray<{ readonly ast: SqlStatement; readonly text: string }>
 	/** For a lowered case: the lowering run again, on the case and on its twin, which must emit the same texts. */
 	readonly again: () => ReadonlyArray<ReadonlyArray<string>>
@@ -300,6 +306,7 @@ const lowered = (c: QueryCase, context: TemplateContext): Lowered => {
 	sent(conservativeStatement(conservative.value).statement)
 	const optimized = Result.flatMap(admitGenerated(query), (q) =>
 		lowerOptimized(succeeded(annotatedInput(q, queryEvidence)), {
+			binding: costChosen(),
 			names,
 			catalog: evidenceCatalog(artifacts.value),
 			subject: { kind: "query" },
@@ -312,7 +319,8 @@ const lowered = (c: QueryCase, context: TemplateContext): Lowered => {
 	const program = optimized.value
 	sent(program.statement)
 	if (program.parts.kind === "one") {
-		sent(program.parts.delivered)
+		const part = program.parts.delivered
+		sent({ ...part, sql: emitText(part.ast, part.sql.nameMap, costChosen()) })
 	}
 	return out
 }
@@ -699,7 +707,7 @@ const writtenLive = (w: WriteSketch): Live => {
 				? (["a member deleted under a mutable owner"] as const)
 				: [])
 		],
-		emitted: Arr.map(placed, (s) => ({ ast: s.ast, text: s.spec.sql })),
+		emitted: [],
 		again: () => [
 			Arr.map(placed, (s) => s.spec.sql),
 			Arr.map(writtenStatements(w), (s) => s.spec.sql)

@@ -26,6 +26,7 @@ import { canonicalEquals } from "#compiler/core/canonical.ts"
 import { directions } from "#compiler/core/order.ts"
 import { queryInput } from "#compiler/program/input.ts"
 import type { Expr } from "#compiler/sql/ast.ts"
+import { costChosen } from "#compiler/sql/emit.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { lowerAligned, programAsts } from "#test/support/compile.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
@@ -69,6 +70,7 @@ export const aRefinedOutputTheDeliveryCastsIsOrderedByItsCastTheExpressionTheOut
 					)
 					const program = succeeded(
 						lowerAligned(checked, "query", {
+							binding: costChosen(),
 							names: installation.names,
 							context: "snapshot",
 							catalog

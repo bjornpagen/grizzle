@@ -9,6 +9,7 @@ import { bindWrite } from "#compiler/runtime/write/bind.ts"
 import type { Binding } from "#compiler/runtime/write/binding.ts"
 import type { FlightWrite } from "#compiler/runtime/write/flight.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
+import { noAdvice } from "#compiler/sql/advice.ts"
 import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
 import { evaluationOf, hostFillOf } from "#compiler/write/program/decide.ts"
@@ -132,8 +133,8 @@ export const property = (
 		const members = yield* collectInputs(program.binding.groups, parsedOf(all).inputs)
 		const inputs = { members, params: {}, transport: inForce(bindFrame) }
 		const wide = widened(program)
-		const write = flightOf(servableWrite(program), program.frontend.codes)
-		const wideWrite = flightOf(servableWrite(wide), wide.frontend.codes)
+		const write = flightOf(servableWrite(program), program.frontend.codes, noAdvice)
+		const wideWrite = flightOf(servableWrite(wide), wide.frontend.codes, noAdvice)
 		assert.deepEqual(
 			sent(write, bindWrite(write, inputs)),
 			sent(wideWrite, bindWrite(wideWrite, inputs)),

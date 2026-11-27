@@ -22,6 +22,7 @@ import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { carrierSql } from "#compiler/scalar/registry.ts"
 import { insertableNamesOf } from "#compiler/schema/world.ts"
+import { noAdvice } from "#compiler/sql/advice.ts"
 import {
 	changeSetDesc,
 	changeSetOver,
@@ -2646,7 +2647,7 @@ const bound = (
 	}
 	const members = Effect.runSync(collectInputs(program.binding.groups, parsed.inputs))
 	const params = { ...args, ...Rec.fromEntries([...parsed.values]) }
-	return bindWrite(flightOf(servableWrite(program), program.frontend.codes), {
+	return bindWrite(flightOf(servableWrite(program), program.frontend.codes, noAdvice), {
 		members,
 		params,
 		transport: inForce(bindFrame)

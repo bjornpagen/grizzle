@@ -19,7 +19,7 @@ import { Db } from "#adapter/public/db.ts"
 import { assembledIn } from "#compiler/codec/delivery.ts"
 import { deliveredRows, deliveryOfColumns } from "#compiler/lower/delivery.ts"
 import { col, desc, lit, provedCore, table, targetAs, types } from "#compiler/sql/build.ts"
-import { emitText } from "#compiler/sql/emit.ts"
+import { emitText, costChosen } from "#compiler/sql/emit.ts"
 import { NameSupply } from "#compiler/sql/naming.ts"
 import {
 	answered,
@@ -115,7 +115,10 @@ export const aDeliveryAtChunkBoundariesReadsBackEveryRowStoredInTheStatementsOrd
 									d.chunkLength
 								)
 								const owner = yield* s.session(ownerSession())
-								const values = yield* owner.values(emitText(read, supply.map()).text, [])
+								const values = yield* owner.values(
+									emitText(read, supply.map(), costChosen()).text,
+									[]
+								)
 								const answer = Arr.map(values, (row) => Arr.map(row, answered))
 								const delivery = deliveryOfColumns(columns)
 								const strict = strictDelivered(delivery, answer, d.chunkLength)

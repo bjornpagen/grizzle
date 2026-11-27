@@ -6,6 +6,7 @@
 import { sha256Octets } from "#compiler/core/digest.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { type Sqlstate, sqlstates } from "#compiler/core/sqlstate.ts"
+import { noAdvice } from "#compiler/sql/advice.ts"
 import type {
 	CreateDomain,
 	Expr,
@@ -249,7 +250,7 @@ export const snapshotGuardDdl = (schema: string): readonly [PlFunction, Revoke] 
 	return [
 		{
 			kind: "createFunction",
-			advice: undefined,
+			advice: noAdvice,
 			language: "plpgsql",
 			name: { schema, name: snapshotGuardName },
 			params: [{ name: "fingerprint", type: types.text }],

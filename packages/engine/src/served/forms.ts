@@ -36,6 +36,7 @@ import type {
 	ServedSource,
 	ServedSpine
 } from "#compiler/served/read.ts"
+import type { Advice } from "#compiler/sql/advice.ts"
 import type { EmittedText } from "#compiler/sql/ast.ts"
 import type { AboveLaw, RecordedLaw } from "#compiler/types/changeset/changeset.ts"
 import type { ParamValue } from "#compiler/types/core/phantom.ts"
@@ -379,6 +380,8 @@ export interface ServedRead {
 	readonly decoder: DecoderForm
 	readonly key: ServedKey
 	readonly live: ServedReadLive
+	/** What its transaction is planned under (sql/advice.ts transactionAdvice): its statement's plan, both forms'. */
+	readonly advice: Advice
 }
 
 /**
@@ -427,6 +430,11 @@ export interface ServedPage {
 	readonly comparators: ReadonlyArray<PageComparator>
 	readonly heading: Heading
 	readonly requests: { readonly [V in PageVariant]: ServedPageRequest<V> }
+	/**
+	 * What its transaction is planned under (sql/advice.ts transactionAdvice): every window variant's statement's plan,
+	 * both forms', one scope's, so whichever variant a call sends it holds.
+	 */
+	readonly advice: Advice
 }
 
 /**

@@ -585,7 +585,7 @@ export const additionsSql = (
 	if (firstReturning === undefined) {
 		defect("a family additions statement appends or recounts a put owner")
 	}
-	return taggedRows(supply, ctes, [firstReturning, ...restReturnings], params, refusals)
+	return taggedRows(supply, ctes, [firstReturning, ...restReturnings], params, refusals, w.binding)
 }
 
 /**

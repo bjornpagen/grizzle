@@ -49,7 +49,7 @@ import {
 	select,
 	target
 } from "#compiler/sql/build.ts"
-import { emitText } from "#compiler/sql/emit.ts"
+import { emitText, type Emitting } from "#compiler/sql/emit.ts"
 import {
 	type CarrierDeclaration,
 	carrierName,
@@ -70,6 +70,7 @@ import {
 import type { CarrierResult, WriteStatement } from "#compiler/write/insert/statement.ts"
 import {
 	castsNothing,
+	emittedForm,
 	type PlacedStatement,
 	wholeText,
 	writeStatementSpec
@@ -191,7 +192,7 @@ const stagedSlots = (
  * The fill of a staged slot's carrier (write/carriers/carriers.ts carrierStash): the slot's arrays, one placeholder per
  * carrier column from $1 in the carrier's order, each declared and checked as every reader declares it, read whole.
  */
-const fillOf = (staged: StagedSlot): WriteStatement<CarrierResult> => {
+const fillOf = (staged: StagedSlot, binding: Emitting): WriteStatement<CarrierResult> => {
 	const { first, carrier } = staged
 	const supply = new NameSupply(freshNames)
 	const origin = { kind: "param", param: first.slot } as const
@@ -225,7 +226,7 @@ const fillOf = (staged: StagedSlot): WriteStatement<CarrierResult> => {
 	return Object.freeze({
 		role: "carrier" as const,
 		ast,
-		sql: emitText(ast, supply.map()),
+		sql: emitText(ast, supply.map(), binding),
 		params: Object.freeze(
 			columns.map((_, index): MemberParamSlot => ({
 				kind: "member",
@@ -466,7 +467,8 @@ const restaged = (
 export const withStagedSlots = (
 	placed: ReadonlyArray<PlacedStatement>,
 	carriers: ReadonlyArray<WriteCarrier>,
-	declaring: CarrierDeclaring
+	declaring: CarrierDeclaring,
+	binding: Emitting
 ): StagedSlots => {
 	const staged = stagedSlots(placed, carriers.length, declaring)
 	if (!isNonEmpty(staged)) {
@@ -477,7 +479,7 @@ export const withStagedSlots = (
 	const move = (position: number): number => position + inserted
 	const fillAt = new Map(staged.map((s, i) => [s.first.slot, i] as const))
 	const carrierSteps = staged.map((s): PlacedStatement => {
-		const fill = fillOf(s)
+		const fill = fillOf(s, binding)
 		return {
 			kind: "own",
 			step: Object.freeze({
@@ -505,13 +507,19 @@ export const withStagedSlots = (
 		const dependsOn = Object.freeze(
 			[...new Set([...p.spec.dependsOn.map(move), ...fills])].toSorted((x, y) => x - y)
 		)
+		const sent =
+			own.reads.length === 0
+				? { sql: p.spec.sql, plan: p.spec.plan, text: p.text }
+				: emittedForm(own.form.ast, names, p.text, binding)
 		return {
 			...p,
 			ast: own.form.ast,
 			names,
+			text: sent.text,
 			spec: Object.freeze({
 				...p.spec,
-				sql: own.reads.length === 0 ? p.spec.sql : emitText(own.form.ast, names).text,
+				sql: sent.sql,
+				plan: sent.plan,
 				paramSlots: own.form.params,
 				dependsOn
 			})

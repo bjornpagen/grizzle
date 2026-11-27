@@ -100,3 +100,16 @@ export const pathRequest = (p: AccessPath, vectorSchema: string): AccessIndexReq
 	role: "access",
 	use: p.use
 })
+
+/**
+ * The path of a request a bound read makes (sql/plan.ts planRequests): what the snapshot records of the read a served
+ * program makes, `derived` where its relation is a stored derived relation's table.
+ */
+export const pathOf = (r: AccessIndexRequest, derived: boolean): AccessPath => ({
+	relation: r.relation,
+	derived,
+	method: r.method,
+	keys: r.keys.map((k) => ({ field: k.expr, dir: k.dir })),
+	fixed: r.fixed,
+	use: r.use
+})

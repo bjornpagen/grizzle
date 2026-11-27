@@ -5,7 +5,7 @@ import { fromEngine } from "#adapter/engine.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { formatLoc, SourceLoc } from "#compiler/core/loc.ts"
 import type { Expr, Insert } from "#compiler/sql/ast.ts"
-import { emit } from "#compiler/sql/emit.ts"
+import { emit, costChosen } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 import { printExpr } from "#compiler/sql/print.ts"
 import { type FilledRelation, familyRows } from "#test/support/oracle/install/fill.ts"
@@ -182,7 +182,7 @@ const relationStatements = (
 			onConflict: undefined,
 			returning: []
 		}
-		const emitted = emit(insert, emptyNameMap)
+		const emitted = emit(insert, emptyNameMap, costChosen())
 		if (!emitted.ok) {
 			return Result.err(emitted.error)
 		}

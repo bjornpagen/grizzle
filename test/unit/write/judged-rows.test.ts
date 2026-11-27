@@ -38,6 +38,7 @@ import { bindWrite, type InsertedRow } from "#compiler/runtime/write/bind.ts"
 import { keyWitness } from "#compiler/runtime/write/outcome.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import { hostJudgement, type LawCheckData } from "#compiler/runtime/write/witness.ts"
+import { noAdvice } from "#compiler/sql/advice.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
 import { flightOf, servableWrite } from "#compiler/write/program/served.ts"
@@ -218,7 +219,7 @@ export const aRefusedNestedOwnerIsNamedBreakingExactlyTheLawsAndItsWitnessIsExac
 					)
 				const program = succeeded(compileWrite(checking(Judged), descOf(value), reality))
 				const members = yield* collectInputs(program.binding.groups, parsedOf(value).inputs)
-				const flight = flightOf(servableWrite(program), program.frontend.codes)
+				const flight = flightOf(servableWrite(program), program.frontend.codes, noAdvice)
 				const bound = succeeded(
 					withinMessage(bindWrite(flight, { members, params: {}, transport: inForce(bindFrame) }))
 				)

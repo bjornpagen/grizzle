@@ -124,8 +124,8 @@ export { servedWorkloadExtension } from "#compiler/physical/access/extension.ts"
 export { completeInstallOptions } from "#compiler/physical/complete.ts"
 export { literalPackFault, type PackFault } from "#compiler/physical/ddl/literal.ts"
 export type { Installation } from "#compiler/physical/install/compile.ts"
-export { judgeSeeks, type SeekTargets } from "#compiler/physical/access/seeks.ts"
-export { seekProgram } from "#compiler/sql/seeks.ts"
+export { type IndexResolver, resolverOf } from "#compiler/physical/indexes/ref.ts"
+export { type Advice, noAdvice } from "#compiler/sql/advice.ts"
 export {
 	type InstalledIdentifier,
 	installationOver,

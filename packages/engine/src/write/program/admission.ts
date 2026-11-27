@@ -53,10 +53,14 @@ import type {
 } from "#compiler/lower/conservative/types.ts"
 import { type OwnStep, sentWhere } from "#compiler/runtime/write/steps.ts"
 import type { Cte, SqlStatement } from "#compiler/sql/ast.ts"
-import { emitText } from "#compiler/sql/emit.ts"
+import type { Emitting } from "#compiler/sql/emit.ts"
 import { namesPast, NameSupply } from "#compiler/sql/naming.ts"
 import { ownStatement } from "#compiler/write/insert/statement.ts"
-import type { FormText, PlacedStatement } from "#compiler/write/program/artifact.ts"
+import {
+	emittedForm,
+	type FormText,
+	type PlacedStatement
+} from "#compiler/write/program/artifact.ts"
 import type { UnitShape } from "#compiler/write/program/single.ts"
 import { relationsPast, renumberedStatement } from "#compiler/write/program/slot-carriers.ts"
 
@@ -129,9 +133,7 @@ const widenedUnits = (
 
 /** A form's text sent wherever `needs` holds besides where it is sent (`widenedUnits`); a whole text by its step. */
 const widenedText = (text: FormText, needs: Needs): FormText =>
-	text.kind === "parted"
-		? Object.freeze({ kind: "parted", units: widenedUnits(text.units, needs) })
-		: text
+	text.kind === "parted" ? Object.freeze({ ...text, units: widenedUnits(text.units, needs) }) : text
 
 /** `p` sent wherever `needs` holds besides where it is: its step's needs or its units' widened by them. */
 const widened = (p: OwnPlaced, needs: Needs): OwnPlaced => ({
@@ -163,11 +165,12 @@ const leading = (ast: SqlStatement, cte: Cte): SqlStatement => {
 }
 
 /** A form's text with the admission's unit first, sent with every part: a single statement's, whose units hold its
- * WITH's entries in order; a whole text as it is. */
+ * WITH's entries in order, cut from its admitted AST once that is bound (artifact.ts emittedForm); a whole text as it
+ * is. */
 const admittedText = (text: FormText): FormText =>
 	text.kind === "parted"
 		? Object.freeze({
-				kind: "parted",
+				...text,
 				units: extendNonEmpty<UnitShape>(
 					[Object.freeze({ kind: "always", ctes: 1, arms: 0 })],
 					text.units
@@ -192,7 +195,8 @@ const admissionSlot = (slot: DeclaredParamSlot): AdmissionParamSlot => {
 const admittedIn = (
 	p: OwnPlaced,
 	cx: LowerContext,
-	carried: NonEmptyReadonlyArray<CallerParamDecl>
+	carried: NonEmptyReadonlyArray<CallerParamDecl>,
+	binding: Emitting
 ): OwnPlaced => {
 	const supply = new NameSupply({
 		relationStart: Math.max(relationsPast(p.ast), ownStatement.relationStart),
@@ -219,14 +223,16 @@ const admittedIn = (
 			...p.spec.paramSlots.map((s) => ({ ...s, number: s.number + count }))
 		])
 	}
+	const sent = emittedForm(own.ast, names, admittedText(p.text), binding)
 	return {
 		...p,
 		ast: own.ast,
 		names,
-		text: admittedText(p.text),
+		text: sent.text,
 		spec: Object.freeze({
 			...p.spec,
-			sql: emitText(own.ast, names).text,
+			sql: sent.sql,
+			plan: sent.plan,
 			paramSlots: own.params
 		})
 	}
@@ -270,7 +276,8 @@ const leadEnd = (flight: ReadonlyArray<PlacedStatement>, exposed: Needs): number
 export const admittedFlight = (
 	placed: ReadonlyArray<PlacedStatement>,
 	cx: LowerContext,
-	params: ReadonlyArray<CallerParamDecl>
+	params: ReadonlyArray<CallerParamDecl>,
+	binding: Emitting
 ): ReadonlyArray<PlacedStatement> => {
 	const checked = checkedParams(cx, params)
 	if (!isNonEmpty(checked)) {
@@ -301,6 +308,6 @@ export const admittedFlight = (
 			return p
 		}
 		const carried = leads.flatMap((lead) => (at <= lead.end ? [lead.param] : []))
-		return isNonEmpty(carried) ? admittedIn(p, cx, carried) : p
+		return isNonEmpty(carried) ? admittedIn(p, cx, carried, binding) : p
 	})
 }

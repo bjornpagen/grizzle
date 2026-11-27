@@ -214,8 +214,8 @@ export const printedOnce = (statement: SqlStatement): SqlStatement => {
 }
 
 /**
- * Each statement's printed form (printedOnce), by the statement it prints, made once: the installation holds each
- * statement it installs to its indexes in its printed form (physical/access/seeks.ts), and prints it from the same.
+ * Each statement's printed form (printedOnce), by the statement it prints, made once: the binding binds each statement in
+ * its printed form (sql/bind.ts), and the printer prints the bound one.
  */
 const printedStatements = new WeakMap<SqlStatement, SqlStatement>()
 

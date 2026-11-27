@@ -34,6 +34,7 @@ import {
 	datumBound,
 	typlens
 } from "#compiler/schema/representability.ts"
+import { noAdvice } from "#compiler/sql/advice.ts"
 import type {
 	ColumnDefinition,
 	Cte,
@@ -1226,7 +1227,7 @@ export const addReaders = (
 				const reader: readonly [PlFunction, Revoke] = [
 					{
 						kind: "createFunction",
-						advice: undefined,
+						advice: noAdvice,
 						language: "plpgsql",
 						name: named,
 						params: [],

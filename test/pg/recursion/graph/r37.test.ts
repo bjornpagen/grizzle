@@ -6,6 +6,7 @@ import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { planNodes } from "#bench/harness/explain.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput, flight } from "#compiler/lower/conservative/types.ts"
+import { costChosen } from "#compiler/sql/emit.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import {
 	caseOf,
@@ -93,6 +94,7 @@ export const r37ARecursiveAttachmentSeededOnceFromTheParentKeysReadsOnlyTheEdges
 								Effect.gen(function* () {
 									const names = plan.installation.names
 									const optimized = lowerAligned(logicalOf(c), "query", {
+										binding: costChosen(),
 										names,
 										context: "snapshot",
 										catalog: installedCatalog(plan.installation)

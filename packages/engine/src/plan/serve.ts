@@ -28,7 +28,8 @@ export {
 export {
 	type InstalledIndexes,
 	servedSnapshot,
-	snapshotIndexes
+	snapshotIndexes,
+	snapshotResolver
 } from "#compiler/deploy/snapshot/served.ts"
 export type { RealityReading } from "#compiler/analysis/schema.ts"
 export { rosterCodebook } from "#compiler/ir/codes.ts"

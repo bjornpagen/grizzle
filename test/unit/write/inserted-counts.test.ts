@@ -22,6 +22,7 @@ import type { OutputText } from "#compiler/core/wire.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { interpretRows } from "#compiler/runtime/write/outcome.ts"
+import { noAdvice } from "#compiler/sql/advice.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
 import { flightOf, servableWrite } from "#compiler/write/program/served.ts"
@@ -89,7 +90,7 @@ export const anInsertionOnlyRelationsCountsAreItsRowsCountedUnderTheirInsertions
 					),
 					"an insert of Note compiles"
 				)
-				const flight = flightOf(servableWrite(program), program.frontend.codes)
+				const flight = flightOf(servableWrite(program), program.frontend.codes, noAdvice)
 				const reads = { count: 0 }
 				const counts = interpretRows(flight.outcome, flight.statements, (i) => {
 					const statement = Arr.findFirst(flight.statements, (s) => s.index === i)

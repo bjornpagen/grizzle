@@ -27,6 +27,7 @@ import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindWrite } from "#compiler/runtime/write/bind.ts"
 import { normalizeChangeSet } from "#compiler/runtime/write/normalize.ts"
 import { isAdmittedBytes } from "#compiler/scalar/values/bytes.ts"
+import { noAdvice } from "#compiler/sql/advice.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
 import { flightOf, servableWrite } from "#compiler/write/program/served.ts"
@@ -82,7 +83,7 @@ export const aWriteOfLargeBytesValuesRefusesAMemberPastTheMessageFromItsLengthsA
 							? ChangeSet.empty(Large).insert(One, facts)
 							: ChangeSet.empty(Large).insert(Two, facts)
 					const program = succeeded(compileWrite(checking(Large), descOf(change), reality))
-					const write = flightOf(servableWrite(program), program.frontend.codes)
+					const write = flightOf(servableWrite(program), program.frontend.codes, noAdvice)
 					const members = yield* collectInputs(program.binding.groups, parsedOf(change).inputs)
 					const before = process.memoryUsage().arrayBuffers
 					const bound = bindWrite(write, {
