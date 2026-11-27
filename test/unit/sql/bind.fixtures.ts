@@ -16,6 +16,7 @@ import {
 	binary,
 	call,
 	col,
+	columnDefinition,
 	core,
 	countStar,
 	cteRefAs,
@@ -28,6 +29,7 @@ import {
 	lit,
 	operandSelect,
 	param,
+	provedCore,
 	select,
 	table,
 	target,
@@ -55,6 +57,7 @@ export type BindFeature =
 	| "a derived table read per earlier row at its stored read's key"
 	| "a whole view's read named by its body's alias"
 	| "a whole view read twice at one level, the second a level of its own"
+	| "a context source's row named by the scope, its level's one item"
 
 export const bindFeatures = [
 	"a seek at a literal",
@@ -69,7 +72,8 @@ export const bindFeatures = [
 	"a derived table joined to an earlier item by a hash",
 	"a derived table read per earlier row at its stored read's key",
 	"a whole view's read named by its body's alias",
-	"a whole view read twice at one level, the second a level of its own"
+	"a whole view read twice at one level, the second a level of its own",
+	"a context source's row named by the scope, its level's one item"
 ] as const
 
 /**
@@ -119,13 +123,24 @@ export const catalog: ReadCatalog = {
 	fired: () => undefined
 }
 
+/** A session's context, one claim `sub` delivered as `c1`, read as `x`, its claims document's row written `m`. */
+const contextSource: FromSource = {
+	kind: "context",
+	context: "Session",
+	columns: [{ field: "sub", column: columnDefinition("c1", types.integer), judged: types.integer }],
+	refusal: { kind: "qualified", schema: "app", name: "refuse", volatility: "VOLATILE" },
+	inner: "m",
+	alias: "x"
+}
+
 /** The columns a case binds T at by a value its level fixes, each by a conjunct of T's WHERE. */
 export type Fixed = "a" | "b" | "f" | "v" | "d"
 
 /**
  * Where a case reads T: its level's own top; after S, joined to it at b; beneath S's EXISTS at a; through a window;
  * inside groups by b, a derived table S is joined to at b, over T itself or over a MATERIALIZED CTE of T's rows; or
- * through T's whole view at its level's top, once, or twice, the second read whole beside the first.
+ * through T's whole view at its level's top, once, or twice, the second read whole beside the first; or none, a
+ * session's context read instead, its claims document's row written `m`.
  */
 export type Place =
 	| { readonly kind: "top" }
@@ -134,6 +149,7 @@ export type Place =
 	| { readonly kind: "window"; readonly at: "a" | "b" }
 	| { readonly kind: "joined"; readonly over: "stored" | "cte" }
 	| { readonly kind: "viewed"; readonly reads: 1 | 2 }
+	| { readonly kind: "context" }
 
 export interface BindCase {
 	readonly place: Place
@@ -155,7 +171,8 @@ export const bindCaseGen: Gen<BindCase> = (source) => {
 			{ kind: "joined", over: "stored" },
 			{ kind: "joined", over: "cte" },
 			{ kind: "viewed", reads: 1 },
-			{ kind: "viewed", reads: 2 }
+			{ kind: "viewed", reads: 2 },
+			{ kind: "context" }
 		])
 	)
 	return {
@@ -245,6 +262,8 @@ export const statementOf = (c: BindCase): Select => {
 				)
 			)
 		}
+		case "context":
+			return select(provedCore("oneRow", [target(col("x", "c1"))], [contextSource], undefined))
 		case "viewed": {
 			const viewRead = table("app", "t_whole", "t")
 			return select(
@@ -381,6 +400,8 @@ export const specified = (c: BindCase): SpecifiedRead => {
 	switch (c.place.kind) {
 		case "driven":
 			return { kind: "index", probe: true, bound: sorted(["b", ...held]) }
+		case "context":
+			return { kind: "whole" }
 		case "viewed": {
 			const many = Arr.some(held, (f) => f !== "f")
 			return many ? { kind: "index", probe: false, bound: sorted(held) } : { kind: "whole" }
@@ -424,3 +445,28 @@ export const viewedLevels = (
 		level.name.kind === "named" ? [Arr.map(levelItems(level), (i) => i.alias)] : []
 	)
 })
+
+/** The context source the bound statement reads at its top, with the plan's level its alias names. */
+export const contextLevel = (
+	bound: Select,
+	plan: ReadPlan<AccessIndexRequest>
+): {
+	readonly source: Option.Option<Extract<FromSource, { readonly kind: "context" }>>
+	readonly levels: ReadonlyArray<ReadonlyArray<string>>
+} => {
+	const body = bound.body
+	const [first] = body.kind === "core" ? body.from : []
+	const source = first?.kind === "context" ? Option.some(first) : Option.none()
+	return {
+		source,
+		levels: Option.match(source, {
+			onNone: () => [],
+			onSome: (s) =>
+				Arr.flatMap(plan.levels, (level) =>
+					level.name.kind === "named" && level.name.name === s.alias
+						? [Arr.map(levelItems(level), (i) => i.alias)]
+						: []
+				)
+		})
+	}
+}

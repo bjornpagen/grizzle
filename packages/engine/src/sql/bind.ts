@@ -1302,8 +1302,20 @@ class Binder {
 					"nestedLoop"
 				)
 			case "transition":
-			case "context":
 				return rows({ ...source, alias }, this.#method(entry, source.alias, where, here, place))
+			case "context": {
+				const inner = this.#alias(source.inner)
+				this.#levels.push({
+					name: { kind: "named", name: alias },
+					first: { alias: inner, scan: { kind: "rows" } },
+					joined: [],
+					appended: []
+				})
+				return rows(
+					{ ...source, inner, alias },
+					this.#method(entry, source.alias, where, here, place)
+				)
+			}
 			case "function":
 				return rows(
 					{

@@ -54,6 +54,7 @@ const lowerContext: NodeLowerer<"Context"> = (node, cx) => {
 		context: node.context,
 		columns,
 		refusal: cx.names.refusal,
+		inner: cx.relationAlias(origin),
 		alias: cx.relationAlias(origin)
 	}
 	return select(

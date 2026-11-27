@@ -1449,6 +1449,7 @@ const fromSource = (
 							}
 						],
 						refusal: { kind: "qualified", schema: "app", name: NO_TABLE, volatility: "VOLATILE" },
+						inner: `${p.alias}_row`,
 						alias: p.alias
 					}
 			}

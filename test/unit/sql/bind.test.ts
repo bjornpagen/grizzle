@@ -30,7 +30,7 @@
 
 import { assert } from "@bjornpagen/testing/assert"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Option, Order, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "effect"
 import { nameKey } from "#compiler/sql/ast.ts"
 import { bindSelect } from "#compiler/sql/bind.ts"
 import { AdviceScope } from "#compiler/sql/naming.ts"
@@ -48,6 +48,7 @@ import {
 	bindCaseGen,
 	bindFeatures,
 	catalog,
+	contextLevel,
 	itemOf,
 	specified,
 	statementOf,
@@ -65,6 +66,19 @@ export const everyReadIsBoundAsItsLevelFixesItWhereItStandsUnderTheScopesOneAlia
 		check: (_, c: Case<BindFeature>) => (drawn) =>
 			Effect.sync(() => {
 				const bound = bindSelect(statementOf(drawn), new AdviceScope(), catalog)
+				if (drawn.place.kind === "context") {
+					const { source, levels } = contextLevel(bound.statement, bound.plan)
+					const inner = Option.match(source, { onNone: () => "none", onSome: (s) => s.inner })
+					assert.ok(
+						inner !== "m" &&
+							Str.startsWith("r")(inner) &&
+							Arr.length(levels) === 1 &&
+							Arr.every(levels, (aliases) => aliases.length === 1 && aliases[0] === inner),
+						`the context's claims row is ${inner}, the scope's, the one item of the level its alias names (${Formatter.format(levels)})`
+					)
+					c.note("a context source's row named by the scope, its level's one item")
+					return
+				}
 				if (drawn.place.kind === "viewed") {
 					const { top, named } = viewedLevels(bound.plan)
 					const [first, ...rest] = top
@@ -192,6 +206,12 @@ export const everyReadIsBoundAsItsLevelFixesItWhereItStandsUnderTheScopesOneAlia
 		oracle: { kind: "specification", name: "the contract's binding rules (CARRY-CONTRACT §1)" },
 		kept: [],
 		kills: [
+			{
+				file: "packages/engine/src/sql/bind.ts",
+				original: "\t\t\t\tconst inner = this.#alias(source.inner)\n",
+				replacement: "\t\t\t\tconst inner = source.inner\n",
+				why: "A context source's claims row keeps the name its lowering wrote, `m` in every statement, which no scope minted: two contexts' rows in one scope share it, and the advice names neither (ready-keys' Law 1)."
+			},
 			{
 				file: "packages/engine/src/sql/bind.ts",
 				original:

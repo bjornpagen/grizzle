@@ -558,18 +558,20 @@ const contextClaims = (source: ContextSource): string => {
 
 /**
  * A context source (sql/ast.ts ContextSource) as a derived table: the claims document as the source reads it, once, as
- * "m"."j", and each column its claim, collated as the column is, over the one row where the document holds the
- * context. The document's query calls the refusal function, which is VOLATILE, so PostgreSQL never pulls "m" up into
- * its readers, and the document stays one InitPlan however many columns are read.
+ * the column "j" of its one row, `inner`, and each column its claim, collated as the column is, over the one row where
+ * the document holds the context, fenced by OFFSET 0 so PostgreSQL plans the source apart under its alias, the row its
+ * level's one item, whatever it estimates. The document's query calls the refusal function, which is VOLATILE, so
+ * PostgreSQL never pulls the row up into the source, and the document stays one InitPlan however many columns are read.
  */
 const printContextSource = (source: ContextSource): string => {
+	const row = quoteIdent(source.inner)
 	const reads = source.columns.map((c) => {
-		const read = claimRead(`"m"."j"`, source, c.field, c.column.type)
+		const read = claimRead(`${row}."j"`, source, c.field, c.column.type)
 		return c.column.collation === undefined
 			? read
 			: `${read} COLLATE ${printObjectName(c.column.collation)}`
 	})
-	return `(SELECT ${reads.join(", ")} FROM (SELECT ${contextClaims(source)} AS "j") AS "m" WHERE "m"."j" ? ${quoteString(source.context)}${castTo("text")}) AS ${quoteIdent(source.alias)}(${printIdentList(source.columns.map((c) => c.column.name))})`
+	return `(SELECT ${reads.join(", ")} FROM (SELECT ${contextClaims(source)} AS "j") AS ${row} WHERE ${row}."j" ? ${quoteString(source.context)}${castTo("text")} OFFSET 0) AS ${quoteIdent(source.alias)}(${printIdentList(source.columns.map((c) => c.column.name))})`
 }
 
 /** numeric's precision and scale, or bit(n)'s length. */

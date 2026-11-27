@@ -1202,6 +1202,12 @@ export interface ContextSource {
 	 */
 	readonly columns: NonEmptyReadonlyArray<ContextColumn>
 	readonly refusal: QualifiedFunctionRef
+	/**
+	 * The alias of the claims document's one row inside the source, the one item of the source's own level, which
+	 * PostgreSQL plans apart under the source's alias (sql/print.ts printContextSource): an alias of the statement's, so
+	 * its advice names that row as it names every relation (sql/bind.ts).
+	 */
+	readonly inner: string
 	readonly alias: string
 }
 
