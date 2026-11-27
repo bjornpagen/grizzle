@@ -121,10 +121,9 @@ export const aFixedTargetsUNIQUEBesideTheReverseProbesOutOfItsSelectionPlansNoRe
 			},
 			{
 				file: "packages/engine/src/physical/indexes/engine.ts",
-				original:
-					"\t\t\t\tconst [host] = own.filter((c) => serves(c.index, entry)).toSorted(hostOrder(entry))",
+				original: "\t\t\t\tconst host = own.find((c) => serves(c.index, entry))",
 				replacement:
-					'\t\t\t\tconst [host] = own.filter((c) => serves(c.index, entry) && !(entry.request.use === "reverse reference" && c.index.unique)).toSorted(hostOrder(entry))',
+					'\t\t\t\tconst host = own.find((c) => serves(c.index, entry) && !(entry.request.use === "reverse reference" && c.index.unique))',
 				why: "Each reverse probe a B-tree of its own beside a unique index that serves it (physical/indexes/engine.ts planIndexes); the redundant pair catches it."
 			},
 			{

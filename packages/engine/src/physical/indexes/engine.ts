@@ -8,7 +8,6 @@ import {
 	sortNonEmpty
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import type * as Result from "@bjornpagen/grizzle-text/base/result"
-import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import type { KeyFault } from "#compiler/core/causes.ts"
 import { CompileError, type ProseTag, prose } from "#compiler/core/errors.ts"
@@ -60,15 +59,7 @@ import {
 	type OrderKey,
 	together as ordersTogether
 } from "#compiler/physical/indexes/chains.ts"
-import {
-	type IndexRef,
-	type IndexResolutions,
-	type IndexResolver,
-	indexRef,
-	type RequestContent,
-	requestContent,
-	resolverOf
-} from "#compiler/physical/indexes/ref.ts"
+import { type IndexRef, type IndexResolver, indexRef } from "#compiler/physical/indexes/ref.ts"
 import type { Node } from "#compiler/physical/obligations/graph.ts"
 import {
 	type DatumBound,
@@ -162,29 +153,35 @@ const suffixDatum = (text: DatumBound): DatumBound => ({ ...text, bytes: text.by
 /** The column a key reads: its own, or the column it is the suffix key of. */
 const readColumn = (c: KeyTerm): IndexColumn => (c.kind === "suffix" ? c.of : c)
 
-/** A key's widest datum on `target`: its column's (datumBound), a suffix key's with the sentinel's byte (`suffixDatum`);
- * none for a text of no byte bound or a bytes field, which no entry holds. */
-const keyDatum = (target: BuiltTarget, k: IndexKey): DatumBound | undefined => {
-	const desc = target.field(readColumn(k.column))?.desc
-	const datum = desc === undefined || desc.kind === "bytes" ? undefined : datumBound(desc)
+/** What a column of `relation` holds, by its text (`keyTermText`): none for a column it does not hold. */
+const columnHolds = (relation: CoveredRelation, column: IndexColumn): Holds | undefined => {
+	const text = keyTermText(column)
+	return Object.hasOwn(relation.holds, text) ? relation.holds[text] : undefined
+}
+
+/** A key's widest datum on `relation`: its column's (CoveredRelation `datums`), a suffix key's with the sentinel's byte
+ * (`suffixDatum`); none for a text of no byte bound or a bytes field, which no entry holds. */
+const keyDatum = (relation: CoveredRelation, k: IndexKey): DatumBound | undefined => {
+	const text = keyTermText(readColumn(k.column))
+	const datum = Object.hasOwn(relation.datums, text) ? relation.datums[text] : undefined
 	return k.column.kind === "suffix" && datum !== undefined ? suffixDatum(datum) : datum
 }
 
 /**
- * The B-tree entry over `keys` on `target`, each key in its role (`roleOf`), as lookupEntry holds it
+ * The B-tree entry over `keys` on `relation`, each key in its role (`roleOf`), as lookupEntry holds it
  * (schema/representability.ts): the places of the keys that fit it, each equality left out a filter beside it, or its
  * fault. A law column, which a guard or a predecessor's first slot leaves NULL, gives the entry its null bitmap; a field
  * is NOT NULL.
  */
 const fittingKeys = (
-	target: BuiltTarget,
+	relation: CoveredRelation,
 	keys: NonEmptyReadonlyArray<IndexKey>,
 	roleOf: (k: IndexKey, at: number) => EntryRole
 ): ReturnType<typeof lookupEntry> =>
 	lookupEntry(
 		mapNonEmpty(keys, (k, at) => ({
 			name: keyTermText(k.column),
-			datum: keyDatum(target, k),
+			datum: keyDatum(relation, k),
 			nullable: readColumn(k.column).kind === "law",
 			role: roleOf(k, at)
 		}))
@@ -241,15 +238,68 @@ export interface PlannedIndex extends KeyedIndex {
 }
 
 /**
+ * What coverage reads of the table a relation's indexes are on (see `planIndexes`): what each column an index of it may
+ * name holds (Holds), a field by its name and a law column by its identifier (`keyTermText`); each such column's widest
+ * datum in an index entry, but a text's of no byte bound and a bytes field's, which no B-tree entry holds; and whether
+ * it is a stored derived relation's table, a lookup of which by equalities of columns no B-tree entry holds reads a hash
+ * index.
+ */
+export interface CoveredRelation {
+	readonly holds: Readonly<Record<string, Holds>>
+	readonly datums: Readonly<Record<string, DatumBound>>
+	readonly stored: boolean
+}
+
+/** A relation's table as coverage reads it (CoveredRelation), each column of its target by its text, in text order. */
+const coveredRelationOf = (target: BuiltTarget, stored: boolean): CoveredRelation => {
+	const fields = target.fields.toSorted(([a], [b]) => compareStrings(a, b))
+	return {
+		holds: Object.fromEntries(fields.map(([text, field]) => [text, holdsOf(field.type)] as const)),
+		datums: Object.fromEntries(
+			fields.flatMap(([text, field]) => {
+				const datum = field.desc.kind === "bytes" ? undefined : datumBound(field.desc)
+				return datum === undefined ? [] : [[text, datum] as const]
+			})
+		),
+		stored
+	}
+}
+
+/**
+ * What an index stands as among the indexes that serve a request (`hostOrder`): its relation's primary key's or another
+ * key's, which the schema's statements state, or one the engine created, `at` its place among the installation's
+ * indexes when it was created, the plan's canonical order (`canonical`).
+ */
+export type Standing =
+	| { readonly kind: KeyRole }
+	| { readonly kind: "created"; readonly at: number }
+
+/** An index the installation holds as coverage reads it: what serving reads of it, how it stands, and the reference a plan
+ * names it by. */
+export interface InstalledIndex extends KeyedIndex {
+	readonly standing: Standing
+	readonly ref: IndexRef
+}
+
+/**
+ * The installation's indexes as coverage reads them, with the table of every relation one is on (see `planIndexes`):
+ * the one input of resolution (`resolverOf`), planning's over the indexes it planned and every served compile's over the
+ * ones its snapshot records (deploy/snapshot/types.ts SnapshotDerived `indexSet`), so a read resolves to one index
+ * whichever compile binds it.
+ */
+export interface IndexSet {
+	readonly indexes: ReadonlyArray<InstalledIndex>
+	readonly relations: Readonly<Record<string, CoveredRelation>>
+}
+
+/**
  * What index planning gives the installation (see `planIndexes`): every index it holds, a key's or enforcement's and
- * each the engine created, with the requests each serves; and the index each access request resolves to, total over the
- * requests the plan was made from (physical/indexes/ref.ts IndexResolver).
+ * each the engine created, with the requests each serves; the set they are as coverage reads them, which the snapshot
+ * records; and the resolver of that set.
  */
 export interface IndexPlan {
 	readonly indexes: ReadonlyArray<PlannedIndex>
-	/** The index each access request landed on, as data (ref.ts IndexResolutions), which the snapshot records. */
-	readonly resolutions: IndexResolutions
-	/** The resolver of `resolutions` (ref.ts resolverOf). */
+	readonly set: IndexSet
 	readonly resolve: IndexResolver
 }
 
@@ -693,7 +743,6 @@ const placed = (index: KeyedIndex, placement: Placement, columns: Columns): bool
 	}
 }
 
-/** A request as the engine plans it: its placements, and what its relation's columns hold. */
 /**
  * Refuses each text of no byte bound a B-tree request binds by equality where it binds no digest of it (its target's
  * `digests`, physical/ddl/context.ts BuiltTarget) and its other equalities bind none of its relation's keys (`keyed`),
@@ -709,10 +758,10 @@ const refusedUndigested = (
 	r: IndexRequest,
 	label: string,
 	o: BuiltTarget,
-	keys: NonEmptyReadonlyArray<IndexKey>,
-	roles: ReadonlyArray<EntryRole>,
+	stated: Stated,
 	keyed: (columns: ReadonlyArray<KeyTerm>) => boolean
 ): boolean => {
+	const { keys, roles } = stated
 	const equalities = keys.filter((_, at) => roles[at] === "equality")
 	const unbounded = equalities.filter((k) => {
 		const field = o.field(readColumn(k.column))
@@ -720,7 +769,7 @@ const refusedUndigested = (
 			field !== undefined &&
 			field.desc.kind !== "bytes" &&
 			baseOf(field.type).carrier === "text" &&
-			keyDatum(o, k) === undefined
+			keyDatum(stated.relation, k) === undefined
 		)
 	})
 	const digests = o.digests
@@ -747,32 +796,116 @@ const refusedUndigested = (
 	return true
 }
 
-interface Planned {
+/**
+ * A request as its statement reads on its relation's table (`statedOf`): its keys as it states them (`statedKeys`), each
+ * a column `relation` holds; their blocks (`blocksOf`), each key as a created index holds it; what each key, in their
+ * order, is to its entry (`keyRoles`); what each column holds; and its placements as its access method, role and use
+ * read them (`placementsOf`).
+ */
+interface Stated {
 	readonly request: IndexRequest
-	readonly placements: Placements
-	/** Its keys as it states them (`statedKeys`). */
+	readonly relation: CoveredRelation
 	readonly keys: Keys
-	/** What each of its keys, in their order, is to its entry (`keyRoles`). */
-	readonly roles: ReadonlyArray<EntryRole>
-	/**
-	 * The keys a B-tree of its own leaves out of its entry, each an equality its reads apply as a filter beside the index
-	 * (`fittingKeys`), none where every key fits or its index is no B-tree: an index holding the rest serves it too.
-	 */
-	readonly filtered: ReadonlyArray<IndexKey>
-	/** Its keys' blocks (`blocksOf`), each key as a created index holds it. */
 	readonly blocks: NonEmptyReadonlyArray<Block>
+	readonly roles: ReadonlyArray<EntryRole>
 	readonly columns: Columns
+	readonly placements: Placements
 	readonly label: string
+}
+
+/**
+ * `request` as it reads on `relation`, its relation's table (Stated): a request naming a column the table does not hold,
+ * or one its access method, role and use place nowhere, refused as its asker's malformed description.
+ */
+const statedOf = (request: IndexRequest, relation: CoveredRelation): Stated => {
+	const label = requestLabel(request)
+	const stated = statedKeys(request)
+	if (!isNonEmpty(stated)) {
+		return fail("MalformedDescription", label, "an index request with a key")
+	}
+	const held = (column: IndexColumn): Holds =>
+		columnHolds(relation, column) ??
+		fail(
+			"UnsupportedOperation",
+			label,
+			`a key column of ${request.relation}; ${keyTermText(column)} is none, and expression keys are the workload compiler's`
+		)
+	for (const key of stated) {
+		held(readColumn(key.column))
+	}
+	const blocks = blocksOf(request, stated)
+	const keys = extendNonEmpty(blocks[0], blocks.slice(1).flat())
+	const columns: Columns = {
+		holds: (column) => (column.kind === "suffix" ? "many" : held(column))
+	}
+	return {
+		request,
+		relation,
+		keys,
+		blocks,
+		roles: keyRoles(request, keys),
+		columns,
+		placements: placementsOf(request, keys, blocks, columns, label),
+		label
+	}
+}
+
+/**
+ * A request as coverage reads it (see `planIndexes`): as it states itself on its relation's table (Stated), its
+ * placements those an index serving it holds, and the keys a B-tree of its own leaves out of its entry, each an
+ * equality its reads apply as a filter beside the index (`fittingKeys`), none where every key fits or its index is no
+ * B-tree: an index holding the rest serves it too.
+ */
+interface Covered extends Stated {
+	readonly filtered: ReadonlyArray<IndexKey>
+}
+
+/**
+ * A stated request as coverage reads it (Covered): its entry's keys judged where its own index is a B-tree; a lookup of a
+ * stored derived relation's table by equalities of one column no B-tree entry holds reads a hash index on it, and one of
+ * several such columns, each by an equality of its own, is refused, since a hash index on one of them reads every row
+ * sharing that one value. The one derivation of what serves a request, planning's and resolution's (`resolverOf`).
+ */
+const coveredOf = (stated: Stated): Covered => {
+	const { request, relation, keys, roles, placements, label } = stated
+	const entry =
+		methodOf(placements.own) === "btree"
+			? fittingKeys(relation, keys, (_, at) => defined(roles[at], "a role per key"))
+			: undefined
+	if (
+		entry !== undefined &&
+		!entry.ok &&
+		entry.error.kind === "unboundedText" &&
+		roles.every((role) => role === "equality") &&
+		relation.stored
+	) {
+		return isNonEmpty(keys.slice(1))
+			? fail(
+					"UnsupportedOperation",
+					label,
+					`a lookup of the stored relation ${request.relation} by one column of no byte bound, which a hash index finds the rows of; it binds ${keys.map((k) => keyTermText(k.column)).join(", ")}, each of no byte bound, and a hash index on one of them reads every row sharing that one value: bind a key of it, or a column a B-tree holds`
+				)
+			: { ...stated, placements: hashPlacements(keys), filtered: [] }
+	}
+	return {
+		...stated,
+		filtered:
+			entry === undefined || !entry.ok ? [] : keys.filter((_, at) => !entry.value.held.includes(at))
+	}
+}
+
+/** A request as the engine plans it: as coverage reads it, and the table an index created for it is built on. */
+interface Planned extends Covered {
 	readonly target: BuiltTarget
 }
 
 /** The access method of the index a planned request creates. */
-const ownMethod = (planned: Planned): IndexMethod => methodOf(planned.placements.own)
+const ownMethod = (planned: Covered): IndexMethod => methodOf(planned.placements.own)
 
-/** Whether an index's relation, access method and keys serve a planned request (see `planIndexes`): it holds one of the
+/** Whether an index's relation, access method and keys serve a request (see `planIndexes`): it holds one of the
  * request's placements, as an index of that placement's method, or one of them without the keys the request's entry
  * leaves out as filters (`leavingOut`). */
-const serves = (index: KeyedIndex, planned: Planned): boolean =>
+const serves = (index: KeyedIndex, planned: Covered): boolean =>
 	index.relation === planned.request.relation &&
 	[planned.placements.own, ...planned.placements.others].some((p) => {
 		const holds = (at: Placement): boolean =>
@@ -1049,12 +1182,14 @@ const justificationOrder: Comparator<IndexRequest> = (a, b) => {
 }
 
 /** The planned indexes: every key and enforcement index, then each new index the requests need, every request merged
- * into the index that serves it; and the index each access request resolves to (IndexPlan `resolve`), by what it asks,
- * the one it landed on, named by its reference (physical/indexes/ref.ts IndexRef): every request planned lands on one
- * index by construction of the walk below, one that did not is an internal compiler error here, and a request the plan
- * was not made from resolves to none, an internal compiler error of its asker. The plan is settled against the keys the
- * installation met (core/canonical.ts KeyLedger): one refused here or before leaves no resolver, its installation
- * refused naming them all. Adds the new index objects and the served reasons to the graph.
+ * into the index that serves it; the set they are as coverage reads them (IndexSet), with the table of every relation
+ * one is on; and its resolver (IndexPlan `resolve`, `resolverOf`), which sends every request, planned here or asked by
+ * any compile after, to the index it lands on among them, named by its reference (physical/indexes/ref.ts IndexRef):
+ * one function of the set and the request, so planning and every served compile resolve a read alike, and a request no
+ * index serves is an internal compiler error wherever it is asked, every request planned here landing by construction
+ * of the walk below. The plan is settled against the keys the installation met (core/canonical.ts KeyLedger): one
+ * refused here or before leaves no resolver, its installation refused naming them all. Adds the new index objects and
+ * the served reasons to the graph.
  *
  * The index request engine: every index beyond a key's own cites a law's maintenance or the workload's access, and requests
  * are deduplicated against the key indexes and against each other, merging provenance. Containments imply useful
@@ -1156,7 +1291,8 @@ const justificationOrder: Comparator<IndexRequest> = (a, b) => {
  * key). Of the indexes that serve a request, it lands on a key or enforcement index before a created one, then on one
  * of its own access method before one standing in for it, then on its relation's primary key before another key, then
  * on the key of fewest keys, then by its keys and name, what it is and not where its statement stands, and of created
- * indexes on the first the plan created (`hostOrder`). An unserved request becomes a new index
+ * indexes on the first the plan created (`hostOrder`), among every index the plan holds once the walk is done, which
+ * is where resolution sends it (`hostIn`). An unserved request becomes a new index
  * `<table>__ix__<col>[__<col>...]`. The B-tree requests whose own placement is blocks, an equality lookup's, a range's,
  * a law's probe's, its suffix seek's or an order's, that no key serves once every other request of their relation has
  * landed or created its index, are planned together (`chainsOf`): each needs a chain of sets its index must lead with,
@@ -1275,108 +1411,50 @@ const planOver = (
 		 * installation stores the relation by its own inference (analysis/derived/storage.ts), so its table refuses no such
 		 * read for want of a bound; a lookup binding several such columns reads a hash index over their row where it states
 		 * them as one row equality (AccessUse `row equality`, `hashPlacements`), and is refused where it binds an equality of
-		 * each, since a hash index on one of them reads every row sharing that one value.
+		 * each, since a hash index on one of them reads every row sharing that one value (`coveredOf`).
 		 */
 		const stored = new Set(b.indexedViews().map((view) => view.relation))
+		/** Each relation's table as coverage reads it (CoveredRelation), once: what the plan and its resolver read alike. */
+		const tables = new Map<
+			string,
+			{ readonly target: BuiltTarget; readonly covered: CoveredRelation }
+		>()
+		const tableOf = (relation: string, label: string) => {
+			const known = tables.get(relation)
+			if (known !== undefined) {
+				return known
+			}
+			const o = b.target(relation)
+			switch (o.kind) {
+				case "none":
+					return fail(
+						"MalformedDescription",
+						label,
+						`an index request on a stored or derived relation; ${relation} is none`
+					)
+				case "deferred":
+					return undefined
+				case "built": {
+					const table = { target: o, covered: coveredRelationOf(o, stored.has(relation)) }
+					tables.set(relation, table)
+					return table
+				}
+			}
+		}
 		const plan = requests
 			.flatMap((r): ReadonlyArray<Planned> => {
-				const label = requestLabel(r)
-				const o = b.target(r.relation)
-				switch (o.kind) {
-					case "none":
-						return fail(
-							"MalformedDescription",
-							label,
-							`an index request on a stored or derived relation; ${r.relation} is none`
-						)
-					case "deferred":
-						return []
-					case "built":
-						break
+				const table = tableOf(r.relation, requestLabel(r))
+				if (table === undefined) {
+					return []
 				}
-				const stated = statedKeys(r)
-				if (!isNonEmpty(stated)) {
-					return fail("MalformedDescription", label, "an index request with a key")
-				}
-				for (const key of stated) {
-					if (o.field(readColumn(key.column)) === undefined) {
-						return fail(
-							"UnsupportedOperation",
-							label,
-							`a key column of ${r.relation}; ${keyTermText(key.column)} is none, and expression keys are the workload compiler's`
-						)
-					}
-				}
-				const blocks = blocksOf(r, stated)
-				const keys = extendNonEmpty(blocks[0], blocks.slice(1).flat())
-				const typeOf = (column: IndexColumn): ScalarType => {
-					const f = o.field(column)
-					return f === undefined
-						? fail("MalformedDescription", label, `a field ${keyTermText(column)} of ${r.relation}`)
-						: f.type
-				}
-				const columns: Columns = {
-					holds: (column) =>
-						column.kind === "suffix" ? "many" : holdsOf(typeOf(readColumn(column)))
-				}
-				const placements = placementsOf(r, keys, blocks, columns, label)
-				const roles = keyRoles(r, keys)
+				const stated = statedOf(r, table.covered)
 				if (
-					methodOf(placements.own) === "btree" &&
-					refusedUndigested(b, r, label, o, keys, roles, keyed(r.relation))
+					methodOf(stated.placements.own) === "btree" &&
+					refusedUndigested(b, r, stated.label, table.target, stated, keyed(r.relation))
 				) {
 					return []
 				}
-				/** The keys a B-tree of its own leaves out, each a filter beside it: none for another method, or where its
-				 * entry is refused, which creating its index refuses (`createIndex`). */
-				const entry =
-					methodOf(placements.own) === "btree"
-						? fittingKeys(o, keys, (_, at) => defined(roles[at], "a role per key"))
-						: undefined
-				if (
-					entry !== undefined &&
-					!entry.ok &&
-					entry.error.kind === "unboundedText" &&
-					roles.every((role) => role === "equality") &&
-					stored.has(r.relation)
-				) {
-					return isNonEmpty(keys.slice(1))
-						? fail(
-								"UnsupportedOperation",
-								label,
-								`a lookup of the stored relation ${r.relation} by one column of no byte bound, which a hash index finds the rows of; it binds ${keys.map((k) => keyTermText(k.column)).join(", ")}, each of no byte bound, and a hash index on one of them reads every row sharing that one value: bind a key of it, or a column a B-tree holds`
-							)
-						: [
-								{
-									request: r,
-									placements: hashPlacements(keys),
-									keys,
-									roles,
-									filtered: [],
-									blocks,
-									columns,
-									label,
-									target: o
-								}
-							]
-				}
-				const filtered =
-					entry === undefined || !entry.ok
-						? []
-						: keys.filter((_, at) => !entry.value.held.includes(at))
-				return [
-					{
-						request: r,
-						placements,
-						keys,
-						roles,
-						filtered,
-						blocks,
-						columns,
-						label,
-						target: o
-					}
-				]
+				return [{ ...coveredOf(stated), target: table.target }]
 			})
 			.toSorted(canonical)
 		/** The candidates and the plan's requests of each relation, in their order: an index serves only its own
@@ -1393,20 +1471,21 @@ const planOver = (
 		for (const entry of plan) {
 			planOf.getOrInsertComputed(entry.request.relation, () => []).push(entry)
 		}
+		/** Every planned request, in the order the walk finds an index serving it: the order its reasons are added in. */
+		const landed: Array<Planned> = []
 		for (const relationPlan of planOf.values()) {
-			/** Lands `entry` on `host`: whether it serves it. */
+			/** Whether `host` serves `entry`, which then lands where resolution sends it (`hostIn`, after the walk). */
 			const landOn = (host: Candidate, entry: Planned): boolean => {
 				if (!serves(host.index, entry)) {
 					return false
 				}
-				host.requests.push(entry.request)
-				b.graph.addReasons(host.index.object, [reasonOf(entry.request)])
+				landed.push(entry)
 				return true
 			}
-			/** Lands `entry` on the first planned index that serves it (`hostOrder`): whether one does. */
+			/** Whether a planned index serves `entry`, which then lands where resolution sends it. */
 			const land = (entry: Planned): boolean => {
 				const own = candidatesOf.get(entry.request.relation) ?? []
-				const [host] = own.filter((c) => serves(c.index, entry)).toSorted(hostOrder(entry))
+				const host = own.find((c) => serves(c.index, entry))
 				return host !== undefined && landOn(host, entry)
 			}
 			/** Creates the index `draft` holds for `planned`, each key's role read by `roleOf`: the candidate created, or none
@@ -1455,7 +1534,6 @@ const planOver = (
 				}
 			}
 		}
-		const indexes = candidates.map((c): PlannedIndex => ({ ...c.index, requests: c.requests }))
 		/** The reference a plan names `index` by (physical/indexes/ref.ts): its schema-qualified name, its method, the
 		 * installed columns it stores as themselves in key order, a suffix key storing none and a hash index, which holds
 		 * hash codes, none, and whether it returns them. */
@@ -1487,36 +1565,42 @@ const planOver = (
 				)
 			})
 		}
-		/** Each access request planned, by its content, and the index it landed on: one, as the walk lands each request
-		 * on the first index that serves it and equal requests alike. */
-		const resolved = new TupleMap<RequestContent, IndexRef>()
-		for (const index of indexes) {
-			const ref = refOf(index)
-			for (const r of index.requests) {
-				const content = requestContent(r)
-				const earlier = resolved.get(content)
-				invariant(
-					earlier === undefined || earlier.name.name === ref.name.name,
-					`the requests equal to the ${requestLabel(r)} land on one index`
-				)
-				resolved.set(content, ref)
-			}
+		/** The planned indexes as coverage reads them, in the walk's order, with the table of every relation one is on. */
+		const set: IndexSet = {
+			indexes: candidates.map((c): InstalledIndex => ({
+				relation: c.index.relation,
+				method: c.index.method,
+				keys: c.index.keys,
+				unique: c.index.unique,
+				standing: c.standing,
+				ref: refOf(c.index)
+			})),
+			relations: Object.fromEntries(
+				[...new Set(candidates.map((c) => c.index.relation))]
+					.toSorted(compareStrings)
+					.flatMap((relation) => {
+						const table = tableOf(relation, `the indexes of ${relation}`)
+						return table === undefined ? [] : [[relation, table.covered] as const]
+					})
+			)
 		}
-		for (const { request } of plan) {
-			if (!resolved.has(requestContent(request))) {
-				defect(
-					`a missed index: the ${requestLabel(request)} landed on no index of ${request.relation}, which every planned request lands on`
+		/** Each request lands on the index resolution sends it to (`hostIn`), the one derivation of both, its reasons added
+		 * to that index's object. */
+		for (const entry of landed) {
+			const host = hostIn(set, entry)
+			const candidate = host === undefined ? undefined : candidates[set.indexes.indexOf(host)]
+			if (candidate === undefined) {
+				return defect(
+					`a missed index: the ${entry.label} landed on no index of ${entry.request.relation}, which every planned request lands on`
 				)
 			}
+			candidate.requests.push(entry.request)
+			b.graph.addReasons(candidate.index.object, [reasonOf(entry.request)])
 		}
-		const resolutions: IndexResolutions = [...resolved].map(([request, index]) => ({
-			request,
-			index
-		}))
 		return {
-			indexes,
-			resolutions,
-			resolve: resolverOf(resolutions, (relation) => b.checked.installedAs(relation))
+			indexes: candidates.map((c): PlannedIndex => ({ ...c.index, requests: c.requests })),
+			set,
+			resolve: resolverOf(set, (relation) => b.checked.installedAs(relation))
 		}
 	})
 
@@ -1526,13 +1610,6 @@ interface Candidate {
 	readonly index: PlannedIndex
 	readonly requests: Array<IndexRequest>
 }
-
-/**
- * What a planned index stands as: its relation's primary key's or another key's or enforcement's, which the schema's
- * statements state, or one the engine created, `at` its place among the candidates when it was created, the plan's
- * canonical order (`canonical`).
- */
-type Standing = { readonly kind: KeyRole } | { readonly kind: "created"; readonly at: number }
 
 /** The plan's order: by relation, wider requests first, then a fixed order, so the plan does not depend on request
  * order, nor on the order a request states the columns of a block in, which any order of serves alike: each block's
@@ -1555,16 +1632,54 @@ const canonical: Comparator<Planned> = combineAll([
  * its relation's primary key before another key; then of created indexes the first the plan created, and of keys by what
  * the key is, never by the order its statement stands in: the fewest keys, then its keys (listOrder), then its name,
  * which its content mints. */
-const hostOrder = (entry: Planned): Comparator<Candidate> =>
+const hostOrder = (entry: Covered): Comparator<InstalledIndex> =>
 	combineAll([
-		mapInput(compareBooleans, (c: Candidate) => c.standing.kind === "created"),
-		mapInput(compareBooleans, (c: Candidate) => c.index.method !== ownMethod(entry)),
-		mapInput(compareBooleans, (c: Candidate) => c.standing.kind !== "primary"),
-		mapInput(compareNumbers, (c: Candidate) => (c.standing.kind === "created" ? c.standing.at : 0)),
-		mapInput(compareNumbers, (c: Candidate) => c.index.keys.length),
-		mapInput(listOrder(keyOrder), (c: Candidate) => c.index.keys),
-		mapInput(compareStrings, (c: Candidate) => c.index.index.name)
+		mapInput(compareBooleans, (c: InstalledIndex) => c.standing.kind === "created"),
+		mapInput(compareBooleans, (c: InstalledIndex) => c.method !== ownMethod(entry)),
+		mapInput(compareBooleans, (c: InstalledIndex) => c.standing.kind !== "primary"),
+		mapInput(compareNumbers, (c: InstalledIndex) =>
+			c.standing.kind === "created" ? c.standing.at : 0
+		),
+		mapInput(compareNumbers, (c: InstalledIndex) => c.keys.length),
+		mapInput(listOrder(keyOrder), (c: InstalledIndex) => c.keys),
+		mapInput(compareStrings, (c: InstalledIndex) => c.ref.name.name)
 	])
+
+/** The index of `set` a request lands on (see `planIndexes`): the first by `hostOrder` of those that serve it, none where
+ * none does. */
+const hostIn = (set: IndexSet, entry: Covered): InstalledIndex | undefined => {
+	const [host] = set.indexes.filter((c) => serves(c, entry)).toSorted(hostOrder(entry))
+	return host
+}
+
+/**
+ * The resolver of `set` (IndexSet), each request's relation read as it is installed (`installedAs`, analysis/schema.ts
+ * CheckedSchema installedAs): the index the request lands on (`hostIn`), read through the one derivation of what serves a
+ * request (`statedOf`, `coveredOf`) on the table `set` records of its relation, as planning lands every request it plans.
+ * A request no index of `set` serves, one on a relation `set` holds no index of, or one its table cannot state, is a
+ * missed index, the asker's internal compiler error, never an index guessed.
+ */
+export const resolverOf = (
+	set: IndexSet,
+	installedAs: (relation: string) => string
+): IndexResolver => {
+	return (request) => {
+		const relation = installedAs(request.relation)
+		const asked = relation === request.relation ? request : { ...request, relation }
+		const missed = (why: string): never =>
+			defect(`a missed index: the ${requestLabel(asked)} is served by no index ${why}`)
+		const table = Object.hasOwn(set.relations, relation) ? set.relations[relation] : undefined
+		if (table === undefined) {
+			return missed(`of ${relation}, which the installation indexes none of`)
+		}
+		const covered = catchRefusal(() => coveredOf(statedOf(asked, table)))
+		if (!covered.ok) {
+			return missed(`of ${relation}, whose table refuses it: ${covered.error.message}`)
+		}
+		const held = `the installation holds on ${relation}`
+		return hostIn(set, covered.value)?.ref ?? missed(held)
+	}
+}
 
 /** The requests the draft of the index created for the unserved `plan[at]` reads ahead (see `planIndexes`): the later
  * requests of its relation no planned index serves yet, those of its own access method first. */
@@ -1751,7 +1866,7 @@ const createIndex = (
 		}
 		switch (method) {
 			case "btree": {
-				const entry = fittingKeys(o, proposed, roleOf)
+				const entry = fittingKeys(planned.relation, proposed, roleOf)
 				return entry.ok
 					? mapNonEmpty(entry.value.held, (at) => defined(proposed[at], "a held key"))
 					: unrepresentable(entry.error)

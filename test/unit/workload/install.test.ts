@@ -157,8 +157,8 @@ export const theWorkedExamplesWorkloadInTheInstallationHoldsExactlyTheObjectsALa
 		kills: [
 			{
 				file: "packages/engine/src/physical/indexes/engine.ts",
-				original: "\t\t\t\tb.graph.addReasons(host.index.object, [reasonOf(entry.request)])",
-				replacement: "\t\t\t\tb.graph.addReasons(host.index.object, [])",
+				original: "\t\t\tb.graph.addReasons(candidate.index.object, [reasonOf(entry.request)])",
+				replacement: "\t\t\tb.graph.addReasons(candidate.index.object, [])",
 				why: "A request that lands on an index already planned adds no reason to it (indexes/engine.ts planIndexes), so a key or law index a program asks for stands on no access; the sub-workload property fails."
 			}
 		]

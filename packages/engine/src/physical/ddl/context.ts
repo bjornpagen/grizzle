@@ -130,6 +130,8 @@ export type IndexColumn =
 export interface BuiltTarget {
 	readonly kind: "built"
 	readonly field: (column: IndexColumn) => TargetField | undefined
+	/** Every column an index of it may name, each by its text, a field's name or a law column's identifier, with its field. */
+	readonly fields: ReadonlyArray<readonly [string, TargetField]>
 	readonly column: (column: IndexColumn) => string
 	/**
 	 * The column's place in the relation's heading, which orders the columns an index holds in any order among
@@ -870,6 +872,7 @@ export class InstallBuilder {
 			return {
 				kind: "built",
 				field: (c) => (c.kind === "field" ? view.fields.get(c.field) : undefined),
+				fields: [...view.fields],
 				column: (c) => (c.kind === "field" ? this.names.column(relation, c.field) : c.column),
 				place: (c) => (c.kind === "field" ? heading.indexOf(c.field) : heading.length),
 				digests: new Map(),
@@ -887,6 +890,10 @@ export class InstallBuilder {
 					c.kind === "field"
 						? stored.fields.find((field) => field.name === c.field)
 						: lawColumns?.get(c.column),
+				fields: [
+					...stored.fields.map((field) => [field.name, field] as const),
+					...(lawColumns ?? noLawColumns)
+				],
 				column: (c) => (c.kind === "field" ? this.names.column(relation, c.field) : c.column),
 				place: (c) =>
 					c.kind === "field"

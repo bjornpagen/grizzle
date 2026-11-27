@@ -673,6 +673,33 @@ export type ResolveFeature =
 export const returnsOver = (method: PlannedIndex["method"]): boolean =>
 	method === "btree" || method === "gist"
 
+/**
+ * A read by Ledger's primary key, which no drawn request asks, Ledger being no relation the engine's requests draw: the
+ * shape of a key probe a program compiled after its installation makes, a put's lookup of the facts it displaces or a
+ * key check, which resolves to the key's index whether or not any request planned it.
+ */
+export const unplannedKeyRead: AccessIndexRequest = {
+	relation: "Ledger",
+	keys: [
+		{ expr: "account", dir: "asc", opclass: defaultOpclass },
+		{ expr: "entry", dir: "asc", opclass: defaultOpclass }
+	],
+	method: "btree",
+	fixed: 2,
+	role: "access",
+	use: "key lookup"
+}
+
+/** A lookup of Ledger by `amount`, which no index of Ledger leads and its key does not bind: served by none. */
+export const unservedRead: AccessIndexRequest = {
+	relation: "Ledger",
+	keys: [{ expr: "amount", dir: "asc", opclass: defaultOpclass }],
+	method: "btree",
+	fixed: 1,
+	role: "access",
+	use: "equality lookup"
+}
+
 /** A request over Event no drawn request asks: its key no column of Event's. */
 export const unplannedRequest: AccessIndexRequest = {
 	relation: "Event",

@@ -18,7 +18,7 @@ import type { ReferenceChoice } from "#compiler/laws/model/plan.ts"
 import type { LivePlan, LiveSource } from "#compiler/live/notify.ts"
 import type { ClosedNames } from "#compiler/physical/ddl/constants.ts"
 import type { InstalledParams, TextDomainNames } from "#compiler/physical/ddl/domains.ts"
-import type { IndexResolutions } from "#compiler/physical/indexes/ref.ts"
+import type { IndexSet } from "#compiler/physical/indexes/engine.ts"
 import type { DescribedLaw } from "#compiler/physical/install/plan.ts"
 import type { PlannedGraph } from "#compiler/physical/planned/graph.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
@@ -385,12 +385,12 @@ export interface SnapshotDerived extends CompileFacts {
 	 */
 	readonly planned: PlannedGraph
 	/**
-	 * The index each access request the installation's indexes were planned from resolved to, as data
-	 * (physical/indexes/ref.ts IndexResolutions): what a served compile from the snapshot alone resolves every read of
-	 * its programs by (resolverOf), so its served file's advice is generate's, byte for byte, and a read the table holds
-	 * no resolution of is its internal compiler error, never an index guessed.
+	 * The installation's indexes as coverage reads them, with the table of every relation one is on
+	 * (physical/indexes/engine.ts IndexSet): what a served compile from the snapshot alone resolves every read of its
+	 * programs by (engine.ts resolverOf), as generate's compile resolves them, so a read lands on one index whichever
+	 * compile binds it, and a read no index serves is the asker's internal compiler error, never an index guessed.
 	 */
-	readonly resolved: IndexResolutions
+	readonly indexSet: IndexSet
 }
 
 /**

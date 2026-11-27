@@ -233,7 +233,8 @@ export const aLookupThatBindsATextOfNoByteBoundByEqualitySeeksByItsDeclaredDiges
 			},
 			{
 				file: "packages/engine/src/physical/indexes/engine.ts",
-				original: "\t\t\t\t\trefusedUndigested(b, r, label, o, keys, roles, keyed(r.relation))",
+				original:
+					"\t\t\t\t\trefusedUndigested(b, r, stated.label, table.target, stated, keyed(r.relation))",
 				replacement: "\t\t\t\t\tfalse",
 				why: "A read that binds a text of no byte bound by equality and no digest of it is admitted: its index filters the text beside the columns it holds, reading every row they find."
 			}

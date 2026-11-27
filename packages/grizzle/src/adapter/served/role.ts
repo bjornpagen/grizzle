@@ -55,8 +55,8 @@ export interface RoleContext {
 	 */
 	readonly clock: ClockSource
 	/**
-	 * The index each read of the role's programs reaches through, as the installation behind its artifacts resolved it
-	 * (engine physical/indexes/ref.ts resolverOf over the snapshot's `resolved`): what every program compiled through
+	 * The index each read of the role's programs reaches through, as the installation behind its artifacts resolves it
+	 * (engine physical/indexes/engine.ts resolverOf over the snapshot's `indexSet`): what every program compiled through
 	 * the role is advised by (engine sql/advice.ts transactionAdvice).
 	 */
 	readonly resolve: IndexResolver

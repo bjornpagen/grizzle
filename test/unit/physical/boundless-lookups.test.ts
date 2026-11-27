@@ -117,14 +117,14 @@ export const aStoredLookupOfOneColumnOfNoByteBoundReadsAHashIndexOnIt = property
 		kills: [
 			{
 				file: "packages/engine/src/physical/indexes/engine.ts",
-				original: "\t\t\t\t\t\t\t\t\tplacements: hashPlacements(keys),\n",
-				replacement: "\t\t\t\t\t\t\t\t\tplacements,\n",
+				original: "\t\t\t: { ...stated, placements: hashPlacements(keys), filtered: [] }\n",
+				replacement: "\t\t\t: { ...stated, filtered: [] }\n",
 				why: "A lookup of one bytes column planned on a B-tree as any lookup is: its entry holds no column, and the installation is refused for an index it cannot build."
 			},
 			{
 				file: "packages/engine/src/physical/indexes/engine.ts",
-				original: "\t\t\t\t\treturn isNonEmpty(keys.slice(1))\n",
-				replacement: "\t\t\t\t\treturn false\n",
+				original: "\t\treturn isNonEmpty(keys.slice(1))\n",
+				replacement: "\t\treturn false\n",
 				why: "A lookup of two bytes columns read through a hash index on the first: every row sharing that value is read for each lookup, and the lookup is never refused."
 			},
 			{

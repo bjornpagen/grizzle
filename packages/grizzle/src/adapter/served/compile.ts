@@ -171,7 +171,7 @@ const compileServed = Effect.fn("compileServed")(function* (
 		fromEngine(servedSnapshot(snapshot, levelChain(login.login.base.desc).length - 1)),
 		atLogin
 	)
-	/** The installation's resolutions its snapshot records, the one resolver of every read the login's programs make. */
+	/** The installation's indexes its snapshot records, the one resolver of every read the login's programs make. */
 	const resolve = snapshotResolver(served, artifacts.derived.schema)
 	const roles = yield* Effect.mapError(
 		plannedLoginRoles(login.login, changes, artifacts, lawsAbove(served), clock, resolve),

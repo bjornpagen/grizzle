@@ -104,6 +104,7 @@ import type { ClosedNames, NamedClosed } from "#compiler/physical/ddl/constants.
 import { type TextDomainNames, textDomainNames } from "#compiler/physical/ddl/domains.ts"
 import { isolationFunctionIdent } from "#compiler/physical/ddl/isolation.ts"
 import { definitionMeanings } from "#compiler/physical/derived/meaning.ts"
+import type { KeyTerm } from "#compiler/physical/indexes/engine.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import type { DescribedLaw } from "#compiler/physical/install/plan.ts"
 import { namedEdges, namedIdent } from "#compiler/physical/obligations/graph.ts"
@@ -941,7 +942,7 @@ const indexesCreatedBy = (
  * each closed relation's constants as readers address them, the installation's plan's, the foreign key graph's
  * cycles, its law model's, which planned them from every law, every table it installs with its
  * indexes (snapshotTablesOf), its live source, the types its plan casts its served parameters to
- * (InstallPlan.installedParams), and the index each access request resolved to (Installation `resolutions`). */
+ * (InstallPlan.installedParams), and its indexes as coverage reads them (Installation `indexSet`). */
 export const derivedOf = (installation: Installation): SnapshotDerived => ({
 	...derivedFacts(
 		installation.closed,
@@ -955,7 +956,7 @@ export const derivedOf = (installation: Installation): SnapshotDerived => ({
 	liveDerived: liveDerivedOf(installation),
 	proved: provedOf(installation),
 	planned: plannedGraph(installation.statements),
-	resolved: installation.resolutions
+	indexSet: installation.indexSet
 })
 
 /**
@@ -1479,6 +1480,18 @@ const indexedForm = (c: IndexedColumn): IndexedColumn =>
 		? { kind: c.kind, field: c.field }
 		: { kind: c.kind, holds: c.holds, laws: c.laws }
 
+/** The JSON form of an index key's column (physical/indexes/engine.ts KeyTerm), its members in their fixed order. */
+const keyTermForm = (c: KeyTerm): SnapshotForm => {
+	switch (c.kind) {
+		case "suffix":
+			return { kind: c.kind, of: keyTermForm(c.of) }
+		case "field":
+			return { kind: c.kind, field: c.field }
+		case "law":
+			return { kind: c.kind, column: c.column }
+	}
+}
+
 /** The JSON form of a planned reach (physical/planned/graph.ts PlannedReach), its members in their fixed order. */
 const reachForm = (r: PlannedReach): SnapshotForm => ({
 	queries: r.queries,
@@ -1550,15 +1563,46 @@ const derivedForm = <S>(d: SnapshotDerived, units: Units<S>): RecordOf<S> => ({
 	library: d.library,
 	liveDerived: d.liveDerived,
 	planned: plannedForm(d.planned, units),
-	resolved: d.resolved.map((r) => ({
-		request: r.request,
-		index: {
-			name: { schema: r.index.name.schema, name: r.index.name.name },
-			method: r.index.method,
-			stores: r.index.stores,
-			returns: r.index.returns
-		}
-	})),
+	indexSet: {
+		indexes: d.indexSet.indexes.map((i) => ({
+			relation: i.relation,
+			method: i.method,
+			keys: i.keys.map((k) => ({
+				column: keyTermForm(k.column),
+				dir: k.dir,
+				opclass:
+					k.opclass.kind === "default"
+						? { kind: k.opclass.kind }
+						: { kind: k.opclass.kind, schema: k.opclass.schema }
+			})),
+			unique: i.unique,
+			standing:
+				i.standing.kind === "created"
+					? { kind: i.standing.kind, at: i.standing.at }
+					: { kind: i.standing.kind },
+			ref: {
+				name: { schema: i.ref.name.schema, name: i.ref.name.name },
+				method: i.ref.method,
+				stores: i.ref.stores,
+				returns: i.ref.returns
+			}
+		})),
+		relations: Object.fromEntries(
+			Object.entries(d.indexSet.relations).map(([relation, t]) => [
+				relation,
+				{
+					holds: t.holds,
+					datums: Object.fromEntries(
+						Object.entries(t.datums).map(([column, x]) => [
+							column,
+							{ bytes: x.bytes, align: x.align, family: x.family }
+						])
+					),
+					stored: t.stored
+				}
+			])
+		)
+	},
 	proved: Object.fromEntries(
 		Object.entries(d.proved).map(([law, relations]) => [
 			law,

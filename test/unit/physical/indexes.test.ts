@@ -61,7 +61,9 @@ import {
 	superkeyOf,
 	superkeySeekGen,
 	superkeySeekRequest,
+	unplannedKeyRead,
 	unplannedRequest,
+	unservedRead,
 	valueClass
 } from "#test/unit/physical/indexes.fixtures.ts"
 
@@ -416,7 +418,7 @@ export const aRequestTwoKeysServeLandsOnTheKeyItsContentPutsFirstWhicheverOrderT
 			{
 				file: "packages/engine/src/physical/indexes/engine.ts",
 				original:
-					"\t\tmapInput(compareNumbers, (c: Candidate) => c.index.keys.length),\n\t\tmapInput(listOrder(keyOrder), (c: Candidate) => c.index.keys),\n\t\tmapInput(compareStrings, (c: Candidate) => c.index.index.name)\n",
+					"\t\tmapInput(compareNumbers, (c: InstalledIndex) => c.keys.length),\n\t\tmapInput(listOrder(keyOrder), (c: InstalledIndex) => c.keys),\n\t\tmapInput(compareStrings, (c: InstalledIndex) => c.ref.name.name)\n",
 				replacement: "",
 				why: "The request lands on the first serving key in the order the keys' statements stand in, their identity digests', so which of two keys hosts it is no matter of what either is."
 			}
@@ -509,12 +511,14 @@ export const aSuperkeySeekLandsOnItsKeyAndTheEngineCreatesNoIndexForIt = propert
 
 /**
  * Every access request resolves, by what it asks, to the index it landed on (physical/indexes/engine.ts planIndexes
- * `resolve`, physical/indexes/ref.ts IndexRef): over the engine's drawn requests, a copy of each, which no index's
- * requests hold, resolves to the index whose requests hold the request itself, by its schema-qualified name, its access
- * method, the columns it stores, one for each of its keys, and whether it returns them, which a B-tree and a GiST index
- * over no network column do and an HNSW index never does; and a request the installation's indexes were not planned
- * from resolves to none: the resolver refuses it as an internal compiler error, never naming an index that does not
- * serve it.
+ * `resolve`, resolverOf, physical/indexes/ref.ts IndexRef): over the engine's drawn requests, a copy of each, which no
+ * index's requests hold, resolves to the index whose requests hold the request itself, by its schema-qualified name, its
+ * access method, the columns it stores, one for each of its keys, and whether it returns them, which a B-tree and a GiST
+ * index over no network column do and an HNSW index never does. Resolution reads the installation's indexes, never the
+ * requests they were planned from: a read by Ledger's key, which no request asks, resolves to that key's index, and a
+ * request no index serves, one by a column of Event's that is none or by Ledger's `amount`, which no index leads,
+ * resolves to none: the resolver refuses it as an internal compiler error, never naming an index that does not serve
+ * it.
  *
  * Its budget is the runner's: a new property, with no suite before it to carry a count from.
  */
@@ -570,9 +574,28 @@ export const everyAccessRequestResolvesByWhatItAsksToTheIndexItLandedOn = proper
 						c.note("a request resolved to an HNSW index")
 					}
 				}
+				const key = defined(
+					Option.getOrUndefined(
+						Arr.findFirst(
+							installation.indexes,
+							(x) => x.index.name === installation.resolve(unplannedKeyRead).name.name
+						)
+					),
+					"the index Ledger's key read resolves to"
+				)
+				assert.ok(
+					key.index.kind === "installed" &&
+						key.unique &&
+						sameColumns(Arr.map(key.keys, keyField), ["account", "entry"]),
+					`a read by Ledger's key, which no request asks, resolves to its key's index, not ${key.index.name}`
+				)
 				assert.throwsAny(
 					() => installation.resolve(unplannedRequest),
-					"a request no index was planned from resolves to none"
+					"a request by a column its relation does not hold resolves to none"
+				)
+				assert.throwsAny(
+					() => installation.resolve(unservedRead),
+					"a request no index of its relation serves resolves to none"
 				)
 			}),
 		oracle: {
@@ -582,11 +605,11 @@ export const everyAccessRequestResolvesByWhatItAsksToTheIndexItLandedOn = proper
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/physical/indexes/ref.ts",
+				file: "packages/engine/src/physical/indexes/engine.ts",
 				original:
-					'\t...r.keys.flatMap((k) => [String(k.expr), k.dir, indexOpclassText(k.opclass) ?? ""])\n',
-				replacement: "",
-				why: "A request resolved by its relation, method, use and fixed count alone: two requests of one relation and use that bind other columns resolve to one index, the first landed, and a copy of the other names an index that does not serve it."
+					"\t\tconst table = Object.hasOwn(set.relations, relation) ? set.relations[relation] : undefined\n",
+				replacement: "\t\tconst table = Object.values(set.relations)[0]\n",
+				why: "A request resolved on the table of the first relation an index is on, whatever its own: a request of another relation states columns that table does not hold, or holds otherwise, and a copy of it names no index or one that does not serve it."
 			},
 			{
 				file: "packages/engine/src/physical/indexes/engine.ts",
@@ -603,12 +626,10 @@ export const everyAccessRequestResolvesByWhatItAsksToTheIndexItLandedOn = proper
 				why: "A B-tree held to return nothing: no read through one is ever an index-only scan, though every column it needs is stored."
 			},
 			{
-				file: "packages/engine/src/physical/indexes/ref.ts",
-				original:
-					"\t\tresolved.get(requestContent({ ...request, relation: installedAs(request.relation) })) ??\n",
-				replacement:
-					"\t\t[...resolved.values()][0] ?? resolved.get(requestContent({ ...request, relation: installedAs(request.relation) })) ??\n",
-				why: "Every request resolved to the first index any request landed on: a request planned elsewhere names an index that does not serve it, and one never planned names an index all the same."
+				file: "packages/engine/src/physical/indexes/engine.ts",
+				original: "\t\treturn hostIn(set, covered.value)?.ref ?? missed(held)\n",
+				replacement: "\t\treturn set.indexes[0]?.ref ?? missed(held)\n",
+				why: "Every request resolved to the installation's first index: a request it does not serve names it all the same, and one no index serves names an index."
 			}
 		]
 	}
