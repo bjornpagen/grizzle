@@ -50,6 +50,7 @@ import {
 	catalog,
 	contextLevel,
 	itemOf,
+	seekConditionsOf,
 	specified,
 	statementOf,
 	topJoins,
@@ -152,6 +153,12 @@ export const everyReadIsBoundAsItsLevelFixesItWhereItStandsUnderTheScopesOneAlia
 					)
 				}
 				const held = Arr.filter(drawn.fixed, (f) => f !== "d")
+				const conditions = seekConditionsOf(bound.statement)
+				assert.deepEqual(
+					[...Arr.dedupe(conditions)],
+					[...conditions],
+					"a conjunct stated twice binds T's seek once, never an index condition and a filter of one column"
+				)
 				switch (drawn.place.kind) {
 					case "top":
 						if (spec.kind === "index") {
@@ -206,6 +213,14 @@ export const everyReadIsBoundAsItsLevelFixesItWhereItStandsUnderTheScopesOneAlia
 		oracle: { kind: "specification", name: "the contract's binding rules (CARRY-CONTRACT §1)" },
 		kept: [],
 		kills: [
+			{
+				file: "packages/engine/src/sql/bind.ts",
+				original:
+					"const conjunctsOf = (e: Expr | undefined): ReadonlyArray<Expr> => distinctConjuncts(conjunctsIn(e))\n",
+				replacement:
+					"const conjunctsOf = (e: Expr | undefined): ReadonlyArray<Expr> => conjunctsIn(e)\n",
+				why: "A conjunct a lowering states twice binds a read twice: PostgreSQL makes one an index condition and the other a filter of the same column (LAWS' Law 2 on ready-keys: `v1.number is bound, read outside its index condition`)."
+			},
 			{
 				file: "packages/engine/src/sql/bind.ts",
 				original: "\t\t\t\tconst inner = this.#alias(source.inner)\n",

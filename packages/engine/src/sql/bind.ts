@@ -295,9 +295,38 @@ const asRead = (e: Expr): Expr => {
 		: { ...e.expr, op: negator }
 }
 
-/** The conjuncts of a condition, each AND's arguments in turn, each as PostgreSQL reads it (`asRead`). */
-const conjunctsOf = (e: Expr | undefined): ReadonlyArray<Expr> =>
-	e === undefined ? [] : e.kind === "and" ? e.args.flatMap(conjunctsOf) : [asRead(e)]
+/** An expression's structural text: two expressions of one text are one expression. */
+const exprText = (e: Expr): string =>
+	JSON.stringify(e, (_, v: unknown) => (typeof v === "bigint" ? `${v}n` : v))
+
+/**
+ * Each of `conjuncts` once, the first of each text (`exprText`), in order: AND holds one conjunct twice as once, but
+ * for one that holds a sublink or a VOLATILE call (`opaque`), each evaluation of which may differ, kept every time.
+ */
+const distinctConjuncts = (conjuncts: ReadonlyArray<Expr>): ReadonlyArray<Expr> => {
+	const seen = new Set<string>()
+	return conjuncts.filter((c) => {
+		if (opaque(c)) {
+			return true
+		}
+		const text = exprText(c)
+		if (seen.has(text)) {
+			return false
+		}
+		seen.add(text)
+		return true
+	})
+}
+
+const conjunctsIn = (e: Expr | undefined): ReadonlyArray<Expr> =>
+	e === undefined ? [] : e.kind === "and" ? e.args.flatMap(conjunctsIn) : [asRead(e)]
+
+/**
+ * The conjuncts of a condition, each AND's arguments in turn, each as PostgreSQL reads it (`asRead`), each once
+ * (`distinctConjuncts`): a conjunct a lowering states twice binds one read once, never an index condition and a filter
+ * of one column beside it (Law 2).
+ */
+const conjunctsOf = (e: Expr | undefined): ReadonlyArray<Expr> => distinctConjuncts(conjunctsIn(e))
 
 /** A column reference a side of an equality is, through a collation, which keeps the column's order. */
 const columnOf = (e: Expr): { readonly table: string; readonly column: string } | undefined => {
@@ -842,8 +871,7 @@ const pushedInto = (q: OperandSelect, alias: string, c: Expr): OperandSelect | u
 		body.groupBy.length > 0 ||
 		body.having !== undefined ||
 		body.targets.some((t) => overRowsOf(t.expr) === "aggregate")
-	const text = (e: Expr) =>
-		JSON.stringify(e, (_, v: unknown) => (typeof v === "bigint" ? `${v}n` : v))
+	const text = exprText
 	const groups = new Set(body.groupBy.map(text))
 	const distinguished =
 		typeof body.distinct === "object" ? new Set(body.distinct.on.map(text)) : undefined
@@ -882,7 +910,13 @@ const pushedInto = (q: OperandSelect, alias: string, c: Expr): OperandSelect | u
 		override readonly expr = (x: Expr): Expr =>
 			x.kind === "column" && x.table === alias ? (columns.get(x.column) ?? x) : this.exprChildren(x)
 	})(identityHooks).expr(c)
-	return { ...q, body: { ...body, where: conjunction([...conjunctsOf(body.where), substituted]) } }
+	return {
+		...q,
+		body: {
+			...body,
+			where: conjunction(distinctConjuncts([...conjunctsOf(body.where), substituted]))
+		}
+	}
 }
 
 /**

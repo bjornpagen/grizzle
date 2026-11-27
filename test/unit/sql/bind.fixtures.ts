@@ -40,6 +40,7 @@ import {
 import { wholeViewAlias } from "#compiler/sql/naming.ts"
 import type { PlanItem, ReadPlan } from "#compiler/sql/plan.ts"
 import { levelItems } from "#compiler/sql/plan.ts"
+import { printExpr } from "#compiler/sql/print.ts"
 import { identityHooks, Transform } from "#compiler/sql/transform.ts"
 
 /** What a case of the property reaches: each way a read of T is bound, or is not. */
@@ -137,7 +138,7 @@ const contextSource: FromSource = {
 export type Fixed = "a" | "b" | "f" | "v" | "d"
 
 /**
- * Where a case reads T: its level's own top; after S, joined to it at b; beneath S's EXISTS at a; through a window;
+ * Where a case reads T: its level's own top, its first literal equality stated twice; after S, joined to it at b; beneath S's EXISTS at a; through a window;
  * inside groups by b, a derived table S is joined to at b, over T itself or over a MATERIALIZED CTE of T's rows; or
  * through T's whole view at its level's top, once, or twice, the second read whole beside the first; or none, a
  * session's context read instead, its claims document's row written `m`.
@@ -210,9 +211,11 @@ export const statementOf = (c: BindCase): Select => {
 				keyedSet(
 					[target(col("t", "b"))],
 					[tRead],
-					whereOf(
-						c.ranged ? [...fixed, binary(">", col("t", "b"), lit.int(7, types.integer))] : fixed
-					),
+					whereOf([
+						...fixed,
+						...Arr.take(fixed, 1),
+						...(c.ranged ? [binary(">", col("t", "b"), lit.int(7, types.integer))] : [])
+					]),
 					"a read of T"
 				)
 			)
@@ -469,4 +472,21 @@ export const contextLevel = (
 				)
 		})
 	}
+}
+
+/** The conditions of every seek's bindings the bound statement reads T by, each as printed. */
+export const seekConditionsOf = (bound: Select): ReadonlyArray<string> => {
+	const found: Array<string> = []
+	new Transform({
+		...identityHooks,
+		fromSource: (s) => {
+			if (s.kind === "read" && s.access.kind === "seek") {
+				for (const b of s.access.bound) {
+					found.push(printExpr(b.condition))
+				}
+			}
+			return s
+		}
+	}).statement(bound)
+	return found
 }
