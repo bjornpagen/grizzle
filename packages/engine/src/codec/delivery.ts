@@ -29,12 +29,15 @@ import type { ScalarType } from "#compiler/ir/scalar.ts"
  * @evidence ~/.cache/grizzle-release/LIMITS/out/evidence/bytes/ on cassowary: bytes-2026-11-16T075151.json, the
  *   uncommitted record of `pnpm bench bytes` (bench/bytes/main.ts), and run.log, its console output with the machine's
  *   uptime before and after it. The first record, of 2026-11-14 08:03:32 to 08:06:35 UTC at grizzle 01cc8dda
- *   (bench/results/bytes/bytes-2026-11-14T080336.json in RC2CITE's clone), went with that clone
+ *   (bench/results/bytes/bytes-2026-11-14T080336.json in the clone it ran in), went with that clone
  * @observed 2026-11-16 07:51:46 to 07:56:04 UTC, one run
  * @environment cassowary, Ubuntu 26.04 on an AWS Graviton3 (Neoverse-V1, arm64) instance with 64 logical CPUs and 247
- *   GiB, Node 26.13.1, pg 8.23.1, the local PostgreSQL 19rc2 cluster family with scripts/pg/pin.env's three patches,
- *   default_toast_compression lz4, grizzle ac71cfbb with lane LIMITS's move of the limits, which changes no delivery;
- *   load average 182 to 253 over the 64 CPUs from other sessions
+ *   GiB, Node 26.13.1, pg 8.23.1, PostgreSQL 19.0's TOAST slicing, lz4 and bytea functions, measured on the local
+ *   19rc2 cluster family with scripts/pg/pin.env's three patches then, whose read path 19.0 keeps (git diff REL_19_RC2
+ *   REL_19_0 -- src/backend/access/common src/backend/utils/adt/varlena.c src/backend/utils/adt/encode.c src/common
+ *   src/backend/libpq is empty) and none of whose patches touched it, default_toast_compression lz4, grizzle ac71cfbb
+ *   with lane LIMITS's move of the limits, which changes no delivery; load average 182 to 253 over the 64 CPUs from
+ *   other sessions
  * @workload one row of one 256 MiB bytes value, once xorshift bytes, which PostgreSQL stores uncompressed, and once a
  *   repeating sentence, which it compresses, read back through its delivered SQL on one session and assembled, three
  *   runs a chunk length: 64 KiB to 64 MiB by factors of four for the random value, 1 MiB to 64 MiB for the repeating

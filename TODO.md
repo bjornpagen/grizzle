@@ -48,7 +48,7 @@ post-beta swarm's fixes for the next release.
   stays a possible pivot of a dangerous structure (NEGATION, 2026-11-10). The only routes to a proof are nested overlays
   with a sibling seal (a qti-pie change) or closed groups. Until one lands, learners reach content only through a
   publication layer, never the importer's live rows.
-- **A READ COMMITTED insert through a query entry would meet 42501 (RC2BEHAVE, 2026-11-14):** no role that inserts
+- **A READ COMMITTED insert through a query entry would meet 42501 (2026-11-14):** no role that inserts
   through a query entry is certified READ COMMITTED today, because the certifier reads its precheck's key probe as a
   read it states no fact of (program/isolation/extract.ts). If the certifier learns key probes and admits it, an
   occupant outside the entry committed between the precheck and the INSERT meets PostgreSQL 19.0's SELECT-policy
@@ -464,11 +464,6 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
   already guarantees one value per spelling, and it must add one spelling per value (float specials, -0, numeric
   trailing zeros, date and span forms). Think it through and fix it once live works; the oracle is byte equality with
   today's encode over every carrier.
-- **PostgreSQL 19rc2 leaves the machine** once no clone pinned before the 19.0 repin runs a database job: its prefix
-  ~/.local/opt/postgresql/19rc2 and 19rc2.build, and ~/Documents/postgres, the git source its patched pins were built
-  from. den's (5443), effect-openapi-cli-generator's (5444) and learning_commons's (5445) clusters run it until each
-  repository takes a grizzle at or after the repin and moves its cluster onto the workbench's PostgreSQL units, as
-  grizzle's moved (`toolchain-pg settle`).
 - **`bench:full` on a quiet machine.**
 - **Test-speed re-measures for a quiet window (TESTSPEED, 2026-11-14):** each was measured only under load averages of
   60 to 440 on 64 cores, which swung one file fourfold. test/pg/text/differential.test.ts's at-limit search, one at a

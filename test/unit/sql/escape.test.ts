@@ -133,7 +133,7 @@ export const twoDifferentTextsAreShownByTheCodePointTheyFirstDifferAtEachAroundI
 				file: "packages/engine/src/sql/escape.ts",
 				original: "escaped(text.slice(start, end))",
 				replacement: "text.slice(start, end)",
-				why: "A window shows its text raw, as the drift report printed both descriptions before DRIFTRC1, so a carriage return moves the cursor and the two windows read alike."
+				why: "A window shows its text raw, as the drift report printed both descriptions before 1fc5a519, so a carriage return moves the cursor and the two windows read alike."
 			},
 			{
 				file: "packages/engine/src/sql/escape.ts",

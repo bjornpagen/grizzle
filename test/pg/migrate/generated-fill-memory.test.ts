@@ -7,7 +7,7 @@
  * PostgreSQL builds an UPDATE's generation expressions on its first row and finds them built on the next, unless no
  * stored generated column reads an assigned column: then it frees them and builds them again for every row
  * (nodeModifyTable.c ExecInitGenerated), in the query's memory, which nothing frees until the statement ends: each
- * expression's tree parsed again, 83 KB a row over qti.attribute on 19rc1, whose ExecInitGenerated 19.0 keeps. So the
+ * expression's tree parsed again, 83 KB a row over qti.attribute on 19.0. So the
  * backfill assigns Member's anchor to itself
  * (sql/generation.ts), `cheap`, whose one reader is the cheapest to compute again. And it runs with no BEFORE ROW
  * UPDATE trigger on Member: the immutability guard is dropped for the migration's data steps and created again after

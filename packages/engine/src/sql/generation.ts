@@ -2,14 +2,14 @@
  * The SET list of every UPDATE grizzle emits, an ON CONFLICT DO UPDATE's and a MERGE's UPDATE among them: it assigns at
  * least one column some stored generated column of its table reads, wherever the UPDATE may assign such a column.
  *
- * PostgreSQL 19 (nodeModifyTable.c ExecComputeStoredGenerated, ExecInitGenerated; 19rc1, 19.0 and master alike)
+ * PostgreSQL 19.0 (nodeModifyTable.c ExecComputeStoredGenerated, ExecInitGenerated)
  * builds an UPDATE's generation expressions on its first row and keep them in ri_GeneratedExprsU, which is
  * how the later rows find them built. When no stored generated column reads a column the UPDATE assigns,
  * ExecInitGenerated pfrees the array it built ("didn't need it after all") and leaves ri_GeneratedExprsU NULL, so every
  * row builds it again: build_column_default's stringToNode of every stored generated column's expression and
- * pull_varattnos of it, in the query's memory, ExecutorState, which nothing frees before the statement ends. On 19rc1,
- * production's engine, whose ExecInitGenerated 19.0 keeps, qti.attribute's 104 generation expressions at its C18 fill
- * are 83 KB of trees, so that fill over 865,000 rows grew ExecutorState to 72 GB in 17 minutes. An UPDATE that assigns a column a stored generated column reads leaves the array in place after its first
+ * pull_varattnos of it, in the query's memory, ExecutorState, which nothing frees before the statement ends. On 19.0,
+ * qti.attribute's 104 generation expressions at its C18 fill are 83 KB of trees, so that fill over 865,000 rows grows
+ * ExecutorState to 72 GB, as it did in production in 17 minutes (lane FILLMEM). An UPDATE that assigns a column a stored generated column reads leaves the array in place after its first
  * row: memory flat in the rows, the generation expressions built once (test/pg/migrate/generated-fill-memory.test.ts;
  * upstream/generated-update-rebuild).
  *

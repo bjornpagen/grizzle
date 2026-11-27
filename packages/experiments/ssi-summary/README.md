@@ -5,7 +5,7 @@ with conflict out to old committed transaction"), with no other writer of its ta
 earlier write while another transaction holding an xid keeps the cluster's horizon back. grizzle's README states this
 case and that the 40001 is safe to run again (a `transient` `CallError`, or `grizzle migrate` resuming its folder).
 
-The mechanism, REL_19_RC2: the writer's shrink writes a row its grow read, and the grow, a full committed transaction,
+The mechanism, REL_19_0: the writer's shrink writes a row its grow read, and the grow, a full committed transaction,
 counts as concurrent because the shrink's snapshot xmin precedes the grow's finishedBefore (predicate.c 4157, 4170); the
 shrink then reads versions its write created, and the write, summarized, is looked up with no concurrency test
 (predicate.c 3980-4012, heapam.c 9504-9555).

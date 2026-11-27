@@ -64,7 +64,7 @@ export const aDraftedFolderReadAndWrittenBackByATextToolAppliesPassesTheDriftChe
 				file: "packages/engine/src/deploy/render/filed.ts",
 				original: "\t\tconst spelling = respelled(lexeme)",
 				replacement: '\t\tconst spelling = lexeme.kind === "word" ? respelled(lexeme) : undefined',
-				why: "A drafted file spells each constant raw, as before DRIFTRC1, so the tool turns a carriage return in a CHECK's constant into a line feed and the drift check refuses the CHECK, WINDOW2's report."
+				why: "A drafted file spells each constant raw, as before 1fc5a519, so the tool turns a carriage return in a CHECK's constant into a line feed and the drift check refuses the CHECK, WINDOW2's report."
 			},
 			{
 				file: "packages/engine/src/deploy/render/filed.ts",

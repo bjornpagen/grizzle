@@ -115,12 +115,14 @@ export const regexMaxHeldStates =
  * @unit NFA arcs
  * @scope the longest path of one pattern's raw NFA, which PostgreSQL's regex compiler recurses along
  * @evidence a one-off bisection over each shape's count against PostgreSQL, a fresh backend per probe, recorded in
- *   ~/.cache/grizzle-release/RC2CITE/out/idle/regex/regex-edges-2026-11-14T080636.949Z.json by the uncommitted probe
- *   .scratch/regex-edges.ts in RC2CITE's clone; test/pg/text/differential.test.ts "compiles the largest pattern the
- *   limits admit along a drawn shape, at each limit's edge" re-verifies that what the limits admit compiles
+ *   out/idle/regex/regex-edges-2026-11-14T080636.949Z.json by the uncommitted probe .scratch/regex-edges.ts, both in
+ *   the clone the bisection ran in, which went with them; test/pg/text/differential.test.ts "compiles the largest
+ *   pattern the limits admit along a drawn shape, at each limit's edge" re-verifies that what the limits admit compiles
  * @observed 2026-11-14 08:06:36 to 08:10:19 UTC, one bisection per shape and every count of the anchors' shapes at
  *   once
- * @environment PostgreSQL 19rc2 as scripts/pg/pin.env builds it, its three patches applied (gcc 15.2.0), on the local
+ * @environment PostgreSQL 19.0's regex compiler, measured on 19rc2 as scripts/pg/pin.env then built it with three
+ *   patches (gcc 15.2.0), whose regex code 19.0 keeps (git diff REL_19_RC2 REL_19_0 -- src/backend/regex
+ *   src/include/regex src/backend/utils/adt/regexp.c is empty) and none of whose patches touched it, on the local
  *   cluster CONTRIBUTING.md sets up, max_stack_depth 2048 kB, its default; cassowary, Ubuntu 26.04 on an AWS Graviton3
  *   (Neoverse-V1, arm64) instance with every logical CPU nproc reports and 247 GiB, Node 26.13.1; grizzle 01cc8dda;
  *   load average 5.0 to 10.3, no other session active on the cluster
@@ -154,12 +156,14 @@ export const regexMaxDepth = 16_000
  * @unit NFA states
  * @scope the states of the compacted NFA one pattern's match reads, as its model counts them
  * @evidence a one-off bisection over each shape's count against PostgreSQL, a fresh backend per probe, recorded in
- *   ~/.cache/grizzle-release/RC2CITE/out/idle/regex/regex-edges-2026-11-14T080636.949Z.json by the uncommitted probe
- *   .scratch/regex-edges.ts in RC2CITE's clone; test/pg/text/differential.test.ts "compiles the largest pattern the
- *   limits admit along a drawn shape, at each limit's edge" re-verifies that what the limits admit compiles
+ *   out/idle/regex/regex-edges-2026-11-14T080636.949Z.json by the uncommitted probe .scratch/regex-edges.ts, both in
+ *   the clone the bisection ran in, which went with them; test/pg/text/differential.test.ts "compiles the largest
+ *   pattern the limits admit along a drawn shape, at each limit's edge" re-verifies that what the limits admit compiles
  * @observed 2026-11-14 08:06:36 to 08:10:19 UTC, one bisection per shape and every count of the anchors' shapes at
  *   once
- * @environment PostgreSQL 19rc2 as scripts/pg/pin.env builds it, its three patches applied (gcc 15.2.0), on the local
+ * @environment PostgreSQL 19.0's regex compiler, measured on 19rc2 as scripts/pg/pin.env then built it with three
+ *   patches (gcc 15.2.0), whose regex code 19.0 keeps (git diff REL_19_RC2 REL_19_0 -- src/backend/regex
+ *   src/include/regex src/backend/utils/adt/regexp.c is empty) and none of whose patches touched it, on the local
  *   cluster CONTRIBUTING.md sets up, max_stack_depth 2048 kB, its default; cassowary, Ubuntu 26.04 on an AWS Graviton3
  *   (Neoverse-V1, arm64) instance with every logical CPU nproc reports and 247 GiB, Node 26.13.1; grizzle 01cc8dda;
  *   load average 5.0 to 10.3, no other session active on the cluster
@@ -188,12 +192,14 @@ export const regexMaxMatchStates = 64_000
  * @unit NFA states times colors
  * @scope the states of the compacted NFA one pattern's match reads times its colors, as its model counts them
  * @evidence a one-off bisection over each shape's count against PostgreSQL, a fresh backend per probe, recorded in
- *   ~/.cache/grizzle-release/RC2CITE/out/idle/regex/regex-edges-2026-11-14T080636.949Z.json by the uncommitted probe
- *   .scratch/regex-edges.ts in RC2CITE's clone; test/pg/text/differential.test.ts "compiles the largest pattern the
- *   limits admit along a drawn shape, at each limit's edge" re-verifies that what the limits admit compiles
+ *   out/idle/regex/regex-edges-2026-11-14T080636.949Z.json by the uncommitted probe .scratch/regex-edges.ts, both in
+ *   the clone the bisection ran in, which went with them; test/pg/text/differential.test.ts "compiles the largest
+ *   pattern the limits admit along a drawn shape, at each limit's edge" re-verifies that what the limits admit compiles
  * @observed 2026-11-14 08:06:36 to 08:10:19 UTC, one bisection per shape and every count of the anchors' shapes at
  *   once
- * @environment PostgreSQL 19rc2 as scripts/pg/pin.env builds it, its three patches applied (gcc 15.2.0), on the local
+ * @environment PostgreSQL 19.0's regex compiler, measured on 19rc2 as scripts/pg/pin.env then built it with three
+ *   patches (gcc 15.2.0), whose regex code 19.0 keeps (git diff REL_19_RC2 REL_19_0 -- src/backend/regex
+ *   src/include/regex src/backend/utils/adt/regexp.c is empty) and none of whose patches touched it, on the local
  *   cluster CONTRIBUTING.md sets up, max_stack_depth 2048 kB, its default; cassowary, Ubuntu 26.04 on an AWS Graviton3
  *   (Neoverse-V1, arm64) instance with every logical CPU nproc reports and 247 GiB, Node 26.13.1; grizzle 01cc8dda;
  *   load average 5.0 to 10.3, no other session active on the cluster
@@ -222,12 +228,14 @@ export const regexMaxMatchCells = 16_000_000
  * @unit anchors
  * @scope the anchors of one pattern's raw NFA that constraint elimination moves
  * @evidence a one-off bisection over each shape's count against PostgreSQL, a fresh backend per probe, recorded in
- *   ~/.cache/grizzle-release/RC2CITE/out/idle/regex/regex-edges-2026-11-14T080636.949Z.json by the uncommitted probe
- *   .scratch/regex-edges.ts in RC2CITE's clone; test/pg/text/differential.test.ts "compiles the largest pattern the
- *   limits admit along a drawn shape, at each limit's edge" re-verifies that what the limits admit compiles
+ *   out/idle/regex/regex-edges-2026-11-14T080636.949Z.json by the uncommitted probe .scratch/regex-edges.ts, both in
+ *   the clone the bisection ran in, which went with them; test/pg/text/differential.test.ts "compiles the largest
+ *   pattern the limits admit along a drawn shape, at each limit's edge" re-verifies that what the limits admit compiles
  * @observed 2026-11-14 08:06:36 to 08:10:19 UTC, one bisection per shape and every count of the anchors' shapes at
  *   once
- * @environment PostgreSQL 19rc2 as scripts/pg/pin.env builds it, its three patches applied (gcc 15.2.0), on the local
+ * @environment PostgreSQL 19.0's regex compiler, measured on 19rc2 as scripts/pg/pin.env then built it with three
+ *   patches (gcc 15.2.0), whose regex code 19.0 keeps (git diff REL_19_RC2 REL_19_0 -- src/backend/regex
+ *   src/include/regex src/backend/utils/adt/regexp.c is empty) and none of whose patches touched it, on the local
  *   cluster CONTRIBUTING.md sets up, max_stack_depth 2048 kB, its default; cassowary, Ubuntu 26.04 on an AWS Graviton3
  *   (Neoverse-V1, arm64) instance with every logical CPU nproc reports and 247 GiB, Node 26.13.1; grizzle 01cc8dda;
  *   load average 5.0 to 10.3, no other session active on the cluster

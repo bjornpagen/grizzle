@@ -1740,9 +1740,9 @@ export const heldProofs = (
 
 /**
  * What the server says of itself that a description is a function of beside the statements replayed: its version, as a
- * number and as its release names it (19rc1 is no 19.0), the role the check runs as, which owns every object a replay
- * creates and every installed one, and each extension with its version, by name, whose types, operators and classes a
- * deparse may spell.
+ * number and as its build names it (a packager's 19.0, "19.0 (Ubuntu 19.0-1.pgdg26.04+1)", is 190000 as 19.0 is), the
+ * role the check runs as, which owns every object a replay creates and every installed one, and each extension with its
+ * version, by name, whose types, operators and classes a deparse may spell.
  */
 interface ServerEnvironment {
 	readonly versionNumber: string

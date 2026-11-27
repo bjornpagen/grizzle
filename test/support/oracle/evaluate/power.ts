@@ -164,9 +164,9 @@ const sameOutcome = (
 
 /**
  * The powers of ten binary64 holds exactly, 10^0..10^22: libm's log10 of one is exact, in V8 as in PostgreSQL (fdlibm's
- * e_log10.c, which V8 ports and glibc's log10 derives from, guarantees log10(10^n) = n; PostgreSQL 19rc1 on macOS returns all 23 exactly). A
- * leading-digits value can round to one (9999999999999999 is 10^16 in binary64), in PostgreSQL's arithmetic as in the
- * port's.
+ * e_log10.c, which V8 ports and glibc's log10 derives from, guarantees log10(10^n) = n; PostgreSQL 19.0 on cassowary's
+ * glibc 2.43 returns all 23 exactly, checked 2026-11-27). A leading-digits value can round to one (9999999999999999 is
+ * 10^16 in binary64), in PostgreSQL's arithmetic as in the port's.
  */
 const powersOfTen: ReadonlySet<number> = new Set(
 	Arr.map(indices(23), (k) => Number(10n ** BigInt(k)))

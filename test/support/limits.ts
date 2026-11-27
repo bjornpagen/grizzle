@@ -23,8 +23,8 @@ import { Duration } from "effect"
  *   reported, and a mutant that loops would never be judged
  * @measure time every case of a full network run on cassowary at the default width (toolchain-test's CPU report of the
  *   run, ~/.cache/toolchain-test/runs/last.json) and keep the slowest case's, with its headroom
- * @origin a measured record of 2026-11-05 on a macOS (Darwin 27.0.0) arm64 VM on 10 cores, Node 26.13.0, PostgreSQL
- *   19rc1: Vitest's results.json of 535 file runs, the slowest passing file test/pg/world-model/inductive.test.ts in
+ * @origin a measured record of 2026-11-05 on a macOS (Darwin 27.0.0) arm64 VM on 10 cores, Node 26.13.0: Vitest's
+ *   results.json of 535 file runs, the slowest passing file test/pg/world-model/inductive.test.ts in
  *   1,740 s, 60 minutes being 2.07 times it. Its revalidation (another machine; a Node and PostgreSQL pin change) has
  *   fired and its record stayed with that machine; on cassowary at a0208243 (GREENTRUNK) twenty network files'
  *   searches ran past it under a load of 340 to 440, which is why no test is bounded by it any more

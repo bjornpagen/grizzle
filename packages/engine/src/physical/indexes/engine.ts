@@ -963,11 +963,14 @@ const refined = (draft: Draft, ahead: Ahead): Draft | undefined => {
  * Instance(package, site, siteDocument, document) beside (package, siteDocument, site, assemblyKind). GiST splits a page by its first column (gistsplit.c gistSplitByKey: picksplit runs on it, and
  * a later column only redistributes the entries it ties), and btree_gist's picksplit halves a page in that column's
  * order, so the halves of a split on a column of few values share its middle value and each keeps every value of the
- * columns after it, and a probe follows more of them down. Measured on PostgreSQL 19rc2 over the 20,000 rows of
+ * columns after it, and a probe follows more of them down. On PostgreSQL 19.0, over the 20,000 rows of
  * serving-workload's kept case (test/pg/physical/serving.test.ts), whose load writes two closed handles of 3 values and
  * a numeric and a span of 141, a probe binding every column touches 7 to 10 buffers of a GiST index on (handle, handle,
  * numeric, span) over twenty builds of the same rows, which differ as gistchoose breaks ties between equally good
- * subtrees at random, and 4 or 5 over twenty builds of one on (numeric, span, handle, handle), this order. The first
+ * subtrees at random, and 4 or 5 over twenty builds of one on (numeric, span, handle, handle), this order. It was
+ * measured on 19rc2, whose GiST code 19.0 keeps (git diff REL_19_RC2 REL_19_0 -- src/backend/access/gist
+ * contrib/btree_gist src/backend/utils/adt/rangetypes_gist.c is empty), with the pin's btree_gist patch then, which
+ * priced only multibyte text keys and so none of these: the handles are int2 codes. The first
  * column of many values, which places the entries, stays the first by the request's order, so every request the
  * block's order served is served still, and none needs to bind a column of few values to keep its scan in one descent.
  */

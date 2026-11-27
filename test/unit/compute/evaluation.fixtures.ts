@@ -19,7 +19,7 @@ import { decimalGen } from "#test/unit/values/support.ts"
  * Functions") documents log and log10 to at most 9 units in the last place, its testsuite's limit; V8's Math.log and
  * Math.log10 are fdlibm's (ieee754.cc), documented to err by less than 1. So PostgreSQL's reading lies within 10 of
  * V8's. log10 of a power of ten binary64 holds is exact (fdlibm's e_log10.c guarantee, glibc's log10, and PostgreSQL
- * 19rc1 on macOS).
+ * 19.0 on cassowary's glibc 2.43, checked 2026-11-27).
  */
 export const libmUlps = 10
 

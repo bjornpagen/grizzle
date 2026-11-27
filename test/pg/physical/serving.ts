@@ -1598,16 +1598,16 @@ const rowsAPage = (facts: IndexFacts): number => facts.entries / Math.max(1, fac
  * The least rows of a relation's filled state (see judgeServing).
  *
  * @limitKind derived
- * @owner the serving judgment (serving.ts judgeServing's filled state), over PostgreSQL 19rc1's index cost estimates
+ * @owner the serving judgment (serving.ts judgeServing's filled state), over PostgreSQL 19.0's index cost estimates
  * @unit rows
  * @scope each relation of each case judgeServing judges whose probes hold one whose estimate grows with its table: the
  *   copy its filled state stands up
  * @derivation PostgreSQL prices an index read at ceil(estimated entries × (pages - 1) / tuples) pages, the metapage
  *   aside (selfuncs.c genericcostestimate,
- *   https://github.com/postgres/postgres/blob/REL_19_RC1/src/backend/utils/adt/selfuncs.c#L7523-L7527, "ceil(numIndexTuples
- *   * (index->pages - costs->numNonLeafPages) / index->tuples)", verified 2026-11-23), its pages off the index's blocks
+ *   https://github.com/postgres/postgres/blob/REL_19_0/src/backend/utils/adt/selfuncs.c#L7523-L7527, "ceil(numIndexTuples
+ *   * (index->pages - costs->numNonLeafPages) / index->tuples)", verified 2026-11-27), its pages off the index's blocks
  *   and its tuples the table's (plancat.c get_relation_info,
- *   https://github.com/postgres/postgres/blob/REL_19_RC1/src/backend/optimizer/util/plancat.c#L479-L480). While every
+ *   https://github.com/postgres/postgres/blob/REL_19_0/src/backend/optimizer/util/plancat.c#L479-L480). While every
  *   index that could read a probe is priced at one page, only the descent charges tell them apart, ceil(log2 N)
  *   comparisons for a B-tree against ceil(ln N) for a GiST index (btcostestimate, gistcostestimate, #L8145 and #L8268),
  *   whatever each reads. Once the reader of the most pages an entry passes one page, pages tell every pair apart, and a
@@ -1616,7 +1616,7 @@ const rowsAPage = (facts: IndexFacts): number => facts.entries / Math.max(1, fac
  *   once s × N × (p - 1) / e > 1. So a relation's filled size is the greatest floor(e / (s × (p - 1))) + 1 over its
  *   growing probes, each at its densest-paged reader; a relation with none is planned at the load itself. A probe
  *   binding an anchor by equality, a column whose declared number of distinct values is relative, estimates the same
- *   rows at every size, which the declaration ranks. Measured on PostgreSQL 19rc1 at the load's 20,000 rows: Shift's
+ *   rows at every size, which the declaration ranks. Measured on PostgreSQL 19.0 at the load's 20,000 rows: Shift's
  *   range on (standby, worker), 50 rows estimated, read densest by its GiST primary key of 66.2 rows a page, about
  *   26,500 rows; DatetimePl's range on (JsonbInsert, fixed0), 50 rows, by its GiST index of about 101, about 40,400.
  * @from the load's own estimates and pages, read in the case (Growing, IndexFacts)
