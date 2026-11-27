@@ -23,6 +23,7 @@ import {
 	exists,
 	firstNonNull,
 	lit,
+	ne,
 	not,
 	simpleSelect,
 	table,
@@ -218,7 +219,7 @@ const verdictName = "verdict"
  *                                     ELSE 'migrated' END FROM <ledger head> AS h), 'migrated');
  *   IF verdict = 'migrating' THEN
  *     RAISE EXCEPTION ... USING ERRCODE = '55Z02';   -- a migration running or stopped part-way
- *   ELSIF verdict = 'migrated' THEN
+ *   ELSIF verdict <> 'admitted' THEN
  *     RAISE EXCEPTION ... USING ERRCODE = '55Z01';   -- the latest complete target is another, or none
  *   END IF;
  *
@@ -226,7 +227,9 @@ const verdictName = "verdict"
  * target the Db's fingerprint, read off the one row the ledger's head is (ledgerHeadTableName): only the latest folder
  * can be partial, since the runner records folders in name order and each whole before the next, and the runner writes
  * the head in the transaction of every row of the ledger it records, so the head is the rule of the rows each
- * transaction commits. The read is one page whatever the ledger holds, a whole read of a table of one row, bound and
+ * transaction commits. Its two conditions are two expressions apart, `=` and `<>`, so PostgreSQL plans each once a
+ * session, where one form twice is one statement planned twice (test/pg/adapter/warm-pool). The read is one page
+ * whatever the ledger holds, a whole read of a table of one row, bound and
  * advised as every routine's statement is (sql/bind.ts bindRoutine), where the rule read every folder row and counted
  * each one's files in every Db transaction. Admission (`guard`) and every Db transaction (`enter`) call this one
  * function behind the one fence, so they cannot disagree. The library comes first: a transaction of a session that
@@ -293,7 +296,7 @@ export const snapshotGuardDdl = (schema: string): readonly [PlFunction, Revoke] 
 								]
 							},
 							{
-								condition: eq(verdict, verdictText("migrated")),
+								condition: ne(verdict, verdictText("admitted")),
 								body: [
 									raiseAs(
 										"the latest grizzle migration of this schema is not the snapshot of this Db",
