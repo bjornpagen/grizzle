@@ -1799,6 +1799,7 @@ const bodyReadsNoTable = (body: Expr): boolean => {
 				case "joins":
 					return
 				case "table":
+				case "read":
 				case "probe":
 				case "met":
 				case "metRows":
