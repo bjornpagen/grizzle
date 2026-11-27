@@ -1214,8 +1214,10 @@ class StatementAuditor {
 	}
 
 	/**
-	 * A FROM item's names and lists, each relation alias it defines defined once. Which relations each place of it reaches
-	 * is the printer's scope check (sql/scope.ts).
+	 * A FROM item's names and lists, each relation alias it defines defined once; a probe delivering each column it reads
+	 * under a generated c<n>, or as the stored column itself, passed through under its own name, as the binding delivers
+	 * a probe it makes of a table read (sql/bind.ts), its tuple id a write's target is read at among them. Which relations
+	 * each place of it reaches is the printer's scope check (sql/scope.ts).
 	 */
 	fromItem(item: FromItem, pl: boolean): void {
 		switch (item.kind) {
@@ -1273,13 +1275,18 @@ class StatementAuditor {
 						})
 					}
 				})
-				this.at("columns", () =>
+				this.at("columns", () => {
 					this.columnList(
 						Arr.map(item.columns, (c) => c.as),
 						"probe",
-						true
+						false
 					)
-				)
+					for (const [i, c] of item.columns.entries()) {
+						if (c.as !== c.read && !isGeneratedColumnName(c.as)) {
+							this.report("naming", `probe column "${c.as}" is not a generated c<n>`, i)
+						}
+					}
+				})
 				this.defineRelation(item.alias, "alias")
 				return
 			}
