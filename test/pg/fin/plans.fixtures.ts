@@ -165,7 +165,7 @@ export const plansFamily = seededFamilyTemplate(import.meta, "ordered", "plans f
 		const fc = (relation: string, role: string) => f.column(relation, role)
 		const familyLoaded = yield* attempt(f.session, [
 			`INSERT INTO ${f.table("Owner")} (${fc("Owner", "id")}, ${fc("Owner", "n")}) SELECT o, ${load.members} FROM pg_catalog.generate_series(1, ${load.owners}) AS o`,
-			`INSERT INTO ${f.table("Member")} (${fc("Member", "member")}, ${fc("Member", "g")}, ${fc("Member", "at")}, ${fc("Member", "‹n›")}) SELECT o * ${load.members} + a, o, a, ${load.members} FROM pg_catalog.generate_series(1, ${load.owners}) AS o, pg_catalog.generate_series(0, ${load.members - 1}) AS a`
+			`INSERT INTO ${f.table("Member")} (${fc("Member", "member")}, ${fc("Member", "g")}, ${fc("Member", "at")}, ${fc("Member", "‹s›")}) SELECT o * ${load.members} + a, o, a, CASE WHEN a + 1 < ${load.members} THEN a + 1 ELSE a END FROM pg_catalog.generate_series(1, ${load.owners}) AS o, pg_catalog.generate_series(0, ${load.members - 1}) AS a`
 		])
 		assert.equal(familyLoaded.kind, "committed", "the family load is a family state")
 		yield* s.admin.query(`VACUUM ${f.table("Owner")}, ${f.table("Member")}`, [])

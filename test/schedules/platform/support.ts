@@ -656,8 +656,8 @@ const relationNamed = (name: string): RelationName => {
 
 /**
  * A counted family as a direct writer fills it, read off the installation's law model: its member and owner, each
- * group field of the member with the owner's key field it names, the member's slot ‹i› and copy ‹n›, the owner's
- * count, and each sum plane's step field, the member's before and after, the owner's end and the identity. Every
+ * group field of the member with the owner's key field it names, the member's slot ‹i› and successor ‹s›, the
+ * owner's count, and each sum plane's step field, the member's before and after, the owner's end and the identity. Every
  * column is quoted.
  */
 interface DirectFamily {
@@ -666,7 +666,7 @@ interface DirectFamily {
 	readonly owner: RelationName
 	readonly group: ReadonlyArray<{ readonly member: string; readonly owner: string }>
 	readonly index: string
-	readonly copy: string
+	readonly next: string
 	readonly count: string
 	readonly planes: ReadonlyArray<{
 		readonly step: string
@@ -698,7 +698,7 @@ const directFamilies = (names: Names): ReadonlyArray<DirectFamily> =>
 			owner,
 			group: Arr.map(f.group, (g) => ({ member: g.member.name, owner: g.owner.name })),
 			index: lawColumn(f.shape.index, "index"),
-			copy: quoteIdent(f.copy),
+			next: quoteIdent(f.next),
 			count: field(owner, f.count.name),
 			planes: Arr.flatMap(f.folds, (fold) => {
 				const step = fold.step
@@ -741,11 +741,12 @@ const stepOf = (row: PlatformRow, field: string): bigint => {
 /**
  * A direct transaction's statements as the SQL its writer runs, one statement each. A direct writer writes what
  * grizzle's filler writes for its facts (rows-first.md §2): an owner it inserts states its count and its ends, and a
- * member its slot ‹i›, its owner's count ‹n› and each sum's before and after. Where the transaction inserts the owner
- * too, the group's members are the transaction's own, slotted in their keys' order; where the owner is stored, the
- * member's statement appends to it, advancing the owner's count and ends in place (its checks judge them there) and
- * slotting the members after the stored ones by what that update returns, so concurrent appenders serialize on the
- * owner's row. An owner that is not stored leaves the update nothing to return, and the members then name a count no
+ * member its slot ‹i›, its successor ‹s› (the slot after it below the count, its own at the last) and each sum's before
+ * and after. Where the transaction inserts the owner too, the group's members are the transaction's own, slotted in
+ * their keys' order; where the owner is stored, the member's statement appends to it, advancing the owner's count and
+ * ends in place (its checks judge them there), slotting the members after the stored ones by what that update returns
+ * and setting the successor of the stored member before them to the first of them, so concurrent appenders serialize
+ * on the owner's row. An owner that is not stored leaves the update nothing to return, and the members then name a count no
  * owner holds, which its owner axis refuses. An owner put takes its written fields in place and keeps its families. A
  * member is never deleted or put: that edits its family, which only the planner does.
  */
@@ -828,7 +829,7 @@ const directSql = (
 	const memberColumns = (relation: RelationName) =>
 		Arr.flatMap(memberFamilies(relation), (f) => [
 			f.index,
-			f.copy,
+			f.next,
 			...Arr.flatMap(f.planes, (p) => [p.before, p.after])
 		])
 	const insertSql = (relation: RelationName, facts: ReadonlyArray<PlatformRow>): string => {
@@ -860,7 +861,7 @@ const directSql = (
 				if (mine !== undefined) {
 					return [
 						drawnText(BigInt(slot)),
-						drawnText(k),
+						drawnText(BigInt(slot + 1 < members.length ? slot + 1 : slot)),
 						...Arr.flatMap(f.planes, (p) => [
 							drawnText(p.identity + before(p)),
 							drawnText(p.identity + before(p) + stepOf(row, p.step))
@@ -869,9 +870,10 @@ const directSql = (
 				}
 				const alias = appendTo(f, group)
 				const count = `COALESCE((SELECT n FROM ${alias}), ${drawnText(k)})`
+				const last = slot === members.length - 1
 				return [
 					`${count} - ${drawnText(k - BigInt(slot))}`,
-					count,
+					`${count} - ${drawnText(k - BigInt(slot) - (last ? 0n : 1n))}`,
 					...Arr.flatMap(f.planes, (p, plane) => {
 						const total = sumOf(members, p.step)
 						const end = `COALESCE((SELECT e${plane} FROM ${alias}), ${drawnText(p.identity + total)})`
@@ -901,7 +903,7 @@ const directSql = (
 		if (!Arr.isArrayNonEmpty(appends)) {
 			return insert
 		}
-		const updates = Arr.map(appends, ({ f, group, alias }) => {
+		const updates = Arr.map(appends, ({ f, group, alias }, j) => {
 			const members = appended(f, group)
 			const representative = defined(members[0], `a member appended to ${f.label}`)
 			const where = Arr.join(
@@ -920,7 +922,16 @@ const directSql = (
 				`${f.count} AS n`,
 				...Arr.map(f.planes, (p, plane) => `${p.end} AS e${plane}`)
 			]
-			return `${alias} AS (UPDATE ${table(f.owner)} SET ${Arr.join(sets, ", ")} WHERE ${where} RETURNING ${Arr.join(returning, ", ")})`
+			const atGroup = Arr.join(
+				Arr.map(
+					f.group,
+					(g) =>
+						`${column(f.member, g.member)} = ${literal(names, f.member, g.member, representative[g.member])}`
+				),
+				" AND "
+			)
+			const seam = `${quoteIdent(`seam_${j}`)} AS (UPDATE ${table(f.member)} SET ${f.next} = ${f.index} + 1 WHERE ${atGroup} AND ${f.index} = (SELECT n FROM ${alias}) - ${drawnText(BigInt(members.length) + 1n)})`
+			return `${alias} AS (UPDATE ${table(f.owner)} SET ${Arr.join(sets, ", ")} WHERE ${where} RETURNING ${Arr.join(returning, ", ")}), ${seam}`
 		})
 		return `WITH ${Arr.join(updates, ", ")} ${insert}`
 	}

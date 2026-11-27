@@ -295,8 +295,9 @@ const naturalSource = (spec: FillSpec, source: CopySource, seen: ReadonlySet<num
 
 /**
  * The sources a copy along `axis` of family `f` may read on its target row, in a fixed order: every numeric column of
- * the row but those the axis itself carries (its key, a family's count on the owner axis, a tree's start and root on
- * its owner axis and its end on the others), so a copy adds a column its axis references once. A copy reads another
+ * the row but those the axis itself carries (its key, a tree's start and root on its owner axis and its end on the
+ * others), so a copy adds a column its axis references once, and but the family's own count on its owner axis, which
+ * these specifications never copy: an append would rewrite it on every member. A copy reads another
  * copy of the row by its number, and a copy along a tree's owner axis may read itself: each node then holds its
  * parent's value, its root its start, and so every node its start.
  */

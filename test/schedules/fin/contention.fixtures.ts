@@ -105,7 +105,7 @@ export const contentionCase = (taken: SubstrateCase<Generated>) =>
 				? family.shape.index.column
 				: names.columnIdent({ name: "Member" }, family.shape.index.field.name)
 		)
-		const copy = quoteIdent(family.copy)
+		const next = quoteIdent(family.next)
 		const app = yield* rig.servedWriter(
 			"app",
 			(context) => openServed(rig.served.roles.app, {}).pipe(Effect.provideContext(context)),
@@ -128,7 +128,8 @@ export const contentionCase = (taken: SubstrateCase<Generated>) =>
 					[
 						`SELECT ${n} FROM ${owner} WHERE ${id} = 0`,
 						`UPDATE ${owner} SET ${n} = ${n} + 1 WHERE ${id} = 0`,
-						`INSERT INTO ${member} (${m}, ${g}, ${at}, ${copy}) SELECT ${DIRECT}, 0, ${n} - 1, ${n} FROM ${owner} WHERE ${id} = 0`
+						`UPDATE ${member} SET ${next} = ${at} + 1 WHERE ${g} = 0 AND ${at} = (SELECT ${n} - 2 FROM ${owner} WHERE ${id} = 0)`,
+						`INSERT INTO ${member} (${m}, ${g}, ${at}, ${next}) SELECT ${DIRECT}, 0, ${n} - 1, ${n} - 1 FROM ${owner} WHERE ${id} = 0`
 					],
 					(sql) => interleaveStep(sql, everyRelation)
 				),
@@ -173,7 +174,7 @@ export const contentionCase = (taken: SubstrateCase<Generated>) =>
 			}),
 			rig.replace([
 				`INSERT INTO ${owner} (${id}, ${n}) VALUES (0, 1)`,
-				`INSERT INTO ${member} (${m}, ${g}, ${at}, ${copy}) VALUES (0, 0, 0, 1)`
+				`INSERT INTO ${member} (${m}, ${g}, ${at}, ${next}) VALUES (0, 0, 0, 0)`
 			])
 		).pipe(Effect.orDie)
 		/** Runs in which the grizzle write was refused by a TransientFailure and ran again. */
@@ -248,7 +249,7 @@ export const contentionCase = (taken: SubstrateCase<Generated>) =>
 				reset,
 				state: {
 					_tag: "Read",
-					sql: `SELECT 0, ${id}::int8, ${n}::int8, 0::int8, 0::int8 FROM ${owner} UNION ALL SELECT 1, ${m}::int8, ${g}::int8, ${at}::int8, ${copy}::int8 FROM ${member}`
+					sql: `SELECT 0, ${id}::int8, ${n}::int8, 0::int8, 0::int8 FROM ${owner} UNION ALL SELECT 1, ${m}::int8, ${g}::int8, ${at}::int8, ${next}::int8 FROM ${member}`
 				},
 				model: (run) => Effect.sync(() => judge(run))
 			},

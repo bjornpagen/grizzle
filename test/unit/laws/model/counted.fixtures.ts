@@ -35,15 +35,16 @@ import { drawnColumn, modelOf, type Row, type State } from "#test/unit/laws/mode
  *
  * The oracle is NP's model of a counted family's writes (test/support/families/counted.ts `swapWithLast`, `appended`),
  * the planner's statements in the order every change sends them, and the family law itself for the lawless states: a
- * state is lawful exactly when each owner's members are indexed 0 … n − 1 with n its count, each member's copy of the
- * count is n, and the hidden count fold's accumulators and end are the reference fold's. The judge is a host model of
+ * state is lawful exactly when each owner's members are indexed 0 … n − 1 with n its count, each member's successor is
+ * the slot after it below n and its own slot at n − 1, and the hidden count fold's accumulators and end are the
+ * reference fold's. The judge is a host model of
  * the natives' PostgreSQL semantics (natives.ts `brokenBy`): every immediate native holds at each statement's end, and
  * every native at COMMIT.
  *
  * Bound: one owner of 0 to 4 members beside another of one; every swap-with-last at every slot, and every append of 1
  * or 2 members in every arrival order; and every lawful family of 0 to 4 members under each named lawless variant (a
- * duplicate slot, a gap, a count off by one, a stale copy, a member at slot −1, a junk accumulator at slot 0, a junk
- * end).
+ * duplicate slot, a gap, a count off by one, a stale successor, a member at slot −1, a junk accumulator at slot 0, a
+ * junk end).
  *
  * Features: swap with last, append, an arrival out of order, and each named lawless variant.
  */
@@ -66,14 +67,14 @@ const schema: SchemaDesc = {
 /** The drawn columns of the member, by what each draws. */
 interface Drawn {
 	readonly index: string
-	readonly copy: string
+	readonly next: string
 	readonly before: string
 	readonly after: string
 }
 
 const drawnOf = (model: LawModel): Drawn => ({
 	index: drawnColumn(model, "Member", "index"),
-	copy: drawnColumn(model, "Member", "copy"),
+	next: drawnColumn(model, "Member", "next"),
 	before: drawnColumn(model, "Member", "before 0.0"),
 	after: drawnColumn(model, "Member", "after 0.0")
 })
@@ -102,7 +103,7 @@ export const stateOf = (drawn: Drawn, stored: FoldStored): State =>
 						["id", BigInt(r.member)],
 						["owner", BigInt(r.group)],
 						[drawn.index, BigInt(r.at)],
-						[drawn.copy, BigInt(r.copy)],
+						[drawn.next, BigInt(r.next)],
 						[drawn.before, r.before[0]],
 						[drawn.after, r.after[0]]
 					])
@@ -158,7 +159,7 @@ const FAMILY_VARIANTS = [
 ] as const
 
 /** The lawless variants that change a member the family holds, so only a family of a member or more carries one. */
-const MEMBER_VARIANTS = ["a stale copy", "a junk accumulator at slot 0"] as const
+const MEMBER_VARIANTS = ["a stale successor", "a junk accumulator at slot 0"] as const
 
 type Variant = (typeof FAMILY_VARIANTS)[number] | (typeof MEMBER_VARIANTS)[number]
 
@@ -218,7 +219,7 @@ export const lawlessOf = (size: number, variant: Variant): FoldStored => {
 	const extra = {
 		group: 1,
 		at: size,
-		copy: size,
+		next: size,
 		member: 99,
 		x: 0n,
 		selected: true,
@@ -238,10 +239,10 @@ export const lawlessOf = (size: number, variant: Variant): FoldStored => {
 				owners: Arr.map(lawful.owners, (o) => (o.owner === 1 ? { ...o, count: o.count + 1 } : o)),
 				rows: lawful.rows
 			}
-		case "a stale copy":
+		case "a stale successor":
 			return {
 				owners: lawful.owners,
-				rows: [...rest, ...Arr.map(ownRows, (r) => ({ ...r, copy: r.copy + 1 }))]
+				rows: [...rest, ...Arr.map(ownRows, (r) => ({ ...r, next: r.next + 1 }))]
 			}
 		case "a member at slot −1":
 			return { owners: lawful.owners, rows: [...lawful.rows, { ...extra, at: -1 }] }

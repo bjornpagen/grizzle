@@ -1,6 +1,6 @@
 /**
- * The host's fills of a fold (runtime/write/fill.ts `filler`, W3.P2): every member's index and copy of its owner's
- * count, each plane's before and after, named or hidden, and the owner's count and ends, from one family's members in
+ * The host's fills of a fold (runtime/write/fill.ts `filler`, W3.P2): every member's index and successor, each
+ * plane's before and after, named or hidden, and the owner's count and ends, from one family's members in
  * slot order.
  *
  * The oracles: NP's reference fold (test/support/families/fold.ts `folded`), a second implementation in exact bigint
@@ -104,9 +104,9 @@ export const theHostFoldExhaustivelyFillsEveryFoldsAccumulatorsAndEndsAsTheRefer
 						"the index is the slot"
 					)
 					assert.equal(
-						cellAt(fills.columns, row, columnKeyOf(fills.family.copy)),
-						BigInt(c.members.length),
-						"every member copies its owner's count"
+						cellAt(fills.columns, row, columnKeyOf(fills.family.next)),
+						BigInt(slot + 1 < c.members.length ? slot + 1 : slot),
+						"every member's successor is the slot after it, its own at the last"
 					)
 					if (c.shape.selection !== "none" && c.members[slot]?.flag === false) {
 						note.note("a member stepped over")

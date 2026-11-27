@@ -16,19 +16,21 @@
  *   slot, its group then `i<f>`, and its predecessor's, its group then a law column; a counted family's two, its group
  *   then its drawn index, and then that index's predecessor, both law columns; a tree's three, its root and its
  *   parent's start under its members' selection, a law column, then `i<f>`, the predecessor of `i<f>`, or `i<f>` and
- *   `end`; a fold's end beside its family's last slot, that slot's columns then the fold's accumulator, a law column, a
- *   tree's in place of its slot by `end`; and each owner's owner-axis target, its key then `n<f>`, a tree's own
- *   (`d<f>`, `d<f>p`, `start`, `n<f>`) among them. A check by a law column's key is so a check by a whole declared key.
+ *   `end`; the successors the predecessor and last axes reference, the slot's columns then its successor, a law
+ *   column, a tree's `end` after it, then a fold's accumulator, a law column, where it folds; and each owner's holding
+ *   reference's target, its key with its first field where the count is above 0, a law column, a tree's own (that law
+ *   column, `d<f>p`, `start`) among them. A check by a law column's key is so a check by a whole declared key.
  * - Counted groups: a second implementation over the specification's own names: each relation's are, for each family
  *   it is the member of whose owner is immutable (a tree's owner its own relation), the family's group fields, and none
  *   for any other.
  * - References: each relation's are, as a multiset, the foreign keys each family it is in holds, by the
  *   specification's names, each target's columns with its law columns: an ordered or counted family's member
- *   references its owner's target, its key then `n<f>`, ON UPDATE CASCADE, and its own slot, which its owner's last
- *   member references too, its group and `i<f>` for an ordered family and its group and its drawn index for a counted
- *   one, then the fold's accumulator where it folds; a tree's relation references its own target (`d<f>`, `d<f>p`,
- *   `start`, `n<f>`) and twice its own slot and end past its guarded parent (`d<f>`, `d<f>p`, the parent's start, `i<f>`,
- *   `end`, then the fold's accumulator where it folds); every reference but an owner axis NO ACTION.
+ *   references its owner's holding target, and its own slot and successor, which its owner's last slot references too,
+ *   its group, `i<f>` and its successor for an ordered family and its group, its drawn index and its successor for a
+ *   counted one, then the fold's accumulator where it folds; a tree's relation references its own holding target and
+ *   twice its own slot, successor and end past its guarded parent (`d<f>`, `d<f>p`, the parent's start, `i<f>`, the
+ *   successor, `end`, then the fold's accumulator where it folds); every reference NO ACTION, since no family carries a
+ *   copy.
  * - Roles: one fact for each role, in order, its privileges grantedPrivileges' answer for its own input, and its
  *   writes served by memberFacts' answers for its members in order, every variant of each, or unknown where it has no
  *   change member, so it writes by direct SQL alone, reading what readableRelations answers for its own input.

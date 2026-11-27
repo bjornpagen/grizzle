@@ -6,16 +6,19 @@
  * applies its statements in order, is refused at the first statement after which a constraint checked there is broken,
  * or at commit when a deferred one is, and otherwise commits to the families the theorem reads from what it leaves.
  *
- * Every change sends its statements in one order: deletes, then the move of swap-with-last, then the owner's count,
- * then inserts. A family changes in the forms the writes take:
+ * Every change sends its statements in one order: deletes, then the move of swap-with-last, then the successor of
+ * each row it keeps whose successor the change moves (the seam), then the owner's count, then inserts. No row holds its
+ * owner's count, so a change writes the rows it moves and the one row before them, never the rows it keeps where they
+ * were. A family changes in the forms the writes take:
  *
  * - lawful, in that order, leaving the theorem true, so each must commit to exactly the families it states, each drawn
  *   as a `Change` and lowered by one function (`loweredGen`):
  *   - `create`, a new owner and its family;
- *   - `append`, rows after the last, with one count update however many rows it adds;
+ *   - `append`, rows after the last, with one count update however many rows it adds, and the row before them its
+ *     successor the first appended slot;
  *   - `remove`, one member: an ordered family deletes the suffix from it, lowers the count and inserts the rest of the
  *     suffix one slot down; a counted family deletes the member, moves its last row into the freed slot and lowers the
- *     count (swap-with-last);
+ *     count (swap-with-last); either way the row left last holds its own slot as its successor;
  *   - `insert-at`, new members at a slot of an ordered family, by deleting the suffix from it, raising the count and
  *     inserting the new members then the old suffix;
  *   - `swap`, two members of an ordered family exchanging slots, by rewriting the suffix from the first;
@@ -28,14 +31,14 @@
  *   - `gap`, a member deleted with no row renumbered, the count kept or lowered;
  *   - `twice`, a row inserted at a slot a row holds;
  *   - `orphan`, an owner deleted with its family left;
- * - `misorder`, a lawful mutation's statements in another order, which the model judges: a count lowered while a row
- *   remains at or above it is refused at the count update, because a check is never deferred and the count's cascade
- *   carries the new count into that row's copy; a row sent before its owner's count is refused by the immediate copy;
- *   other orders the deferred last slot, and a counted family's deferred closure, may let commit.
+ * - `misorder`, a lawful mutation's statements in another order, which the model judges: a row sent before the seam
+ *   that makes the row before it its predecessor, or a seam sent while the row after it still stands, is refused by an
+ *   ordered family's immediate closure; other orders the deferred owner axis, its holding reference, the deferred last
+ *   slot, and a counted family's deferred closure, may let commit, a row sent before its owner among them.
  *
- * Every insert lists its rows in a drawn order, so a row often arrives before its predecessor, and each row copies the
- * count its owner has once the mutation is done, which is what the host writes. Inserted members are new, numbered
- * after every member of the state, and moved members keep their numbers.
+ * Every insert lists its rows in a drawn order, so a row often arrives before its predecessor, and each row holds the
+ * successor its slot has once the mutation is done, its owner's final count read, which is what the host writes.
+ * Inserted members are new, numbered after every member of the state, and moved members keep their numbers.
  */
 import { indices, maxOf } from "@bjornpagen/grizzle-text/base/array"
 import { nonEmpty } from "@bjornpagen/testing/assert"
@@ -62,6 +65,7 @@ import {
 	type Shape,
 	type Stored,
 	storedOf,
+	successorOf,
 	theorem,
 	type FamilyViolation,
 	familyViolations
@@ -72,10 +76,11 @@ import {
  *
  * - `create` inserts an owner with its count;
  * - `drop` deletes an owner;
- * - `count` updates an owner's count, and the copy's cascade carries the new count into every row that copied the old;
- * - `insert` inserts family rows in one statement, in the order listed, each with the index and copy it states;
+ * - `count` updates an owner's count, and nothing else: no row holds it;
+ * - `insert` inserts family rows in one statement, in the order listed, each with the index and successor it states;
  * - `delete` deletes the rows of the members listed, by the family relation's own key;
- * - `move` updates one member's index.
+ * - `move` updates one member's index and successor;
+ * - `successor` updates one member's successor alone, the seam of a change that moves its family's end past or onto it.
  */
 export type MutationStatement =
 	| { readonly kind: "create"; readonly owner: number; readonly count: number }
@@ -83,20 +88,22 @@ export type MutationStatement =
 	| { readonly kind: "count"; readonly owner: number; readonly count: number }
 	| { readonly kind: "insert"; readonly rows: Arr.NonEmptyReadonlyArray<FamilyRow> }
 	| { readonly kind: "delete"; readonly members: Arr.NonEmptyReadonlyArray<number> }
-	| { readonly kind: "move"; readonly member: number; readonly at: number }
+	| { readonly kind: "move"; readonly member: number; readonly at: number; readonly next: number }
+	| { readonly kind: "successor"; readonly member: number; readonly next: number }
 
 /**
  * Each statement's place in the order every change sends them: deletes, then the move of swap-with-last, then the
- * owner's count (its creation, its update, or its deletion once its family is gone), then inserts. A lawful mutation's
- * statements are in ascending place.
+ * seams, then the owner's count (its creation, its update, or its deletion once its family is gone), then inserts. A
+ * lawful mutation's statements are in ascending place.
  */
 export const sendPlace: Readonly<Record<MutationStatement["kind"], number>> = {
 	delete: 0,
 	move: 1,
-	create: 2,
-	count: 2,
-	drop: 2,
-	insert: 3
+	successor: 2,
+	create: 3,
+	count: 3,
+	drop: 3,
+	insert: 4
 }
 
 /**
@@ -119,18 +126,13 @@ export const applied = (stored: Stored, statement: MutationStatement): Stored =>
 			owners.delete(statement.owner)
 			return { owners, rows: stored.rows }
 		}
-		case "count": {
-			const old = stored.owners.get(statement.owner)
-			if (old === undefined) {
-				return stored
-			}
-			return {
-				owners: new Map([...stored.owners, [statement.owner, statement.count]]),
-				rows: Arr.map(stored.rows, (r) =>
-					r.group === statement.owner && r.copy === old ? { ...r, copy: statement.count } : r
-				)
-			}
-		}
+		case "count":
+			return stored.owners.has(statement.owner)
+				? {
+						owners: new Map([...stored.owners, [statement.owner, statement.count]]),
+						rows: stored.rows
+					}
+				: stored
 		case "insert":
 			return { owners: stored.owners, rows: [...stored.rows, ...statement.rows] }
 		case "delete":
@@ -142,7 +144,14 @@ export const applied = (stored: Stored, statement: MutationStatement): Stored =>
 			return {
 				owners: stored.owners,
 				rows: Arr.map(stored.rows, (r) =>
-					r.member === statement.member ? { ...r, at: statement.at } : r
+					r.member === statement.member ? { ...r, at: statement.at, next: statement.next } : r
+				)
+			}
+		case "successor":
+			return {
+				owners: stored.owners,
+				rows: Arr.map(stored.rows, (r) =>
+					r.member === statement.member ? { ...r, next: statement.next } : r
 				)
 			}
 	}
@@ -152,17 +161,15 @@ export const applied = (stored: Stored, statement: MutationStatement): Stored =>
 export type Timing = "statement" | "commit"
 
 /**
- * When PostgreSQL checks each constraint but the closure, whatever the family's shape, as the RFC's lowering declares
- * them (w4-w7 §2.1). Both keys are unique constraints that are not deferrable, and a check never is, so all three hold
- * at every statement. The copy's foreign key is the owner axis, immediate since no cascade feeds its target, and its
- * cascade runs inside the statement that updates the count; the last slot's lies on the cycle between owner and family,
- * so it alone is deferred.
+ * When PostgreSQL checks each constraint but the closure, whatever the family's shape, as grizzle's lowering declares
+ * them (laws/model/plan.ts). Both keys are unique constraints that are not deferrable, so they hold at every statement.
+ * The owner axis, its holding reference, and the last slot's are deferred: a count and its members are checked
+ * together as the write leaves them.
  */
 const checkedEverywhere: Readonly<Record<Exclude<Constraint, "closure">, Timing>> = {
 	identity: "statement",
 	key: "statement",
-	bound: "statement",
-	copy: "statement",
+	holding: "commit",
 	last: "commit"
 }
 
@@ -398,19 +405,37 @@ const deletesOf = (members: ReadonlyArray<number>): ReadonlyArray<MutationStatem
 const countsOf = (owner: number, from: number, to: number): ReadonlyArray<MutationStatement> =>
 	from === to ? [] : [{ kind: "count", owner, count: to }]
 
-/** The insert of the members at consecutive slots from `from`, its rows in a drawn order, none for no member. */
+/**
+ * The insert of the members at consecutive slots from `from` of a family of `count`, its rows in a drawn order, none for
+ * no member.
+ */
 const insertsOf =
 	(
 		owner: number,
 		members: ReadonlyArray<number>,
 		from: number,
-		copy: number
+		count: number
 	): Gen<ReadonlyArray<MutationStatement>> =>
 	(source) => {
-		const rows = familyRowsFrom(owner, members, from, copy)
+		const rows = familyRowsFrom(owner, members, from, count)
 		const sent = source.draw(shuffled(rows, { min: rows.length, max: rows.length }))
 		return Arr.isReadonlyArrayNonEmpty(sent) ? [{ kind: "insert", rows: sent }] : []
 	}
+
+/**
+ * The seams of the rows `kept` keeps at their slots, each a member at its slot: the successor of each whose successor
+ * in a family of `after` members differs from the one it holds in one of `before`, the row before the slots a change
+ * moves its family's end to or from.
+ */
+const seamsOf = (
+	kept: ReadonlyArray<readonly [member: number, at: number]>,
+	before: number,
+	after: number
+): ReadonlyArray<MutationStatement> =>
+	Arr.flatMap(kept, ([member, at]): ReadonlyArray<MutationStatement> => {
+		const next = successorOf(at, after)
+		return next === successorOf(at, before) ? [] : [{ kind: "successor", member, next }]
+	})
 
 /** A counted family's members after swap-with-last at `at`: the last member in its slot, the count one lower. */
 const swappedLast = (members: ReadonlyArray<number>, at: number): ReadonlyArray<number> => {
@@ -461,6 +486,11 @@ const loweredGen =
 				const count = change.at + change.suffix.length
 				return [
 					...deletesOf(members.slice(change.at)),
+					...seamsOf(
+						Arr.map(members.slice(0, change.at), (m, at) => [m, at] as const),
+						members.length,
+						count
+					),
 					...countsOf(change.owner, members.length, count),
 					...source.draw(insertsOf(change.owner, change.suffix, change.at, count))
 				]
@@ -468,12 +498,27 @@ const loweredGen =
 			case "swapLast": {
 				const members = membersOf(families, change.owner)
 				const n = members.length
+				const last = n - 1
 				return [
 					...deletesOf([Arr.getUnsafe(members, change.at)]),
-					...(change.at < n - 1
-						? [{ kind: "move", member: Arr.getUnsafe(members, n - 1), at: change.at } as const]
+					...(change.at < last
+						? [
+								{
+									kind: "move",
+									member: Arr.getUnsafe(members, last),
+									at: change.at,
+									next: successorOf(change.at, last)
+								} as const
+							]
 						: []),
-					...countsOf(change.owner, n, n - 1)
+					...seamsOf(
+						Arr.flatMap(members.slice(0, last), (m, at) =>
+							at === change.at ? [] : [[m, at] as const]
+						),
+						n,
+						last
+					),
+					...countsOf(change.owner, n, last)
 				]
 			}
 		}
@@ -619,11 +664,13 @@ const breakingGen =
 					breaks: count > n ? "gap" : "beyond"
 				}
 			}
-			case "beyond":
+			case "beyond": {
+				const at = n + source.draw(int(0, 1))
 				return {
-					statements: [one({ group: owner, at: n + source.draw(int(0, 1)), copy: n })],
+					statements: [one({ group: owner, at, next: successorOf(at, n) })],
 					breaks: "beyond"
 				}
+			}
 			case "gap": {
 				const at = source.draw(int(0, n - 1))
 				const lowered = at < n - 1 && source.draw(boolean)
@@ -635,11 +682,13 @@ const breakingGen =
 					breaks: "gap"
 				}
 			}
-			case "twice":
+			case "twice": {
+				const at = source.draw(int(0, n - 1))
 				return {
-					statements: [one({ group: owner, at: source.draw(int(0, n - 1)), copy: n })],
+					statements: [one({ group: owner, at, next: successorOf(at, n) })],
 					breaks: "twice"
 				}
+			}
 			case "orphan":
 				return { statements: [{ kind: "drop", owner }], breaks: "orphan" }
 		}
@@ -708,9 +757,9 @@ const misorderGen =
 			throw new Error(`a misorder needs two statements or more, and a ${form} drew one`)
 		}
 		/**
-		 * The count's update moved to the front, an arm of its own where it is not already first: the one misorder that
-		 * can commit now that the copy is checked at each statement (a count raised before the deletes of an insert-at or
-		 * a growing replace), and the shrink's refusal by the bound (a count lowered first).
+		 * The count's update moved to the front, an arm of its own where it is not already first: a misorder that commits,
+		 * the count raised before the deletes of an insert-at or a growing replace, and one the last slot refuses at
+		 * commit or the closure at a statement, a count lowered before the rows past it are gone.
 		 */
 		const counted = Arr.findFirstIndex(prescribed, (st) => st.kind === "count")
 		const countFirst = Option.filter(counted, (i) => i > 0)

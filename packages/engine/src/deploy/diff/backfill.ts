@@ -12,7 +12,7 @@
  * before every constraint that reads one (slots structure.backfill, structure.constraints), and VALIDATE then proves
  * it: a value it drew wrongly is a violation of the family's own natives, never a silent state.
  *
- * - **Members:** each family's member columns, its index, its copy of the count and its folds' accumulators, are drawn by
+ * - **Members:** each family's member columns, its index, its successor and its folds' accumulators, are drawn by
  *   the family's served scan (write/family/scan.ts scanOf), run over the stored rows from slot 0, every group whole from
  *   the family's base: the one window lowering of the fill rules (ir/fill.ts) a write draws by, so a migration draws a
  *   value exactly as the write that later maintains it does. Each row's slot is ‹i› = row_number() OVER (PARTITION BY g
@@ -300,7 +300,7 @@ const identityOf = (installation: Installation, plane: FoldPlane): DrawnColumn =
 
 /**
  * The columns the target's families draw (DrawnColumns): on a member, the counted index ‹i› or the ordered index, the
- * copy ‹n›, each fold plane's before and after; on an owner, the count and each fold plane's end; a tree's parent and
+ * successor ‹s›, each fold plane's before and after; on an owner, the count and each fold plane's end; a tree's parent and
  * interval among them; and every copy an axis carries (Copy) on its source. Each holds 0 where its family is
  * empty, but an accumulator or an end, which holds its plane's identity, and a copy, which holds its base. Each place
  * ordered by a field (ir/instant.ts PlaceOrder) is drawn too, at 0 before its derivation numbers its stored rows
@@ -319,7 +319,7 @@ export const drawnColumns = (installation: Installation): DrawnColumns => {
 		const owner = family.owner.name
 		const nothing = zeroOf(installation, family)
 		put(member, columnOf(family.shape.index), nothing)
-		put(member, family.copy, nothing)
+		put(member, family.next, nothing)
 		put(owner, family.count.column, nothing)
 		if (family.shape.kind === "tree") {
 			put(member, family.shape.parent.column, nothing)
@@ -393,7 +393,7 @@ export const fillReadsOf = (installation: Installation): FillReads => {
 			case "self":
 			case "base":
 			case "index":
-			case "copy":
+			case "next":
 			case "count":
 			case "start":
 			case "end":
@@ -565,7 +565,7 @@ const drawnName = (n: number): string => `__drawn_${n}`
 
 /**
  * The columns of a family's member the backfill draws by its scan, by their installed names: its index where the
- * migration draws it anew, its copy of the count where it adds it, both columns of every plane of each fold it adds a
+ * migration draws it anew, its successor where it adds it, both columns of every plane of each fold it adds a
  * column of, whose before is its predecessor's after, and each of the family's predecessor copies it adds (`copies`,
  * backfillOf's `scanned`).
  */
@@ -577,7 +577,7 @@ const drawnNamesOf = (
 ): ReadonlySet<string> =>
 	new Set([
 		...(holds(added, family.shape.index) ? [columnOf(family.shape.index)] : []),
-		...(added.has(family.copy) ? [family.copy] : []),
+		...(added.has(family.next) ? [family.next] : []),
 		...folds.flatMap((fold) => fold.planes.flatMap((p) => [columnOf(p.before), columnOf(p.after)])),
 		...[...copies].filter((c) => added.has(c))
 	])
@@ -959,16 +959,13 @@ const groupAt = (
 	alias: string
 ): NonEmptyReadonlyArray<Expr> => mapNonEmpty(family.group, (g) => col(alias, g[side].column))
 
-/** Whether a family's member at `alias` is its last: its index one less than its copy of the count. */
+/** Whether a family's member at `alias` is its last: its successor its own slot, which no member follows. */
 const lastOf = (family: Family, alias: string): Expr =>
-	eq(
-		col(alias, columnOf(family.shape.index)),
-		binary("-", col(alias, family.copy), lit.int(1n, types.bigint))
-	)
+	eq(col(alias, columnOf(family.shape.index)), col(alias, family.next))
 
-/** A family's owner derivation: every column of its owner the migration adds, its last member's (its count's copy,
- * each plane's after), read off the member's drawn rows; an owner with no member keeps its placeholder, which is the
- * value it holds (0, the identity). */
+/** A family's owner derivation: every column of its owner the migration adds, its last member's (its count one past
+ * its index, each plane's after), read off the member's drawn rows; an owner with no member keeps its placeholder,
+ * which is the value it holds (0, the identity). */
 const ownerDerivation = (
 	input: BackfillInput,
 	family: Family,
@@ -976,15 +973,19 @@ const ownerDerivation = (
 	memberTable: ObjectName,
 	added: ReadonlySet<string>
 ): Derivation | undefined => {
-	const set: Array<Drawn> = []
+	const index = columnOf(family.shape.index)
+	const set: Array<{ readonly column: string; readonly value: Expr }> = []
 	const afters: Array<string> = []
 	if (added.has(family.count.column)) {
-		set.push({ column: family.count.column, value: family.copy })
+		set.push({
+			column: family.count.column,
+			value: binary("+", col("s", index), lit.int(1n, types.bigint))
+		})
 	}
 	for (const fold of family.folds) {
 		for (const plane of fold.planes) {
 			if (added.has(plane.end.column)) {
-				set.push({ column: plane.end.column, value: columnOf(plane.after) })
+				set.push({ column: plane.end.column, value: col("s", columnOf(plane.after)) })
 				afters.push(columnOf(plane.after))
 			}
 		}
@@ -992,9 +993,7 @@ const ownerDerivation = (
 	if (!isNonEmpty(set) || !input.mayHoldRows(memberTable)) {
 		return undefined
 	}
-	const carried = carriedOf(
-		mapNonEmpty(set, (d) => ({ column: d.column, value: col("s", d.value) }))
-	)
+	const carried = carriedOf(set)
 	return {
 		table,
 		with: undefined,
@@ -1012,8 +1011,8 @@ const ownerDerivation = (
 			...cellsOf(table, [...family.group.map((g) => g.owner.column), ...set.map((d) => d.column)]),
 			...cellsOf(memberTable, [
 				...family.group.map((g) => g.member.column),
-				columnOf(family.shape.index),
-				family.copy,
+				index,
+				family.next,
 				...afters
 			])
 		]
@@ -1029,13 +1028,13 @@ const rootName = "__root"
  * A tree's derivation: each row's drawn columns over its rows, each a window over them, never a closure of the parent
  * relation. A tree's intervals are never drawn over stored rows (a migration that draws them is refused, backfillOf), so
  * nothing a tree's backfill draws reads a row's ancestors past its parent: its count reads its children, its index and
- * its copy of the count its siblings, and each fold and predecessor copy its siblings in slot order.
+ * its successor its siblings, and each fold and predecessor copy its siblings in slot order.
  *
  * - `w`: each row twice, as itself (`__child` 0) at its own key and, but a root, as a child (`__child` 1) at its
  *   parent's, and over each key `__children`, the children met there.
  * - `__ranked`, each row as itself: its sibling index, its stored one where the migration keeps the index, the caller's
- *   order, else row_number() by its key among the rows of its parent, the root alone at 0; and its copy of the count,
- *   its siblings' count, a root's its own count, as the root pin reads it.
+ *   order, else row_number() by its key among the rows of its parent, the root alone at 0; and its siblings' count, a
+ *   root alone among its own, so its successor is its own slot, as the root pin holds it.
  * - the tree's scan over its members, each parent's children a group in slot order, and over its roots, each alone at
  *   slot 0, outside its members as the fill order places it (scanOver): the root's before the identity, as its
  *   first-slot pin holds it, and its after its own step's, the one state the tree's pins admit a root; a root's
@@ -1167,15 +1166,7 @@ const treeDerivation = (
 							: col("w", index),
 						slotName
 					),
-					targetAs(
-						{
-							kind: "case",
-							operand: undefined,
-							whens: [{ when: col("w", rootName), result: col("w", childrenName) }],
-							else: { ...countStar(), over: window(siblings, [], false) }
-						},
-						countName
-					)
+					targetAs({ ...countStar(), over: window(siblings, [], false) }, countName)
 				],
 				[met],
 				col("w", "__self")
@@ -1472,15 +1463,15 @@ const treeEndDerivation = (
 			...family.group.flatMap((g) => [g.member.column, g.owner.column]),
 			...set.map((d) => d.column),
 			columnOf(family.shape.index),
-			family.copy,
+			family.next,
 			...planes.map((plane) => columnOf(plane.after))
 		])
 	}
 }
 
 /**
- * The columns the target's families draw beside their copies, each on its table (cellKey): on a member its index, copy
- * and folds' planes, and a tree's parent and interval; on an owner its count and folds' ends. A pair of any axis whose
+ * The columns the target's families draw beside their copies, each on its table (cellKey): on a member its index,
+ * successor and folds' planes, and a tree's parent and interval; on an owner its count and folds' ends. A pair of any axis whose
  * `from` is one of them is no copy: its family draws that column, and the pair's foreign key proves it the target's
  * value (Instance's `children`, its tree's count, which its document's family's owner axis holds to the document's
  * `sites`).
@@ -1491,7 +1482,7 @@ const familyCells = (installation: Installation): ReadonlySet<StoredColumnKey> =
 			[
 				...cellsOf(tableOf(installation, family.member.name), [
 					columnOf(family.shape.index),
-					family.copy,
+					family.next,
 					...family.folds.flatMap((fold) =>
 						fold.planes.flatMap((p) => [columnOf(p.before), columnOf(p.after)])
 					),
@@ -1668,7 +1659,7 @@ const copyDerivation = (
 					sourceWhere: and(appendNonEmpty(nonRoot(names, family, "s"), lastOf(family, "s"))),
 					reads: [
 						...cellsOf(copy.source, [...owners, ...copied]),
-						...cellsOf(copy.target, [...members, index, family.copy, ...rooted, ...values])
+						...cellsOf(copy.target, [...members, index, family.next, ...rooted, ...values])
 					]
 				}
 			case "owner":
@@ -2551,7 +2542,7 @@ export const backfillOf = (input: BackfillInput): Backfill => {
 		const copies = defined(scanned.get(family), "a family's scanned copies")
 		const memberColumns = new Set<string>([
 			columnOf(family.shape.index),
-			family.copy,
+			family.next,
 			...family.folds.flatMap((fold) =>
 				fold.planes.flatMap((p) => [columnOf(p.before), columnOf(p.after)])
 			),
@@ -2568,7 +2559,7 @@ export const backfillOf = (input: BackfillInput): Backfill => {
 			const columns = [
 				columnOf(family.shape.index),
 				family.count.column,
-				family.copy,
+				family.next,
 				...family.folds.flatMap((fold) =>
 					fold.planes.flatMap((p) => [columnOf(p.before), columnOf(p.after), p.end.column])
 				),

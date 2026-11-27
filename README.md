@@ -994,34 +994,37 @@ CREATE TABLE "credits"."grant" (
   …
   "debits" "credits"."__domain_gfw43vigph" NOT NULL,
   "spent" "credits"."__domain_gfw43vigph" NOT NULL,
+  "__id_z7dvbzwxaz" "pg_catalog"."text" COLLATE "pg_catalog"."pg_c_utf8" GENERATED ALWAYS AS (CASE WHEN "debits" > 0::bigint THEN "id" END) STORED,
+  "__pred_debits_yizf6c6ueo" bigint GENERATED ALWAYS AS (CASE WHEN "debits" > 0::bigint THEN "debits"::numeric - (1::bigint)::numeric END) STORED,
   …
   CONSTRAINT "__grant_check_grant_debits_sum_fold_to7egrdjpy" CHECK (("debits" > 0::bigint OR "spent" = 0::bigint) IS TRUE),
   CONSTRAINT "within_grant" CHECK (("spent" <= "amount") IS TRUE),
-  CONSTRAINT "__grant_key_id_debits_4ie7odmi22" UNIQUE NULLS DISTINCT ("id", "debits")
+  CONSTRAINT "__grant_key_id_n5suy7bnyy" UNIQUE NULLS DISTINCT ("__id_z7dvbzwxaz")
 );
 
-ALTER TABLE "credits"."debit" ADD COLUMN "__after_debits_0_kkyetxwufq" bigint NOT NULL;
+CREATE TABLE "credits"."debit" (
+  …
+  "__after_debits_0_tmveci2ubh" bigint NOT NULL,
+  "__before_debits_0_a2ommrzbjl" bigint NOT NULL,
+  "__index_debits_shd2sdclgf" bigint NOT NULL,
+  "__next_debits_7jjoyl4wzv" bigint NOT NULL,
+  "__predecessor_debits_vp5tywvm2j" bigint GENERATED ALWAYS AS (CASE WHEN "__index_debits_shd2sdclgf" > 0::bigint THEN "__index_debits_shd2sdclgf"::numeric - (1::bigint)::numeric END) STORED,
+  …
+  CONSTRAINT "__debit_key_grant_index_debits_6bmcj3cdfl" UNIQUE NULLS DISTINCT ("grant", "__index_debits_shd2sdclgf"),
+  CONSTRAINT "__debit_key_grant_index_debits_next_debits_after_uocluwlgyx" UNIQUE NULLS DISTINCT ("grant", "__index_debits_shd2sdclgf", "__next_debits_7jjoyl4wzv", "__after_debits_0_tmveci2ubh"),
+  CONSTRAINT "__debit_key_grant_predecessor_debits_lif2sqpaxd" UNIQUE NULLS DISTINCT ("grant", "__predecessor_debits_vp5tywvm2j"),
+  CONSTRAINT "__debit_check_debit_counted_grant_debits_evjcz3nb5v" CHECK (("__index_debits_shd2sdclgf" >= 0::bigint) IS TRUE),
+  CONSTRAINT "__debit_check_grant_debits_sum_fold_irognd552t" CHECK ((("__index_debits_shd2sdclgf" > 0::bigint OR "__before_debits_0_a2ommrzbjl" = 0::bigint) AND "__after_debits_0_tmveci2ubh"::numeric = "__before_debits_0_a2ommrzbjl"::numeric + "amount"::numeric) IS TRUE)
+);
 
-ALTER TABLE "credits"."debit" ADD COLUMN "__before_debits_0_7f5g7maxle" bigint NOT NULL;
+ALTER TABLE "credits"."debit" ADD CONSTRAINT "__debit_fk_grant_pqlrwjbpkp" FOREIGN KEY ("grant") REFERENCES "credits"."grant" ("__id_z7dvbzwxaz") MATCH SIMPLE DEFERRABLE INITIALLY DEFERRED;
 
-ALTER TABLE "credits"."debit" ADD COLUMN "__copy_debits_t4kdfqgptg" bigint NOT NULL;
+ALTER TABLE "credits"."debit" ADD CONSTRAINT "__debit_fk_grant_predecessor_debits_index_debits_qttjugb3yx" FOREIGN KEY ("grant", "__predecessor_debits_vp5tywvm2j", "__index_debits_shd2sdclgf", "__before_debits_0_a2ommrzbjl") REFERENCES "credits"."debit" ("grant", "__index_debits_shd2sdclgf", "__next_debits_7jjoyl4wzv", "__after_debits_0_tmveci2ubh") MATCH SIMPLE DEFERRABLE INITIALLY DEFERRED;
 
-ALTER TABLE "credits"."debit" ADD COLUMN "__index_debits_mapi52ihot" bigint NOT NULL;
-
-ALTER TABLE "credits"."debit" ADD CONSTRAINT "__debit_key_grant_index_debits_a3sm5262ii" UNIQUE NULLS DISTINCT ("grant", "__index_debits_mapi52ihot");
-
-ALTER TABLE "credits"."debit" ADD CONSTRAINT "__debit_check_debit_counted_grant_debits_evjcz3nb5v" CHECK (("__index_debits_mapi52ihot" >= 0::bigint AND "__index_debits_mapi52ihot" < "__copy_debits_t4kdfqgptg") IS TRUE);
-
-ALTER TABLE "credits"."debit" ADD CONSTRAINT "__debit_check_grant_debits_sum_fold_irognd552t" CHECK ((("__index_debits_mapi52ihot" > 0::bigint OR "__before_debits_0_7f5g7maxle" = 0::bigint) AND "__after_debits_0_kkyetxwufq"::numeric = "__before_debits_0_7f5g7maxle"::numeric + "amount"::numeric) IS TRUE);
-
-ALTER TABLE "credits"."debit" ADD CONSTRAINT "__debit_fk_grant_copy_debits_izjnnom77r" FOREIGN KEY ("grant", "__copy_debits_t4kdfqgptg") REFERENCES "credits"."grant" ("id", "debits") MATCH SIMPLE ON UPDATE CASCADE;
-
-ALTER TABLE "credits"."debit" ADD CONSTRAINT "__debit_fk_grant_predecessor_debits_before_debits_0_s7meik2v5k" FOREIGN KEY ("grant", "__predecessor_debits_qficmzynzz", "__before_debits_0_7f5g7maxle") REFERENCES "credits"."debit" ("grant", "__index_debits_mapi52ihot", "__after_debits_0_kkyetxwufq") MATCH SIMPLE DEFERRABLE INITIALLY DEFERRED;
-
-ALTER TABLE "credits"."grant" ADD CONSTRAINT "__grant_fk_id_pred_debits_spent_nfhty57aaq" FOREIGN KEY ("id", "__pred_debits_yizf6c6ueo", "spent") REFERENCES "credits"."debit" ("grant", "__index_debits_mapi52ihot", "__after_debits_0_kkyetxwufq") MATCH SIMPLE DEFERRABLE INITIALLY DEFERRED;
+ALTER TABLE "credits"."grant" ADD CONSTRAINT "__grant_fk_id_pred_debits_pred_debits_spent_o7vdavt4xd" FOREIGN KEY ("id", "__pred_debits_yizf6c6ueo", "__pred_debits_yizf6c6ueo", "spent") REFERENCES "credits"."debit" ("grant", "__index_debits_shd2sdclgf", "__next_debits_7jjoyl4wzv", "__after_debits_0_tmveci2ubh") MATCH SIMPLE DEFERRABLE INITIALLY DEFERRED;
 ```
 
-Each debit carries its slot among its grant's debits, a copy of the grant's count, and the running total before and after it. The UNIQUE and the CHECK on the slot hold a grant's slots to distinct values below its count. The fold's CHECK proves each running total is the one before it plus the amount, in exact arithmetic, from 0 at the first slot. The deferred foreign keys chain each debit's before to the after of the debit in the slot below (`__predecessor_debits_…`, a generated column, is the slot less one), and the grant's `spent` to its last debit's after.
+Each debit carries its slot among its grant's debits, its successor (the slot after its own where a debit follows it, its own slot at the last), and the running total before and after it. The UNIQUE on the slot holds a grant's slots apart, and the CHECK at 0 or above. The fold's CHECK proves each running total is the one before it plus the amount, in exact arithmetic, from 0 at the first slot. The deferred foreign keys chain each debit to the debit in the slot below (`__predecessor_debits_…`, a generated column, is the slot less one), whose successor is its slot and whose after is its before, and the grant's last slot to a debit that is its own successor, whose after is its `spent`; so no debit stands past the grant's count, since the one at the count would name a predecessor the last slot holds as its own successor. Every debit names its grant, and, at commit, a grant whose count is above 0 (`__id_…`, a generated column, is the grant's id where it has a debit). No debit holds the grant's count, so a debit appended to a grant of a million writes the grant's row, the new debit and the one debit before it, each a probe of a key.
 
 The slot is a coordinate the proof counts by, never a multiplicity: a grant's debits are a set, one row per debit. There is no trigger, and a writer outside grizzle fills those columns as grizzle does or is refused ([Direct SQL access](#direct-sql-access)).
 
@@ -1932,6 +1935,8 @@ schema.
   compiles. Each closed table carries an immutability guard, a `BEFORE UPDATE` row trigger that refuses an UPDATE
   changing any field but the few grizzle itself rewrites in place (a family member's copy of a mutable owner's column,
   which the owner axis's ON UPDATE CASCADE carries), whoever runs it, its owner included, with 42501 naming the table.
+  A writer of a closed member of a mutable owner's family holds UPDATE on one hidden column of it alone, the member's
+  successor, which an append sets on the member it follows; no field.
   A migration's data steps on such a table run with the guard dropped and create it again in the same transaction:
   a draft's and the data step you write at its place, over every table the previous version guards and this one keeps,
   and a custom migration's (`generate --custom`) transactional file, over every guard the database holds as it runs. A
@@ -2134,9 +2139,10 @@ Each type has one name, the one PostgreSQL prints for it: `pg.integer`, never `i
   matches a prefix by needs the byte bound. `keyTextBytes(fields)` is the most bytes a text holds as itself beside
   `fields`, the index's other columns, in every index grizzle plans over them, in any order, any of them a hidden
   column that may be NULL: a key one byte wider is refused. For
-  a family axis that carries the text, `fields` are its group fields, its natural index, its other carried values and
-  a tree's `end`. So `str.bytes(keyTextBytes([uuid, natural]), str.regex("^.*$", "su"))` is held as itself in a key
-  beside a uuid and a natural, declared or over a selection, and in an ordered family's axis grouped by a uuid.
+  a family axis that carries the text, `fields` are its group fields, its natural index, its natural successor, its
+  other carried values and a tree's `end`. So `str.bytes(keyTextBytes([uuid, natural]), str.regex("^.*$", "su"))` is
+  held as itself in a key beside a uuid and a natural, declared or over a selection, and
+  `keyTextBytes([uuid, natural, natural])` in an ordered family's axis grouped by a uuid.
   `keyTextBytes` throws `UnrepresentableKey` naming every fault at once: more fields than an index holds beside a text,
   and each field of no byte bound; or, where neither is, fields that leave a text no byte. `keyFits(fields)` is whether a key over `fields` holds every value
   they admit, each as itself, the verdict a relation keyed by them meets, as a `boolean`, never thrown.
@@ -2980,8 +2986,10 @@ index is the one the window gives it, and a migration that draws a family over s
   update that changes a step value, or a value a selection or a copy reads, refills from its slot; one that changes
   the group key leaves the old owner's family and joins the new one's; any other update is in place. In an ordered
   family an insertion or a removal rewrites the later siblings, so a change near the start of a long family costs the
-  members after it. An edit of an owner already stored reads its stored values first
-  ([Transactions and concurrency](#transactions-and-concurrency)).
+  members after it. No member holds its owner's count: each holds its successor, the slot after its own where a member
+  follows it and its own slot at the last, so an append writes its owner, its appended members and the one member
+  before them, whatever the length of the family, each a probe of a key. An edit of an owner already stored reads its
+  stored values first ([Transactions and concurrency](#transactions-and-concurrency)).
 - **A changed owner column reaches its copies.** A put of an owner updates its row in place, and an edit of one of its
   families its count and ends. A member's copy of a changed column follows by cascade; a member appended in the same
   ChangeSet takes the new value.
@@ -3004,8 +3012,9 @@ index is the one the window gives it, and a migration that draws a family over s
   follows. Every family the re-placed rows own is refilled where its members copy a column the ChangeSet changes
   there, the count among them, and each re-placed row is drawn with its owners' values as the ChangeSet leaves them.
 - **Some axes are checked at commit**, decided once for the schema: the owner axis of every family, a tree among them,
-  whose members a refill can rewrite or whose owner a put or a delete can re-place, and the predecessor axis of every
-  sequence a refill rewrites.
+  which holds each member to an owner that holds one; the foreign key of an owner axis's copies, where its members a
+  refill can rewrite or its owner a put or a delete can re-place; and the predecessor axis of every sequence a refill
+  rewrites.
 - **A refill is planned in the first stratum**, beside every edit of a family's members; a ChangeSet that needs one
   elsewhere is `UnsupportedOperation` when it compiles. A refill is refused when the ChangeSet compiles
   (`StaleDerivedRead`) only where grizzle cannot draw it: a put whose rows a query states; refills that reach a family

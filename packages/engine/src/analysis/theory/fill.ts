@@ -223,7 +223,7 @@ const readsOfRule = (relation: LawRelation, rule: FillRule): ReadonlyArray<Nativ
 		case "owner":
 		case "base":
 		case "index":
-		case "copy":
+		case "next":
 		case "count":
 		case "start":
 		case "end":
@@ -304,7 +304,7 @@ const entriesAt = (
 		{ kind: "index" },
 		writer
 	)
-	set({ kind: "law", column: f.copy }, f.count.type, { kind: "copy" }, writer)
+	set({ kind: "law", column: f.next }, f.count.type, { kind: "next" }, writer)
 	if (f.shape.kind === "tree") {
 		const t = f.shape
 		set(fieldColumn(t.start), t.start.type, { kind: "start" }, walk)
@@ -474,7 +474,7 @@ const lawAndFamily = (rule: FillRule): { readonly law: LawId; readonly family: F
 		case "self":
 		case "base":
 		case "index":
-		case "copy":
+		case "next":
 		case "count":
 		case "start":
 		case "end":

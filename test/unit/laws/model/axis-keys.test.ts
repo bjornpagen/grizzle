@@ -5,7 +5,7 @@
  * author never declared, so a fold refused for it is refused by its own name, the field it steps and the bound its
  * fields declare (KeyFault `foldAccumulator`), never by that UNIQUE.
  *
- * - A concat fold's axis key: the UNIQUE its predecessor and last axes reference, Line's (doc, at, after) for a concat
+ * - A concat fold's axis key: the UNIQUE its predecessor and last axes reference, Line's (doc, at, ‹s›, after) for a concat
  *   fold that carries its running text `after` along them (laws/model/plan.ts #axis). The box: the fold's text, its
  *   pieces and accumulators one type, of no bound, or bounded by a contract to at most n bytes, or to at most n code
  *   points of 4 bytes each, with n every bound whose entry lies within one MAXALIGN step of BTMaxItemSize on either
@@ -25,15 +25,15 @@
  *   many handles refuses the UNIQUE when it is compiled rather than at an insert. The box: Tag's codes its two live
  *   handles, then every count of holes whose codes lie within a MAXALIGN step's worth of bytes of the most that fit,
  *   exhausted. The oracle: the entry counted by hand, a bit(n)'s varlena header, its 4-byte bit count and a byte per
- *   eight codes after Line's (order, at), each datum after its worst padding. Features: an entry at the bound, an entry
- *   past it.
+ *   eight codes after Line's (order, at, ‹s›), each datum after its worst padding. Features: an entry at the bound, an
+ *   entry past it.
  */
 
-import { assert } from "@bjornpagen/testing/assert"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Option } from "effect"
+import { Array as Arr, Effect, Option, String as Str } from "effect"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { installOptions } from "#compiler/physical/install/compile.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
@@ -180,6 +180,14 @@ export const aCarriedSetsKeyIsSizedByItsRostersCodesHolesIncludedAndRefusedPastT
 					return
 				}
 				const reason = refusedKey(refused(compiled, "UnrepresentableKey"))
+				const successor = defined(
+					reason.fault.kind === "btreeEntry"
+						? Option.getOrUndefined(
+								Arr.findFirst(reason.fault.datums, (d) => Str.startsWith("__next_n_")(d.field))
+							)
+						: undefined,
+					"the key holds the members' successor ‹s›"
+				)
 				assert.deepEqual(reason.fault, {
 					kind: "btreeEntry",
 					bytes,
@@ -187,6 +195,7 @@ export const aCarriedSetsKeyIsSizedByItsRostersCodesHolesIncludedAndRefusedPastT
 					datums: [
 						{ field: "order", bytes: typlens.uuid },
 						{ field: "at", bytes: typlens.int8 },
+						{ field: successor.field, bytes: typlens.int8 },
 						{ field: "after", bytes: setBytes(codes) }
 					]
 				})

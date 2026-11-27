@@ -7,7 +7,8 @@
  * successor without a predecessor until the move, so the predecessor axis is deferred. A fold over a counted family
  * hides its accumulators too, and every one is commutative, so the end is the same whatever order the members are in;
  * but each hidden before is its predecessor's after, so a move rewrites the accumulators of every slot from the freed
- * one on, each an `update` of its row.
+ * one on, each an `update` of its row, and the member left last takes its own slot as its successor (theorem.ts
+ * successorOf), an `update` of its own where the member removed is the last.
  *
  * Every change sends deletes, then updates (the moves and the refolds), then the owner's one count update with its new
  * end, then inserts, each insert's rows in the order a test draws.
@@ -15,11 +16,9 @@
  * Which of them a direct writer may send depends on how the relations stand. Over a mutable owner and member
  * (`mutable(Owner)`, `mutable(Member)`) it is swap-with-last as above, every update in place. Over the immutable
  * default an owner's count and end are fields its immutability guard holds fixed (physical/ddl/immutable.ts), so the
- * count update is refused (42501); nor can the owner be deleted and inserted again alone, since each member's copy of
- * its count references it by a foreign key ON UPDATE CASCADE that is not deferrable. The change is the whole family
- * rewritten (rewrittenWhole): every member deleted, the owner deleted and inserted again with the new count and end,
- * and the kept members inserted at their slots, as grizzle writes an immutable family whole with its owner
- * (write/family/removals.ts).
+ * count update is refused (42501). The change is the whole family rewritten (rewrittenWhole): every member deleted, the
+ * owner deleted and inserted again with the new count and end, and the kept members inserted at their slots, as grizzle
+ * writes an immutable family whole with its owner (write/family/removals.ts).
  */
 import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { Array as Arr, Option, Order } from "effect"
@@ -33,6 +32,7 @@ import {
 	foldStoredOf,
 	type Step
 } from "#test/support/families/fold.ts"
+import { successorOf } from "#test/support/families/theorem.ts"
 
 /** The members of one owner of a stored state, in slot order. */
 const membersOf = (
@@ -67,8 +67,9 @@ const replaced = (
 
 /**
  * Swap-with-last of the member at slot `at` of `owner`: delete it; move the last member into its slot and refold every
- * slot from `at` on (one update each, the moved member's included); lower the count, with the new end. The move is
- * omitted when the member removed is the last.
+ * slot from `at` on (one update each, the moved member's included, each with its successor in the lowered count); lower
+ * the count, with the new end. The move is omitted when the member removed is the last, and the member before it, now
+ * the last, is updated to its own slot as its successor.
  */
 export const swapWithLast = (
 	m: FoldMonoid,
@@ -84,12 +85,22 @@ export const swapWithLast = (
 			? [...members.slice(0, at), Arr.getUnsafe(members, n - 1), ...members.slice(at + 1, n - 1)]
 			: members.slice(0, n - 1)
 	const { slots, end } = folded(m, kept)
+	const from = Math.min(at, n - 2)
 	const updates = Arr.flatMap(kept, (member, slot): ReadonlyArray<FoldStatement> => {
-		if (slot < at) {
+		if (slot < from) {
 			return []
 		}
 		const { before, after } = Arr.getUnsafe(slots, slot)
-		return [{ kind: "update", member: member.member, at: slot, before, after }]
+		return [
+			{
+				kind: "update",
+				member: member.member,
+				at: slot,
+				next: successorOf(slot, n - 1),
+				before,
+				after
+			}
+		]
 	})
 	return {
 		statements: [
@@ -102,8 +113,9 @@ export const swapWithLast = (
 }
 
 /**
- * Appending members to `owner`: raise the count with the new end, then insert the new rows after the last, each with its
- * accumulators, in `order` (a permutation of the new rows, so a row may arrive before its predecessor).
+ * Appending members to `owner`: the member before them, where one stands, updated to the first appended slot as its
+ * successor; then raise the count with the new end, then insert the new rows after the last, each with its accumulators
+ * and its successor, in `order` (a permutation of the new rows, so a row may arrive before its predecessor).
  */
 export const appended = (
 	m: FoldMonoid,
@@ -112,15 +124,33 @@ export const appended = (
 	added: Arr.NonEmptyReadonlyArray<{ readonly member: number } & Step>,
 	order: ReadonlyArray<number>
 ): CountedChange => {
-	const members = [...membersOf(stored, owner), ...added]
+	const had = membersOf(stored, owner)
+	const members = [...had, ...added]
 	const { slots, end } = folded(m, members)
 	const n = members.length
+	const seam = Arr.match(had, {
+		onEmpty: (): ReadonlyArray<FoldStatement> => [],
+		onNonEmpty: (stays): ReadonlyArray<FoldStatement> => {
+			const last = stays.length - 1
+			const { before, after } = Arr.getUnsafe(slots, last)
+			return [
+				{
+					kind: "update",
+					member: Arr.lastNonEmpty(stays).member,
+					at: last,
+					next: successorOf(last, n),
+					before,
+					after
+				}
+			]
+		}
+	})
 	const rows = Arr.map(added, (s, k) => {
 		const at = n - added.length + k
 		return {
 			group: owner,
 			at,
-			copy: n,
+			next: successorOf(at, n),
 			member: s.member,
 			x: s.x,
 			selected: s.selected,
@@ -130,6 +160,7 @@ export const appended = (
 	const sent = Arr.map(order, (i) => Arr.getUnsafe(rows, i))
 	return {
 		statements: [
+			...seam,
 			{ kind: "count", owner: { owner, count: n, end } },
 			...(Arr.isReadonlyArrayNonEmpty(sent) ? [{ kind: "insert", rows: sent } as const] : [])
 		],

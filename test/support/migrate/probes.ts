@@ -243,7 +243,7 @@ export const owedKeyChecks = (
 			...Arr.map(
 				[
 					nativeColumn(family.shape.index),
-					family.copy,
+					family.next,
 					...Arr.flatMap(family.folds, (fold) =>
 						Arr.flatMap(fold.planes, (p) => [nativeColumn(p.before), nativeColumn(p.after)])
 					),

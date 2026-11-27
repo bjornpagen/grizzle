@@ -4,9 +4,9 @@
  *
  * A tree relation `node (id, root, parent, at, children, start, end)` is the ordered family of node over itself,
  * `node(parent, at)` counted by `fin(node, children)`, whose every row carries its pre-order interval `[start, end)`,
- * one tree per value of `root`, its root the one self-parented row. Each row also carries two copies of its parent's
- * fields, which the parent copy holds to the parent's values: its count ‹n› and its start, which T3's check reads. The
- * root copies itself.
+ * one tree per value of `root`, its root the one self-parented row. Each row also carries its successor ‹s› among its
+ * siblings, the slot after its own below its parent's count and its own slot at its parent's last child, the root's its
+ * slot, 0; and a copy of its parent's start, which T3's check reads, the root's its own.
  */
 import { maxOf } from "@bjornpagen/grizzle-text/base/array"
 import { defined, nonEmpty } from "@bjornpagen/testing/assert"
@@ -14,8 +14,8 @@ import { Array as Arr, Option, Order } from "effect"
 import { upTo } from "#test/support/up-to.ts"
 
 /**
- * One row of the tree relation as a writer sends it: its fields, and the two copies the host draws from its parent's
- * row, which the merged parent copy holds to the parent's values.
+ * One row of the tree relation as a writer sends it: its fields, and what the host draws from its parent's row: its
+ * successor among its parent's children and its parent's start.
  */
 export interface TreeRow {
 	readonly id: number
@@ -26,22 +26,25 @@ export interface TreeRow {
 	readonly children: number
 	readonly start: number
 	readonly end: number
-	/** ‹n›: the parent's `children`. */
-	readonly copy: number
+	/** ‹s›: the slot after `at` below the parent's `children`, else `at`, the last child's and the root's. */
+	readonly next: number
 	/** The parent's `start`, which T3's check reads. */
 	readonly parentStart: number
 }
 
-/** A row without its copies, which withCopies draws from its parent's row. */
-type Bare = Omit<TreeRow, "copy" | "parentStart">
+/** A row without what withCopies draws from its parent's row. */
+type Bare = Omit<TreeRow, "next" | "parentStart">
 
-/** Rows with each copy its parent's count and start, as the host draws them, every parent a row of `rows`. */
+/** Rows with each successor and parent's start as the host draws them from the parent, every parent a row of `rows`. */
 const withCopies = (rows: Arr.NonEmptyReadonlyArray<Bare>): Arr.NonEmptyReadonlyArray<TreeRow> =>
 	Arr.map(rows, (r) => {
 		const parent = Arr.findFirst(rows, (p) => p.id === r.parent)
 		return {
 			...r,
-			copy: Option.match(parent, { onNone: () => 0, onSome: (p) => p.children }),
+			next: Option.match(parent, {
+				onNone: () => r.at,
+				onSome: (p) => (p.id !== r.id && r.at + 1 < p.children ? r.at + 1 : r.at)
+			}),
 			parentStart: Option.match(parent, { onNone: () => 0, onSome: (p) => p.start })
 		}
 	})

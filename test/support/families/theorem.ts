@@ -12,12 +12,15 @@
  * It has three parts: no slot holds two rows (the key); every row lies in a slot of an owner (within: an owner exists,
  * and the row's index is below its count); every slot holds a row (covers: no index below the count is missing).
  *
- * The lowering holds the theorem with four constraints on the family relation beside its own key. Each row keeps a copy
- * of its owner's count: a foreign key of (group, copy) into the owner's (key, count), which cascades a count update into
- * every copy, plus a check that the index lies below the copy. The owner's last slot, count − 1 where the count is
- * positive, references a family row. Each row whose index is positive and below its copy references the row one slot
- * down. Read together, the last slot and the closure below the copy fill every slot; restricting the closure to indices
- * below the copy is what keeps it from forbidding gaps above the count, which only the bound refuses.
+ * The lowering holds the theorem with three foreign keys on the family relation beside its own key, and no row holds
+ * its owner's count. Each row keeps its successor: the slot after its own where its owner's count passes that slot,
+ * and its own slot where it does not, at its group's last. Each row references its owner where the owner's count is
+ * positive (the owner axis); each row whose index is positive references the row one slot down whose successor is its
+ * index (the closure); and the owner's last slot, count − 1 where the count is positive, references the row there whose
+ * successor is that slot itself (the last slot). Read together, the last slot and the closure fill every slot below the
+ * count, and a row at the count names the last slot's row its predecessor, whose successor the last slot holds at
+ * itself, so no row lies at or beyond the count: a writer that appends rewrites its owner, its new rows and the one row
+ * they follow, never the others.
  */
 import { Array as Arr, Order, Result } from "effect"
 
@@ -45,15 +48,22 @@ export interface Family {
 export type Families = ReadonlyArray<Family>
 
 /**
- * A row of the family relation as PostgreSQL stores it: its group (its owner's key), its index, its copy of its owner's
- * count, and its own key.
+ * A row of the family relation as PostgreSQL stores it: its group (its owner's key), its index, its successor ‹s›, and
+ * its own key.
  */
 export interface FamilyRow {
 	readonly group: number
 	readonly at: number
-	readonly copy: number
+	readonly next: number
 	readonly member: number
 }
+
+/**
+ * The successor a row at slot `at` of a family of `count` members holds, as the host draws it: the slot after its own
+ * where the count passes that slot, else its own slot, the last's; a row at or past the count, or under no owner, its
+ * own slot too.
+ */
+export const successorOf = (at: number, count: number): number => (at + 1 < count ? at + 1 : at)
 
 /**
  * What PostgreSQL holds of a family relation and its owner relation: each owner's count by its key, which the owner's
@@ -65,16 +75,21 @@ export interface Stored {
 	readonly rows: ReadonlyArray<FamilyRow>
 }
 
-/** The rows of a family at consecutive slots from `from`, each copying `copy`. */
+/** The rows of a family at consecutive slots from `from`, each with its successor in a family of `count`. */
 export const familyRowsFrom = (
 	group: number,
 	members: ReadonlyArray<number>,
 	from: number,
-	copy: number
+	count: number
 ): ReadonlyArray<FamilyRow> =>
-	Arr.map(members, (member, i) => ({ group, at: from + i, copy, member }))
+	Arr.map(members, (member, i) => ({
+		group,
+		at: from + i,
+		next: successorOf(from + i, count),
+		member
+	}))
 
-/** What PostgreSQL holds once the families are written: each member at its position, every copy its owner's count. */
+/** What PostgreSQL holds once the families are written: each member at its position with its successor. */
 export const storedOf = (families: Families): Stored => ({
 	owners: new Map(Arr.map(families, (f) => [f.owner, f.members.length] as const)),
 	rows: Arr.flatMap(families, (f) => familyRowsFrom(f.owner, f.members, 0, f.members.length))
@@ -148,8 +163,8 @@ export const breachesOf = (stored: Stored): ReadonlyArray<Breach> => {
 
 /**
  * The theorem as a parser: the families a stored state holds, each owner's members in slot order, when every owner's
- * rows are indexed by exactly 0 … count − 1, and otherwise every breach. Copies are the lowering's, so it never reads
- * them.
+ * rows are indexed by exactly 0 … count − 1, and otherwise every breach. Successors are the lowering's, so it never
+ * reads them.
  */
 export const theorem = (
 	stored: Stored
@@ -177,12 +192,14 @@ export const theorem = (
  *
  * - `identity`: the family relation's own primary key, on the member;
  * - `key`: the unique (group, at);
- * - `bound`: the check that the index lies below the row's copy of its owner's count;
- * - `copy`: the foreign key of (group, copy) into the owner's (key, count), cascading a count update into every copy;
- * - `last`: the foreign key of the owner's last slot, (key, count − 1) where the count is positive, into (group, at);
- * - `closure`: the foreign key of (group, at − 1), where the index is positive and below the copy, into (group, at).
+ * - `holding`: the owner axis, its holding reference, the foreign key of (group) into the owner's key where its count
+ *   is positive, deferred: a family that carries no copy has no other reference into its owner;
+ * - `last`: the last axis, the foreign key of the owner's last slot, (key, count − 1, count − 1) where the count is
+ *   positive, into (group, at, successor);
+ * - `closure`: the predecessor axis, the foreign key of (group, at − 1, at), where the index is positive, into (group,
+ *   at, successor).
  */
-const CONSTRAINTS = ["identity", "key", "bound", "copy", "last", "closure"] as const
+const CONSTRAINTS = ["identity", "key", "holding", "last", "closure"] as const
 
 export type Constraint = (typeof CONSTRAINTS)[number]
 
@@ -190,8 +207,7 @@ export type Constraint = (typeof CONSTRAINTS)[number]
 export type FamilyViolation =
 	| { readonly constraint: "identity"; readonly member: number }
 	| { readonly constraint: "key"; readonly group: number; readonly at: number }
-	| { readonly constraint: "bound"; readonly member: number }
-	| { readonly constraint: "copy"; readonly member: number }
+	| { readonly constraint: "holding"; readonly member: number }
 	| { readonly constraint: "last"; readonly owner: number }
 	| { readonly constraint: "closure"; readonly member: number }
 
@@ -199,6 +215,9 @@ export type FamilyViolation =
 export const familyViolations = (stored: Stored): ReadonlyArray<FamilyViolation> => {
 	const held = occupancy(stored.rows)
 	const found: Array<FamilyViolation> = []
+	/** Whether a row of `group` at `at` holds the successor `next`. */
+	const holds = (group: number, at: number, next: number): boolean =>
+		Arr.some(stored.rows, (r) => r.group === group && r.at === at && r.next === next)
 	const members = new Map<number, number>()
 	for (const row of stored.rows) {
 		members.set(row.member, (members.get(row.member) ?? 0) + 1)
@@ -214,18 +233,16 @@ export const familyViolations = (stored: Stored): ReadonlyArray<FamilyViolation>
 		}
 	}
 	for (const row of stored.rows) {
-		if (row.at >= row.copy) {
-			found.push({ constraint: "bound", member: row.member })
+		const count = stored.owners.get(row.group)
+		if (count === undefined || count === 0) {
+			found.push({ constraint: "holding", member: row.member })
 		}
-		if (stored.owners.get(row.group) !== row.copy) {
-			found.push({ constraint: "copy", member: row.member })
-		}
-		if (row.at > 0 && row.at < row.copy && !held.has(slotKey(row.group, row.at - 1))) {
+		if (row.at > 0 && !holds(row.group, row.at - 1, row.at)) {
 			found.push({ constraint: "closure", member: row.member })
 		}
 	}
 	for (const [owner, count] of stored.owners) {
-		if (count > 0 && !held.has(slotKey(owner, count - 1))) {
+		if (count > 0 && !holds(owner, count - 1, count - 1)) {
 			found.push({ constraint: "last", owner })
 		}
 	}

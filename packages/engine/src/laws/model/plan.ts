@@ -81,6 +81,7 @@ import { type CombineFn, combine, monoidSpecs } from "#compiler/ir/monoid.ts"
 import { closedCell } from "#compiler/ir/rel.ts"
 import { baseOf, rosterOf, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
 import { keyOf, literalKey } from "#compiler/laws/model/names.ts"
+import { integerHostOf } from "#compiler/scalar/compute/literal.ts"
 import type { OwnedContract } from "#compiler/schema/own.ts"
 import {
 	type BtreeEntryBytes,
@@ -284,11 +285,12 @@ const judgeEntry = (
 	loc: SourceLoc
 ): void => judge(keys, loc, subject, columns.map(plannedText), plannedEntry(columns))
 
-/** A planned column as an index entry holds it: a field NOT NULL, a law column possibly NULL. */
+/** A planned column as an index entry holds it: a field NOT NULL, and a drawn law column, which the host writes on every
+ * row (physical/ddl/tables.ts); a generated law column possibly NULL, outside its selection. */
 const entryColumn = (c: PlannedColumn, datum: DatumBound): EntryColumn => ({
 	name: plannedText(c),
 	datum,
-	nullable: c.kind === "law"
+	nullable: c.kind === "law" && c.column.kind !== "drawn"
 })
 
 /** A planned column with its datum, where its datum is bounded. */
@@ -2031,10 +2033,11 @@ interface FamilyPlan {
  * - A coverage, a containment pairing a span field of each side, is a PERIOD foreign key from the source's columns into
  *   the target's, which must be keyed WITHOUT OVERLAPS over exactly its terms: a declared span key, or a key over its
  *   projected side. A target whose spans may overlap within a key is refused.
- * - A family is its three axes (`#familyPlan`): the owner axis, member to owner carrying the owner's count ‹n› and ON
- *   UPDATE CASCADE, a tree's from its plain parent with no action, its root referencing itself; the predecessor axis,
- *   each member to the one before it; and the last axis, the owner to its last member. A containment that rides an axis has no native of its own: its pairs and its law are on the axis's foreign
- *   key. A tree adds its interval laws as CHECKs and its copies as pairs, and a fold its accumulators' CHECK and pins.
+ * - A family is its three axes (`#familyPlan`): the owner axis, member to an owner that holds a member, deferred, and
+ *   where it carries copies their foreign key beside it, ON UPDATE CASCADE, a tree's from its plain parent with no
+ *   action, its root referencing itself; the predecessor axis, each member to the one before it, whose successor ‹s›
+ *   it is; and the last axis, the owner to its last member, which no member follows. A containment that rides an axis
+ *   has no native of its own: its pairs and its law are on the axis's foreign key. A tree adds its interval laws as CHECKs and its copies as pairs, and a fold its accumulators' CHECK and pins.
  * - A key containing a span field is a pointwise nonoverlap rule: facts may share its scalar fields provided their
  *   spans share no point. Its native lowering places the span last WITHOUT OVERLAPS, as the primary key or as
  *   `UNIQUE (..., span WITHOUT OVERLAPS)` for a candidate key, both under the key's own constraint name; every scalar
@@ -2755,26 +2758,39 @@ export class Recognizer {
 	/**
 	 * A family's natives, planned once:
 	 *
-	 * - its columns: the index, a field when ordered and a drawn ‹i› when counted; the drawn ‹n› on each member; ‹p›,
-	 *   the generated pred of the index; ‹pn›, the generated pred of the count on the owner; and for a tree ‹parent₀›,
+	 * - its columns: the index, a field when ordered and a drawn ‹i› when counted; the drawn successor ‹s› on each
+	 *   member, the slot after its own where a member follows it and its own slot at its group's last; ‹p›, the
+	 *   generated pred of the index; ‹pn›, the generated pred of the count on the owner; ‹k⁺›, the owner's first key
+	 *   field where its count is above 0, the one guarded column of the holding reference's target; and for a tree ‹parent₀›,
 	 *   its parent where its start is above 0, the one guarded group column, after its root fields. One guarded column
 	 *   per side is exact: MATCH SIMPLE and UNIQUE NULLS DISTINCT both pass over a row with any null column;
-	 * - its key, `UNIQUE (g…, i)` over its planned group, and its bound `CHECK (i < ‹n›)`, with `‹i› >= 0` beside it for
-	 *   a counted index, which as a law column has no natural domain to keep it there;
+	 * - its key, `UNIQUE (g…, i)` over its planned group, with `CHECK (‹i› >= 0)` for a counted index, which as a law
+	 *   column has no natural domain to keep it there;
 	 * - its successor key, `UNIQUE (g…, ‹p›)`: each member is the predecessor of at most one, as its key implies, ‹p›
 	 *   being the index's pred, NULL at slot 0. It states that law, and its index serves the predecessor axis's reverse
 	 *   probe, which binds its every column;
 	 * - its three axes (`#axis`), each carrying its pairs: the former's (a tree's interval copies, a fold's
-	 *   accumulators) and every containment's that rides it;
+	 *   accumulators) and every containment's that rides it. The owner axis is its holding reference
+	 *   (`#holdingReference`), (g…) into (‹k⁺›, k…), deferred, which holds every member's owner to one with a member, its
+	 *   count above 0, and where it carries copies, their foreign key from (g…) and the copies into the owner's key and
+	 *   their sources, which a key WITHOUT OVERLAPS never is, as the owner's key alone may be (42830). The predecessor
+	 *   axis, (g…, ‹p›, i) into (g…, i, ‹s›), holds each member's predecessor to one it follows, whose successor is its
+	 *   slot; the last axis, (k…, ‹pn›, ‹pn›) into (g…, i, ‹s›), holds the owner's last slot to a member that none
+	 *   follows, its successor its own slot. So a member past the last slot is refused: the member at n names the one at
+	 *   n − 1 its predecessor, whose successor the last axis holds at n − 1, and with the slots' key and the predecessor
+	 *   axis's closure each owner's members are exactly 0 … n − 1. No member holds its owner's count, so no edit of a
+	 *   family rewrites the members it does not move: an append writes its owner, its appended members and the one
+	 *   member before them, whose successor it becomes;
 	 * - every base pin of a carried copy, the copy's first law's: `i > 0 OR f = s` on a predecessor copy, `n > 0 OR
 	 *   f = s` on a last copy and `start > 0 OR f = s` on a tree's owner copy, `s` the copy's start: an accumulated
 	 *   field's, or a hidden accumulator's identity;
-	 * - a tree's owner axis from its guarded group, (r…, ‹parent₀›) into its primary key (r…, start), so it names each
-	 *   member's parent and no root, which is its axis's base: a root's copies are their starts, by their pins, and its
-	 *   ‹n› its own count, by the tree's CHECK; with no action: PostgreSQL refuses a cascade over a generated column
-	 *   (42601), and a tree is written whole and rewritten by deletion;
-	 * - for a tree, the CHECK of the family bound, T2, the root pin (each root, outside the family, holds `at = 0`), T3
-	 *   and T6; its primary key (r…, start) is T1;
+	 * - a tree's owner axis copies from its guarded group, (r…, ‹parent₀›) and the copies into its primary key
+	 *   (r…, start) and their sources, so it names each member's parent and no root, which is its axis's base: a root's
+	 *   copies are their starts, by their pins, and its ‹s› its own slot, by the tree's CHECK; with no action:
+	 *   PostgreSQL refuses a cascade over a generated column (42601), and a tree is written whole and rewritten by
+	 *   deletion;
+	 * - for a tree, the CHECK of T2, the root pin (each root, outside the family, holds `at = 0` and its successor
+	 *   `at`), T3 and T6; its primary key (r…, start) is T1;
 	 * - for each fold, its hidden accumulators and the CHECK of its combine, `after = combine(before, x)` where its step
 	 *   selection holds and `after = before` where it does not, compared in exact arithmetic: an after is drawn, never
 	 *   generated, since a count's, a sum's and a max's combine is not total in its carrier.
@@ -2849,14 +2865,14 @@ const readsField = (writing: LawField["writing"], field: LawField): boolean => {
 	return names.has(field.name)
 }
 
-/** The columns a family's owner axis writes on its members by ON UPDATE CASCADE: its group, ‹n›, and every carried
- * source; none for a tree's, which takes no action, since a tree is written whole and rewritten by deletion. */
+/** The columns a family's owner axis writes on its members by ON UPDATE CASCADE: its group and every carried source,
+ * where it carries any; none where it carries none, which is no foreign key of its own, nor for a tree's, which takes
+ * no action, since a tree is written whole and rewritten by deletion. */
 const ownerSources = (f: Family): ReadonlyArray<NativeColumn> =>
-	f.shape.kind === "tree"
+	f.shape.kind === "tree" || !isNonEmpty(f.axes.owner)
 		? []
 		: [
 				...f.group.map((g): NativeColumn => ({ kind: "field", field: g.member })),
-				{ kind: "law", column: f.copy },
 				...f.axes.owner.map((p) => p.from)
 			]
 
@@ -2927,8 +2943,8 @@ class FamilyPlanner {
 		const member = this.#member
 		const owner = this.#owner
 		const tree = f.shape.kind === "tree" ? f.shape : undefined
-		const copy = lawColumn(
-			this.#draw(f.copy, member, f.count, { kind: "copy", family: f.id }, this.#familyNamed("copy"))
+		const next = lawColumn(
+			this.#draw(f.next, member, f.count, { kind: "next", family: f.id }, this.#familyNamed("next"))
 		)
 		const index: PlannedColumn =
 			f.shape.index.kind === "field"
@@ -2980,44 +2996,56 @@ class FamilyPlanner {
 		const familyKeyColumns = appendNonEmpty(group, index)
 		const successorKey = appendNonEmpty(group, pred)
 		const lastBase = appendNonEmpty(ownerKey, lastPred)
-		const ownerTargets = appendNonEmpty(ownerKey, fieldColumn(f.count))
+		const ownerTargets = ownerKey
+		/** Each member at its slot and its successor, which the predecessor axis references by the member after it, its
+		 * successor's slot its index, and the last axis by the owner's last slot, its successor that slot again. */
+		const successors = appendNonEmpty(familyKeyColumns, next)
+		const predecessorBase = appendNonEmpty(successorKey, index)
+		const lastSlots = appendNonEmpty(lastBase, lastPred)
 		const carried = {
-			owner: this.#carried("owner", f.axes.owner, extendNonEmpty(group, [copy]), ownerTargets),
-			predecessor: this.#carried("predecessor", f.axes.predecessor, successorKey, familyKeyColumns),
-			last: this.#carried("last", f.axes.last, lastBase, familyKeyColumns)
+			owner: this.#carried("owner", f.axes.owner, group, ownerTargets),
+			predecessor: this.#carried("predecessor", f.axes.predecessor, predecessorBase, successors),
+			last: this.#carried("last", f.axes.last, lastSlots, successors)
 		}
 		const ownerTargetColumns = extendNonEmpty(
 			ownerTargets,
 			carried.owner.map((p) => p.to)
 		)
 		const memberGroup = mapNonEmpty(f.group, (g) => fieldColumn(g.member))
+		const keyed = tree === undefined ? memberGroup : group
+		const holding = this.#holdingReference(group, keyed, ownerKey)
+		/** The owner axis's foreign key where it carries copies, which it alone writes on the members: ON UPDATE CASCADE,
+		 * a tree's with no action. Where it carries none it is no foreign key of its own: the holding reference names
+		 * each member's owner, and a reference into the owner's key would prove nothing it does not. */
+		const copies = isNonEmpty(carried.owner)
+			? tree === undefined
+				? this.#axis(
+						"owner",
+						carried.owner,
+						{ relation: member, base: group, keyed },
+						{ relation: owner, base: ownerTargets },
+						"cascade",
+						this.#recognizer.refillDeferred("owner", f) ||
+							this.#recognizer.cascadeFed(owner, ownerTargetColumns)
+							? "deferred"
+							: "cycle"
+					)
+				: this.#axis(
+						"owner",
+						carried.owner,
+						{ relation: member, base: group, keyed },
+						{ relation: owner, base: ownerTargets },
+						"noAction",
+						this.#recognizer.refillDeferred("owner", f) ? "deferred" : "immediate"
+					)
+			: undefined
 		const axes: FamilyPlan["axes"] = {
-			owner:
-				tree === undefined
-					? this.#axis(
-							"owner",
-							carried.owner,
-							{ relation: member, base: extendNonEmpty(group, [copy]), keyed: memberGroup },
-							{ relation: owner, base: ownerTargets },
-							"cascade",
-							this.#recognizer.refillDeferred("owner", f) ||
-								this.#recognizer.cascadeFed(owner, ownerTargetColumns)
-								? "deferred"
-								: "cycle"
-						)
-					: this.#axis(
-							"owner",
-							carried.owner,
-							{ relation: member, base: appendNonEmpty(group, copy), keyed: group },
-							{ relation: owner, base: ownerTargets },
-							"noAction",
-							this.#recognizer.refillDeferred("owner", f) ? "deferred" : "immediate"
-						),
+			owner: copies ?? holding,
 			predecessor: this.#axis(
 				"predecessor",
 				carried.predecessor,
-				{ relation: member, base: successorKey, keyed: successorKey },
-				{ relation: member, base: familyKeyColumns },
+				{ relation: member, base: predecessorBase, keyed: successorKey },
+				{ relation: member, base: successors },
 				"noAction",
 				index.kind === "field" && !this.#recognizer.refillDeferred("predecessor", f)
 					? "immediate"
@@ -3026,24 +3054,18 @@ class FamilyPlanner {
 			last: this.#axis(
 				"last",
 				carried.last,
-				{ relation: owner, base: lastBase, keyed: lastBase },
-				{ relation: member, base: familyKeyColumns },
+				{ relation: owner, base: lastSlots, keyed: lastBase },
+				{ relation: member, base: successors },
 				"noAction",
 				"deferred"
 			)
 		}
 
 		const own = this.#conditionsFor(this.#law.id, member)
-		if (tree === undefined) {
-			const i = own.column(index)
-			const n = own.column(copy)
-			own.add(
-				index.kind === "field"
-					? cmp("lt", i, n)
-					: and([cmp("ge", i, naturalLiteral(0n)), cmp("lt", i, n)])
-			)
-		} else {
-			this.#treeConditions(own, tree, index, copy)
+		if (tree !== undefined) {
+			this.#treeConditions(own, tree, index, next)
+		} else if (index.kind === "law") {
+			own.add(cmp("ge", own.column(index), naturalLiteral(0n)))
 		}
 		for (const kind of ["owner", "predecessor", "last"] as const) {
 			for (const p of carried[kind]) {
@@ -3067,13 +3089,16 @@ class FamilyPlanner {
 			this.#loc
 		)
 		const natives: ReadonlyArray<NativePlan> = [
-			...lawColumns([copy, index, pred, ...group, lastPred]),
+			...lawColumns([next, index, pred, ...group, lastPred]),
 			{ kind: "Unique", relation: member, columns: familyKeyColumns },
 			{ kind: "Unique", relation: member, columns: successorKey },
-			...(["owner", "predecessor", "last"] as const).flatMap((a) => [
-				...axes[a].natives,
-				axes[a].foreignKey
-			])
+			...holding.natives,
+			holding.foreignKey,
+			...(copies === undefined ? [] : [...copies.natives, copies.foreignKey]),
+			...axes.predecessor.natives,
+			axes.predecessor.foreignKey,
+			...axes.last.natives,
+			axes.last.foreignKey
 		]
 		return {
 			family: f,
@@ -3102,9 +3127,83 @@ class FamilyPlanner {
 	}
 
 	/** A drawn column of the family that is no fold's, at the naming door. */
-	#familyNamed(kind: "copy" | "index"): DrawnStatement {
+	#familyNamed(kind: "next" | "index"): DrawnStatement {
 		const { id, law } = this.#family
 		return { kind, owner: id.owner, count: id.count, family: law }
+	}
+
+	/**
+	 * The family's holding reference, the owner axis where it carries no copy: every member names an owner that holds a
+	 * member, its count above 0, by a foreign key from its group into the owner's key where the count is above 0,
+	 * (‹k⁺›, k…), ‹k⁺› its first key field under that selection, a generated column NULL at an owner of none, and a
+	 * UNIQUE over them; NO ACTION, deferred to COMMIT, where the family's counts and members stand as the write leaves
+	 * them, so it orders no statement, and its reverse probe reads the index over the group. With the predecessor and
+	 * last axes it bounds every slot below its owner's count: a member of an owner of count 0 names none, and one past a
+	 * positive count meets the last slot's own successor. Its target is never a key WITHOUT OVERLAPS, which no plain
+	 * foreign key may reference (42830), since ‹k⁺› is no field. It is apart from an owner axis that cascades copies: no
+	 * update of an owner ever carries its absent key, a NULL, into its members.
+	 */
+	#holdingReference(
+		group: NonEmptyReadonlyArray<PlannedColumn>,
+		keyed: NonEmptyReadonlyArray<PlannedColumn>,
+		ownerKey: NonEmptyReadonlyArray<PlannedColumn>
+	): AxisPlan {
+		const f = this.#family
+		const [, ...rest] = ownerKey
+		const holding: NonEmptyReadonlyArray<PlannedColumn> = [
+			lawColumn({
+				kind: "term",
+				relation: this.#owner,
+				term: { kind: "field", field: f.group[0].owner.name, column: f.group[0].owner },
+				selection: this.#holding()
+			}),
+			...rest
+		]
+		judgeEntry(
+			this.#keys,
+			holding,
+			`the UNIQUE of ${this.#owner.name} that ${familyText(this.#shape())}'s members name an owner of a member by`,
+			this.#loc
+		)
+		return {
+			natives: [
+				...lawColumns([...group, ...holding]),
+				{ kind: "Unique", relation: this.#owner, columns: holding }
+			],
+			foreignKey: {
+				kind: "ForeignKey",
+				relation: this.#member,
+				columns: group,
+				target: this.#owner,
+				targetColumns: holding,
+				onUpdate: "noAction",
+				deferral: "deferred",
+				laws: [this.#law.id],
+				reverse: plannedReverse(
+					this.#keys,
+					keyed,
+					`the index of ${this.#member.name} over the group its members name an owner of a member of ${familyText(this.#shape())} by`,
+					this.#loc
+				)
+			}
+		}
+	}
+
+	/** The owner's rows that hold a member as a resolved selection: every row whose count is above 0, which its guarded
+	 * key ‹k⁺› reads. */
+	#holding(): ResolvedSelection {
+		const count = this.#family.count
+		const predicate: ExprDesc = {
+			kind: "compare",
+			op: "gt",
+			left: { kind: "field", field: count.name },
+			right: { kind: "literal", value: integerHostOf(baseOf(count.type).carrier, 0n) }
+		}
+		const text = descText(predicate)
+		if (!text.ok) {
+			defect("an owner's count above 0 has a canonical text")
+		}
+		return { conjuncts: [{ kind: "general", predicate, text: text.value, reads: [count] }] }
 	}
 
 	/** A tree's members as a resolved selection: every row whose start is above 0 (φ₀). */
@@ -3445,27 +3544,27 @@ class FamilyPlanner {
 	}
 
 	/**
-	 * A tree's own CHECK conjuncts on its relation: the family bound, T2, the root pin, T3 and T6, each over its row,
-	 * its parent the parent's start that the owner axis proves.
+	 * A tree's own CHECK conjuncts on its relation: T2, the root pin (its slot 0 and its successor that slot, as at a
+	 * group's last, outside every family), T3 and T6, each over its row, its parent the parent's start that the owner
+	 * axis proves.
 	 */
 	#treeConditions(
 		own: RowConditions,
 		tree: TreeMembers,
 		index: PlannedColumn,
-		copy: PlannedColumn
+		next: PlannedColumn
 	): void {
 		const field = (f: LawField): ExprDesc => own.column(fieldColumn(f))
 		const start = field(tree.start)
 		const end = field(tree.end)
 		const parent = field(tree.parent)
 		const at = own.column(index)
-		const n = own.column(copy)
+		const successor = own.column(next)
 		const children = field(this.#family.count)
 		const zero = naturalLiteral(0n)
 		const one = naturalLiteral(1n)
 		const plus = (x: ExprDesc): ExprDesc => ({ kind: "compute", fn: "add", args: [x, one] })
-		own.add(or([cmp("eq", start, zero), cmp("lt", at, n)]))
-		own.add(or([cmp("gt", start, zero), cmp("eq", n, children)]))
+		own.add(or([cmp("gt", start, zero), cmp("eq", successor, at)]))
 		own.add(
 			or([
 				and([cmp("eq", parent, start), cmp("eq", start, zero)]),

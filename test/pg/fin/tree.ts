@@ -1,7 +1,8 @@
 /**
  * The tree relation of the fin suites, declared with grizzle's `tree` former, and the SQL a direct writer, the owner,
  * reads and writes its rows by, each column addressed by its role in the installed table (installed.ts): its fields by
- * name and its drawn law column ‹n›. A row is the substrate's TreeRow (test/pg/substrate/tree.ts), written keyed by
+ * name and its drawn law column ‹s›, its successor among its siblings. A row is the substrate's TreeRow
+ * (test/pg/substrate/tree.ts), written keyed by
  * its root value `doc` and its start, its `parent` the parent's start: the substrate's `parentStart`.
  */
 import { Array as Arr, Option } from "effect"
@@ -46,15 +47,15 @@ export const nativesOf = (c: Catalogued): ReadonlyArray<TreeNative> => {
 		case "unique":
 			return is(["doc", "‹gen parent›", "at"])
 				? ["family key"]
-				: is(["doc", "start", "children"])
+				: is(["‹gen doc›", "start"])
 					? ["owner superkey"]
-					: is(["doc", "‹gen parent›", "at", "end"])
+					: is(["doc", "‹gen parent›", "at", "‹s›", "end"])
 						? ["member superkey"]
 						: []
 		case "check":
 			return []
 		case "foreign":
-			return Option.exists(c.target, (t) => t.columns.includes("children"))
+			return Option.exists(c.target, (t) => t.columns.includes("start"))
 				? ["owner axis"]
 				: c.columns.includes("‹gen children›")
 					? ["last axis"]
@@ -64,8 +65,9 @@ export const nativesOf = (c: Catalogued): ReadonlyArray<TreeNative> => {
 	}
 }
 
-/** The roles every row is written and read by, in order: the root value, the parent's start, its slot and interval, ‹n›. */
-const COLUMNS = ["doc", "parent", "at", "children", "start", "end", "‹n›"] as const
+/** The roles every row is written and read by, in order: the root value, the parent's start, its slot, count and
+ * interval, ‹s›. */
+const COLUMNS = ["doc", "parent", "at", "children", "start", "end", "‹s›"] as const
 
 const valuesOf = (r: TreeRow): ReadonlyArray<number> => [
 	r.root,
@@ -74,7 +76,7 @@ const valuesOf = (r: TreeRow): ReadonlyArray<number> => [
 	r.children,
 	r.start,
 	r.end,
-	r.copy
+	r.next
 ]
 
 const columnsOf = (seat: Seat): string =>

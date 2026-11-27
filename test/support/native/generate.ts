@@ -791,8 +791,8 @@ const FIN_HELD = [0, 1, 2] as const
 
 /**
  * Every state of one owner's first four slots, each holding no row, one or two, under no owner or an owner of count
- * 0 to 3, the rows numbered in slot order and each copying the count (four past every slot, under no owner): the box
- * the family theorem's own suite exhausts.
+ * 0 to 3, the rows numbered in slot order, each one's successor the slot after it below the count and its own slot
+ * elsewhere (every row's own, under no owner): the box the family theorem's own suite exhausts.
  */
 export const finBoxGen: Gen<Stored> = (source) => {
 	const owner = source.draw(element(FIN_OWNERS))
@@ -800,11 +800,11 @@ export const finBoxGen: Gen<Stored> = (source) => {
 		upTo(FIN_SLOTS, (i) => i),
 		() => source.draw(element(FIN_HELD))
 	)
-	const copy = owner.kind === "absent" ? FIN_SLOTS : owner.count
+	const count = owner.kind === "absent" ? 0 : owner.count
 	const rows: Array<FamilyRow> = []
 	for (const [at, n] of held.entries()) {
 		for (let row = 0; row < n; row++) {
-			rows.push({ group: 0, at, copy, member: rows.length })
+			rows.push({ group: 0, at, next: at + 1 < count ? at + 1 : at, member: rows.length })
 		}
 	}
 	return {

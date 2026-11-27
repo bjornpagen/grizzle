@@ -60,8 +60,9 @@ export const layoutKey = (relation: string, position: FillAt): string =>
  * - self: a tree root's parent: its own start `to`, since the root is its own parent; its root fields are the caller's;
  * - base: every copy a tree's owner axis carries, on its root, the owner axis's base: the copy's start `base`, since the
  *   root has no parent to copy, stated by `law`;
- * - index, copy, count, start, end: a drawn natural, from where the row stands: its slot, its family's count, the count
- *   of a family it owns, a tree node's pre-order start, its start plus its subtree's size;
+ * - index, next, count, start, end: a drawn natural, from where the row stands: its slot, its successor (the slot after
+ *   its own where its family's count passes that slot, its own slot at its group's last, which no member follows, and a
+ *   tree's root's), the count of a family it owns, a tree node's pre-order start, its start plus its subtree's size;
  * - ownerCopy, predecessor, last: an accumulated or hidden column carried along an axis of `family`, the target row's
  *   column `to`, stated by `law`, and `base` at the predecessor and last axes' base, the first slot and the empty
  *   family (an owner axis's base, a tree's root, stands at the root's position: `base` above). A predecessor copy may
@@ -78,7 +79,7 @@ export type FillRule =
 	| { readonly kind: "self"; readonly to: NativeColumn }
 	| { readonly kind: "base"; readonly base: TypedLiteral; readonly law: LawId }
 	| { readonly kind: "index" }
-	| { readonly kind: "copy" }
+	| { readonly kind: "next" }
 	| { readonly kind: "count"; readonly family: Family }
 	| { readonly kind: "start" }
 	| { readonly kind: "end" }
@@ -193,7 +194,7 @@ export const familyDrawn = (
 			return (
 				c.writer.kind === "walk" &&
 				(rule.kind === "index" ||
-					rule.kind === "copy" ||
+					rule.kind === "next" ||
 					((rule.kind === "ownerCopy" || rule.kind === "predecessor" || rule.kind === "after") &&
 						familyKey(rule.family.id) === familyKey(family.id)))
 			)
@@ -207,8 +208,8 @@ export const familyDrawn = (
 
 /**
  * Where an append draws a counted family's groups that hold stored members (write/family/additions.ts):
- * - `kept`: from each group's kept count on, past its stored members, which keep every column, their copies along the
- *   family's owner axis aside, which the owner's recount cascades into them at the statement's end;
+ * - `kept`: from each group's kept count on, past its stored members, which keep every column but the successor ‹s› of
+ *   the last of them, which the appended member after it becomes (write/family/written.ts seamUpdate);
  * - `whole`: from slot 0, each stored member drawn again beside the appended ones and updated in place. A value the
  *   family draws (a fold's step or selection, a predecessor copy, or a member column its last axis carries) reads,
  *   through the member's row, a settled copy: a copy along the family's own owner axis of an owner column the family's
@@ -234,7 +235,7 @@ const ruleFamily = (rule: FillRule): Family | undefined => {
 		case "self":
 		case "base":
 		case "index":
-		case "copy":
+		case "next":
 		case "start":
 		case "end":
 		case "generated":

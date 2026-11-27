@@ -3,7 +3,7 @@
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { assert, defined } from "@bjornpagen/testing/assert"
 import { array, type Gen, int } from "@bjornpagen/testing/gen"
-import { Array as Arr, Effect, Record as Rec, String as Str } from "effect"
+import { Array as Arr, Effect, Option, Record as Rec, String as Str } from "effect"
 import type { MemberFacts, StatementFacts, TriggerLaw } from "#compiler/analysis/isolation/facts.ts"
 import type { TablePrivilege } from "#compiler/core/privilege.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
@@ -95,10 +95,15 @@ const law = "<law>"
  * The keys of each relation PostgreSQL enforces, by the specification's names, a law column as `law` (see the header):
  * its primary key; an ordered family's member slot, its group then `i<f>`, and its predecessor's, its group then the
  * predecessor of `i<f>`; a counted family's two, its group then its drawn index, and then that index's predecessor;
- * a tree's three, its root, the parent's start under its members' selection, then `i<f>`, the predecessor of `i<f>`,
- * or `i<f>` and `end`; a fold's end beside its family's last slot, the slot's columns then the fold's accumulator, a
- * tree's in place of its slot by `end`; and each owner's owner-axis target, a tree's own among them.
+ * a tree's two, its root, the parent's start under its members' selection, then `i<f>` or the predecessor of `i<f>`;
+ * the successors the predecessor and last axes reference, the slot's columns then the successor, a tree's `end` after
+ * it, then a fold's accumulator where it folds; and each owner's holding reference's target, its key with its first
+ * field where the count is above 0, a tree's own among them.
  */
+const holdingOf = (spec: FillSpec, owner: number): ReadonlyArray<string> => {
+	const [, ...rest] = keyOfRelation(spec, owner)
+	return [law, ...rest]
+}
 const keysOracle = (spec: FillSpec): ReadonlyMap<string, ReadonlyArray<ReadonlyArray<string>>> => {
 	const keys = new Map<string, Array<ReadonlyArray<string>>>(
 		Arr.map(spec.relations, (_, r) => [relationName(r), [keyOfRelation(spec, r)]] as const)
@@ -107,31 +112,27 @@ const keysOracle = (spec: FillSpec): ReadonlyMap<string, ReadonlyArray<ReadonlyA
 		defined(keys.get(relationName(r)), `relation ${r}`).push(fields)
 	}
 	for (const [f, family] of spec.families.entries()) {
-		const ownerTarget = [...keyOfRelation(spec, family.owner), `n${f}`]
+		const holding = holdingOf(spec, family.owner)
 		const group = groupFieldsOf(spec, f)
 		const after = foldedOf(spec, f)
 		switch (family.kind) {
 			case "ordered":
 				add(family.member, [...group, `i${f}`])
 				add(family.member, [...group, law])
-				if (after.length > 0) {
-					add(family.member, [...group, `i${f}`, ...after])
-				}
-				add(family.owner, ownerTarget)
+				add(family.member, [...group, `i${f}`, law, ...after])
+				add(family.owner, holding)
 				break
 			case "counted":
 				add(family.member, [...group, law])
 				add(family.member, [...group, law])
-				if (after.length > 0) {
-					add(family.member, [...group, law, ...after])
-				}
-				add(family.owner, ownerTarget)
+				add(family.member, [...group, law, law, ...after])
+				add(family.owner, holding)
 				break
 			case "tree":
 				add(family.member, [...rootFieldsOf(f), law, `i${f}`])
 				add(family.member, [...rootFieldsOf(f), law, law])
-				add(family.member, [...rootFieldsOf(f), law, `i${f}`, "end", ...after])
-				add(family.owner, ownerTarget)
+				add(family.member, [...rootFieldsOf(f), law, `i${f}`, law, "end", ...after])
+				add(family.owner, holding)
 				break
 		}
 	}
@@ -144,7 +145,8 @@ const foldedOf = (spec: FillSpec, f: number): ReadonlyArray<string> =>
 
 /**
  * The references of each relation as canonical lines `<target>(<columns>) <action>`, by the specification's names, a
- * law column as `law` (see the header): what each family's foreign keys reference, a family's slot with its fold's
+ * law column as `law` (see the header): what each family's foreign keys reference, its owner axis its owner's holding
+ * target and its predecessor and last axes its slot and successor, a tree's `end` after them, then its fold's
  * accumulator where it folds.
  */
 const referencesOracle = (spec: FillSpec): ReadonlyMap<string, ReadonlyArray<string>> => {
@@ -155,23 +157,23 @@ const referencesOracle = (spec: FillSpec): ReadonlyMap<string, ReadonlyArray<str
 		references.set(relationName(from), held)
 	}
 	for (const [f, family] of spec.families.entries()) {
-		const ownerTarget = [...keyOfRelation(spec, family.owner), `n${f}`]
+		const holding = holdingOf(spec, family.owner)
 		const group = groupFieldsOf(spec, f)
 		const after = foldedOf(spec, f)
 		switch (family.kind) {
 			case "ordered":
-				add(family.member, family.owner, ownerTarget, "cascade")
-				add(family.member, family.member, [...group, `i${f}`, ...after], "noAction")
-				add(family.owner, family.member, [...group, `i${f}`, ...after], "noAction")
+				add(family.member, family.owner, holding, "noAction")
+				add(family.member, family.member, [...group, `i${f}`, law, ...after], "noAction")
+				add(family.owner, family.member, [...group, `i${f}`, law, ...after], "noAction")
 				break
 			case "counted":
-				add(family.member, family.owner, ownerTarget, "cascade")
-				add(family.member, family.member, [...group, law, ...after], "noAction")
-				add(family.owner, family.member, [...group, law, ...after], "noAction")
+				add(family.member, family.owner, holding, "noAction")
+				add(family.member, family.member, [...group, law, law, ...after], "noAction")
+				add(family.owner, family.member, [...group, law, law, ...after], "noAction")
 				break
 			case "tree": {
-				const end = [...rootFieldsOf(f), law, `i${f}`, "end", ...after]
-				add(family.member, family.member, ownerTarget, "noAction")
+				const end = [...rootFieldsOf(f), law, `i${f}`, law, "end", ...after]
+				add(family.member, family.member, holding, "noAction")
 				add(family.member, family.member, end, "noAction")
 				add(family.member, family.member, end, "noAction")
 				break
@@ -322,7 +324,12 @@ export const run = (c: Case, note: (feature: Feature) => void) =>
 				Arr.sort(references.get(name) ?? [], Str.Order),
 				`${name}'s references are every foreign key it holds`
 			)
-			if (Arr.some(facts.references, (r) => r.onUpdate === "cascade")) {
+			/** Whether the relation holds a family's holding reference, the one whose target leads with a law column, its
+			 * owner's guarded key. */
+			const holding = Arr.some(facts.references, (r) =>
+				Option.exists(Arr.head(r.columns), (c) => spelledIn(r.relation)(c) === law)
+			)
+			if (holding) {
 				note("a member's reference to its owner")
 			}
 		}

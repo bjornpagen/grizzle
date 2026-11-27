@@ -8,7 +8,7 @@
  * host writes is grizzle's, and PostgreSQL proves each one again through the native that reads it:
  *
  * - a member's group, its owner's key: a tree node's root fields, its parent's, and its parent, its parent's start;
- * - the drawn columns: an ordered family's index, a counted one's ‹i›, each family's count and ‹n›, and a tree's
+ * - the drawn columns: an ordered family's index, a counted one's ‹i›, each family's count and ‹s›, and a tree's
  *   `children`, `start` and `end`, its end its start plus its subtree's size, drawn in one iterative pre-order pass;
  * - the accumulated columns, each the copy the one axis pair that carries it gives it (ir/family.ts AxisPair): along the
  *   owner axis from its owner, along the predecessor axis from its predecessor, along the last axis from its owner's
@@ -294,7 +294,7 @@ export interface FillFold {
  * A tree root's parent (`self`) is its own start.
  */
 export type FillRuleData =
-	| { readonly kind: "given" | "index" | "copy" | "start" | "end" }
+	| { readonly kind: "given" | "index" | "next" | "start" | "end" }
 	| { readonly kind: "owner" | "self" | "ownerCopy"; readonly to: ColumnKey }
 	| { readonly kind: "base"; readonly base: TypedLiteral }
 	| { readonly kind: "count"; readonly family: FamilyId }
@@ -353,7 +353,7 @@ export interface HostFill {
  * - given: the caller's, the row's own value;
  * - owner: its owner's column `to`; self: its own column `to`, a tree root's parent, its own start;
  * - base: a tree root's copy along its owner axis, the copy's start as a host value;
- * - index, copy, count, start, end: a drawn natural, from where the row stands;
+ * - index, next, count, start, end: a drawn natural, from where the row stands;
  * - ownerCopy, predecessor, last: a column carried along an axis, the target row's column `to`, and `base` at the
  *   predecessor and last axes' base;
  * - after: a fold plane's after;
@@ -366,7 +366,7 @@ type Rule =
 	| { readonly kind: "self"; readonly to: number }
 	| { readonly kind: "base"; readonly base: unknown }
 	| { readonly kind: "index" }
-	| { readonly kind: "copy" }
+	| { readonly kind: "next" }
 	| { readonly kind: "count"; readonly family: FillFamily }
 	| { readonly kind: "start" }
 	| { readonly kind: "end" }
@@ -445,7 +445,7 @@ const hostRule = (
 	switch (rule.kind) {
 		case "given":
 		case "index":
-		case "copy":
+		case "next":
 		case "start":
 		case "end":
 			return { kind: rule.kind }
@@ -988,15 +988,21 @@ const ruleValue = (
 			return Result.ok(rule.base)
 		case "index":
 			return drawnValue(row, column, row.place.kind === "member" ? row.place.at : 0)
-		case "copy":
+		case "next":
 			switch (row.place.kind) {
 				case "top":
 					defect(`a row of ${row.layout.relation.name} in a family`)
 				case "entered":
 				case "root":
-					return drawnValue(row, column, row.counts.get(row.place.family) ?? 0)
-				case "member":
-					return drawnValue(row, column, row.place.owner.counts.get(row.place.family) ?? 0)
+					return drawnValue(row, column, 0)
+				case "member": {
+					const at = row.place.at
+					return drawnValue(
+						row,
+						column,
+						at + 1 < (row.place.owner.counts.get(row.place.family) ?? 0) ? at + 1 : at
+					)
+				}
 			}
 		case "count":
 			return drawnValue(row, column, row.counts.get(rule.family) ?? 0)

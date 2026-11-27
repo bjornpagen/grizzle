@@ -423,6 +423,13 @@ export const installedScope = (
 			mutable: new Set(
 				Arr.flatMap(relations, (r) => (r.kind === "relation" && r.mutable ? [r.ident] : []))
 			),
+			successors: new Set(
+				Arr.flatMap(installation.laws.families, (f) =>
+					f.shape.kind !== "tree" && f.owner.mutable
+						? [`${installation.names.relation(f.member.name).name}.${f.next}`]
+						: []
+				)
+			),
 			storedTables: created(snapshot, "storedTable", storedTableOf),
 			bookkeeping,
 			heads: created(snapshot, "head", tableOf),

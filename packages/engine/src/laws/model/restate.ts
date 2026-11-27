@@ -721,7 +721,7 @@ const lawColumnStatement = (
 			const count = spell.field(named.owner, named.count)
 			const family = law(named.family)
 			switch (named.kind) {
-				case "copy":
+				case "next":
 				case "index":
 				case "predecessor":
 					return { kind: named.kind, owner, count, family }

@@ -28,6 +28,7 @@ import {
 	SHAPES,
 	type Stored,
 	storedOf,
+	successorOf,
 	theorem
 } from "#test/support/families/theorem.ts"
 
@@ -56,13 +57,17 @@ export const boxGen: Gen<Box> = (source) => ({
 	held: Arr.map(indices(boxSlots), () => source.draw(element(slotHeld)))
 })
 
-/** A box's state: its rows numbered in slot order, each copying the count, or past every slot under no owner. */
+/**
+ * A box's state: its rows numbered in slot order, each holding the successor the host draws at its slot in its owner's
+ * count (theorem.ts successorOf), its own slot under no owner.
+ */
 export const storedOfBox = (box: Box): Stored => {
-	const copy = box.owner.kind === "absent" ? boxSlots : box.owner.count
+	const owner = box.owner
 	const rows: Array<FamilyRow> = []
 	for (const [at, held] of box.held.entries()) {
+		const next = owner.kind === "absent" ? at : successorOf(at, owner.count)
 		for (let row = 0; row < held; row++) {
-			rows.push({ group: 0, at, copy, member: rows.length })
+			rows.push({ group: 0, at, next, member: rows.length })
 		}
 	}
 	return {
@@ -133,9 +138,16 @@ const judgeBefore = (before: Families): void => {
 	assert.deepEqual(familyViolations(storedOf(before)), [], "a committed state breaks no constraint")
 }
 
+/** Whether every row holds the successor the host draws at its slot in its owner's count, every row of an owner. */
+const drawnSuccessors = (state: Stored): boolean =>
+	Arr.every(state.rows, (r) => {
+		const count = state.owners.get(r.group)
+		return count !== undefined && r.next === successorOf(r.at, count)
+	})
+
 /**
  * Any state, however reached: one that breaks no constraint satisfies the theorem, and one the theorem holds of whose
- * copies are its owners' counts breaks no constraint but, possibly, the member key, which the theorem does not read.
+ * every successor is its slot's breaks no constraint but, possibly, the member key, which the theorem does not read.
  */
 const judgeState = (state: Stored): void => {
 	const found = familyViolations(state)
@@ -143,11 +155,11 @@ const judgeState = (state: Stored): void => {
 	if (found.length === 0) {
 		succeeded(read, "a state that breaks no constraint satisfies the theorem")
 	}
-	if (Result.isSuccess(read) && !Arr.some(found, (v) => v.constraint === "copy")) {
+	if (Result.isSuccess(read) && drawnSuccessors(state)) {
 		assert.deepEqual(
 			Arr.filter(found, (v) => v.constraint !== "identity"),
 			[],
-			"a state the theorem holds of, every copy its owner's count, breaks no constraint of the lowering"
+			"a state the theorem holds of, every successor its slot's, breaks no constraint of the lowering"
 		)
 	}
 }
@@ -174,7 +186,7 @@ export const judgesOf = (shape: Shape, c: Case<Feature>): Judges<never, never> =
 			judgeBefore(before)
 			assert.ok(
 				inPlace(m.statements),
-				"a lawful mutation sends deletes, then moves, then the count, then inserts"
+				"a lawful mutation sends deletes, then moves, then seams, then the count, then inserts"
 			)
 			const outcome = run(shape, before, m.statements)
 			assert.deepEqual(
@@ -259,20 +271,14 @@ export const judgesOf = (shape: Shape, c: Case<Feature>): Judges<never, never> =
 			) {
 				c.note("a misordered shrink")
 				c.pair(shape, "a misordered shrink")
-				assertVariant(
-					outcome,
-					"kind",
-					"refused",
-					"a count lowered before the rows above it go is refused"
+				assert.ok(
+					!(
+						outcome.kind === "refused" &&
+						outcome.moment.kind === "statement" &&
+						outcome.moment.index === lowered
+					),
+					"a count lowered before the rows above it go breaks nothing at its update: no constraint a statement's end checks reads the count, and no row holds it"
 				)
-				assertVariant(outcome.moment, "kind", "statement", "at a statement")
-				assert.ok(outcome.moment.index <= lowered, "at the count update or before it")
-				if (outcome.moment.index === lowered) {
-					assert.ok(
-						Arr.some(outcome.violations, (v) => v.constraint === "bound"),
-						"by the bound the count's cascade breaks"
-					)
-				}
 			}
 			for (const state of statesOf(before, m.statements)) {
 				judgeState(state)

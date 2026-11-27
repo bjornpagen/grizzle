@@ -98,8 +98,14 @@ export type InstalledTrigger = (typeof installedTriggers)[number]
 export interface ErasureExpectation {
 	/** The authored stored relations' table names. */
 	readonly tables: ReadonlySet<string>
-	/** The table names of the mutable relations: the only ones a non-owner role may UPDATE. */
+	/** The table names of the mutable relations: the only ones a non-owner role may UPDATE whole. */
 	readonly mutable: ReadonlySet<string>
+	/**
+	 * Each family's successor column ‹s› on its member, a family of a mutable owner but a tree, as `<table>.<column>`:
+	 * the one column of an immutable relation a non-owner role may UPDATE, which its family statements set on the
+	 * member an append follows (physical/ddl/roles.ts seamHolds).
+	 */
+	readonly successors: ReadonlySet<string>
 	/**
 	 * The stored derived relations' tables, which only the rule judge's upkeep writes and no world's role holds a
 	 * privilege on: its views read them as their owner.
@@ -600,8 +606,8 @@ const standingProblems = (j: Judging, t: Table): ReadonlyArray<ErasureProblem> =
 }
 
 /**
- * What a non-owner's grant on a relation or a column of it confers: no TRUNCATE, UPDATE only when mutable, MAINTAIN
- * only to a login fencing the table (fenceGrant).
+ * What a non-owner's grant on a relation or a column of it confers: no TRUNCATE, UPDATE only when mutable or of a
+ * family's successor column (ErasureExpectation `successors`), MAINTAIN only to a login fencing the table (fenceGrant).
  */
 const conferredProblems = (j: Judging, t: Table, g: HeldGrant): ReadonlyArray<ErasureProblem> => {
 	if (g.grantee === j.owner) {
@@ -611,11 +617,16 @@ const conferredProblems = (j: Judging, t: Table, g: HeldGrant): ReadonlyArray<Er
 		return [{ kind: "truncate", relation: t.name, grantee: g.grantee }]
 	}
 	if (g.privilege === "UPDATE") {
-		return unless(j.expect.mutable.has(t.name), {
-			kind: "immutableUpdate",
-			object: g.object,
-			grantee: g.grantee
-		})
+		return unless(
+			j.expect.mutable.has(t.name) ||
+				(g.object.kind === "column" &&
+					j.expect.successors.has(`${g.object.relation}.${g.object.column}`)),
+			{
+				kind: "immutableUpdate",
+				object: g.object,
+				grantee: g.grantee
+			}
+		)
 	}
 	if (g.privilege === "MAINTAIN") {
 		const login = j.expect.logins.get(g.grantee)
@@ -1522,7 +1533,8 @@ const defaultAclProblems = (j: Judging): ReadonlyArray<ErasureProblem> => [
  *   login, and MAINTAIN on each table it fences, which its fenced writes lock before their snapshot; the live
  *   source's decoder login holds exactly USAGE on the schema and SELECT on the live secret, which its listeners and its
  *   leader read; and every other grant is the owner's or a world's role's; no role but the owner holds UPDATE, of the
- *   table or of a column, on an immutable relation (immutable by default is pinned) or TRUNCATE on any relation
+ *   table or of a column, on an immutable relation (immutable by default is pinned) but a family's successor column
+ *   its member's writers set (ErasureExpectation `successors`), or TRUNCATE on any relation
  *   (TRUNCATE fires no row trigger and would bypass the laws); a table grants only SELECT, INSERT, DELETE and UPDATE,
  *   a column SELECT, INSERT and UPDATE, and a stored derived relation's table nothing to any world's role, since only
  *   the judge's upkeep writes it and the world's views read it as their owner (worldPrivileges); the schema grants

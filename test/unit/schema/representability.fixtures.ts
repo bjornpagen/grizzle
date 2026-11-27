@@ -1105,9 +1105,10 @@ const dataOffset = (nullable: boolean): number => (nullable ? 16 : indexTupleHea
 /**
  * The index a text of keyTextBytes(fields) bytes sits in beside those fields: a key declared over them; a key over a
  * selection of their relation, whose columns are law columns that may hold NULL; or the UNIQUE of a family axis that
- * carries the text as a concat fold's running value: an ordered family's, Line's (doc, at, after), fields all, beside
- * a uuid and a natural; a tree's predecessor axis's, Node's root field doc, its parent, a law column that may hold
- * NULL, its slot, its end and its running text, beside a uuid and three naturals.
+ * carries the text as a concat fold's running value: an ordered family's, Line's (doc, at, ‹s›, after), its successor
+ * ‹s› a law column of no NULL, beside a uuid and two naturals; a tree's predecessor axis's, Node's root field doc, its
+ * parent, a law column that may hold NULL, its slot, its successor, its end and its running text, beside a uuid and
+ * four naturals.
  */
 type KeyArm = "declared key" | "key over a selection"
 
@@ -1181,7 +1182,7 @@ export const installed = (value: unknown) =>
 
 /**
  * Doc's lines in order and the concat fold of their pieces into Doc.text, each text bounded at `bytes`: the axis's
- * UNIQUE is Line's (doc, at, after).
+ * UNIQUE is Line's (doc, at, ‹s›, after), ‹s› the natural successor each line holds.
  */
 const orderedAxis = (bytes: number, spelling: Spelling) => {
 	const text = keyText(bytes, spelling)
@@ -1219,7 +1220,7 @@ const orderedAxis = (bytes: number, spelling: Spelling) => {
 /**
  * A tree of nodes keyed by their root field doc and their start, and the concat fold of their pieces along it, each
  * text bounded at `bytes`: its predecessor axis's UNIQUE holds the root field, the parent as a law column that may hold
- * NULL, the slot, the node's end and the running text, the tree's own pair before the fold's.
+ * NULL, the slot, the node's successor, its end and the running text, the tree's own pair before the fold's.
  */
 const treeAxis = (bytes: number, spelling: Spelling) => {
 	const text = keyText(bytes, spelling)
@@ -1319,13 +1320,14 @@ export const armOf = (s: BudgetCase): Arm => {
 			return keyArm(s)
 		case "ordered axis":
 			return {
-				fields: [Id, natural],
-				companions: [uuidCompanion, naturalCompanion],
+				fields: [Id, natural, natural],
+				companions: [uuidCompanion, naturalCompanion, naturalCompanion],
 				schemaAt: (bytes) => orderedAxis(bytes, s.spelling),
 				entryAt: (bytes) =>
 					maxalign(
 						anyOrderEnd(dataOffset(false), [
 							companionDatum(uuidCompanion),
+							companionDatum(naturalCompanion),
 							companionDatum(naturalCompanion),
 							varlena(bytes)
 						])
@@ -1333,13 +1335,20 @@ export const armOf = (s: BudgetCase): Arm => {
 			}
 		case "tree axis":
 			return {
-				fields: [Id, natural, natural, natural],
-				companions: [uuidCompanion, naturalCompanion, naturalCompanion, naturalCompanion],
+				fields: [Id, natural, natural, natural, natural],
+				companions: [
+					uuidCompanion,
+					naturalCompanion,
+					naturalCompanion,
+					naturalCompanion,
+					naturalCompanion
+				],
 				schemaAt: (bytes) => treeAxis(bytes, s.spelling),
 				entryAt: (bytes) =>
 					maxalign(
 						anyOrderEnd(dataOffset(true), [
 							companionDatum(uuidCompanion),
+							companionDatum(naturalCompanion),
 							companionDatum(naturalCompanion),
 							companionDatum(naturalCompanion),
 							companionDatum(naturalCompanion),

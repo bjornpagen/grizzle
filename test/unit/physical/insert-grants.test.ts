@@ -9,10 +9,11 @@
  *   `RoleRefused` (`writeClosed`) naming the relation, by the closedness the owned base states; otherwise its
  *   Description holds each entry under its list.
  * - **The grants are the declaration's, relation by relation:** each role's table privileges on each table, a column
- *   privilege counting as its table's, are the rule restated: on a table it writes SELECT and INSERT, and UPDATE and
- *   DELETE exactly where its write list names it; on the owner of a family whose member it writes, and which it does
+ *   privilege counting as its table's, are the rule restated: on a table it writes SELECT and INSERT, UPDATE and
+ *   DELETE exactly where its write list names it, and UPDATE on a member of a mutable owner's family it writes in full,
+ *   whose successor ‹s› its appends set; on the owner of a family whose member it writes, and which it does
  *   not write whole, SELECT, and UPDATE on a mutable owner whose member its write list names. No UPDATE or DELETE stands
- *   on a relation under the insert list. grantedPrivileges, what certification reads, is exactly the installed set.
+ *   on a relation under the insert list but a recount's of an owner and a successor's of a member. grantedPrivileges, what certification reads, is exactly the installed set.
  * - **A role's grants are its own:** the installation with every role stated as its control, each open relation it
  *   writes under its write list and each closed one under its insert list, holds the same objects in the same order
  *   with the same DDL, the same edges, revokes, defaults and comments, save each role's own privileges object, where
@@ -69,6 +70,7 @@ import {
 	roleOf,
 	rulePrivileges,
 	schemaOf,
+	setsSuccessors,
 	sortedPrivileges,
 	anchorlessStatementsOf,
 	statementsOf,
@@ -166,13 +168,14 @@ export const rolesThatWriteEachRelationUnderItsListTheDeclarationItsGrantsAndThe
 							continue
 						}
 						if (writes[t] !== "none" && modes[t] === "insert") {
-							const recounts = isOwner(t) && writes[memberOf[t]] !== "none"
+							const recounts =
+								(isOwner(t) && writes[memberOf[t]] !== "none") || setsSuccessors(d, w.mutability, t)
 							assert.ok(
 								Arr.every(
 									installed,
 									(p) => p === "SELECT" || p === "INSERT" || (recounts && p === "UPDATE")
 								),
-								`${d.name} holds no DELETE on ${t}, which its insert list names, and no UPDATE but a recount's`
+								`${d.name} holds no DELETE on ${t}, which its insert list names, and no UPDATE but a recount's or a successor's`
 							)
 							if (mutableIn(w.mutability, t)) {
 								c.note("an open relation inserted into alone")

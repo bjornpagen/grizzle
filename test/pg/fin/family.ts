@@ -5,10 +5,12 @@
  * a direct writer sends to it, and its stored state read back as the model's (theorem.ts Stored).
  *
  * Each installed constraint is read as the families model's constraint by the roles of its columns (installed.ts): the
- * member's primary key is `identity`, UNIQUE (g, i) is `key`, CHECK (i < ‹n›) is `bound`, the owner axis (g, ‹n›) →
- * (id, n) is `copy`, the last axis (id, ‹pn›) → (g, i) is `last`, and the predecessor axis (g, ‹p›) → (g, i) is
- * `closure`, with i the index (`at` or ‹i›). The owner's own keys are no constraint of the model, which never writes two
- * owners of one key.
+ * member's primary key is `identity`, UNIQUE (g, i) is `key`, the owner axis (g) → (‹id⁺›), the owner's key where its
+ * count is above 0, is `owner`, the last axis (id, ‹pn›, ‹pn›) → (g, i, ‹s›) is `last`, and the predecessor axis (g,
+ * ‹p›, i) → (g, i, ‹s›) is `closure`, with i the index (`at` or ‹i›) and ‹s› the member's successor. The owner's own
+ * keys, the successor key UNIQUE (g, ‹p›) and the member superkey UNIQUE (g, i, ‹s›) the two axes reference are no
+ * constraint of the model: the model never writes two owners of one key, and the family key refuses every row either
+ * superkey would, before them, since a row at its slot's key meets the family key first.
  */
 import { deepEquals, defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Data, Effect, Formatter, Option, type Scope } from "effect"
@@ -101,7 +103,8 @@ const CountedFamily = schema(
 
 /**
  * The fields the families model's direct writer rewrites in place, by relation and shape: an owner's count, and an
- * ordered member's index, a drawn field; a counted member's index is the hidden law column ‹i›, which no guard holds.
+ * ordered member's index, a drawn field; a counted member's index is the hidden law column ‹i›, and every member's
+ * successor the hidden ‹s›, which no guard holds.
  */
 const rewrittenInPlace = (shape: Shape): ReadonlyArray<readonly [string, string]> =>
 	shape === "ordered"
@@ -217,14 +220,14 @@ export const constraintOf = (f: FamilySeat, c: Catalogued): Option.Option<Constr
 		case "unique":
 			return c.relation === "Member" && is(["g", f.index]) ? Option.some("key") : Option.none()
 		case "check":
-			return c.relation === "Member" && is([f.index, "‹n›"]) ? Option.some("bound") : Option.none()
+			return Option.none()
 		case "foreign": {
 			const target = Option.getOrUndefined(c.target)
 			if (target === undefined) {
 				return Option.none()
 			}
 			if (c.relation === "Member" && target.relation === "Owner") {
-				return Option.some("copy")
+				return Option.some("holding")
 			}
 			if (c.relation === "Owner" && target.relation === "Member") {
 				return Option.some("last")
@@ -267,21 +270,23 @@ const statementSql = (f: FamilySeat, statement: MutationStatement): string => {
 		case "count":
 			return `UPDATE ${owner} SET ${c("Owner", "n")} = ${statement.count} WHERE ${c("Owner", "id")} = ${statement.owner}`
 		case "insert":
-			return `INSERT INTO ${member} (${c("Member", "member")}, ${c("Member", "g")}, ${c("Member", f.index)}, ${c("Member", "‹n›")}) VALUES ${Arr.join(
-				Arr.map(statement.rows, (r) => list([r.member, r.group, r.at, r.copy])),
+			return `INSERT INTO ${member} (${c("Member", "member")}, ${c("Member", "g")}, ${c("Member", f.index)}, ${c("Member", "‹s›")}) VALUES ${Arr.join(
+				Arr.map(statement.rows, (r) => list([r.member, r.group, r.at, r.next])),
 				", "
 			)}`
 		case "delete":
 			return `DELETE FROM ${member} WHERE ${c("Member", "member")} IN ${list(statement.members)}`
 		case "move":
-			return `UPDATE ${member} SET ${c("Member", f.index)} = ${statement.at} WHERE ${c("Member", "member")} = ${statement.member}`
+			return `UPDATE ${member} SET ${c("Member", f.index)} = ${statement.at}, ${c("Member", "‹s›")} = ${statement.next} WHERE ${c("Member", "member")} = ${statement.member}`
+		case "successor":
+			return `UPDATE ${member} SET ${c("Member", "‹s›")} = ${statement.next} WHERE ${c("Member", "member")} = ${statement.member}`
 	}
 }
 
 /** The read of a seat's stored state, owners then rows. */
 const storedSql = (f: FamilySeat): string => {
 	const c = (relation: string, role: string) => f.seat.column(relation, role)
-	return `SELECT 0, ${c("Owner", "id")}::int8, ${c("Owner", "n")}::int8, 0::int8, 0::int8 FROM ${f.seat.table("Owner")} UNION ALL SELECT 1, ${c("Member", "member")}::int8, ${c("Member", "g")}::int8, ${c("Member", f.index)}::int8, ${c("Member", "‹n›")}::int8 FROM ${f.seat.table("Member")}`
+	return `SELECT 0, ${c("Owner", "id")}::int8, ${c("Owner", "n")}::int8, 0::int8, 0::int8 FROM ${f.seat.table("Owner")} UNION ALL SELECT 1, ${c("Member", "member")}::int8, ${c("Member", "g")}::int8, ${c("Member", f.index)}::int8, ${c("Member", "‹s›")}::int8 FROM ${f.seat.table("Member")}`
 }
 
 /** The stored state the read returns. */
@@ -292,7 +297,7 @@ export const familyStoredOf = (rows: ReadonlyArray<ReadonlyArray<unknown>>): Sto
 		if (Number(table) === 0) {
 			owners.set(Number(a), Number(b))
 		} else {
-			members.push({ member: Number(a), group: Number(b), at: Number(c), copy: Number(d) })
+			members.push({ member: Number(a), group: Number(b), at: Number(c), next: Number(d) })
 		}
 	}
 	return { owners, rows: members }

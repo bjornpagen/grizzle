@@ -6,10 +6,10 @@
  * family's rows by (test/support/families/fold.ts FoldStored), each value in the reference's exact encoding.
  *
  * Each installed constraint is read as a fold native by its columns' roles: the member's primary key `identity`; UNIQUE
- * (g, i) `key`, and UNIQUE (g, i, …afters) `member superkey`; CHECK (i < ‹n›) `bound`; a member CHECK reading an after
- * `combine`; a member CHECK reading the index and a before, no after, `first slot`; an owner CHECK reading the count and
- * an end `empty family`; the member-to-owner foreign key the owner axis, owner-to-member the last axis, member-to-member
- * the predecessor axis.
+ * (g, i) `key`, and UNIQUE (g, i, ‹s›, …afters) `member superkey`; a member CHECK reading an after `combine`; a member
+ * CHECK reading the index and a before, no after, `first slot`; an owner CHECK reading the count and an end `empty
+ * family`; the member-to-owner foreign key the owner axis, its holding reference, owner-to-member the last axis,
+ * member-to-member the predecessor axis. A counted family's own CHECK (‹i› ≥ 0) is none of them: no write of a suite holds a negative index.
  *
  * Every seat is the immutable default, which every consumer gets. The counted swap draws its seats' standing
  * (sumCountedOf, orCountedOf): its prescription rewrites an owner's count and end in place, which an immutable owner's
@@ -618,10 +618,7 @@ const foldNativeOf = (f: FoldSeat, c: Catalogued): Option.Option<FoldNative> => 
 			if (Arr.some(afters, has)) {
 				return Option.some("combine")
 			}
-			if (Arr.some(befores, has)) {
-				return Option.some("first slot")
-			}
-			return has("‹n›") ? Option.some("bound") : Option.none()
+			return Arr.some(befores, has) ? Option.some("first slot") : Option.none()
 		case "foreign": {
 			const target = Option.getOrUndefined(c.target)
 			if (target === undefined) {
@@ -660,7 +657,7 @@ const foldStatementSql = (f: FoldSeat, statement: FoldStatement): string => {
 		c("Member", "member"),
 		c("Member", "g"),
 		c("Member", f.index),
-		c("Member", "‹n›"),
+		c("Member", "‹s›"),
 		...Option.match(spec.x, { onNone: () => [], onSome: (x) => [c("Member", x)] }),
 		...Option.match(spec.selected, { onNone: () => [], onSome: () => [c("Member", "on")] }),
 		...Arr.flatMap(spec.planes, (p) => [c("Member", p.before), c("Member", p.after)])
@@ -669,7 +666,7 @@ const foldStatementSql = (f: FoldSeat, statement: FoldStatement): string => {
 		`${r.member}`,
 		`${r.group}`,
 		`${r.at}`,
-		`${r.copy}`,
+		`${r.next}`,
 		...Option.match(spec.x, { onNone: () => [], onSome: () => [v(r.x)] }),
 		...Option.match(spec.selected, {
 			onNone: () => [],
@@ -705,6 +702,7 @@ const foldStatementSql = (f: FoldSeat, statement: FoldStatement): string => {
 			return `UPDATE ${seat.table("Member")} SET ${Arr.join(
 				[
 					`${c("Member", f.index)} = ${statement.at}`,
+					`${c("Member", "‹s›")} = ${statement.next}`,
 					...Arr.flatMap(spec.planes, (p, i) => [
 						`${c("Member", p.before)} = ${v(Arr.getUnsafe(statement.before, i))}`,
 						`${c("Member", p.after)} = ${v(Arr.getUnsafe(statement.after, i))}`
@@ -777,7 +775,7 @@ export const foldRead = (f: FoldSeat): Effect.Effect<FoldStored, SqlError> =>
 			[]
 		)
 		const rows = yield* seat.session.values(
-			`SELECT ${c("Member", "member")}::int8::text, ${c("Member", "g")}::int8::text, ${c("Member", index)}::int8::text, ${c("Member", "‹n›")}::int8::text, ${Option.match(spec.x, { onNone: () => "'0'", onSome: (x) => r(c("Member", x)) })}, ${Option.match(spec.selected, { onNone: () => "'true'", onSome: () => `${c("Member", "on")}::text` })}, ${Arr.join(
+			`SELECT ${c("Member", "member")}::int8::text, ${c("Member", "g")}::int8::text, ${c("Member", index)}::int8::text, ${c("Member", "‹s›")}::int8::text, ${Option.match(spec.x, { onNone: () => "'0'", onSome: (x) => r(c("Member", x)) })}, ${Option.match(spec.selected, { onNone: () => "'true'", onSome: () => `${c("Member", "on")}::text` })}, ${Arr.join(
 				Arr.flatMap(spec.planes, (p) => [r(c("Member", p.before)), r(c("Member", p.after))]),
 				", "
 			)} FROM ${seat.table("Member")}`,
@@ -799,7 +797,7 @@ export const foldRead = (f: FoldSeat): Effect.Effect<FoldStored, SqlError> =>
 					member: Number(row[0]),
 					group: Number(row[1]),
 					at: Number(row[2]),
-					copy: Number(row[3]),
+					next: Number(row[3]),
 					x: parse(row[4]),
 					selected: row[5] === "true",
 					before: nonEmptyPlanes(Arr.filter(planes, (_, i) => i % 2 === 0)),
@@ -1049,10 +1047,13 @@ export const hostFilled = (f: FoldSeat, family: FoldFamily): Result.Result<FoldS
 					f.seat.model.families,
 					(g) => g.id.owner === owned.family.owner && g.id.count === owned.family.count
 				)
-	const fold = Option.isSome(folded) ? folded.value.folds[0] : undefined
-	if (owned === undefined || fold === undefined) {
+	const folding = Option.getOrUndefined(folded)
+	const fold = folding?.folds[0]
+	if (owned === undefined || folding === undefined || fold === undefined) {
 		return Result.fail("the filled owner holds no folded family")
 	}
+	/** The member's successor ‹s› as the host drew it. */
+	const successor = columnKey({ kind: "law", column: folding.next })
 	const host = (row: FilledNode, column: ColumnKey): bigint =>
 		spec.carrier.fromHost(cellAt(columns, row, column))
 	const foldPlanes: ReadonlyArray<FoldPlane> = fold.planes
@@ -1068,7 +1069,7 @@ export const hostFilled = (f: FoldSeat, family: FoldFamily): Result.Result<FoldS
 			return {
 				group: family.owner,
 				at,
-				copy: n,
+				next: Number(cellAt(columns, row, successor)),
 				member: m.member,
 				x: m.x,
 				selected: m.selected,

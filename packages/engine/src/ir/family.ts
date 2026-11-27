@@ -3,10 +3,14 @@
  * three axes every lemma, fold copy and tree law rides.
  *
  * A family Φ has a member relation F, an owner O with primary key k…, a group g… on F paired with k… in order, a count
- * n (a drawn natural of O), an index i (a drawn field when ordered, a drawn law column when counted), and ‹n›, the
- * owner's count copied onto each member. Its three axes are foreign keys: owner (member to owner, carrying ‹n›),
- * predecessor (each member to the one before it) and last (the owner to its last member). A containment of an axis's
- * shape rides it, its pairs joining the axis's, so a family adds one foreign key per axis whatever its laws.
+ * n (a drawn natural of O), an index i (a drawn field when ordered, a drawn law column when counted), and ‹s›, each
+ * member's successor: the slot after its own where a member follows it, its own slot where none does, at its group's
+ * last. Its three axes are foreign keys: owner (member to an owner that holds a member, its count above 0, deferred,
+ * its holding reference), predecessor (each member to the one before it, whose successor it is) and last (the owner to
+ * its last member, which no member follows). A containment of an axis's shape rides it, its pairs joining the axis's,
+ * so a family adds one foreign key per axis whatever its laws, and one more where its owner axis carries copies, which
+ * cascades them. No member holds a value of its owner that an edit of its family changes: an append writes its owner's
+ * row, its appended members' and the one member it follows, whatever the length of its group.
  */
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { ColumnIdent, Identifier, LawId } from "#compiler/core/ids.ts"
@@ -43,8 +47,12 @@ export interface Family {
 	readonly group: NonEmptyReadonlyArray<{ readonly member: LawField; readonly owner: LawField }>
 	/** Which facts are its members and what indexes them (MemberShape). */
 	readonly shape: MemberShape
-	/** ‹n›, the owner's count on each member: a drawn law column. */
-	readonly copy: ColumnIdent
+	/**
+	 * ‹s›, each member's successor: a drawn law column of the count's type holding the slot after the member's where a
+	 * member follows it, and the member's own slot at its group's last, which its predecessor axis pairs with each
+	 * member's index and its last axis with the owner's last slot.
+	 */
+	readonly next: ColumnIdent
 	/** What each axis carries beyond its key: the formers' pairs and every containment merged into it. */
 	readonly axes: { readonly [A in AxisKind]: ReadonlyArray<AxisPair> }
 	readonly folds: ReadonlyArray<FamilyFold>
@@ -174,14 +182,14 @@ const accumulatorOf = (family: Family, column: NativeColumn): FoldPlane | undefi
 }
 
 /**
- * The type of a column of a family's member or owner the family fills: a field's own; ‹n› and ‹i› the count's
+ * The type of a column of a family's member or owner the family fills: a field's own; ‹s› and ‹i› the count's
  * natural, a hidden accumulator its plane's end's; none for a law column the family does not draw.
  */
 export const familyColumnType = (family: Family, column: NativeColumn): ScalarType | undefined => {
 	if (column.kind === "field") {
 		return column.field.type
 	}
-	if (column.column === family.copy) {
+	if (column.column === family.next) {
 		return family.count.type
 	}
 	if (family.shape.kind === "counted" && family.shape.index.column === column.column) {
@@ -192,7 +200,7 @@ export const familyColumnType = (family: Family, column: NativeColumn): ScalarTy
 
 /**
  * Whether the host fills a column carried along an axis of `family` as a copy of its target: an accumulated field, or
- * a fold's hidden accumulator. The drawn columns an axis carries (‹n› → n, a tree's interval) are drawn where the row
+ * a fold's hidden accumulator. The drawn columns an axis carries (‹s› → i, a tree's interval) are drawn where the row
  * stands, and a caller's column its row supplies.
  */
 export const isCopy = (family: Family, column: NativeColumn): boolean =>

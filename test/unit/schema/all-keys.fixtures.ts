@@ -1,7 +1,8 @@
 /** What the properties of all-keys.test.ts read: its space, its model and the schemas it compiles. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import { boolean, type FiniteSpace, finite } from "@bjornpagen/testing/gen"
-import { Array as Arr } from "effect"
+import { Array as Arr, Option } from "effect"
 import type { KeyFault } from "#compiler/core/causes.ts"
 import { defaultOpclass } from "#compiler/ir/law.ts"
 import type { IndexRequest } from "#compiler/ir/products.ts"
@@ -134,7 +135,7 @@ const refusalOf = (u: DrawnUnit): ModelKey => {
 			}
 		case "set":
 			return {
-				subject: `the UNIQUE (order, at, after) of Item${n}, over a set its roster's codes size`,
+				subject: `the UNIQUE (order, at, ${itemSuccessor}, after) of Item${n}, over a set its roster's codes size`,
 				fault: "btreeEntry",
 				stage
 			}
@@ -270,11 +271,11 @@ const unitParts = (u: DrawnUnit): UnitParts => {
 }
 
 /**
- * Item's (order, at, after) entry in any order of its columns, a uuid, a bigint and a bit(n), each datum after its worst
- * alignment padding, the bit(n) its varlena header and 4-byte bit count, then a byte per eight codes: the most codes it
- * holds within BTMaxItemSize, itself MAXALIGNed (nbtree.h, restated).
+ * Item's (order, at, ‹s›, after) entry in any order of its columns, a uuid, two bigints and a bit(n), each datum after
+ * its worst alignment padding, the bit(n) its varlena header and 4-byte bit count, then a byte per eight codes: the most
+ * codes it holds within BTMaxItemSize, itself MAXALIGNed (nbtree.h, restated).
  */
-const keyPrefixBytes = 8 + typlens.uuid + (typlens.int8 - 1 + typlens.int8)
+const keyPrefixBytes = 8 + typlens.uuid + (typlens.int8 - 1 + typlens.int8) + typlens.int8
 const fittingCodes = 8 * (btreeMaxItemSize - (keyPrefixBytes + (4 - 1)) - (4 + typlens.int4))
 
 /** A set unit's roster: its two live handles, and past the codes Item's entry holds where its key is unrepresentable. */
@@ -341,6 +342,26 @@ export const installCase = (c: KeysCase) => {
 		c.later ? { ...options, extensionSchema: "Not Admitted" } : options
 	)
 }
+
+/**
+ * The identifier of Item0's successor ‹s›, which the set unit's refusal names among its UNIQUE's columns: the law model's,
+ * one in every case, read off the case whose every key fits.
+ */
+const itemSuccessor: string = defined(
+	Arr.findFirst(
+		succeeded(
+			installCase({
+				units: Arr.flatMap(keyKinds, (kind) =>
+					upTo(unitsOf[kind], (at) => ({ kind, at, unrepresentable: false }))
+				),
+				later: false
+			}),
+			"the case whose every key fits"
+		).laws.families,
+		(f) => f.member.name === "Item0"
+	).pipe(Option.getOrUndefined),
+	"Item0's family"
+).next
 
 export type KeysFeature =
 	| "nothing unrepresentable, installed"

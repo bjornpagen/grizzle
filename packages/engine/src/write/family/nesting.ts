@@ -246,7 +246,7 @@ const ownHeading = (relation: LawRelation, at: FillPosition): Heading => {
 
 /**
  * The columns of `relation` the counted families it is a member of fill, after the walk: each one's columns at its
- * member's position that its own fill writes, its index, ‹n›, copies and accumulators.
+ * member's position that its own fill writes, its index, ‹s›, copies and accumulators.
  */
 const pendingOf = (fill: FillOrder, relation: string): ReadonlySet<ColumnKey> =>
 	new Set(
@@ -318,7 +318,7 @@ const stampedSource = (
 			case "self":
 			case "base":
 			case "index":
-			case "copy":
+			case "next":
 			case "count":
 			case "start":
 			case "end":
@@ -350,7 +350,7 @@ const fillingLaw = (
 		case "self":
 		case "base":
 		case "index":
-		case "copy":
+		case "next":
 		case "count":
 		case "start":
 		case "end":

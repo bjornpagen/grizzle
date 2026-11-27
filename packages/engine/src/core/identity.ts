@@ -1270,8 +1270,8 @@ const fieldsOf = (relation: string, fields: ReadonlyArray<KeyColumnName>): strin
  * What a law column is, as the law model states it: a constant a selected target fixes on its source, by the target
  * relation, the field the constant meets and its value; a side's term, a field or pred of one, under the side's
  * selection, its conjuncts by their canonical texts, none for every row; a column the host draws for the family whose
- * law is `family`, its owner relation and count field named for its stem and display: ‹n›, the owner's count on a
- * member (copy), a counted family's index, a tree's parent start, or a fold's hidden accumulator before or after plane
+ * law is `family`, its owner relation and count field named for its stem and display: ‹s›, a member's successor slot
+ * (next), a counted family's index, a tree's parent start, or a fold's hidden accumulator before or after plane
  * `plane` of the fold whose law is `fold`, so removing another fold renames none of its columns; or a counted family's
  * predecessor, pred of its drawn index, which PostgreSQL generates from the row. A drawn column is named by the laws
  * that say what it holds, so a family or fold that changes what it holds names a new column, which the migration draws
@@ -1294,7 +1294,7 @@ export type LawColumnStatement =
 			readonly displays: ReadonlyArray<string>
 	  }
 	| {
-			readonly kind: "copy" | "index" | "predecessor"
+			readonly kind: "next" | "index" | "predecessor"
 			readonly owner: string
 			readonly count: string
 			/** The family's own law. */
@@ -1313,7 +1313,7 @@ export type LawColumnStatement =
 
 /** What each drawn law column of a family is, in its display. */
 const drawnWords = {
-	copy: "the owner's count",
+	next: "the successor",
 	index: "the index",
 	predecessor: "the predecessor of the index"
 } as const
@@ -1583,7 +1583,7 @@ export const identity = Object.freeze({
 					hashed
 				)
 			}
-			case "copy":
+			case "next":
 			case "index":
 			case "predecessor":
 				return mint(

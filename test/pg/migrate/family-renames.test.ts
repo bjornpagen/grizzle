@@ -20,7 +20,7 @@
  * - **A rename changes no stored byte and builds nothing.** Every table keeps its OID and its relfilenode, so nothing
  *   rewrote it; every column its attribute number and its values, so no law column or drawn field was dropped and added
  *   again; every row its xmin, so no backfill UPDATE touched it; and every constraint and index its OID, so none was
- *   built or validated again. The family's law columns (‹n›, a counted index, a fold's hidden accumulators, the
+ *   built or validated again. The family's law columns (‹s›, a counted index, a fold's hidden accumulators, the
  *   generated terms), its drawn fields, its keys and its CHECKs and foreign keys are renamed in place.
  * - **A changed filler is drawn again.** The migration commits, so PostgreSQL validated every constraint it added over
  *   the values it drew; a field kept with its old filler's values fails the fold's CHECK or the axis's foreign key, and

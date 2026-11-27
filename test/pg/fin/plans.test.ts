@@ -15,8 +15,8 @@
  * either.
  *
  * - **the export**, `WHERE doc = $1 ORDER BY start`: one scan of an index led by (r, start), the tree's primary key
- *   (T1) or the owner axis's target superkey (r, start, children), reading each row once; the primary key itself is
- *   (r, start), the identity and the document order at once (T1), as the installed catalog shows;
+ *   (T1), reading each row once; the primary key itself is (r, start), the identity and the document order at once
+ *   (T1), as the installed catalog shows;
  * - **descendants** of a row, `start > n.start AND start < n.end`: a range scan of such an index reading exactly them;
  * - **an ordered family's members**, `WHERE g = $1 ORDER BY at`: a scan of the family key UNIQUE (g, at), or of its
  *   successor key UNIQUE (g, ‹p›), each led by the group, reading exactly its members, whether the planner sorts them
@@ -70,7 +70,8 @@ import { upTo } from "#test/support/up-to.ts"
  * @environment cassowary, Ubuntu 26.04 on arm64 in AWS, 64 cores and 247 GiB, load 200 to 520 from other lanes;
  *   PostgreSQL 19.0 (scripts/pg/pin.env) as the lane's in-memory family; Node 26.13.1; grizzle f87b2aaab with lane
  *   CULL-FIN's cull of test/pg/fin; TEST_SEED=2219874524
- * @workload the property with its kill, the owner axis's reverse index over its copy of the count (3adc7e172)
+ * @workload the property with its kill, then the owner axis's reverse index over its copy of the count (3adc7e172),
+ *   since the successor's beside its group, the copy gone
  * @result steered cases to reach every required situation: 128 at a floor of one case (runs 1, 4), 128 at two (runs 8),
  *   80 at four (runs 16), 32 at eight (runs 32); the kill killed at every budget, no failure
  * @decision a floor of eight spends the fewest, 69 cases a run and its kept case at runs 29, the fewest runs with that
@@ -110,7 +111,7 @@ export const familyAndTreeReadsGoThroughGrizzlesInstalledIndexesWithNoSortSequen
 							"the tree's primary key is (doc, start) in that order, its identity in document order (T1)"
 						)
 						/** Every index of the tree in document order: each led by its root field, then its start, the primary
-						 * key (T1) among them, and the owner axis's target superkey (doc, start, children), which serves alike. */
+						 * key (T1) among them. */
 						const inOrder = Arr.map(
 							Arr.filter(
 								trees.constraints,
@@ -251,11 +252,10 @@ export const familyAndTreeReadsGoThroughGrizzlesInstalledIndexesWithNoSortSequen
 		kills: [
 			{
 				file: "packages/engine/src/laws/model/plan.ts",
-				original:
-					"\t\t\t\t\t\t\t{ relation: member, base: extendNonEmpty(group, [copy]), keyed: memberGroup },",
+				original: "\t\tconst keyed = tree === undefined ? memberGroup : group\n",
 				replacement:
-					"\t\t\t\t\t\t\t{ relation: member, base: extendNonEmpty(group, [copy]), keyed: extendNonEmpty(group, [copy]) },",
-				why: "An ordered family's owner axis plans its reverse index over every referencing column, its copy of the count among them, as at 3adc7e172: the index (g, ‹n›) it adds, which this property's red there found the planner reading a family's members through (fixed by 9ebfb08ca), stands beside the family key."
+					"\t\tconst keyed = tree === undefined ? appendNonEmpty(memberGroup, next) : group\n",
+				why: "An ordered family's owner axis, its holding reference, plans its reverse index over its group and a column of the member it does not reference by, its successor: the index (g, ‹s›) it adds beside the family key is the index (g, ‹n›) of 3adc7e172, which this property's red there found the planner reading a family's members through (fixed by 9ebfb08ca)."
 			}
 		]
 	})

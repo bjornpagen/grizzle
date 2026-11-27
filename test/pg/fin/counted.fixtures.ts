@@ -15,10 +15,11 @@ import type { AnySchema } from "#compiler/public/schema.ts"
  *   filler) of the families swap-with-last leaves must be one state; every swap-with-last commits to those families,
  *   its stored state that fold of them, and the end unchanged but for the removed member's step,
  *   since every monoid is commutative.
- * - **The fold's model** (fold.ts foldPredicted) judges every order: the move before the delete is refused by the key,
- *   the count before the delete by the bound (the count's cascade), each at its statement; and with the predecessor
- *   axis made immediate (SET CONSTRAINTS, the control), the prescribed order is refused at its delete by that axis
- *   whenever the slot freed is not the last.
+ * - **The fold's model** (fold.ts foldPredicted) judges every order: the move before the delete is refused by the key
+ *   at its statement; the count lowered before the delete commits, since no member holds it and the owner axis, its
+ *   holding reference, is checked at COMMIT, after the delete, a family of one member's lowered to 0 among them; and
+ *   with the predecessor axis made immediate (SET CONSTRAINTS, the control), the prescribed order is refused at its delete by
+ *   that axis whenever the slot freed is not the last.
  *
  * The box (doctrine rule 9): owner 0 with every counted family of one to four members over the five step values of
  * each counted fold seat (folds.ts), each member's removal, sent in the prescribed order, move first and count first,

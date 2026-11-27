@@ -93,8 +93,8 @@ export const lexical = (type: Field<unknown, ParseSql, unknown>): RegexText<stri
  * PostgreSQL's limit on one B-tree entry (BTMaxItemSize) less its header, its null bitmap and what the fields take at
  * their longest, each at its
  * worst alignment padding. `fields` are every other column of the index: a key's other fields, declared or over a
- * selection; for a family axis that carries the text, its group fields, its natural index, the other values it carries
- * and a tree's `end`. A text field whose contract bounds it there,
+ * selection; for a family axis that carries the text, its group fields, its natural index, its natural successor, the
+ * other values it carries and a tree's `end`. A text field whose contract bounds it there,
  * `contract("KeyText", str.regex("^.*$", "su"), (v) => Logic.le(Text.octetLength(v), keyTextBytes(fields)))`, sits in any of
  * them. A field of a relation is read as its declared type (schema/relation.ts describeDeclared), a drawn index or a
  * generated field among them. It throws CompileError (UnrepresentableKey) naming every fault at once: more fields than

@@ -12,19 +12,20 @@
  * holds. Over every transaction from a committed state, each order a writer may send its statements in (one per table
  * and change, a table's removals before its additions, and each immediate reference's target added before and removed
  * after its source) commits exactly when the state it leaves is lawful, and a refusal names a law broken at that
- * moment. A family's transactions, its count's update cascading into its members' drawn copies, commit or are refused
- * where the family model says, at the same statement or at COMMIT, reporting the laws of the constraints it finds broken.
+ * moment. A family's transactions, its count's update writing its owner's row alone, since no member holds the count,
+ * commit or are refused where the family model says, at the same statement or at COMMIT, reporting the laws of the constraints it finds broken.
  *
  * - Box: every rule of the partial-projection lowering with each of its selections, over every state of at most two
  *   Owner rows and three of every other relation, and every order a writer sends.
  * - Explored: drawn schemas over selections of the whole predicate language, puts included, their states and
  *   transactions drawn.
  * - Fin box: the fin lemma stated as plain laws, no owner or an owner of count 0 to 3 over its first four slots, each
- *   holding no row, one or two, every copy the count, against the family theorem's constraints.
+ *   holding no row, one or two, every successor drawn from its slot and the count, against the family theorem's
+ *   constraints.
  * - Fin programs: every state a family program's statements leave, lawful, breaking and misordered, refused at the
  *   statement or at COMMIT where the family model says.
  * - Family box: grizzle's own families, each shape ordered and counted, over the fin box's states.
- * - Family programs: grizzle's own families' transactions, drawn copies, the count's cascade and each axis's deferral,
+ * - Family programs: grizzle's own families' transactions, drawn successors, count updates and each axis's deferral,
  *   as the family model runs them.
  * - Span box: every span rule over at most two rows of Visit and of Shift, keys WITHOUT OVERLAPS over fields and law
  *   columns and PERIOD foreign keys from and into selected sides.
@@ -223,12 +224,10 @@ export const theNativeConstraintsGrizzleInstallsHoldTheFinLemmasLawsExactlyAsThe
 			"breach beyond",
 			"breach gap",
 			"violates key",
-			"violates bound",
-			"violates copy",
+			"violates holding",
 			"violates last",
 			"violates closure",
 			"refused by ForeignKey",
-			"refused by TableCheck",
 			"refused by Unique",
 			"refused at commit",
 			"refused at a statement",
@@ -241,7 +240,7 @@ export const theNativeConstraintsGrizzleInstallsHoldTheFinLemmasLawsExactlyAsThe
 				judgeWrites(installed, FIN, state, brokenIn(installed, state).size === 0, c)
 			}),
 		oracle: FAMILY_ORACLE,
-		box: "no owner or an owner of count 0 to 3, over its first four slots, each holding no row, one or two, every copy the count",
+		box: "no owner or an owner of count 0 to 3, over its first four slots, each holding no row, one or two, every successor drawn from its slot and the count",
 		kept: [],
 		kills: [
 			{
@@ -266,8 +265,7 @@ export const theNativeConstraintsGrizzleInstallsHoldTheFinLemmasLawsOnEveryState
 			"breach gap",
 			"violates identity",
 			"violates key",
-			"violates bound",
-			"violates copy",
+			"violates holding",
 			"violates last",
 			"violates closure"
 		] satisfies ReadonlyArray<Reached<FinFeature>>,
@@ -317,8 +315,7 @@ export const theNativeConstraintsGrizzleInstallsHoldGrizzlesOwnFamiliesOrderedAn
 			"breach twice",
 			"breach orphan",
 			"breach beyond",
-			"breach gap",
-			"an unrestricted closure beside the bound"
+			"breach gap"
 		] satisfies ReadonlyArray<Reached<FamilyFeature>>,
 		check:
 			({ familiesStateNeed }, c: Case<FamilyFeature>) =>
@@ -328,7 +325,7 @@ export const theNativeConstraintsGrizzleInstallsHoldGrizzlesOwnFamiliesOrderedAn
 					return yield* Effect.sync(() => judgeFamilyState(installed[shape], shape, stored, c))
 				}),
 		oracle: LEMMA_ORACLE,
-		box: "each shape, ordered and counted, with no owner or an owner of count 0 to 3, over its first four slots, each holding no row, one or two, every copy the count",
+		box: "each shape, ordered and counted, with no owner or an owner of count 0 to 3, over its first four slots, each holding no row, one or two, every successor drawn from its slot and the count",
 		kept: [],
 		kills: [
 			{
@@ -339,15 +336,15 @@ export const theNativeConstraintsGrizzleInstallsHoldGrizzlesOwnFamiliesOrderedAn
 			},
 			{
 				file: "packages/engine/src/laws/model/plan.ts",
-				original: '\t\t\t\t\t? cmp("lt", i, n)',
-				replacement: '\t\t\t\t\t? cmp("le", i, n)',
-				why: "An ordered family's bound is inclusive, at <= n (laws/model/plan.ts); the family box fails."
+				original: "\t\tconst predecessorBase = appendNonEmpty(successorKey, index)\n",
+				replacement: "\t\tconst predecessorBase = appendNonEmpty(successorKey, next)\n",
+				why: "The predecessor axis pairs each member's own successor with its predecessor's, not its index (laws/model/plan.ts): the member at slot 1 of three names the one at 0 with successor 2, which holds 1, so a lawful family of three is refused; the family box fails."
 			}
 		]
 	})
 
-/** The native constraints grizzle installs run every family program's transactions on grizzle's own families as the family model runs them: drawn copies, the count's cascade and each axis's deferral. Its budget is its suite's before it was a property (test/unit/laws/native.test.ts at 4ca3036a): 300 runs and 400 steered cases. */
-export const theNativeConstraintsGrizzleInstallsRunEveryFamilyProgramsTransactionsOnGrizzlesOwnFamiliesAsTheFamilyModelRunsThemDrawnCopiesTheCountsCascadeAndEachAxissDeferral =
+/** The native constraints grizzle installs run every family program's transactions on grizzle's own families as the family model runs them: drawn successors, count updates and each axis's deferral. Its budget is its suite's before it was a property (test/unit/laws/native.test.ts at 4ca3036a): 300 runs and 400 steered cases. */
+export const theNativeConstraintsGrizzleInstallsRunEveryFamilyProgramsTransactionsOnGrizzlesOwnFamiliesAsTheFamilyModelRunsThemDrawnSuccessorsCountUpdatesAndEachAxissDeferral =
 	property.explore(programs, {
 		needs: { familiesNeed },
 		budget: { runs: 300, steered: 400 },
@@ -357,17 +354,16 @@ export const theNativeConstraintsGrizzleInstallsRunEveryFamilyProgramsTransactio
 			"committed",
 			"refused at a statement",
 			"refused at commit",
-			"a count's cascade",
+			"a count update",
 			"refused by identity",
 			"refused by key",
-			"refused by bound",
-			"refused by copy",
+			"refused by holding",
 			"refused by last",
 			"refused by closure",
 			["ordered", "refused by closure"],
 			["counted", "refused by closure"],
-			["ordered", "a count's cascade"],
-			["counted", "a count's cascade"]
+			["ordered", "a count update"],
+			["counted", "a count update"]
 		] satisfies ReadonlyArray<Reached<FamilyFeature>>,
 		check:
 			({ familiesNeed }, c: Case<FamilyFeature>) =>

@@ -516,7 +516,7 @@ const collated = (type: TypeRef): ColumnType => ({
  *   it, so the contract's domain would refuse a state whose laws hold.
  * - Every other law column holds a value of its field's type, or NULL outside its selection: a field's own, which its
  *   column's domain checked; the law model's literal of the type; pred of a natural, x - 1 where x > 0; or a natural
- *   the host draws, a count copy, an index or a parent start. A domain would only judge again, on every row, what
+ *   the host draws, a successor, an index or a parent start. A domain would only judge again, on every row, what
  *   the law model proves.
  *
  * A set's base is its bits domain, which admits NULL as every domain does (sql/print.ts).

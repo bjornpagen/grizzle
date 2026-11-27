@@ -174,11 +174,29 @@ export const aCountedSetKeyedByThreeFieldsAndANameStoresEachOwnersCountAndFoldsO
 											}),
 											`${label}: the witness ${Formatter.format(witness)} is the key of a stated row that breaks it`
 										)
+									} else if (witness.kind === "key") {
+										/** Whether the witness is the key of a member the write states of no owner, which breaks the family's
+										 * holding reference, deferred, whose second flight names the member by its key. */
+										const orphanNamed =
+											verdict.broken.has("the family") &&
+											witness.relation === "Attr" &&
+											Arr.some(verdict.orphans, (x) =>
+												deepEquals<unknown>(
+													witness.values,
+													Rec.fromEntries(
+														Arr.map(["a", "b", "k", "name"] as const, (f) => [f, x[f]] as const)
+													)
+												)
+											)
+										assert.ok(
+											orphanNamed,
+											`${label}: a family's refusal names a member of no owner it states, not ${Formatter.format(witness)}`
+										)
 									} else {
 										assert.equal(
 											witness.kind,
 											"unreported",
-											`${label}: a family's refusal names no row`
+											`${label}: a family's refusal names no row but a member of no owner it states`
 										)
 									}
 								} else {

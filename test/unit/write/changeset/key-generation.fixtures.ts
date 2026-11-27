@@ -651,8 +651,9 @@ export const treeCollidingGen = (source: Source): ReadonlyArray<ReadonlyArray<Tr
 
 /**
  * A row of Node as the model fills it, in pre-order: its key (k, d, start), its p, and every column the walk draws, its
- * tree's copy of its owner's count among them (`n`, the family's ‹n›, write/family/statements.ts RowLayout): a root's
- * its own count, a child's its parent's, so two nodes at one key under parents of other counts are two rows.
+ * successor among its siblings among them (`next`, the family's ‹s›, write/family/statements.ts RowLayout): a root's
+ * its own slot, 0, a child's the slot after it below its parent's count and its own at the last, so two nodes at one
+ * key, one its parent's last child and one not, are two rows.
  */
 type NodeRow = {
 	readonly k: number
@@ -664,7 +665,7 @@ type NodeRow = {
 	readonly at: bigint
 	readonly children: bigint
 	readonly end: bigint
-	readonly n: bigint
+	readonly next: bigint
 }
 
 /** A tree's rows as the model fills them: the root at start 0, its parent itself, each child a leaf after it, each d
@@ -680,7 +681,7 @@ const treeRows = (t: TreeFact): ReadonlyArray<NodeRow> => [
 		at: 0n,
 		children: BigInt(t.children.length),
 		end: BigInt(t.children.length + 1),
-		n: BigInt(t.children.length)
+		next: 0n
 	},
 	...Arr.map(t.children, (c, i) => ({
 		k: t.k,
@@ -692,7 +693,7 @@ const treeRows = (t: TreeFact): ReadonlyArray<NodeRow> => [
 		at: BigInt(i),
 		children: 0n,
 		end: BigInt(i + 2),
-		n: BigInt(t.children.length)
+		next: BigInt(i + 1 < t.children.length ? i + 1 : i)
 	}))
 ]
 
@@ -717,7 +718,7 @@ const sameRow = (r: NodeRow, s: NodeRow): boolean =>
 	r.at === s.at &&
 	r.children === s.children &&
 	r.end === s.end &&
-	r.n === s.n
+	r.next === s.next
 
 /** The trees as a caller states a nested insert of them. */
 const statedTrees = (trees: ReadonlyArray<TreeFact>) =>
@@ -793,12 +794,12 @@ export const treeFillsFirst = (
 			)
 		})
 		const { frontend, columns, result } = yield* normalizedIn(Trees, treeChangeSetOf(strata))
-		/** The tree's copy of each node's owner's count, a column of its rows no field names (NodeRow `n`). */
+		/** The tree's successor of each node, a column of its rows no field names (NodeRow `next`). */
 		const tree = Arr.findFirst(frontend.laws.families, (f) => f.member.name === Node.name)
 		if (Option.isNone(tree)) {
 			throw new Error("the tree of Node")
 		}
-		const copied = columnKey({ kind: "law", column: tree.value.copy })
+		const successor = columnKey({ kind: "law", column: tree.value.next })
 		const normalization = succeeded(result, "a nested insert of admitted trees normalizes")
 		if (normalization.kind === "keyConflict") {
 			if (Arr.some(conflicts, (k) => k.apart)) {
@@ -840,7 +841,7 @@ export const treeFillsFirst = (
 					at: field(row, "at"),
 					children: field(row, "children"),
 					end: field(row, "end"),
-					n: cellAt(columns, { relation: Node.name, values: row.values }, copied)
+					next: cellAt(columns, { relation: Node.name, values: row.values }, successor)
 				})),
 				nodeOrder
 			)

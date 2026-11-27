@@ -54,6 +54,8 @@ import {
 	cte,
 	cteRef,
 	cteRefAs,
+	firstNonNull,
+	gt,
 	lit,
 	not,
 	operandSelect,
@@ -431,6 +433,181 @@ export const taggedRows = (
 		ctes: [firstCte, ...restCtes],
 		arms
 	}
+}
+
+/**
+ * The groups of a family a statement draws from a slot on, one row each (`seamUpdate`): its group columns, in the
+ * family's group order, the first slot it draws, none where it draws no member, and its count as the statement leaves
+ * it.
+ */
+export interface SeamGroups {
+	readonly name: string
+	readonly group: NonEmptyReadonlyArray<string>
+	readonly first: string
+	readonly count: string
+}
+
+/**
+ * One family's seams a statement sets (`seamUpdate`): its groups, and which of their rows stand for their group, read
+ * as their alias, none where every row does.
+ */
+export interface Seam {
+	readonly family: Family
+	readonly groups: SeamGroups
+	readonly where: (alias: string) => Expr | undefined
+}
+
+/**
+ * The seams of one member relation's families in `seams`, each group's the stored member just before the slot the
+ * statement draws from, its first drawn slot, or its count where it draws none, which the statement keeps: its
+ * successor ‹s› becomes its successor as the statement leaves the group, the slot after its own below the group's count
+ * and its own slot at the last, as the scan draws every member's (write/family/scan.ts). A group whose seam is slot 0
+ * has none. One UPDATE of the relation, of no column but the successors, so it writes no fact and returns no row: the
+ * seam members whose successor changes, each found at its group and slot by its family's key, at their primary keys,
+ * one row each where a member is the seam of several of its families (PostgreSQL applies one change of a row a
+ * statement's CTEs update twice, so one UPDATE sets each family's successor of the row, its own where the row is no
+ * seam of that family). An append writes its owner, its appended members and these members, whatever the length of the
+ * group.
+ */
+export const seamUpdate = (
+	w: WriteContext,
+	supply: NameSupply,
+	ctes: Array<Cte>,
+	seams: NonEmptyReadonlyArray<Seam>
+): void => {
+	const member = seams[0].family.member
+	const name = member.name
+	const bigint = types.bigint
+	/** Each family's seam, over a member read as `m` and its group's row read as `g`. */
+	const parts = mapNonEmpty(seams, (s) => {
+		const f = s.family
+		const index = f.shape.index
+		const indexType = index.kind === "field" ? index.field.type : f.count.type
+		const next = installed(w, name, { kind: "law", column: f.next })
+		const at = (m: string): Expr => col(m, installed(w, name, index))
+		/** The slot the statement draws from: its first drawn slot, or its count where it draws none, no further. */
+		const seamAt = (g: string): Expr => ({
+			kind: "least",
+			args: [col(g, s.groups.first), col(g, s.groups.count)]
+		})
+		/** A member's successor as the statement leaves its group: the slot after its own below the count, else its own. */
+		const successor = (m: string, g: string): Expr => {
+			const after = binary("+", at(m), lit.int(1, bigint))
+			return written(
+				w,
+				{
+					kind: "case",
+					operand: undefined,
+					whens: [{ when: gt(col(g, s.groups.count), after), result: after }],
+					else: at(m)
+				},
+				f.count.type
+			)
+		}
+		/** The rows of `m` that are members of the family: a tree's every row but its roots, whose start is 0 and whose
+		 * parent is their own start, which no group of the tree holds. */
+		const members = (m: string): ReadonlyArray<Expr> =>
+			f.shape.kind === "tree"
+				? [gt(col(m, w.names.column(name, f.shape.start.name)), lit.int(0, bigint))]
+				: []
+		/** Whether `m` is the seam of `g`'s group. */
+		const isSeam = (m: string, g: string): NonEmptyReadonlyArray<Expr> => {
+			const kept = s.where(g)
+			return [
+				gt(seamAt(g), lit.int(0, bigint)),
+				...(kept === undefined ? [] : [kept]),
+				...members(m),
+				...mapNonEmpty(f.group, (p, i) =>
+					typedEq(
+						p.member.type,
+						col(m, w.names.column(name, p.member.name)),
+						col(g, defined(s.groups.group[i], "a seam group column")),
+						w.names
+					)
+				),
+				typedEq(
+					indexType,
+					at(m),
+					written(w, binary("-", seamAt(g), lit.int(1, bigint)), indexType),
+					w.names
+				)
+			]
+		}
+		return { s, f, next, successor, isSeam }
+	})
+	const key = member.primaryFields
+	const keyColumns = mapNonEmpty(key, () => supply.column(internal("seam member key")))
+	const arms = mapNonEmpty(parts, (p) => {
+		const m = supply.relation(internal("seam member"))
+		const g = supply.relation(internal("seam group"))
+		return core(
+			mapNonEmpty(key, (k, i) =>
+				targetAs(col(m, w.names.column(name, k.name)), defined(keyColumns[i], "a seam key column"))
+			),
+			[cteRefAs(p.s.groups.name, g), tableAs(w, name, m)],
+			and([
+				...p.isSeam(m, g),
+				not(typedEq(p.f.count.type, col(m, p.next), p.successor(m, g), w.names))
+			])
+		)
+	})
+	const [firstArm, secondArm, ...restArms] = arms
+	const seamed = supply.relation(internal("seam members"))
+	ctes.push(
+		cte(
+			seamed,
+			operandSelect(
+				secondArm === undefined
+					? firstArm
+					: { kind: "setOp", op: "UNION", arms: [firstArm, secondArm, ...restArms] }
+			)
+		)
+	)
+	const t = supply.relation(internal("seamed member"))
+	const k = supply.relation(internal("seamed key"))
+	ctes.push(
+		cte(supply.relation(internal("family seam")), {
+			kind: "update",
+			with: undefined,
+			table: w.names.relation(name),
+			alias: t,
+			set: assignments(
+				w.generation(name),
+				t,
+				mapNonEmpty(parts, (p): Assignment => {
+					const g = supply.relation(internal("seam group"))
+					return {
+						column: p.next,
+						value: firstNonNull([
+							{
+								kind: "subquery",
+								query: operandSelect(
+									core(
+										[target(p.successor(t, g))],
+										[cteRefAs(p.s.groups.name, g)],
+										and(p.isSeam(t, g))
+									)
+								)
+							},
+							col(t, p.next)
+						])
+					}
+				})
+			),
+			from: [cteRefAs(seamed, k)],
+			where: and(
+				mapNonEmpty(key, (f, i) =>
+					typedEq(
+						f.type,
+						col(t, w.names.column(name, f.name)),
+						col(k, defined(keyColumns[i], "a seam key column")),
+						w.names
+					)
+				)
+			),
+			returning: []
+		})
+	)
 }
 
 /** A recounted family's last member as its owner's recount reads it: the column of its count, and the column of each

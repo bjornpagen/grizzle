@@ -18,8 +18,11 @@
  *   its group's new count and its owner's columns: a stored owner's, else those of the owner a nested write of the
  *   stratum inserts in this statement, else the copy's base, so its insert meets the family's owner axis at the
  *   statement's end, as a member naming no owner does;
- * - its scan (write/family/scan.ts), which draws each appended member's index, copy of the count, owner copies,
- *   predecessor copies and fold planes in slot order.
+ * - its scan (write/family/scan.ts), which draws each appended member's index, successor, owner copies, predecessor
+ *   copies and fold planes in slot order;
+ * - each group's seam: its seed's successor set to the first appended slot (write/family/written.ts seamUpdate), the
+ *   one stored member an append changes, so an append writes its owner, its appended members and that member,
+ *   whatever the length of its group, and no member holds its owner's count for a cascade to rewrite.
  *
  * A counted family of a mutable owner whose drawn values read a settled copy, a copy along its own owner axis of an
  * owner column its own fill writes, its count or a generated field over it (ir/fill.ts AppendStart `whole`), draws each
@@ -42,7 +45,7 @@
  * The appended rows are inserted whole, each with every family's columns. Each mutable owner they join, and each the
  * stratum puts whose groups its edits touch, whose recount the removals leave to this statement after the put, is
  * recounted by one UPDATE of its relation, where its count or an end changes: each family's count, and each end from
- * its last member, which the owner axis cascades into its stored members at the statement's end; a stratum that
+ * its last member, which reaches no member but by a copy its owner axis carries and cascades; a stratum that
  * appends nothing still writes this statement for those puts. An owner the stratum inserts
  * carries its counts and ends in its own insert, which its appends meet (runtime/write/bind.ts freshOwners), and an immutable
  * owner's family is fixed when it is inserted, so no role holds UPDATE on it and this statement writes none.
@@ -190,6 +193,8 @@ import {
 	type SlotReader,
 	slotReader,
 	recountUpdate,
+	type Seam,
+	seamUpdate,
 	taggedRows,
 	updatedResult,
 	updateReturning,
@@ -336,28 +341,30 @@ export interface AppendedMember {
 
 /**
  * A count or an end of one of a member relation's own counted families, as its row holds it: the owner's field, the
- * family, and the column of the family's members that holds the same value, every member's copy ‹n› of the count, and
- * the last member's column the family's last axis carries into the end.
+ * family, and what the family's last member holds of it: its index, one less than the count, or the column the
+ * family's last axis carries into the end.
  */
 interface OwnedColumn {
 	readonly field: LawField
 	readonly family: Family
-	readonly held: NativeColumn
+	readonly held:
+		| { readonly kind: "count" }
+		| { readonly kind: "end"; readonly column: NativeColumn }
 }
 
 /** Each count and end of `member`'s own counted families (`OwnedColumn`), by its field's key, the first family that holds
  * it in the law model's order. */
 const ownedColumns = (member: AppendedMember): ReadonlyMap<ColumnKey, OwnedColumn> => {
 	const owned = new Map<ColumnKey, OwnedColumn>()
-	const claim = (field: LawField, family: Family, held: NativeColumn): void => {
+	const claim = (field: LawField, family: Family, held: OwnedColumn["held"]): void => {
 		const key = columnKeyOf(field.name)
 		owned.getOrInsertComputed(key, () => ({ field, family, held }))
 	}
 	for (const family of member.owns) {
-		claim(family.count, family, { kind: "law", column: family.copy })
+		claim(family.count, family, { kind: "count" })
 		for (const p of family.axes.last) {
 			if (p.from.kind === "field" && p.from.field.writing.kind === "accumulated") {
-				claim(p.from.field, family, p.to)
+				claim(p.from.field, family, { kind: "end", column: p.to })
 			}
 		}
 	}
@@ -429,6 +436,10 @@ export const additionsSql = (
 	const scanned: Array<{ readonly family: Family; readonly scan: Scanned }> = []
 	/** The updates in place of the stored members of the groups a family's appends draw whole (ir/fill.ts AppendStart). */
 	const redrawn: Array<FamilyReturning> = []
+	/** Each kept family's seam (write/family/written.ts seamUpdate), written after every recount: PostgreSQL runs a
+	 * data-modifying CTE no part reads once the statement's rows are read, after each recount, which takes its owner's
+	 * row first, and the statement states them in that order. */
+	const seams: Array<Cte> = []
 	const refusals: Array<Expr> = []
 	const drawn = members.flatMap((member): ReadonlyArray<Drawn> => {
 		const arbiter = memberArbiter(w, member)
@@ -439,6 +450,9 @@ export const additionsSql = (
 		}))
 		/** Each source's rows with every column the families scanned so far drew. */
 		const rows = new Map(sources.map((x) => [x, x.appended] as const))
+		/** The seams of the member's families of mutable owners whose groups it draws from their kept counts, set by one
+		 * UPDATE of the member's relation. */
+		const memberSeams: Array<Seam> = []
 		/** The member's sequence first, each family after reading the rows with every column the families before it
 		 * drew: a counted family's fold may step or select the copy a sequence's owner axis gives the member. */
 		const ordered = member.families.toSorted(
@@ -475,8 +489,19 @@ export const additionsSql = (
 				fresh
 			)
 			scanned.push({ family, scan })
-			if (start.kind === "whole") {
-				redrawn.push(redrawnUpdate(w, supply, ctes, member, columns, scan))
+			switch (start.kind) {
+				case "whole":
+					redrawn.push(redrawnUpdate(w, supply, ctes, member, columns, scan))
+					break
+				case "kept":
+					if (family.owner.mutable) {
+						memberSeams.push({
+							family,
+							groups: { name: scan.name, group: scan.group, first: scan.first, count: scan.count },
+							where: (g) => eq(col(g, scan.slot), col(g, scan.first))
+						})
+					}
+					break
 			}
 			for (const x of read) {
 				x.scans.push({ family, scan })
@@ -485,6 +510,9 @@ export const additionsSql = (
 					withDrawn(w, supply, ctes, member, defined(rows.get(x), "a source's rows"), scan, columns)
 				)
 			}
+		}
+		if (isNonEmpty(memberSeams)) {
+			seamUpdate(w, supply, seams, memberSeams)
 		}
 		return sources.map((x) => ({ member, source: x.source, appended: x.appended, scans: x.scans }))
 	})
@@ -581,6 +609,7 @@ export const additionsSql = (
 			relations
 		)
 	})
+	appendAll(ctes, seams)
 	const [firstReturning, ...restReturnings] = [...recounts, ...inserts, ...redrawn, ...riding]
 	if (firstReturning === undefined) {
 		defect("a family additions statement appends or recounts a put owner")
@@ -661,8 +690,8 @@ const withDrawn = (
  * fresh owner, by its key law, and holds them as its slot carries them, drawn from the stratum's appends to it
  * (runtime/write/bind.ts freshOwners), or at their starts. A put's row may be a stored one the stratum moves to another
  * group, which the removals deleted (write/family/removals.ts) and its families' members still name, so it holds each
- * as its group's members hold it, every member's copy of the count and the last member's column an end is carried
- * from, and as an insert's row does where its group holds no member.
+ * as its group's last member holds it, the count one past its index and an end the column it is carried from, and as
+ * an insert's row does where its group holds no member.
  */
 const appendedOf = (
 	w: WriteContext,
@@ -762,11 +791,16 @@ const appendedOf = (
 					facts.columns.has(columnKeyOf(c.field.name))
 						? col(a, columnAt(facts, columnKeyOf(c.field.name)))
 						: defined(startOf(w.names, c.field), `the start of ${name}'s ${c.field.name}`)
-				/** A count or end of the row's own counted family as its group's members hold it, read by the probe of the
-				 * group's last member at the row's key; none where the group holds no member. */
+				/** A count or end of the row's own counted family as its group's last member holds it, read by the probe of
+				 * that member at the row's key: its index plus one, or the column the end is carried from; none where the
+				 * group holds no member. */
 				const held = (a: string, c: OwnedColumn): Expr => {
 					const of = c.family.member.name
-					const column = installed(w, of, c.held)
+					const column = installed(
+						w,
+						of,
+						c.held.kind === "count" ? c.family.shape.index : c.held.column
+					)
 					const last = probeGroup(
 						w,
 						supply,
@@ -778,11 +812,20 @@ const appendedOf = (
 						[installed(w, of, c.family.shape.index)],
 						{ read: [column], filter: () => [] }
 					)
+					const value = last.at(column)
 					return written(
 						w,
 						{
 							kind: "subquery",
-							query: simpleSelect([target(last.at(column))], [last.source], undefined)
+							query: simpleSelect(
+								[
+									target(
+										c.held.kind === "count" ? binary("+", value, lit.int(1, types.bigint)) : value
+									)
+								],
+								[last.source],
+								undefined
+							)
 						},
 						c.field.type
 					)
@@ -2308,7 +2351,7 @@ const withHostDrawn = (
 			...mapNonEmpty(union.group, (c, i) => targetAs(defined(hostGroup[i], "a group key"), c)),
 			targetAs(cast(drawnAt(columnKey(family.shape.index)), bigint), union.slot),
 			targetAs(lit.int(0, bigint), union.first),
-			targetAs(cast(drawnAt(columnKey({ kind: "law", column: family.copy })), bigint), union.count),
+			targetAs(countOver(hostGroup), union.count),
 			...[...union.columns].map(([k, c]) => targetAs(drawnType.has(k) ? drawnAt(k) : hostAt(k), c))
 		],
 		[cteRefAs(members.name, h)],

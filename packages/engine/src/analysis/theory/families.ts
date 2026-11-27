@@ -55,7 +55,7 @@ import { isNaturalDesc } from "#compiler/scalar/natural.ts"
 /**
  * Families and their axes, as the theory resolves them.
  *
- * A family or tree statement resolves to its shape: its owner, count, member, group, index, ‹n› and members, every one
+ * A family or tree statement resolves to its shape: its owner, count, member, group, index, ‹s› and members, every one
  * a handle the checked schema typed. Each family has three axes, foreign keys every lemma, fold copy and tree law
  * rides: owner (member to owner), predecessor (member to the member one slot before it) and last (owner to its last
  * member). A containment rides an axis when its sides are the axis's ends (`ridesOf`): its relation and selection
@@ -94,9 +94,9 @@ export type FoldStatement = Extract<StatementDesc, { readonly kind: "fold" }>
 /** fin(O, n), as a refusal and a display spell a family. */
 export const slotsText = (id: FamilyId): string => `fin(${id.owner}, ${id.count})`
 
-/** A drawn law column of a family at the naming door: ‹n›, or a counted family's ‹i›, by the family's law. */
+/** A drawn law column of a family at the naming door: ‹s›, or a counted family's ‹i›, by the family's law. */
 const drawnColumn = (
-	kind: Extract<LawColumnStatement, { readonly owner: string }>["kind"] & ("copy" | "index"),
+	kind: Extract<LawColumnStatement, { readonly owner: string }>["kind"] & ("next" | "index"),
 	id: FamilyId,
 	family: Identifier<"law">
 ): ColumnIdent =>
@@ -318,7 +318,7 @@ export const familyShape = (
 		member,
 		group,
 		shape,
-		copy: drawnColumn("copy", id, law)
+		next: drawnColumn("next", id, law)
 	})
 }
 
@@ -393,7 +393,7 @@ export const treeShape = (
 			start,
 			end: interval("end")
 		}),
-		copy: drawnColumn("copy", id, law)
+		next: drawnColumn("next", id, law)
 	})
 }
 

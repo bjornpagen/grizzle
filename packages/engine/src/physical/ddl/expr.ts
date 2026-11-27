@@ -292,8 +292,8 @@ export const lowerPersistent = (
 
 /** A row expression of `relation`'s own columns, a CHECK's predicate, a generated field's expression or a law column's
  * selection or term, lowered as persistent SQL over the table's columns: a field's by its name, or a law column the
- * law model adds to the relation by its identifier, which a family's CHECKs and a generated law column read (`at <
- * ‹n›`, a fold's `after = combine(before, x)`). A reference to anything else is refused as MalformedDescription. */
+ * law model adds to the relation by its identifier, which a family's CHECKs and a generated law column read (a
+ * tree root's `‹s› = at`, a fold's `after = combine(before, x)`). A reference to anything else is refused as MalformedDescription. */
 export const lowerRow = (
 	b: Pick<InstallBuilder, "names" | "lawColumnsOf">,
 	relation: Pick<TableRelation, "name" | "fields">,

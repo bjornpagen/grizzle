@@ -14,7 +14,10 @@
  * predecessor axis (g, ‹p›), which pairs with the family key (g, at), finds every row the shorter prefix selects, each
  * probe reading a whole family, so deleting a family of n members reads n² rows.
  *
- * A column generated as one constant is left out of a reference's columns: binding it narrows no probe. The property
+ * A column generated as one constant is left out of a reference's columns: binding it narrows no probe. A column
+ * generated as another column under a guard, `CASE WHEN φ THEN c END`, stands for `c` in a key of its target, where it
+ * holds a value: a family's holding reference names its owner's key where its count is above 0 (‹k⁺›), and the rows
+ * equal at the columns that pair with that key reference one owner, as at the key itself. The property
  * holds where one B-tree entry holds the columns that pair with some key: a referencing column of a text
  * of no bound is indexed by the longest leading run of the columns an entry holds (test/support/laws/reverse.ts
  * expectedOf), which test/unit/laws/model/reverse-index.test.ts states for a containment.
@@ -77,13 +80,19 @@ const drafted = (
 	readonly indexes: ReadonlyMap<string, ReadonlyArray<DraftedIndex>>
 	readonly references: ReadonlyArray<DraftedReference>
 	readonly constants: ReadonlySet<string>
+	readonly guarded: ReadonlyMap<string, string>
 } => {
 	const indexes = new Map<string, Array<DraftedIndex>>()
 	const references: Array<DraftedReference> = []
 	const constants = new Set<string>()
+	const guarded = new Map<string, string>()
 	const column = (table: ObjectName, c: ColumnDef): void => {
 		if (constantColumn(c)) {
 			constants.add(columnKey(tableKey(table), c.name))
+		}
+		const source = guardedSource(c)
+		if (source !== undefined) {
+			guarded.set(columnKey(tableKey(table), c.name), source)
 		}
 	}
 	const add = (table: ObjectName, index: DraftedIndex): void => {
@@ -128,7 +137,7 @@ const drafted = (
 			})
 		}
 	}
-	return { indexes, references, constants }
+	return { indexes, references, constants, guarded }
 }
 
 /** A column of a table, as the constants are keyed. */
@@ -142,6 +151,12 @@ const constantColumn = (c: ColumnDef): boolean =>
 	c.generated?.kind === "stored" &&
 	(c.generated.expr.kind === "literal" ||
 		(c.generated.expr.kind === "cast" && c.generated.expr.expr.kind === "literal"))
+
+/** The column a column is generated as under a guard, `CASE WHEN φ THEN c END`: `c`; none for any other column. */
+const guardedSource = (c: ColumnDef): string | undefined =>
+	c.generated?.kind === "partial" && c.generated.expr.kind === "column"
+		? c.generated.expr.column
+		: undefined
 
 /** A reference without its constant columns, each with the column it references. */
 const variable = (r: DraftedReference, constants: ReadonlySet<string>): DraftedReference => {
@@ -168,25 +183,30 @@ const ledBy = (index: DraftedIndex, columns: ReadonlyArray<string>): boolean =>
 
 /**
  * The referencing columns of `r` that pair with each key of its target (the header): every referencing column, for the
- * referenced columns themselves, and those paired with each unique B-tree of the target within the referenced columns.
+ * referenced columns themselves, and those paired with each unique B-tree of the target within the referenced columns,
+ * a guarded column standing for its source (`guardedSource`).
  */
 const keyedRuns = (
 	r: DraftedReference,
-	targetIndexes: ReadonlyArray<DraftedIndex>
-): ReadonlyArray<ReadonlyArray<string>> => [
-	r.columns,
-	...Arr.flatMap(targetIndexes, (key): ReadonlyArray<ReadonlyArray<string>> =>
-		key.unique && key.method === "btree" && within(key.columns, r.referenced)
-			? [
-					Arr.flatMap(
-						Arr.zip(r.columns, r.referenced),
-						([column, referenced]: readonly [string, string]): ReadonlyArray<string> =>
-							Arr.contains(key.columns, referenced) ? [column] : []
-					)
-				]
-			: []
-	)
-]
+	targetIndexes: ReadonlyArray<DraftedIndex>,
+	guarded: ReadonlyMap<string, string>
+): ReadonlyArray<ReadonlyArray<string>> => {
+	const standing = Arr.map(r.referenced, (c) => guarded.get(columnKey(r.target, c)) ?? c)
+	return [
+		r.columns,
+		...Arr.flatMap(targetIndexes, (key): ReadonlyArray<ReadonlyArray<string>> =>
+			key.unique && key.method === "btree" && within(key.columns, standing)
+				? [
+						Arr.flatMap(
+							Arr.zip(r.columns, standing),
+							([column, referenced]: readonly [string, string]): ReadonlyArray<string> =>
+								Arr.contains(key.columns, referenced) ? [column] : []
+						)
+					]
+				: []
+		)
+	]
+}
 
 /** Whether `index` serves the probe of `r` (the header). */
 const serves = (
@@ -202,10 +222,10 @@ const serves = (
  * <table> (<columns>)`: none where the property holds.
  */
 const unservedReferences = (statements: ReadonlyArray<SqlStatement>): ReadonlyArray<string> => {
-	const { indexes, references, constants } = drafted(statements)
+	const { indexes, references, constants, guarded } = drafted(statements)
 	return Arr.flatMap(references, (stated) => {
 		const r = variable(stated, constants)
-		const runs = keyedRuns(r, indexes.get(r.target) ?? [])
+		const runs = keyedRuns(r, indexes.get(r.target) ?? [], guarded)
 		return Arr.some(indexes.get(r.table) ?? [], (index) => serves(index, r, runs))
 			? []
 			: [`${r.name} on ${r.table} (${Arr.join(r.columns, ", ")})`]

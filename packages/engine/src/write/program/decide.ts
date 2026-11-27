@@ -451,7 +451,7 @@ const ruleData = (rule: FillRule): FillRuleData => {
 	switch (rule.kind) {
 		case "given":
 		case "index":
-		case "copy":
+		case "next":
 		case "start":
 		case "end":
 			return { kind: rule.kind }

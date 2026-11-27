@@ -1221,10 +1221,48 @@ export const ownerHolds = (
 	)
 
 /**
- * Whether a role holds UPDATE on a column of a relation, as its grants hold it (writePlan, ownerHolds): every column of
- * a relation it writes whole with UPDATE, a table grant; a query entry's updatable fields; an owner hold's count and
- * ends; no column of any other relation. What an UPDATE the role runs may assign, its anchor among them
- * (laws/model/generation.ts).
+ * The successor columns a role updates on the members it writes (write/family/written.ts seamUpdate), by member
+ * relation: each family's successor ‹s›, no tree's, of a mutable owner the role recounts, whose member it writes in
+ * full (`fullyWrittenBy`, the member writer's recount `ownerHolds` grants) or whose owner it writes whole with UPDATE,
+ * where the family statements that append to and edit its groups set the successor of each group's member before the
+ * slots they draw, the one stored member an append changes, as the recount sets the owner's count; none on a relation
+ * the role's own grant holds UPDATE on whole. No field: the member's facts change no more than the owner's do, and a
+ * closed member's immutability guard holds every field (physical/ddl/immutable.ts).
+ */
+export const seamHolds = (
+	model: LawModel,
+	written: ReadonlyArray<WrittenEntry>
+): ReadonlyMap<string, NonEmptyReadonlyArray<string>> => {
+	const writes = new Set(written.map((w) => w.relation.name))
+	const full = fullyWrittenBy(written)
+	const whole = new Set(
+		written.flatMap((w) =>
+			w.write.kind !== "rows" && entryPrivileges(w).includes("UPDATE") ? [w.relation.name] : []
+		)
+	)
+	const out = new Map<string, NonEmptyReadonlyArray<string>>()
+	for (const f of model.families) {
+		const member = f.member.name
+		const recounts = full.has(member) || whole.has(f.owner.name)
+		if (
+			f.shape.kind !== "tree" &&
+			f.owner.mutable &&
+			writes.has(member) &&
+			recounts &&
+			!whole.has(member)
+		) {
+			const at = out.get(member)
+			out.set(member, at === undefined ? [f.next] : appendNonEmpty(at, f.next))
+		}
+	}
+	return out
+}
+
+/**
+ * Whether a role holds UPDATE on a column of a relation, as its grants hold it (writePlan, ownerHolds, seamHolds):
+ * every column of a relation it writes whole with UPDATE, a table grant; a query entry's updatable fields; an owner
+ * hold's count and ends; a member's successors; no column of any other relation. What an UPDATE the role runs may
+ * assign, its anchor among them (laws/model/generation.ts).
  */
 export const roleUpdates = (
 	model: LawModel,
@@ -1254,14 +1292,20 @@ export const roleUpdates = (
 		const owner = held.families[0].owner
 		hold(owner.name, holdOn(owner, held, full).update)
 	}
+	for (const [member, successors] of seamHolds(model, written)) {
+		const at = columns.getOrInsertComputed(member, () => new Set())
+		for (const c of successors) {
+			at.add(c)
+		}
+	}
 	return (relation, column) => whole.has(relation) || (columns.get(relation)?.has(column) ?? false)
 }
 
 /**
  * The table privileges a role holds on each relation of its base, by the relation's name, as its installation grants
- * them: on each relation it writes, its entry's (`entryPrivileges`); on each owner of a family whose member it writes
- * and which it does not write whole, SELECT, and UPDATE where it recounts the owner (`ownerHolds`); a relation written
- * both ways holds both. A column privilege counts as its table's. No other table: the role reads through its views.
+ * them: on each relation it writes, its entry's (`entryPrivileges`), and UPDATE where it sets a member's successors
+ * (`seamHolds`); on each owner of a family whose member it writes and which it does not write whole, SELECT, and UPDATE
+ * where it recounts the owner (`ownerHolds`); a relation written both ways holds both. A column privilege counts as its table's. No other table: the role reads through its views.
  * What certification reads (analysis/isolation/facts.ts RoleFacts.privileges), and a relation's guard with it.
  */
 export const grantedPrivileges = (
@@ -1278,6 +1322,9 @@ export const grantedPrivileges = (
 	}
 	for (const w of written) {
 		hold(w.relation.name, entryPrivileges(w))
+	}
+	for (const member of seamHolds(model, written).keys()) {
+		hold(member, ["UPDATE"])
 	}
 	for (const h of ownerHolds(model, written)) {
 		const privileges: Array<TablePrivilege> = []
@@ -1655,6 +1702,15 @@ const addRole = (
 			roleObject,
 			entry: `${role.name}.${w.write.name}`,
 			membership: plan.membership
+		})
+	}
+	for (const [member, successors] of seamHolds(b.model, written)) {
+		grants.push({
+			kind: "grantColumns",
+			privilege: "UPDATE",
+			table: b.names.relation(member),
+			columns: successors,
+			to: theory
 		})
 	}
 	const holds = ownerHolds(b.model, written)

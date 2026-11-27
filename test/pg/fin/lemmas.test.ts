@@ -6,18 +6,22 @@
  * - **The specification turned into a checker:** the families theorem (theorem.ts): every owner's rows indexed by
  *   exactly 0 … n − 1. PostgreSQL must commit a state exactly when it holds.
  * - **A second implementation:** the families model of each transaction (mutate.ts), each installed constraint read as
- *   the model's by its columns' roles (family.ts), checked at the moment the RFC's lowering checks it (the owner axis
+ *   the model's by its columns' roles (family.ts), checked at the moment grizzle's lowering checks it (the owner axis
  *   and the keys at each statement, the last slot at COMMIT, the closure at each statement when ordered and at COMMIT
  *   when counted). A refusal must be at the model's moment, by a constraint the model allows there, with its SQLSTATE
  *   and the family's law.
  *
  * **Per direction:** grizzle states both directions in one former, so each is judged by its drop, a kill of the
- * properties in grizzle's lowering (laws/model/plan.ts): "within dropped" (the bound, F[g, i] ⊆ fin(O, n)'s CHECK) and
- * "covers dropped" (the last axis and the closure, fin(O, n) ⊆ F[g, i]'s foreign keys), which a row beyond the count and
- * a gap below it catch.
+ * properties in grizzle's lowering (laws/model/plan.ts). F[g, i] ⊆ fin(O, n) is held by the owner axis into the owners
+ * of a member, their count above 0, and by the successor ‹s› the predecessor and last axes pair: the member at n names
+ * the one at n − 1 its predecessor, whose successor the last axis holds at n − 1 itself; "within dropped" drops the
+ * pairing, which a row just past a positive count catches, a state the search of states requires, and "within dropped at an empty owner" the owner axis's guard,
+ * which a row of an owner of count 0 catches. fin(O, n) ⊆ F[g, i] is the last axis and the closure; "covers dropped"
+ * drops both foreign keys, which a gap below the count catches.
  *
- * Spaces: states of owners 0 and 1, each absent or of count 0 to 3, with at most three rows at slots 0 to 4, every copy
- * its owner's count, written from no state (lemmas.fixtures.ts stateGen); and random programs of the families model's
+ * Spaces: states of owners 0 and 1, each absent or of count 0 to 3, with at most three rows at slots 0 to 4, every
+ * successor its slot's in its owner's count, written from no state (lemmas.fixtures.ts statesGen); and random programs
+ * of the families model's
  * lawful, breaking and misordered mutations (mutate.ts programGen), each step one transaction judged against the model
  * over the state before it, which one transaction replacing the seat's rows writes first.
  *
@@ -35,13 +39,14 @@ import { endGen, endedBy, refusedAtCommitBy } from "#test/pg/fin/installed.ts"
 import {
 	lemmaFamilies,
 	lemmaOracle,
-	lemmaSeatOf,
 	type ProgramFeature,
 	programs,
 	programSituations,
+	rowJustPastCount,
+	rowOfEmptyOwner,
 	settledOn,
 	type StateFeature,
-	stateGen,
+	statesGen,
 	storedOfSketch,
 	writeStatements
 } from "#test/pg/fin/lemmas.fixtures.ts"
@@ -93,7 +98,7 @@ const statesBudget = { runs: 13, steered: 16 } as const
  * Commit exactly the drawn states the families theorem holds of, through grizzle's seat of each shape, each case on a
  * clone of its own of both; each direction's drop is a kill.
  */
-export const commitExactlyTheStatesOfTheBoxTheFamiliesTheoremHoldsOf = property.explore(stateGen, {
+export const commitExactlyTheStatesOfTheBoxTheFamiliesTheoremHoldsOf = property.explore(statesGen, {
 	needs: {
 		ordered: Substrate.fresh(lemmaFamilies.ordered),
 		counted: Substrate.fresh(lemmaFamilies.counted)
@@ -105,15 +110,15 @@ export const commitExactlyTheStatesOfTheBoxTheFamiliesTheoremHoldsOf = property.
 		"a case refused at its checked commit",
 		"ordered committed",
 		"ordered refused key",
-		"ordered refused bound",
-		"ordered refused copy",
+		"ordered refused holding",
 		"ordered refused last",
 		"ordered refused closure",
 		"counted committed",
 		"counted refused key",
-		"counted refused bound",
-		"counted refused copy",
-		"counted refused last"
+		"counted refused holding",
+		"counted refused last",
+		"a row just past a positive count",
+		"a row of an owner of count 0"
 	] satisfies ReadonlyArray<Reached<StateFeature>>,
 	check:
 		({ ordered, counted }, c: Case<StateFeature>) =>
@@ -130,20 +135,21 @@ export const commitExactlyTheStatesOfTheBoxTheFamiliesTheoremHoldsOf = property.
 						([shape, taken]) =>
 							Effect.gen(function* () {
 								const family = yield* familySeatIn(shape, taken, `lemma ${shape}`)
-								const seat = yield* Effect.provideService(
-									lemmaSeatOf(family),
-									Substrate,
-									taken.substrate
-								)
 								const stored = storedOfSketch(sketch)
+								if (rowJustPastCount(stored)) {
+									c.note("a row just past a positive count")
+								}
+								if (rowOfEmptyOwner(stored)) {
+									c.note("a row of an owner of count 0")
+								}
 								const statements = writeStatements(stored)
 								const lawful = Result.isSuccess(theorem(stored))
 								const j = yield* Effect.provideService(
 									judgedFamily(
-										seat.family,
+										family,
 										{ kind: "empty" },
 										statements,
-										settledOn(seat, emptyStored, statements),
+										settledOn(family, emptyStored, statements),
 										end
 									),
 									Substrate,
@@ -172,16 +178,22 @@ export const commitExactlyTheStatesOfTheBoxTheFamiliesTheoremHoldsOf = property.
 		{
 			file: "packages/engine/src/laws/model/plan.ts",
 			original:
-				'\t\t\town.add(\n\t\t\t\tindex.kind === "field"\n\t\t\t\t\t? cmp("lt", i, n)\n\t\t\t\t\t: and([cmp("ge", i, naturalLiteral(0n)), cmp("lt", i, n)])\n\t\t\t)',
-			replacement: '\t\t\town.add(cmp("ge", i, naturalLiteral(0n)))',
-			why: "Within dropped: a family installs no bound CHECK (i < ‹n›), so a row at a slot beyond its owner's count commits, and a state the families theorem fails is committed."
+				"\t\tconst successors = appendNonEmpty(familyKeyColumns, next)\n\t\tconst predecessorBase = appendNonEmpty(successorKey, index)\n\t\tconst lastSlots = appendNonEmpty(lastBase, lastPred)",
+			replacement:
+				"\t\tconst successors = familyKeyColumns\n\t\tconst predecessorBase = successorKey\n\t\tconst lastSlots = lastBase",
+			why: "Within dropped: the predecessor and last axes reference the slots alone, no successor beside them, so a row at the slot past its owner's last names that last member its predecessor and commits, and a state the families theorem fails is committed."
+		},
+		{
+			file: "packages/engine/src/laws/model/plan.ts",
+			original: "\t\t\t\tselection: this.#holding()",
+			replacement: "\t\t\t\tselection: { conjuncts: [] }",
+			why: "Within dropped at an empty owner: the owner axis references every owner's key, its count above 0 or not, so a row of an owner of count 0 at slot 0, which no closure and no last slot reaches, commits, and a state the families theorem fails is committed."
 		},
 		{
 			file: "packages/engine/src/laws/model/plan.ts",
 			original:
-				'\t\t\t...(["owner", "predecessor", "last"] as const).flatMap((a) => [\n\t\t\t\t...axes[a].natives,\n\t\t\t\taxes[a].foreignKey\n\t\t\t])',
-			replacement:
-				'\t\t\t...(["owner", "predecessor", "last"] as const).flatMap((a) =>\n\t\t\t\ta === "owner" ? [...axes[a].natives, axes[a].foreignKey] : axes[a].natives\n\t\t\t)',
+				"\t\t\taxes.predecessor.foreignKey,\n\t\t\t...axes.last.natives,\n\t\t\taxes.last.foreignKey\n",
+			replacement: "\t\t\t...axes.last.natives\n",
 			why: "Covers dropped: a family installs neither its last axis's nor its closure's foreign key, so a gap below the count commits, and a state the families theorem fails is committed."
 		}
 	]
@@ -246,16 +258,22 @@ export const refuseExactlyTheStepsOfRandomProgramsTheModelRefusesAndCommitTheRes
 			{
 				file: "packages/engine/src/laws/model/plan.ts",
 				original:
-					'\t\t\town.add(\n\t\t\t\tindex.kind === "field"\n\t\t\t\t\t? cmp("lt", i, n)\n\t\t\t\t\t: and([cmp("ge", i, naturalLiteral(0n)), cmp("lt", i, n)])\n\t\t\t)',
-				replacement: '\t\t\town.add(cmp("ge", i, naturalLiteral(0n)))',
-				why: "Within dropped: a family installs no bound CHECK (i < ‹n›), so a row at a slot beyond its owner's count commits, and a state the families theorem fails is committed."
+					"\t\tconst successors = appendNonEmpty(familyKeyColumns, next)\n\t\tconst predecessorBase = appendNonEmpty(successorKey, index)\n\t\tconst lastSlots = appendNonEmpty(lastBase, lastPred)",
+				replacement:
+					"\t\tconst successors = familyKeyColumns\n\t\tconst predecessorBase = successorKey\n\t\tconst lastSlots = lastBase",
+				why: "Within dropped: the predecessor and last axes reference the slots alone, no successor beside them, so a row inserted past its owner's last, or a count lowered under a row it leaves past the last, commits where the model refuses it."
+			},
+			{
+				file: "packages/engine/src/laws/model/plan.ts",
+				original: "\t\t\t\tselection: this.#holding()",
+				replacement: "\t\t\t\tselection: { conjuncts: [] }",
+				why: "Within dropped at an empty owner: the owner axis references every owner's key, its count above 0 or not, so a count lowered to 0 over its one row commits, and a state the families theorem fails is committed."
 			},
 			{
 				file: "packages/engine/src/laws/model/plan.ts",
 				original:
-					'\t\t\t...(["owner", "predecessor", "last"] as const).flatMap((a) => [\n\t\t\t\t...axes[a].natives,\n\t\t\t\taxes[a].foreignKey\n\t\t\t])',
-				replacement:
-					'\t\t\t...(["owner", "predecessor", "last"] as const).flatMap((a) =>\n\t\t\t\ta === "owner" ? [...axes[a].natives, axes[a].foreignKey] : axes[a].natives\n\t\t\t)',
+					"\t\t\taxes.predecessor.foreignKey,\n\t\t\t...axes.last.natives,\n\t\t\taxes.last.foreignKey\n",
+				replacement: "\t\t\t...axes.last.natives\n",
 				why: "Covers dropped: a family installs neither its last axis's nor its closure's foreign key, so a gap below the count commits, and a state the families theorem fails is committed."
 			}
 		]

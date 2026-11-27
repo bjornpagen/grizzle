@@ -173,11 +173,20 @@ export const schemaOf = (s: Shape): SchemaDesc => {
 
 const sortText = (xs: ReadonlyArray<string>): ReadonlyArray<string> => Arr.sort(xs, Order.String)
 
-/** §2.1's three foreign keys for a shape, each as its contract reads it. */
+/** The owner's key as its owner axis reaches it: its first field where its count is above 0 (‹k⁺›), the rest as they
+ * are. */
+const holdingKeys = (s: Shape): ReadonlyArray<string> =>
+	Arr.map(keys(s), (k, j) => (j === 0 ? `‹generated ${k}›` : k))
+
+/** §2.1's foreign keys for a shape, each as its contract reads it: the owner axis, its holding reference into the
+ * owner's key where it holds a member, deferred, and where it carries copies their foreign key beside it, ON UPDATE
+ * CASCADE; the predecessor axis pairing each member's index with its predecessor's successor ‹next›; the last axis
+ * pairing the owner's last slot with its last member's slot and successor alike. */
 export const expectedForeignKeys = (s: Shape): ReadonlyArray<ForeignKeyShape> => {
 	const i = s.order === "ordered" ? "at" : "‹index›"
 	const p = predOf(s)
 	const groupPairs = Arr.map(Arr.zip(group(s), keys(s)), ([g, k]) => ({ g, k }))
+	const holdingPairs = Arr.map(Arr.zip(group(s), holdingKeys(s)), ([g, k]) => ({ g, k }))
 	const fk = (
 		from: string,
 		to: string,
@@ -185,18 +194,29 @@ export const expectedForeignKeys = (s: Shape): ReadonlyArray<ForeignKeyShape> =>
 		onUpdate: "cascade" | "noAction",
 		deferrable: boolean
 	): ForeignKeyShape => ({ from, to, pairs: sortText(pairs), onUpdate, deferrable })
+	const ownerCopies = named("owner", s.owner)
 	return Arr.sort(
 		[
+			...(Arr.isArrayNonEmpty(ownerCopies)
+				? [
+						fk(
+							"Member",
+							"Owner",
+							[
+								...Arr.map(groupPairs, ({ g, k }) => `${g} → ${k}`),
+								...Arr.map(ownerCopies, (c) => `${c.from} → ${c.to}`)
+							],
+							"cascade",
+							false
+						)
+					]
+				: []),
 			fk(
 				"Member",
 				"Owner",
-				[
-					...Arr.map(groupPairs, ({ g, k }) => `${g} → ${k}`),
-					"‹copy› → n",
-					...Arr.map(named("owner", s.owner), (c) => `${c.from} → ${c.to}`)
-				],
-				"cascade",
-				false
+				Arr.map(holdingPairs, ({ g, k }) => `${g} → ${k}`),
+				"noAction",
+				true
 			),
 			fk(
 				"Member",
@@ -204,6 +224,7 @@ export const expectedForeignKeys = (s: Shape): ReadonlyArray<ForeignKeyShape> =>
 				[
 					...Arr.map(group(s), (g) => `${g} → ${g}`),
 					`${p} → ${i}`,
+					`${i} → ‹next›`,
 					...Arr.map(named("pred", s.predecessor), (c) => `${c.from} → ${c.to}`)
 				],
 				"noAction",
@@ -215,6 +236,7 @@ export const expectedForeignKeys = (s: Shape): ReadonlyArray<ForeignKeyShape> =>
 				[
 					...Arr.map(groupPairs, ({ g, k }) => `${k} → ${g}`),
 					`‹generated n› → ${i}`,
+					"‹generated n› → ‹next›",
 					...Arr.map(named("last", s.last), (c) => `${c.from} → ${c.to}`)
 				],
 				"noAction",
@@ -231,24 +253,27 @@ const setText = (xs: ReadonlyArray<string>): string => Arr.join(sortText(xs), ",
 const predOf = (s: Shape): string => (s.order === "ordered" ? "‹generated at›" : "‹generated n›")
 
 /** §2.1's keys for a shape: the primary keys, the family key, its successor key (g…, ‹p›), each member the predecessor
- * of at most one, and one superkey per distinct carried set. */
+ * of at most one, one member superkey (g…, i, ‹next›) per distinct carried set, the owner's key beside its copies, and
+ * the owner's key where it holds a member. */
 const expectedKeys = (s: Shape) => {
 	const i = s.order === "ordered" ? "at" : "‹index›"
 	const familyKey = [...group(s), i]
+	const successors = [...familyKey, "‹next›"]
 	return {
 		Member: sortText([
 			...new Set([
 				"id",
 				setText(familyKey),
 				setText([...group(s), predOf(s)]),
-				setText([...familyKey, ...Arr.map(named("pred", s.predecessor), (c) => c.to)]),
-				setText([...familyKey, ...Arr.map(named("last", s.last), (c) => c.to)])
+				setText([...successors, ...Arr.map(named("pred", s.predecessor), (c) => c.to)]),
+				setText([...successors, ...Arr.map(named("last", s.last), (c) => c.to)])
 			])
 		]),
 		Owner: sortText([
 			...new Set([
 				setText(keys(s)),
-				setText([...keys(s), "n", ...Arr.map(named("owner", s.owner), (c) => c.to)])
+				setText([...keys(s), ...Arr.map(named("owner", s.owner), (c) => c.to)]),
+				setText(holdingKeys(s))
 			])
 		])
 	}
@@ -256,22 +281,26 @@ const expectedKeys = (s: Shape) => {
 
 const naturals = [0n, 1n, 2n, 3n] as const
 
-/** The family's bound: its CHECK accepts exactly the rows where 0 ≤ i < ‹n›. */
+/**
+ * The family's row conditions: none for an ordered family, its index a natural, and for a counted one a CHECK accepting
+ * exactly the rows where 0 ≤ ‹i›, its index a law column no natural domain keeps there. No member holds its owner's
+ * count, so no CHECK bounds the index by it: the predecessor and last axes do (expectedForeignKeys).
+ */
 const checkBound = (model: LawModel, s: Shape): void => {
 	const law = familyLaw(model, { owner: "Owner", count: "n" })
-	const [check, ...more] = checksOf(model, "Member", law)
-	assert.ok(check !== undefined && more.length === 0, "the family states one CHECK on its member")
-	const copy = drawnColumn(model, "Member", "copy")
-	const index = s.order === "ordered" ? "at" : drawnColumn(model, "Member", "index")
-	const indices = s.order === "ordered" ? naturals : ([-1n, ...naturals] as const)
-	for (const n of naturals) {
-		for (const i of indices) {
-			const row = new Map<string, bigint>([
-				[copy, n],
-				[index, i]
-			])
-			assert.equal(accepts(check, row), i >= 0n && i < n, `i = ${i}, ‹n› = ${n}`)
-		}
+	const checks = checksOf(model, "Member", law)
+	if (s.order === "ordered") {
+		assert.equal(checks.length, 0, "an ordered family states no CHECK on its member")
+		return
+	}
+	const [check, ...more] = checks
+	assert.ok(
+		check !== undefined && more.length === 0,
+		"a counted family states one CHECK on its member"
+	)
+	const index = drawnColumn(model, "Member", "index")
+	for (const i of [-1n, ...naturals]) {
+		assert.equal(accepts(check, new Map([[index, i]])), i >= 0n, `‹i› = ${i}`)
 	}
 }
 
@@ -296,10 +325,13 @@ const checkCopies = (model: LawModel, s: Shape): void => {
 	const fks = onRelation(model, "ForeignKey", "Member").concat(
 		onRelation(model, "ForeignKey", "Owner")
 	)
+	/** The owner axis's foreign key: its copies' where it carries any, its holding reference where it carries none. */
 	const axisOf = (axis: "owner" | "predecessor" | "last") =>
 		Arr.filter(fks, (fk) =>
 			axis === "owner"
-				? fk.target.name === "Owner"
+				? fk.target.name === "Owner" &&
+					fk.relation.name === "Member" &&
+					(Arr.isReadonlyArrayNonEmpty(s.owner) ? fk.onUpdate === "cascade" : fk.deferrable)
 				: axis === "last"
 					? fk.relation.name === "Owner"
 					: fk.relation.name === "Member" && fk.target.name === "Member"
@@ -530,7 +562,7 @@ export const checkDisjoint = (d: Disjoint): void => {
 	const families = model.families
 	assert.equal(families.length, d.length, "one family per counted statement")
 	const drawn = Arr.flatMap(families, (family) => [
-		family.copy,
+		family.next,
 		...(family.shape.kind === "counted" ? [family.shape.index.column] : []),
 		...Arr.flatMap(family.folds, (fl) =>
 			Arr.flatMap(fl.planes, (p) =>
@@ -551,26 +583,23 @@ export const checkDisjoint = (d: Disjoint): void => {
 	const fks = Arr.flatMap(["M", ...Arr.map(d, (_, j) => `C${j}`)], (r) =>
 		onRelation(model, "ForeignKey", r)
 	)
-	assert.equal(fks.length, 3 * families.length, "three axes per family, and no other reference")
+	assert.equal(
+		fks.length,
+		3 * families.length,
+		"three axes per family, its owner axis its holding reference, which carries no copy, and no other reference"
+	)
 	for (const family of families) {
-		const intoOwner = Arr.filter(
+		const ownerAxis = Arr.filter(
 			fks,
 			(fk) =>
 				fk.relation.name === family.member.name &&
 				fk.target.name === family.owner.name &&
 				fk.target.name !== fk.relation.name
 		)
-		const ownerAxis = Arr.filter(
-			fks,
-			(fk) =>
-				fk.relation.name === family.member.name &&
-				fk.target.name === family.owner.name &&
-				Arr.some(fk.columns, (x) => x.kind === "law" && x.column === family.copy)
-		)
 		assert.equal(
 			ownerAxis.length,
 			1,
-			`the family ${family.id.owner}.${family.id.count} has its own owner axis`
+			`the family ${family.id.owner}.${family.id.count} has its own owner axis, its holding reference`
 		)
 		/** The predecessor axis runs member to member into the index; the last axis from the owner's key, which the
 		 * predecessor's source never reads. */
@@ -590,6 +619,5 @@ export const checkDisjoint = (d: Disjoint): void => {
 			1,
 			`the family ${family.id.owner}.${family.id.count} has its own predecessor axis`
 		)
-		assert.ok(intoOwner.length <= 1, "one reference from the member into each other owner")
 	}
 }

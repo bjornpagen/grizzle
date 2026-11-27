@@ -41,19 +41,19 @@ export type TextType =
 	| Readonly<{ kind: "code points"; n: number }>
 
 /**
- * The bytes the IndexTupleData header, a uuid (1-aligned) and a bigint (8-aligned) take in any order of a key's columns,
- * which decides whether the key fits (schema/representability.ts btreeEntryBytes, a function of the column set): each
- * datum after its worst alignment padding, align - 1.
+ * The bytes the IndexTupleData header, a uuid (1-aligned) and two bigints (8-aligned), the slot and its successor ‹s›,
+ * take in any order of a key's columns, which decides whether the key fits (schema/representability.ts
+ * btreeEntryBytes, a function of the column set): each datum after its worst alignment padding, align - 1.
  */
-const keyPrefixBytes = 8 + (1 - 1 + typlens.uuid) + (typlens.int8 - 1 + typlens.int8)
+const keyPrefixBytes = 8 + (1 - 1 + typlens.uuid) + 2 * (typlens.int8 - 1 + typlens.int8)
 
 /** The bytes of the entry before the text's data: its prefix, then the text's 4-byte varlena header after its worst
  * padding to 4. */
 const textStartBytes = keyPrefixBytes + (4 - 1) + 4
 
 /**
- * The B-tree entry of Line's (doc, at, after) in any order of its columns: its prefix, then the text's varlena header and
- * its longest value, the whole MAXALIGNed.
+ * The B-tree entry of Line's (doc, at, ‹s›, after) in any order of its columns: its prefix, then the text's varlena
+ * header and its longest value, the whole MAXALIGNed.
  */
 export const entryBytes = (textBytes: number): number =>
 	alignUp(textStartBytes + textBytes, maxAlign)
@@ -272,8 +272,8 @@ const setHeaderBytes = 4 + typlens.int4
 /** A bit(n) of `codes` codes. */
 export const setBytes = (codes: number): number => setHeaderBytes + Math.ceil(codes / 8)
 
-/** Line's (order, at, after) entry in any order of its columns: its prefix, then a bit(n) after its worst padding to 4,
- * MAXALIGNed. */
+/** Line's (order, at, ‹s›, after) entry in any order of its columns: its prefix, then a bit(n) after its worst padding
+ * to 4, MAXALIGNed. */
 export const entryOf = (codes: number): number =>
 	alignUp(keyPrefixBytes + (4 - 1) + setBytes(codes), maxAlign)
 

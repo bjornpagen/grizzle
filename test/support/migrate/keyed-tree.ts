@@ -150,12 +150,12 @@ const docTreeOf = () => {
 
 /**
  * The stored tree's installation as its first migration reaches it: that migration's snapshot and folder, and the one
- * law column of its table a writer fills, the parent's count its family copies (‹n›), every other one generated.
+ * law column of its table a writer fills, each node's successor among its siblings (‹s›), every other one generated.
  */
 export interface DocTree {
 	readonly snapshot: DeploySnapshot
 	readonly folder: FolderTexts
-	readonly copy: string
+	readonly next: string
 }
 
 /** The law columns of `snapshot`'s installation that PostgreSQL does not generate, by their names. */
@@ -185,11 +185,11 @@ export const docTree = (): DocTree => {
 		}),
 		"the stored tree drafts from nothing"
 	)
-	const [copy, ...more] = filledLawColumns(g.snapshot)
-	assert.ok(more.length === 0, "the stored tree's one filled law column, its parent's count")
+	const [next, ...more] = filledLawColumns(g.snapshot)
+	assert.ok(more.length === 0, "the stored tree's one filled law column, its successor")
 	return {
 		snapshot: g.snapshot,
-		copy: defined(copy, "the stored tree's copy of its parent's count"),
+		next: defined(next, "the stored tree's successor"),
 		folder: {
 			name: g.folder.name,
 			metaText: g.folder.metaText,
@@ -201,7 +201,7 @@ export const docTree = (): DocTree => {
 /**
  * The stored tree's rows as a direct writer inserts them at SERIALIZABLE, every drawn value stated as its laws fix it:
  * a root its own parent at slot 0, the parent's kind (a root's own 0), the count fold over each node's children:
- * `before` its slot, `after` one more, `total` its count, and ‹n›, the parent's count (a root's own).
+ * `before` its slot, `after` one more, `total` its count, and ‹s›, its successor among its siblings (a root's 0).
  */
 export const storedInsert = (tree: DocTree, c: TreeCase): string => {
 	const fields = [
@@ -232,14 +232,14 @@ export const storedInsert = (tree: DocTree, c: TreeCase): string => {
 					int8Literal(String(row.at)),
 					int8Literal(String(row.at + 1)),
 					int8Literal(String(row.children)),
-					int8Literal(String(row.copy))
+					int8Literal(String(row.next))
 				],
 				", "
 			)
 		)
 	)
 	return `INSERT INTO ${nodeTable(tree.snapshot)} (${Arr.join(
-		[...Arr.map(fields, column), q(tree.copy)],
+		[...Arr.map(fields, column), q(tree.next)],
 		", "
 	)}) VALUES ${Arr.join(
 		Arr.map(rows, (row) => `(${row})`),

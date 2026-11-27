@@ -294,7 +294,7 @@ export const keyedForest = property.explore(aimed(forestGen, treeAims), {
 									start: r.start,
 									end: r.end,
 									kind: r.kind,
-									"‹n›": r.copy
+									"‹s›": r.next
 								}
 							})
 						}

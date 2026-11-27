@@ -86,9 +86,9 @@ export const aCountedFamilysNativesAdmitGrizzlesPlansAndRefuseEveryLawlessStateS
 			},
 			{
 				file: "packages/engine/src/laws/model/plan.ts",
-				original: '\t\t\t\t\t: and([cmp("ge", i, naturalLiteral(0n)), cmp("lt", i, n)])',
-				replacement: '\t\t\t\t\t: cmp("lt", i, n)',
-				why: "The counted bound without `‹i› >= 0`, so a member at slot −1 is accepted."
+				original: '\t\t\town.add(cmp("ge", own.column(index), naturalLiteral(0n)))\n',
+				replacement: "",
+				why: "A counted family's index unbounded below, no `‹i› >= 0`, so a member at slot −1 is accepted."
 			}
 		]
 	})

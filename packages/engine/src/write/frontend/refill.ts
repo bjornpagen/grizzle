@@ -69,9 +69,9 @@ export interface StratumRefill {
 /**
  * Where a refill starts (write/family/removals.ts RefillWay): a put of a plain relation, whose facts state its changed
  * rows; an edit of a family's member relation, whose own removals statement redraws its changed rows by `family`; or
- * an append to `family`, whose additions statement recounts the owners whose count and ends its stored members copy,
- * an UPDATE the owner axis cascades into them (write/family/additions.ts recountOf), and draws the family's groups
- * whole where a value the family draws reads such a copy (ir/fill.ts AppendStart `whole`).
+ * an append to `family`, whose additions statement recounts the owners whose count and ends its stored members copy
+ * along the owner axis, an UPDATE the axis cascades into them (write/family/additions.ts recountOf), and draws the
+ * family's groups whole where a value the family draws reads such a copy (ir/fill.ts AppendStart `whole`).
  */
 export type RefillStart =
 	| { readonly kind: "put"; readonly relation: StoredRelationName }

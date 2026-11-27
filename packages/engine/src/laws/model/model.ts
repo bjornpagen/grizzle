@@ -461,7 +461,7 @@ export interface LawModel {
 	/**
 	 * Every family of the schema, a tree's included, with its axes and folds resolved (analysis/theory Theory.families):
 	 * what the write planner draws and fills, the column order places, and the shell's apply reads. Each drawn law column
-	 * it names (its ‹n›, a counted index, a hidden accumulator) is a LawColumn native of `natives` under
+	 * it names (its ‹s›, a counted index, a hidden accumulator) is a LawColumn native of `natives` under
 	 * the same identifier.
 	 */
 	readonly families: ReadonlyArray<Family>
@@ -2107,7 +2107,7 @@ const specialize = (
  * law (`Recognizer`), and settles what depends on the whole schema at once:
  *
  * - Law columns: the guarded term of each selected side (plan.ts sideColumns) and each pred term is a STORED generated column of its relation, a
- *   constant selection of a target a STORED constant column of its source, and a family's ‹n›, counted index and
+ *   constant selection of a target a STORED constant column of its source, and a family's ‹s›, counted index and
  *   hidden fold accumulators plain columns the host draws, each named once by what it is
  *   (identity.lawColumn) and lowered once over its table's row. The generated UNIQUE a reference needs is over exactly
  *   the target's columns, a constant selection's the target's fields then its selector fields. A generated unique

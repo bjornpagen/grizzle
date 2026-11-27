@@ -125,6 +125,26 @@ export const memberOf: { readonly [O in Owner]: Member } = { Store: "Item", Shel
 
 export const isOwner = (t: Written): t is Owner => t === "Store" || t === "Shelf"
 
+/** The owner of a family's member. */
+export const ownerOf: { readonly [M in Member]: Owner } = { Item: "Store", Slot: "Shelf" }
+
+export const isMember = (t: Written): t is Member => t === "Item" || t === "Slot"
+
+/**
+ * Whether a role sets the successor ‹s› of a member it writes (physical/ddl/roles.ts seamHolds): the member of a
+ * mutable owner's family it recounts, writing the member in full (a closed one by its insert list, an open one by its
+ * write list) or the owner whole by its write list, whose appends set the successor of the member before them.
+ */
+export const setsSuccessors = (d: InsertDeclared, mutability: Mutability, t: Written): boolean => {
+	if (!isMember(t) || d.role.writes[t] === "none") {
+		return false
+	}
+	const owner = ownerOf[t]
+	const full = d.role.modes[t] === "write" || !mutableIn(mutability, t)
+	const ownerWhole = d.role.writes[owner] === "whole" && d.role.modes[owner] === "write"
+	return mutability[owner] && (full || ownerWhole)
+}
+
 /** Whether `t` is mutable in a world of `mutability`: an owner and Item as it says, Ticket always, Slot never. */
 export const mutableIn = (mutability: Mutability, t: Written): boolean =>
 	t === "Ticket" ? true : t === "Slot" ? false : mutability[t]
@@ -521,10 +541,11 @@ export const sortedPrivileges = (xs: Iterable<TablePrivilege>): ReadonlyArray<Ta
 	Arr.filter(tablePrivileges, (p) => Arr.some([...xs], (x) => x === p))
 
 /**
- * The rule restated: the table privileges a declared role holds on `t`. On a relation it writes, SELECT and INSERT, and
- * by its write list UPDATE and DELETE; on the owner of a family whose member it writes and which it does not write
- * whole by its write list, SELECT, and UPDATE where the owner is mutable and it writes the member in full: a closed
- * member by its insert list, the one way it is written, an open one by its write list.
+ * The rule restated: the table privileges a declared role holds on `t`. On a relation it writes, SELECT and INSERT, by
+ * its write list UPDATE and DELETE, and UPDATE where it sets the member's successors (`setsSuccessors`); on the owner of
+ * a family whose member it writes and which it does not write whole by its write list, SELECT, and UPDATE where the
+ * owner is mutable and it writes the member in full: a closed member by its insert list, the one way it is written, an
+ * open one by its write list.
  */
 export const rulePrivileges = (
 	d: InsertDeclared,
@@ -539,6 +560,9 @@ export const rulePrivileges = (
 		if (modes[t] === "write") {
 			out.add("UPDATE")
 			out.add("DELETE")
+		}
+		if (setsSuccessors(d, mutability, t)) {
+			out.add("UPDATE")
 		}
 	}
 	if (

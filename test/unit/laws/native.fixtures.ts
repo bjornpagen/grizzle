@@ -503,7 +503,7 @@ export const FIN: Relations = {
 			["id", "int"],
 			["g", "int"],
 			["at", "natural"],
-			["n", "natural"]
+			["next", "natural"]
 		],
 		key: ["id"]
 	}
@@ -513,33 +513,41 @@ const g = fieldTerm("g")
 
 const at = fieldTerm("at")
 
-const n = fieldTerm("n")
+const next = fieldTerm("next")
 
-const below: Phi = { kind: "fields", op: "lt", left: "at", right: "n" }
+/** The owners that hold a member: their count above 0. */
+const holding: Phi = { kind: "compare", op: "gt", field: "n", value: 0 }
+
+/** The members no member follows: each its own successor. */
+const ownSuccessor: Phi = { kind: "fields", op: "eq", left: "next", right: "at" }
 
 /**
  * The fin lemma's four constraints stated as laws, each with the family theorem's name for the constraint that holds
- * it: the slot key (g, at); the copy of the owner's count, (g, n) ⊆ O(id, n); the bound at < n; the last slot,
- * O(id, pred(n)) ⊆ F(g, at); and the closure below the copy, F(g, pred(at)) where at < n ⊆ F(g, at).
+ * it: the slot key (g, at); the holding, F(g) ⊆ O(id) where n > 0, so no row names no owner or an owner of no member;
+ * the last slot, O(id, pred(n)) ⊆ F(g, at) where next = at, the owner's last member one no member follows; and the
+ * closure, F(g, pred(at), at) ⊆ F(g, at, next), each row's predecessor one whose successor it is. Together they hold a
+ * row past the count to a predecessor at n − 1 whose successor the last slot holds at n − 1, which refuses it.
  */
 const FIN_LAWS: ReadonlyArray<readonly [Constraint, Law]> = [
 	["key", { kind: "key", side: over("F", [g, at]) }],
-	["copy", { kind: "contained", left: over("F", [g, n]), right: over("O", [fieldTerm("id"), n]) }],
-	["bound", { kind: "check", name: "bound", relation: "F", phi: below }],
+	[
+		"holding",
+		{ kind: "contained", left: over("F", [g]), right: overWhere("O", [fieldTerm("id")], holding) }
+	],
 	[
 		"last",
 		{
 			kind: "contained",
 			left: over("O", [fieldTerm("id"), predTerm("n")]),
-			right: over("F", [g, at])
+			right: overWhere("F", [g, at], ownSuccessor)
 		}
 	],
 	[
 		"closure",
 		{
 			kind: "contained",
-			left: overWhere("F", [g, predTerm("at")], below),
-			right: over("F", [g, at])
+			left: over("F", [g, predTerm("at"), at]),
+			right: over("F", [g, at, next])
 		}
 	]
 ]
@@ -552,11 +560,20 @@ const finInstallation = (): Installed =>
 		Arr.map(FIN_LAWS, ([, law]) => law)
 	)
 
-/** A family state as the two relations store it: each owner with its count, each row with its group, index and copy. */
+/** A family state as the two relations store it: each owner with its count, each row with its group, index and
+ * successor. */
 export const finState = (stored: Stored): State => ({
 	O: Arr.map([...stored.owners], ([id, count]): Row => ({ id, n: count, live: true })),
-	F: Arr.map(stored.rows, (r): Row => ({ id: r.member, g: r.group, at: r.at, n: r.copy }))
+	F: Arr.map(stored.rows, (r): Row => ({ id: r.member, g: r.group, at: r.at, next: r.next }))
 })
+
+/** Whether every row's successor is the one its slot and its owner's count draw: the slot after it below the count,
+ * its own slot elsewhere. */
+const drawnSuccessors = (stored: Stored): boolean =>
+	Arr.every(stored.rows, (r) => {
+		const count = stored.owners.get(r.group) ?? 0
+		return r.next === (r.at + 1 < count ? r.at + 1 : r.at)
+	})
 
 /** The law of each constraint the family theorem names: its identity is the family relation's primary key. */
 const finLawOf = (installed: Installed): ((constraint: Constraint) => LawId) => {
@@ -583,7 +600,8 @@ export type FinFeature =
 /**
  * A family state judged three ways: the host law model's broken laws are exactly the laws of the constraints the
  * family theorem's own model of the lowering finds broken, and the native model refuses them as the state judge
- * requires; where every copy is its owner's count, the installation accepts exactly the states the theorem holds of.
+ * requires; where every successor is drawn from its slot and its owner's count, the installation accepts exactly the
+ * states the theorem holds of.
  */
 export const judgeFamily = (installed: Installed, stored: Stored, c: Case<FinFeature>): void => {
 	const broken = judgeState(installed, FIN, finState(stored), c)
@@ -601,13 +619,12 @@ export const judgeFamily = (installed: Installed, stored: Stored, c: Case<FinFea
 	for (const b of breaches) {
 		c.note(`breach ${b.kind}`)
 	}
-	const copied = Arr.every(stored.rows, (r) => stored.owners.get(r.group) === r.copy)
 	const members = new Set(Arr.map(stored.rows, (r) => r.member))
-	if (copied && members.size === stored.rows.length) {
+	if (drawnSuccessors(stored) && members.size === stored.rows.length) {
 		assert.equal(
 			broken.size === 0,
 			breaches.length === 0,
-			"where every copy is its owner's count, the installation accepts exactly the families the theorem holds of"
+			"where every successor is drawn, the installation accepts exactly the families the theorem holds of"
 		)
 	}
 	if (Result.isSuccess(theorem(stored))) {
@@ -628,8 +645,8 @@ interface FamilyInstalled {
 	readonly installation: NativeInstallation
 	/** The member's index: its field when ordered, the drawn ‹i› when counted. */
 	readonly index: string
-	/** ‹n›, the owner's count each member copies. */
-	readonly copy: string
+	/** ‹s›, each member's successor. */
+	readonly next: string
 }
 
 /**
@@ -673,7 +690,7 @@ const familyInstalled = (shape: Shape): FamilyInstalled => {
 			family.shape.index.kind === "field"
 				? family.shape.index.field.name
 				: family.shape.index.column,
-		copy: family.copy
+		next: family.next
 	}
 }
 
@@ -687,7 +704,7 @@ const familiesInstalled = (): FamiliesInstalled => ({
 
 const int = (n: number): bigint => BigInt(n)
 
-/** A family state as its two tables store it, each member writing its group, its index and its copy of the count. */
+/** A family state as its two tables store it, each member writing its group, its index and its successor. */
 const familyNative = (fam: FamilyInstalled, stored: Stored): NativeState =>
 	new Map([
 		[
@@ -710,7 +727,7 @@ const familyNative = (fam: FamilyInstalled, stored: Stored): NativeState =>
 						["id", int(r.member)],
 						["g", int(r.group)],
 						[fam.index, int(r.at)],
-						[fam.copy, int(r.copy)]
+						[fam.next, int(r.next)]
 					])
 			)
 		]
@@ -732,12 +749,13 @@ const familyStored = (fam: FamilyInstalled, state: NativeState): Stored => ({
 	rows: Arr.map(state.get("Member") ?? [], (row): FamilyRow => ({
 		group: numberAt(row, "g"),
 		at: numberAt(row, fam.index),
-		copy: numberAt(row, fam.copy),
+		next: numberAt(row, fam.next),
 		member: numberAt(row, "id")
 	}))
 })
 
-/** A family statement as SQL over the two tables: a count's update cascades into the copies along the owner axis. */
+/** A family statement as SQL over the two tables: a count's update reaches no member, and a member's successor is set
+ * by its own statement. */
 const familyStatement = (fam: FamilyInstalled, statement: FamilyStatement): NativeStatement => {
 	const keyed = (id: number): NativeMatch => new Map([["id", int(id)]])
 	switch (statement.kind) {
@@ -772,7 +790,7 @@ const familyStatement = (fam: FamilyInstalled, statement: FamilyStatement): Nati
 							["id", int(r.member)],
 							["g", int(r.group)],
 							[fam.index, int(r.at)],
-							[fam.copy, int(r.copy)]
+							[fam.next, int(r.next)]
 						])
 				)
 			}
@@ -783,15 +801,26 @@ const familyStatement = (fam: FamilyInstalled, statement: FamilyStatement): Nati
 				kind: "update",
 				relation: "Member",
 				where: keyed(statement.member),
-				set: new Map([[fam.index, int(statement.at)]])
+				set: new Map([
+					[fam.index, int(statement.at)],
+					[fam.next, int(statement.next)]
+				])
+			}
+		case "successor":
+			return {
+				kind: "update",
+				relation: "Member",
+				where: keyed(statement.member),
+				set: new Map([[fam.next, int(statement.next)]])
 			}
 	}
 }
 
 /**
  * The family theorem's name for the constraint a native violation reports: the member's key is its identity, its
- * UNIQUE the slot key, its CHECK the bound, and its three foreign keys the owner, last and predecessor axes. The
- * owner's own keys hold whatever a family writes, so they have no name there.
+ * UNIQUEs the slot key, and its three foreign keys the owner axis, its holding reference, and the last and predecessor
+ * axes; a counted index's CHECK keeps it a natural, which the model's index always is. The owner's own keys hold
+ * whatever a family writes, so they have no name there.
  */
 const lemmaName = (k: NativeConstraint): string => {
 	switch (k.kind) {
@@ -800,9 +829,9 @@ const lemmaName = (k: NativeConstraint): string => {
 		case "Unique":
 			return k.relation === "Member" ? "key" : "the owner's key"
 		case "TableCheck":
-			return "bound"
+			return "the index's domain"
 		case "ForeignKey":
-			return k.relation === "Member" ? (k.target === "Owner" ? "copy" : "closure") : "last"
+			return k.relation === "Member" ? (k.target === "Owner" ? "holding" : "closure") : "last"
 		case "WithoutOverlaps":
 		case "PeriodForeignKey":
 		case "Domain":
@@ -822,7 +851,7 @@ const sortedRows = (stored: Stored): ReadonlyArray<string> =>
 	Arr.sort(
 		[
 			...Arr.map([...stored.owners], ([o, n]) => `owner ${o} ${n}`),
-			...Arr.map(stored.rows, (r) => `row ${r.member} ${r.group} ${r.at} ${r.copy}`)
+			...Arr.map(stored.rows, (r) => `row ${r.member} ${r.group} ${r.at} ${r.next}`)
 		],
 		(a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 	)
@@ -833,22 +862,18 @@ export type FamilyFeature =
 	| "refused at a statement"
 	| "refused at commit"
 	| `refused by ${Constraint}`
-	| "a count's cascade"
-	| "an unrestricted closure beside the bound"
+	| "a count update"
 	| "the theorem holds"
 	| `breach ${Breach["kind"]}`
 
 /**
  * The constraints the installation breaks against the family model's: the laws they report are exactly the laws of the
- * lemma's constraints the model finds broken, and the installation breaks every one of those. The lemma restricts its
- * closure to indices below the copy, which the bound makes vacuous for a family that mirrors its slots (fin.md §5.2), so
- * the installation's closure, unrestricted, may refuse a row beyond the count too, and only where the bound does.
+ * lemma's constraints the model finds broken, and the installation breaks exactly those.
  */
 const judgeBroken = (
 	fam: FamilyInstalled,
 	broken: ReadonlyArray<NativeViolation>,
-	modelled: ReadonlyArray<Constraint>,
-	c: Case<FamilyFeature>
+	modelled: ReadonlyArray<Constraint>
 ): void => {
 	const constraints = fam.installation.constraints
 	const names = new Set(Arr.map(broken, (v) => constraintOf(v, constraints)))
@@ -859,25 +884,11 @@ const judgeBroken = (
 		new Set(Arr.flatMap(modelled, lawsOfName)),
 		"the installation's refusals report the laws of the constraints the family model breaks"
 	)
-	for (const name of modelled) {
-		assert.ok(
-			names.has(name),
-			`the installation breaks the ${name} constraint the family model breaks`
-		)
-	}
-	const extra = Arr.filter([...names], (name) => !Arr.some(modelled, (m) => m === name))
-	if (extra.length > 0) {
-		assert.deepEqual(
-			extra,
-			["closure"],
-			"beyond the family model's, the installation breaks its unrestricted closure alone"
-		)
-		assert.ok(
-			Arr.some(modelled, (m) => m === "bound"),
-			"and only where the bound refuses the row"
-		)
-		c.note("an unrestricted closure beside the bound")
-	}
+	assert.deepEqual(
+		names,
+		new Set<string>(modelled),
+		"the installation breaks exactly the constraints the family model breaks"
+	)
 }
 
 /**
@@ -900,8 +911,8 @@ export const judgeFamilyTransaction = (
 	)
 	c.note(shape)
 	if (Arr.some(statements, (st) => st.kind === "count")) {
-		c.note("a count's cascade")
-		c.pair(shape, "a count's cascade")
+		c.note("a count update")
+		c.pair(shape, "a count update")
 	}
 	switch (expected.kind) {
 		case "committed":
@@ -935,8 +946,7 @@ export const judgeFamilyTransaction = (
 			judgeBroken(
 				fam,
 				verdict.violations,
-				Arr.map(expected.violations, (v) => v.constraint),
-				c
+				Arr.map(expected.violations, (v) => v.constraint)
 			)
 			for (const v of expected.violations) {
 				c.note(`refused by ${v.constraint}`)
@@ -949,7 +959,7 @@ export const judgeFamilyTransaction = (
 
 /**
  * A family state judged on grizzle's installation: the constraints it breaks are exactly the family model's, and,
- * where every copy is its owner's count, it is accepted exactly when the theorem holds.
+ * where every successor is drawn from its slot and its owner's count, it is accepted exactly when the theorem holds.
  */
 export const judgeFamilyState = (
 	fam: FamilyInstalled,
@@ -961,19 +971,20 @@ export const judgeFamilyState = (
 	judgeBroken(
 		fam,
 		broken,
-		Arr.map(familyViolations(stored), (v) => v.constraint),
-		c
+		Arr.map(familyViolations(stored), (v) => v.constraint)
 	)
 	const breaches = breachesOf(stored)
 	for (const b of breaches) {
 		c.note(`breach ${b.kind}`)
 	}
-	const copied = Arr.every(stored.rows, (r) => stored.owners.get(r.group) === r.copy)
-	if (copied && new Set(Arr.map(stored.rows, (r) => r.member)).size === stored.rows.length) {
+	if (
+		drawnSuccessors(stored) &&
+		new Set(Arr.map(stored.rows, (r) => r.member)).size === stored.rows.length
+	) {
 		assert.equal(
 			broken.length === 0,
 			breaches.length === 0,
-			"where every copy is its owner's count, the installation accepts exactly the families the theorem holds of"
+			"where every successor is drawn, the installation accepts exactly the families the theorem holds of"
 		)
 	}
 	if (breaches.length === 0) {

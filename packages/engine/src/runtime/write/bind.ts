@@ -1301,8 +1301,8 @@ interface FreshCounts {
  * additions statement takes them where the group holds no stored member, and its scan draws every other group
  * (write/family/additions.ts FreshGroups), so each group is drawn by one engine of the one rule (ir/fill.ts FillColumn).
  * A group's members are walked in key order, each key field by its carrier's order (scalar/values/identity.ts
- * compareValues), PostgreSQL's ORDER BY of the member key the scan's slots follow, so the slots, the copies of the count
- * and the folds' planes the host draws are the scan's from slot 0 (test/pg/values/order.test.ts holds the order).
+ * compareValues), PostgreSQL's ORDER BY of the member key the scan's slots follow, so the slots, the successors and
+ * the folds' planes the host draws are the scan's from slot 0 (test/pg/values/order.test.ts holds the order).
  *
  * A nested owner none of whose families the stratum appends to is filled already, and keeps its walked row: the walk
  * drew its counts and ends at its empty families' values, which no member changes. So the fill runs once for each owner

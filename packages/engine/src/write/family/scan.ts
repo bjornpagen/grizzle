@@ -8,7 +8,8 @@
  * order, never a walk of one member per step: each column a layer of its own, a derived table over the layer below it,
  * which reads every column below it. Each drawn column is its fill rule (ir/fill.ts), the one the nested walk fills by:
  *
- * - an index its slot, a copy of the count the group's count, an owner copy the owner's column, each read off its row;
+ * - an index its slot, a successor the slot after it where the group's count passes it and its own slot at the
+ *   group's last, an owner copy the owner's column, each read off its row;
  * - a predecessor copy the member before it's column, lag() over the group in slot order, and at the group's first
  *   drawn slot its seed's (the stored member before it, GroupState `stored`), or the family's base at slot 0;
  * - a fold plane's after `combine(befores, x)` where the fold's selection holds and its before elsewhere, combined as the
@@ -625,8 +626,16 @@ const columnOf = (
 	switch (rule.kind) {
 		case "index":
 			return built(col(at, layout.slot))
-		case "copy":
-			return built(col(at, layout.count))
+		case "next": {
+			/** Its successor: the slot after its own where the group's count passes it, its own slot at the last. */
+			const after = binary("+", col(at, layout.slot), lit.int(1, types.bigint))
+			return built({
+				kind: "case",
+				operand: undefined,
+				whens: [{ when: gt(col(at, layout.count), after), result: after }],
+				else: col(at, layout.slot)
+			})
+		}
 		case "ownerCopy":
 			return built(
 				ownValue(
@@ -748,7 +757,7 @@ const chainsOf = (spec: ScanSpec): ReadonlyArray<Chain> => {
 			case "self":
 			case "base":
 			case "index":
-			case "copy":
+			case "next":
 			case "count":
 			case "start":
 			case "end":
@@ -976,7 +985,7 @@ const chainLayer = (
 					case "self":
 					case "base":
 					case "index":
-					case "copy":
+					case "next":
 					case "count":
 					case "start":
 					case "end":

@@ -25,16 +25,17 @@
  * An immutable member relation, on which no role holds UPDATE, has every row the statement writes re-placed, its
  * put-updated rows as its puts are (write/put/choose.ts).
  *
- * The drawn rows are each group's members from `s` at their final slots, each copying the group's stored count, which
- * a recount in this statement cascades into every member at its end; the seed is the member at `s − 1`; and the scan
+ * The drawn rows are each group's members from `s` at their final slots, each drawn at the group's kept count, its
+ * successor the slot after it below that count; the seed is the member at `s − 1`, whose successor the statement sets
+ * where the group ends at it (write/family/written.ts seamUpdate), no member drawn at `s`; and the scan
  * (write/family/scan.ts) draws them in slot order. A group whose stratum appends to it, or whose owner the stratum puts
  * or deletes, is recounted by the additions, after the put that writes its owner, or not at all: between the two its
  * owner's count is the stored one, above every kept slot, and its closure and last axis wait for commit. Every other
  * touched group's mutable owner is recounted here: its count the kept count, each end its last member's.
  *
  * The statement deletes the removed and re-placed rows first; every insert and update reads the deletion's count, so
- * PostgreSQL finishes it before any slot it freed is taken again. Immediate foreign keys and the owner axis's cascade
- * act at the statement's end.
+ * PostgreSQL finishes it before any slot it freed is taken again. Immediate foreign keys, and the owner axis's cascade
+ * of the copies it carries, act at the statement's end.
  */
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
@@ -131,6 +132,8 @@ import {
 	slotReader,
 	tableAs,
 	recountUpdate,
+	type Seam,
+	seamUpdate,
 	taggedRows,
 	updatedResult,
 	updateReturning,
@@ -303,11 +306,33 @@ const drawnMembers = (
 	})
 	return {
 		reads: read,
-		redrawn: read.flatMap((r) =>
-			r.member.families.map((f) =>
+		redrawn: read.flatMap((r) => {
+			const drawn = r.member.families.map((f) =>
 				redraw(w, supply, ctes, r, f.family, f.drawn, f.inputs, at.deferred, rootFacts)
 			)
-		)
+			/** The seams of the member's families of mutable owners, each group's at its kept count, set by one UPDATE of
+			 * the member's relation. */
+			const seams = drawn.flatMap((d): ReadonlyArray<Seam> =>
+				d.family.owner.mutable
+					? [
+							{
+								family: d.family,
+								groups: {
+									name: d.groups.name,
+									group: d.groups.group,
+									first: d.groups.first,
+									count: d.groups.kept
+								},
+								where: () => undefined
+							}
+						]
+					: []
+			)
+			if (isNonEmpty(seams)) {
+				seamUpdate(w, supply, ctes, seams)
+			}
+			return drawn
+		})
 	}
 }
 
@@ -593,25 +618,12 @@ const cascaded = (
 		defined(way.hops[level], `hop ${level} of a refill's way`)
 	/** Whether the rows at `level` of a way, its hop's members, hold `key` changed: a copy the hop's owner axis carries of
 	 * a column the root's rows state, at the first level, or of a column the level before it changes. */
-	/**
-	 * The columns the owner axis of the way's hop at `level` carries from each owner row into its members: its pairs, and,
-	 * where an edit's rows are the way's root, a counted hop's copy ‹n› of the owner's count. An edit's rows hold the
-	 * count as the stratum leaves the row, its own family's, which a row the edit inserts again carries and a recount
-	 * reaches only where the row is already there; a put's rows hold an owner's counts at their starts, which no put
-	 * changes, so the axis's own cascade carries them.
-	 */
+	/** The columns the owner axis of the way's hop at `level` carries from each owner row into its members: its pairs. */
 	const carried = (
 		way: RefillWay,
 		level: number
-	): ReadonlyArray<{ readonly from: NativeColumn; readonly to: NativeColumn }> => {
-		const hop = hopAt(way, level)
-		return way.root.kind === "edit" && !isSequence(hop)
-			? [
-					...hop.axes.owner,
-					{ from: { kind: "law", column: hop.copy }, to: { kind: "field", field: hop.count } }
-				]
-			: hop.axes.owner
-	}
+	): ReadonlyArray<{ readonly from: NativeColumn; readonly to: NativeColumn }> =>
+		hopAt(way, level).axes.owner
 	const changes = (way: RefillWay, level: number, key: ColumnKey): boolean =>
 		carried(way, level).some(
 			(pair) =>
@@ -1410,17 +1422,7 @@ const redraw = (
 				),
 				targetAs(cast(slot, bigint), rows.slot),
 				targetAs(col(g, groups.first), rows.first),
-				targetAs(
-					counted
-						? col(g, groups.stored)
-						: {
-								kind: "case",
-								operand: undefined,
-								whens: [{ when: col(g, groups.recounted), result: col(g, groups.kept) }],
-								else: col(g, groups.stored)
-							},
-					rows.count
-				),
+				targetAs(col(g, groups.kept), rows.count),
 				...keys.map((k) => targetAs(memberColumn(m, k), columnAt(rows, k))),
 				...[...ownerReads].map(([k, owned]) =>
 					targetAs(
@@ -1826,41 +1828,6 @@ const writesOf = (
 			ownValue
 		])
 	}
-	/**
-	 * A re-inserted row's column `key`, `finalOf`'s but a counted family's count copy where this statement recounts the
-	 * row's group: the group's kept count, since the insert's foreign key is checked before the recount's cascade reaches
-	 * a row inserted in the same statement, where an update in place keeps its stored copy for the cascade to change.
-	 */
-	const reinsertedOf = (a: string, key: ColumnKey): Expr => {
-		const counted = own.find(
-			(x) => !isSequence(x.family) && columnKey({ kind: "law", column: x.family.copy }) === key
-		)
-		if (counted === undefined) {
-			return finalOf(a, key)
-		}
-		const g = supply.relation(internal("re-inserted group"))
-		return firstNonNull([
-			{
-				kind: "subquery",
-				query: simpleSelect(
-					[target(col(g, counted.groups.kept))],
-					[cteRefAs(counted.groups.name, g)],
-					and([
-						col(g, counted.groups.recounted),
-						...counted.family.group.map((pair, i) =>
-							typedEq(
-								pair.member.type,
-								col(g, defined(counted.groups.group[i], "a group column")),
-								col(a, columnAt(written_, columnKeyOf(pair.member.name))),
-								w.names
-							)
-						)
-					])
-				)
-			},
-			finalOf(a, key)
-		])
-	}
 	const out: Array<FamilyReturning> = []
 	/** Whether the written row `a` is one the statement re-places, where its relation re-places only some. */
 	const replacedAt = (a: string, scan: Shaped): Expr => {
@@ -1897,7 +1864,7 @@ const writesOf = (
 							"keyed",
 							columns.map((c) =>
 								targetAs(
-									written(w, reinsertedOf(a, c.key), c.type),
+									written(w, finalOf(a, c.key), c.type),
 									supply.column(internal("re-inserted column"))
 								)
 							),

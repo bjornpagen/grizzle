@@ -12,7 +12,8 @@
  * - `first slot`, the identity pin CHECK (i > 0 OR before = ι) on the member;
  * - `empty family`, the identity pin CHECK (n > 0 OR end = ι) on the owner;
  * - the predecessor axis carries each before from its predecessor's after, and the last axis each end from the last
- *   member's after: a mismatch is that axis's foreign key, 23503, at its moment.
+ *   member's after, each axis meeting its target at its slot and successor (theorem.ts): a mismatch is that axis's
+ *   foreign key, 23503, at its moment.
  *
  * Values are exact: an integer carrier's in its own unit, money in cents, numeric(p, s) scaled by 10^s, and a set of
  * codes as the bit mask of its codes (bit c for code c), so one `bigint` holds every carrier's value and the reference
@@ -22,7 +23,7 @@
 import { Array as Arr } from "effect"
 import type { MonoidName } from "#compiler/ir/desc.ts"
 import type { Moment, Timing } from "#test/support/families/mutate.ts"
-import type { Shape } from "#test/support/families/theorem.ts"
+import { type Shape, successorOf } from "#test/support/families/theorem.ts"
 
 /**
  * A fold's monoid on one carrier: its name, and its identity's least value where it is max's. The reference computes
@@ -118,7 +119,7 @@ const samePlanes = (a: Planes, b: Planes): boolean =>
 export interface FoldRow extends Step, Accumulated {
 	readonly group: number
 	readonly at: number
-	readonly copy: number
+	readonly next: number
 	readonly member: number
 }
 
@@ -142,8 +143,8 @@ export interface FoldFamily {
 }
 
 /**
- * What the host writes for families: each row's accumulators and each end the reference fold's, every copy the count;
- * from `seed` in place of the identity, the state a junk seed writes.
+ * What the host writes for families: each row's accumulators and each end the reference fold's, every successor its
+ * slot's (theorem.ts successorOf); from `seed` in place of the identity, the state a junk seed writes.
  */
 export const foldStoredFrom = (
 	m: FoldMonoid,
@@ -160,7 +161,7 @@ export const foldStoredFrom = (
 		return Arr.map(f.members, (s, at) => ({
 			group: f.owner,
 			at,
-			copy: f.members.length,
+			next: successorOf(at, f.members.length),
 			member: s.member,
 			x: s.x,
 			selected: s.selected,
@@ -174,14 +175,14 @@ export const foldStoredOf = (m: FoldMonoid, families: ReadonlyArray<FoldFamily>)
 	foldStoredFrom(m, families, identityOf(m))
 
 /**
- * A native of a folded family, by the role a test names it by: the family's (its member's identity, its key, its bound,
- * its three axes, which carry the fold's copies, and the member superkey they reference) and the fold's three CHECKs.
+ * A native of a folded family, by the role a test names it by: the family's (its member's identity, its key, its three
+ * axes, which carry the fold's copies, and the member superkey they reference, its slot, successor and afters) and the
+ * fold's three CHECKs.
  */
 export type FoldNative =
 	| "identity"
 	| "key"
 	| "member superkey"
-	| "bound"
 	| "owner axis"
 	| "predecessor axis"
 	| "last axis"
@@ -210,7 +211,6 @@ export const foldSqlstate = (native: FoldNative): "23505" | "23514" | "23503" =>
 		case "key":
 		case "member superkey":
 			return "23505"
-		case "bound":
 		case "combine":
 		case "first slot":
 		case "empty family":
@@ -223,11 +223,14 @@ export const foldSqlstate = (native: FoldNative): "23505" | "23514" | "23503" =>
 }
 
 /**
- * When PostgreSQL checks a native: the last axis at COMMIT, a counted family's predecessor axis at COMMIT (swap-with-last
- * leaves a slot without its predecessor until the last member moves in), and every other at its statement.
+ * When PostgreSQL checks a native: the owner axis, its holding reference, and the last axis at COMMIT, a counted
+ * family's predecessor axis at COMMIT (swap-with-last leaves a slot without its predecessor until the last member moves
+ * in), and every other at its statement.
  */
 const foldTiming = (lowering: FoldLowering, native: FoldNative): Timing =>
-	native === "last axis" || (native === "predecessor axis" && lowering.shape === "counted")
+	native === "owner axis" ||
+	native === "last axis" ||
+	(native === "predecessor axis" && lowering.shape === "counted")
 		? "commit"
 		: "statement"
 
@@ -246,6 +249,9 @@ const foldViolations = (
 	const found: Array<FoldViolation> = []
 	const at = (group: number, slot: number) =>
 		Arr.filter(stored.rows, (r) => r.group === group && r.at === slot)
+	/** The rows of `group` at `slot` that hold the successor `next`, which an axis into the member superkey meets. */
+	const succeeding = (group: number, slot: number, next: number) =>
+		Arr.filter(at(group, slot), (r) => r.next === next)
 	for (const r of stored.rows) {
 		const member = r.member
 		if (Arr.some(stored.rows, (o) => o !== r && o.member === member)) {
@@ -255,19 +261,15 @@ const foldViolations = (
 		if (twins.length > 0) {
 			found.push({ native: "key", member })
 		}
-		if (Arr.some(twins, (o) => samePlanes(o.after, r.after))) {
+		if (Arr.some(twins, (o) => o.next === r.next && samePlanes(o.after, r.after))) {
 			found.push({ native: "member superkey", member })
 		}
-		if (r.at >= r.copy) {
-			found.push({ native: "bound", member })
-		}
-		if (!Arr.some(stored.owners, (o) => o.owner === r.group && o.count === r.copy)) {
+		if (!Arr.some(stored.owners, (o) => o.owner === r.group && o.count > 0)) {
 			found.push({ native: "owner axis", member })
 		}
 		if (
 			r.at > 0 &&
-			r.at < r.copy &&
-			!Arr.some(at(r.group, r.at - 1), (p) => samePlanes(p.after, r.before))
+			!Arr.some(succeeding(r.group, r.at - 1, r.at), (p) => samePlanes(p.after, r.before))
 		) {
 			found.push({ native: "predecessor axis", member })
 		}
@@ -279,7 +281,10 @@ const foldViolations = (
 		}
 	}
 	for (const o of stored.owners) {
-		if (o.count > 0 && !Arr.some(at(o.owner, o.count - 1), (l) => samePlanes(l.after, o.end))) {
+		if (
+			o.count > 0 &&
+			!Arr.some(succeeding(o.owner, o.count - 1, o.count - 1), (l) => samePlanes(l.after, o.end))
+		) {
 			found.push({ native: "last axis", owner: o.owner })
 		}
 		if (lowering.emptyPin && o.count === 0 && !samePlanes(o.end, ι)) {
@@ -293,10 +298,10 @@ const foldViolations = (
  * One statement of a folded family's transaction:
  *
  * - `create` inserts an owner with its count and end; `drop` deletes one;
- * - `count` updates an owner's count and end in one statement, the owner axis's cascade carrying the count into every
- *   copy of the old one;
+ * - `count` updates an owner's count and end in one statement, and nothing else: no member holds them;
  * - `insert` inserts member rows in the order listed; `delete` deletes members by key;
- * - `update` rewrites one member's slot and accumulators, swap-with-last's move of the last member into the freed slot.
+ * - `update` rewrites one member's slot, successor and accumulators: swap-with-last's move of the last member into the
+ *   freed slot, a refold of a slot after it, or the seam of the member left last.
  */
 export type FoldStatement =
 	| { readonly kind: "create"; readonly owner: FoldOwner }
@@ -308,6 +313,7 @@ export type FoldStatement =
 			readonly kind: "update"
 			readonly member: number
 			readonly at: number
+			readonly next: number
 			readonly before: Planes
 			readonly after: Planes
 	  }
@@ -322,22 +328,13 @@ export const foldApplied = (stored: FoldStored, statement: FoldStatement): FoldS
 				owners: Arr.filter(stored.owners, (o) => o.owner !== statement.owner),
 				rows: stored.rows
 			}
-		case "count": {
-			const old = Arr.findFirst(stored.owners, (o) => o.owner === statement.owner.owner)
-			if (old._tag === "None") {
-				return stored
-			}
+		case "count":
 			return {
 				owners: Arr.map(stored.owners, (o) =>
 					o.owner === statement.owner.owner ? statement.owner : o
 				),
-				rows: Arr.map(stored.rows, (r) =>
-					r.group === statement.owner.owner && r.copy === old.value.count
-						? { ...r, copy: statement.owner.count }
-						: r
-				)
+				rows: stored.rows
 			}
-		}
 		case "insert":
 			return { owners: stored.owners, rows: [...stored.rows, ...statement.rows] }
 		case "delete":
@@ -350,7 +347,13 @@ export const foldApplied = (stored: FoldStored, statement: FoldStatement): FoldS
 				owners: stored.owners,
 				rows: Arr.map(stored.rows, (r) =>
 					r.member === statement.member
-						? { ...r, at: statement.at, before: statement.before, after: statement.after }
+						? {
+								...r,
+								at: statement.at,
+								next: statement.next,
+								before: statement.before,
+								after: statement.after
+							}
 						: r
 				)
 			}

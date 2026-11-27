@@ -192,39 +192,42 @@ const setUniqueBound = (
 	relation: string,
 	columns: NonEmptyReadonlyArray<NativeColumn>
 ): void => {
-	/** A law column's field, the one whose values it holds, from the law model's natives: no table exists yet. */
-	const lawField = (column: string): TargetField | undefined => {
+	/** A law column's field, the one whose values it holds, and whether it may hold NULL, a generated one outside its
+	 * selection, where a drawn one never does, from the law model's natives: no table exists yet. */
+	const lawField = (
+		column: string
+	): { readonly field: TargetField; readonly nullable: boolean } | undefined => {
 		for (const n of b.model.natives) {
 			if (
 				n.namespace === "column" &&
 				n.object.relation.name === relation &&
 				n.object.column === column
 			) {
-				return n.object.field
+				return { field: n.object.field, nullable: n.object.value.kind !== "drawn" }
 			}
 		}
 		return undefined
 	}
 	const fields = columns.map((c) => {
-		const field = c.kind === "field" ? c.field : lawField(c.column)
-		if (field === undefined) {
+		const held = c.kind === "field" ? { field: c.field, nullable: false } : lawField(c.column)
+		if (held === undefined) {
 			defect(
 				`the law column ${nativeColumn(b, relation, c)} a UNIQUE of ${relation} reads, which the law model plans`
 			)
 		}
-		return { column: c, field }
+		return { column: c, ...held }
 	})
 	if (!fields.some((f) => baseOf(f.field.type).carrier === "bits")) {
 		return
 	}
-	const entryColumns = fields.flatMap(({ column, field }): ReadonlyArray<EntryColumn> => {
+	const entryColumns = fields.flatMap(({ column, field, nullable }): ReadonlyArray<EntryColumn> => {
 		const base = baseOf(field.type)
 		const datum =
 			base.carrier === "bits"
 				? setDatumBound(codecOf(b.names.codes, base.roster).size)
 				: datumBound(field.desc)
 		const name = column.kind === "field" ? column.field.name : column.column
-		return datum === undefined ? [] : [{ name, datum, nullable: column.kind === "law" }]
+		return datum === undefined ? [] : [{ name, datum, nullable }]
 	})
 	if (entryColumns.length < fields.length) {
 		return
@@ -385,7 +388,7 @@ export interface KeyIndex {
  *   NULL. A wildcard text column names pg_catalog.pg_c_utf8; a refined
  *   column is typed by its domain, which carries that collation; a closed id by its roster's domain. A generated field is `GENERATED ALWAYS AS (<e>) STORED`, its expression over the row's written fields, a closed read
  *   among them reading the closed relation's constants, which the table is created after.
- * - A drawn law column, a family's count copy, index, parent start or fold accumulator, is a plain NOT NULL column of
+ * - A drawn law column, a family's successor, index, parent start or fold accumulator, is a plain NOT NULL column of
  *   its type's base that the host writes, its own `ALTER TABLE ... ADD COLUMN` after its table, as a generated
  *   law column is (`lawColumnDdl`), so a migration adds a family to a relation that stands by the same statements.
  * - A generated law column, added before every key and reference because they name it, is a private STORED generated column of
@@ -751,7 +754,7 @@ const lawColumnGeneration = (
 
 /**
  * A law column's one statement, `ALTER TABLE ... ADD COLUMN` of its field's type's base (`lawColumnType`), after its
- * table: a generated one STORED from its row (`lawColumnGeneration`), and a drawn one, a family's count copy, index,
+ * table: a generated one STORED from its row (`lawColumnGeneration`), and a drawn one, a family's successor, index,
  * parent start or fold accumulator, a plain NOT NULL column the host writes. Every law column is its own object
  * by one path, so a migration that adds a family to a relation that stands adds its columns as a fresh installation
  * does.

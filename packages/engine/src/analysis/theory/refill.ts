@@ -240,10 +240,10 @@ interface Reached {
  * Every path from `change` to a reader among `families`, and every owner axis its cascade takes: see the module's
  * header. Each column it makes is followed into the readers of its relation's families but those it draws again itself,
  * along every owner axis that carries it, a tree's aside, and into every field generated from it; where its relation is
- * one `replaced` names, every owner axis that carries it is a reader too, a count among them, which its family's
- * members copy as ‹n›; and so is a counted family's owner axis that carries it into a relation `replaced` names, whose
- * re-placed rows no cascade reaches either. A sequence re-places its own members and draws each from its owner as the
- * stratum leaves it, and a re-placed counted member's ‹n› is its edit's to draw (write/family/removals.ts, additions.ts).
+ * one `replaced` names, every owner axis that carries it is a reader too; and so is a counted family's owner axis that
+ * carries it into a relation `replaced` names, whose re-placed rows no cascade reaches either. A sequence re-places its
+ * own members and draws each from its owner as the stratum leaves it. No member holds its owner's count: a member's
+ * successor ‹s› is its edit's to draw, from its own slot and its group (write/family/removals.ts, additions.ts).
  */
 const reachedBy = (
 	families: ReadonlyArray<Family>,
@@ -276,19 +276,6 @@ const reachedBy = (
 			for (const j of families) {
 				if (j.owner.name !== at.name || j.shape.kind === "tree") {
 					continue
-				}
-				if (
-					replaced.has(at.name) &&
-					column.kind === "field" &&
-					column.field.name === j.count.name
-				) {
-					paths.push({
-						change,
-						changed,
-						copies,
-						reader: { kind: "owner", family: j, column: { kind: "law", column: j.copy } },
-						hops: [...carriedBy, j]
-					})
 				}
 				for (const pair of j.axes.owner) {
 					if (!sameNativeColumn(pair.to, column)) {

@@ -247,14 +247,14 @@ const rowsOf = (
 
 const SUM: FoldMonoid = { name: "sum", least: 0n }
 
-/** The text a folded member reads as: its key, slot, copy, before and after. */
+/** The text a folded member reads as: its key, slot, successor, before and after. */
 const memberText = (
 	member: bigint | number,
 	at: bigint | number,
-	copy: bigint | number,
+	next: bigint | number,
 	before: bigint,
 	after: bigint
-): string => `${member}@${at}/${copy} ${before}→${after}`
+): string => `${member}@${at}/${next} ${before}→${after}`
 
 /** One stored member: its key, its owner and its step. */
 interface Stored {
@@ -371,7 +371,7 @@ const foldExpectedBy = (
 				memberText(
 					readBy(defined(byKey.get(r.member), "a stored member")),
 					r.at,
-					r.copy,
+					r.next,
 					Arr.headNonEmpty(r.before),
 					Arr.headNonEmpty(r.after)
 				)
@@ -421,7 +421,7 @@ const foldObserved = (c: FoldCase, state: State) => {
 			memberText(
 				cell(fieldColumn(second, c.member, c.key)),
 				cell(columnOf(family.shape.index)),
-				cell(family.copy),
+				cell(family.next),
 				cell(columnOf(plane.before)),
 				cell(columnOf(plane.after))
 			)
@@ -666,7 +666,7 @@ const defaultColumns = (
 		Order.String
 	)
 
-/** The drawn columns of a fold family: its index, copy, count, its plane's before, after and end, and its copies. */
+/** The drawn columns of a fold family: its index, successor, count, its plane's before, after and end, and its copies. */
 const foldColumns = (c: FoldCase): ReadonlyArray<string> => {
 	const second = c.migration.second
 	const family: Family = defined(second.laws.families[0])
@@ -674,7 +674,7 @@ const foldColumns = (c: FoldCase): ReadonlyArray<string> => {
 	return Arr.sort(
 		[
 			columnOf(family.shape.index),
-			family.copy,
+			family.next,
 			columnOf(plane.before),
 			columnOf(plane.after),
 			family.count.column,
@@ -1376,17 +1376,17 @@ const endMoved: { readonly [M in EndMove]: Reshaped } = (() => {
 	}))
 })()
 
-/** The text a member of a family with no fold reads as: its key, its slot and its copy of the count. */
-const slotText = (member: bigint | number, at: bigint | number, copy: bigint | number): string =>
-	`${member}@${at}/${copy}`
+/** The text a member of a family with no fold reads as: its key, its slot and its successor. */
+const slotText = (member: bigint | number, at: bigint | number, next: bigint | number): string =>
+	`${member}@${at}/${next}`
 
 /** What a family with no fold holds over the stored rows: each owner's members in key order, numbered from 0, each
- * with its owner's count, and each owner's count. */
+ * with its successor, the slot after it below the count and its own slot at the last, and each owner's count. */
 const slotsExpected = (owners: ReadonlyArray<number>, stored: ReadonlyArray<Stored>) => ({
 	members: Arr.sort(
 		Arr.flatMap(owners, (owner) => {
 			const mine = ownedBy(stored, owner)
-			return Arr.map(mine, (m, at) => slotText(m.key, at, mine.length))
+			return Arr.map(mine, (m, at) => slotText(m.key, at, at + 1 < mine.length ? at + 1 : at))
 		}),
 		Order.String
 	),
@@ -1396,7 +1396,7 @@ const slotsExpected = (owners: ReadonlyArray<number>, stored: ReadonlyArray<Stor
 	)
 })
 
-/** What the migrated model holds of a family with no fold: each member's slot and copy, each owner's count. */
+/** What the migrated model holds of a family with no fold: each member's slot and successor, each owner's count. */
 const slotsObserved = (c: FoldCase, state: State) => {
 	const target = c.migration.second
 	const family: Family = defined(target.laws.families[0])
@@ -1405,7 +1405,7 @@ const slotsObserved = (c: FoldCase, state: State) => {
 			slotText(
 				cell(fieldColumn(target, c.member, c.key)),
 				cell(columnOf(family.shape.index)),
-				cell(family.copy)
+				cell(family.next)
 			)
 		),
 		owners: rowsOf(

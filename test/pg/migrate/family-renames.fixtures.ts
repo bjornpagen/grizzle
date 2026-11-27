@@ -389,8 +389,8 @@ const versionOf = (
 }
 
 /**
- * The rows a history stores at its first version: each relation's, each a value per field, or per `‹n›`, a tree's copy
- * of its parent's count, which its direct writer writes beside the tree's drawn fields.
+ * The rows a history stores at its first version: each relation's, each a value per field, or per `‹s›`, a tree node's
+ * successor among its siblings, which its direct writer writes beside the tree's drawn fields.
  */
 interface Stored {
 	readonly relation: RelationName
@@ -466,7 +466,7 @@ const treeRows: Gen<ReadonlyArray<Stored>> = (source) => {
 		n: r.children,
 		start: r.start,
 		end: r.end,
-		"‹n›": r.copy,
+		"‹s›": r.next,
 		tag: source.draw(valueGen),
 		tag2: source.draw(valueGen),
 		kind: source.draw(codeGen)
@@ -725,7 +725,7 @@ const notValid = (schemaName: string) =>
 
 /**
  * Writes the stored rows into the first version's tables, in one transaction: each field's column by its name, and
- * `‹n›` the column of the copy of the family whose member the relation is, as `installation` names it.
+ * `‹s›` the column of the successor of the family whose member the relation is, as `installation` names it.
  */
 const store = (schemaName: string, installation: Installation, stored: ReadonlyArray<Stored>) =>
 	Effect.gen(function* () {
@@ -733,13 +733,13 @@ const store = (schemaName: string, installation: Installation, stored: ReadonlyA
 		const schemaIdent = quoteIdent(identifierOf(identity.schema(parsedSchemaName(schemaName))))
 		const columnOf = (relation: string, name: string) =>
 			quoteIdent(
-				name === "‹n›"
+				name === "‹s›"
 					? defined(
 							Option.getOrUndefined(
 								Arr.findFirst(installation.laws.families, (g) => g.member.name === relation)
 							),
 							`the family whose member is ${relation}`
-						).copy
+						).next
 					: identifierOf(identity.column(parsedName(name)))
 			)
 		const inserts = Arr.flatMap(stored, (r) => {

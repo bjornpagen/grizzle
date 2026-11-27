@@ -1,15 +1,13 @@
 /** What the properties of lemmas.test.ts read: the box of states, the seats' families and the model's settling. */
 
 import type { Reached } from "@bjornpagen/testing/features"
-import { element, type Gen } from "@bjornpagen/testing/gen"
+import { aimed, element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Oracle } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Option, String as Str } from "effect"
+import { Array as Arr } from "effect"
 
 import { nonEmpty } from "@bjornpagen/testing/assert"
-import { quoteString } from "#compiler/core/text.ts"
-import { cataloguedOf, type FamilySeat, familyTemplates } from "#test/pg/fin/family.ts"
+import { type FamilySeat, familyTemplates } from "#test/pg/fin/family.ts"
 import { type EndFeature } from "#test/pg/fin/installed.ts"
-import { predicted as substratePredicted } from "#test/pg/substrate/fin.ts"
 import {
 	BREAKING_FORMS,
 	type Form,
@@ -26,41 +24,10 @@ import {
 	type FamilyRow,
 	SHAPES,
 	type Shape,
-	type Stored
+	type Stored,
+	successorOf
 } from "#test/support/families/theorem.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
-
-/** A seat: grizzle's family of a shape, and how its closure's ‹p› is restricted. */
-export interface LemmaSeat {
-	readonly family: FamilySeat
-	/**
-	 * Whether the installed closure's ‹p› is restricted below the copy, `CASE WHEN i > 0 AND i < ‹n› THEN i − 1 END` as
-	 * fin.md §5.2 states it, or plain pred(i), read off its generation expression: the two judge alike while the bound
-	 * stands, and apart once the bound is dropped, since an unrestricted ‹p› also refuses a gap above the count.
-	 */
-	readonly restriction: "restricted" | "unrestricted"
-}
-
-/** A family seat's lemma seat, its closure's ‹p› read off the catalog's generation expression of ‹p›. */
-export const lemmaSeatOf = (f: FamilySeat) =>
-	Effect.gen(function* () {
-		const s = yield* Substrate
-		const closure = cataloguedOf(f, "closure")
-		const p = Option.getOrThrow(Arr.findFirst(closure.columns, (c) => c !== "g"))
-		const [row] = yield* s.admin.queryValues(
-			`SELECT pg_catalog.pg_get_expr(d.adbin, d.adrelid) FROM pg_catalog.pg_attrdef AS d JOIN pg_catalog.pg_attribute AS a ON a.attrelid = d.adrelid AND a.attnum = d.adnum WHERE d.adrelid = '${f.seat.table("Member")}'::regclass AND a.attname = ${quoteString(Str.slice(1, -1)(f.seat.column("Member", p)))}`,
-			[]
-		)
-		const expr = typeof row?.[0] === "string" ? row[0] : ""
-		const seat: LemmaSeat = {
-			family: f,
-			restriction: Str.includes(Str.slice(1, -1)(f.seat.column("Member", "‹n›")))(expr)
-				? "restricted"
-				: "unrestricted"
-		}
-		return seat
-	})
 
 /** Each shape's family installed once per member (family.ts familyTemplates), which every case seats. */
 export const lemmaFamilies = familyTemplates(import.meta, "lemma")
@@ -89,7 +56,7 @@ const multisetGen =
 		return [first, ...source.draw(multisetGen(k - 1, first))]
 	}
 
-export const stateGen: Gen<StateSketch> = (source) => ({
+const stateGen: Gen<StateSketch> = (source) => ({
 	counts: Arr.map(box.owners, () =>
 		source.draw(element<number | undefined>([undefined, ...box.counts]))
 	),
@@ -97,8 +64,26 @@ export const stateGen: Gen<StateSketch> = (source) => ({
 })
 
 /**
- * The stored state of a sketch: each present owner's count, each row its owner's count's copy, and a row with no owner
- * a copy above every slot, 5, so its bound holds and the copy's foreign key is what refuses it.
+ * The box's states, a case the search steers at a row just past a positive count drawing one (`rowJustPastCount`):
+ * owner 0 of count 1 or 2 with a row at each of its slots and at the one past them, owner 1 absent; and at a row of an
+ * owner of count 0 (`rowOfEmptyOwner`), which only the holding reference's guard refuses: one row at slot 0 of owner 0
+ * of count 0, owner 1 absent.
+ */
+export const statesGen = aimed(stateGen, [
+	[
+		"a row just past a positive count",
+		(source): StateSketch => {
+			const count = source.draw(int(1, 2))
+			return { counts: [count, undefined], cells: upTo(count + 1, (at) => [0, at] as const) }
+		}
+	],
+	["a row of an owner of count 0", (): StateSketch => ({ counts: [0, undefined], cells: [[0, 0]] })]
+])
+
+/**
+ * The stored state of a sketch: each present owner's count, and each row the successor the host draws at its slot in
+ * its owner's count (theorem.ts successorOf), a row with no owner its own slot: the one value of ‹s› a lawful state
+ * holds, so the state commits exactly when the theorem holds of its slots.
  */
 export const storedOfSketch = (sketch: StateSketch): Stored => {
 	const owners = new Map<number, number>()
@@ -109,12 +94,10 @@ export const storedOfSketch = (sketch: StateSketch): Stored => {
 	}
 	return {
 		owners,
-		rows: Arr.map(sketch.cells, ([group, at], member): FamilyRow => ({
-			group,
-			at,
-			copy: owners.get(group) ?? 5,
-			member
-		}))
+		rows: Arr.map(sketch.cells, ([group, at], member): FamilyRow => {
+			const count = owners.get(group)
+			return { group, at, next: count === undefined ? at : successorOf(at, count), member }
+		})
 	}
 }
 
@@ -137,29 +120,41 @@ export const writeStatements = (stored: Stored): ReadonlyArray<MutationStatement
 
 /** What a seat's model settles a transaction over a stored state to: grizzle's every constraint. */
 export const settledOn = (
-	seat: LemmaSeat,
+	family: FamilySeat,
 	before: Stored,
 	statements: ReadonlyArray<MutationStatement>
-): Settled => {
-	if (seat.restriction === "restricted") {
-		return settledUnder(seat.family.shape, () => true, before, statements)
-	}
-	/** An unrestricted closure: G2's substrate model of every constraint, the closure read as plain pred. */
-	const model = substratePredicted(
-		{
-			direction: "mirrors",
-			copy: "statement",
-			last: "commit",
-			closure: seat.family.shape === "ordered" ? "statement" : "commit",
-			restriction: "unrestricted"
-		},
-		before,
-		statements
-	)
-	return model.kind === "committed" ? { kind: "committed", stored: model.after } : model
-}
+): Settled => settledUnder(family.shape, () => true, before, statements)
 
-export type StateFeature = `${Shape} ${"committed" | `refused ${Constraint}`}` | EndFeature
+export type StateFeature =
+	| `${Shape} ${"committed" | `refused ${Constraint}`}`
+	| "a row just past a positive count"
+	| "a row of an owner of count 0"
+	| EndFeature
+
+/**
+ * Whether a state holds an owner of a positive count whose every slot holds one row and so does the slot just past
+ * them: the breach only the successor the predecessor and last axes pair refuses, the row there naming the last
+ * member its predecessor, which the slots alone would admit.
+ */
+export const rowJustPastCount = (stored: Stored): boolean =>
+	Arr.some([...stored.owners], ([owner, count]) => {
+		const slots = Arr.filter(stored.rows, (r) => r.group === owner)
+		return (
+			count > 0 &&
+			slots.length === count + 1 &&
+			Arr.every(
+				upTo(count + 1, (at) => at),
+				(at) => Arr.some(slots, (r) => r.at === at)
+			)
+		)
+	})
+
+/**
+ * Whether a state holds a row of an owner of count 0: the breach only the holding reference's guard refuses, its owner
+ * stored, at no slot a closure or the last axis reaches from slot 0.
+ */
+export const rowOfEmptyOwner = (stored: Stored): boolean =>
+	Arr.some(stored.rows, (r) => stored.owners.get(r.group) === 0)
 
 export const lemmaOracle: Oracle = {
 	kind: "specification",

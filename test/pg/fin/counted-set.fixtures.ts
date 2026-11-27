@@ -52,9 +52,10 @@ import { fullWorldTemplate } from "#test/support/installed.ts"
  * end its members' fold, and the members are the model's set (README "Writes": a row already present is no change, a
  * counted owner's count and ends are drawn, never written, so an owner stated again with a subset of its members
  * changes nothing and one with a new member appends it). A refused write names only laws it breaks, a key's refusal
- * witnessed by that key's values in a stated row, the family's (a member naming no owner) by none (README "Errors and
- * outcomes", Witness: unreported "for a foreign key"), `every` law it names broken, or, where the family's foreign key
- * carries other containments merged into it, `some` of them, and changes nothing.
+ * witnessed by that key's values in a stated row, the family's (a member naming no owner) by such a member's key, its
+ * owner axis's holding reference being deferred (README "Errors and outcomes": a deferred foreign key's second
+ * flight), or by none, `every` law it names broken, or, where the family's foreign key carries other containments
+ * merged into it, `some` of them, and changes nothing.
  *
  * Features: each kind of write at each state that matters to the fill: an append to an owner with members and to one
  * with none, the only member deleted and one of several, a move between owners sharing their first two key fields and
@@ -290,13 +291,15 @@ const writeGen =
 /** The law a refused write breaks, by its role. */
 export type Broken = "the owner's key" | "the member's key" | "the family"
 
-/** What a write does by the model: written, leaving `next`, changed or not; or refused on the laws it breaks. */
+/** What a write does by the model: written, leaving `next`, changed or not; or refused on the laws it breaks, with the
+ * rows that break a key and the members it would leave of no owner, which break the family. */
 type Verdict =
 	| { readonly kind: "written"; readonly next: State; readonly changed: boolean }
 	| {
 			readonly kind: "refused"
 			readonly broken: ReadonlySet<Broken>
 			readonly keyed: ReadonlyArray<{ readonly broken: Broken; readonly row: OwnerRow | AttrRow }>
+			readonly orphans: ReadonlyArray<AttrRow>
 	  }
 
 /** Rows sharing a key and differing, among `stated` and against `against`, each with its key's law. */
@@ -313,13 +316,13 @@ export const verdictOf = (state: State, w: Write): Verdict => {
 		attrs: ReadonlyArray<AttrRow>,
 		keyed: ReadonlyArray<{ readonly broken: Broken; readonly row: OwnerRow | AttrRow }>
 	): Verdict => {
-		const orphaned = Arr.some(attrs, (x) => !Arr.some(owners, (o) => sameKey(o, x)))
+		const orphans = Arr.filter(attrs, (x) => !Arr.some(owners, (o) => sameKey(o, x)))
 		const broken = new Set<Broken>([
 			...Arr.map(keyed, (k) => k.broken),
-			...(orphaned ? (["the family"] as const) : [])
+			...(Arr.isReadonlyArrayNonEmpty(orphans) ? (["the family"] as const) : [])
 		])
 		if (broken.size > 0) {
-			return { kind: "refused", broken, keyed }
+			return { kind: "refused", broken, keyed, orphans }
 		}
 		const next = { owners, attrs }
 		const same = (a: ReadonlyArray<unknown>, b: ReadonlyArray<unknown>) =>

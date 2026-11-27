@@ -191,20 +191,33 @@ const checkFold = (model: LawModel): void => {
 	}
 }
 
-const expectedForeignKeys = (s: Shape): ReadonlyArray<ForeignKeyShape> =>
-	Arr.sort(
+/** The tree's foreign keys: its owner axis, its holding reference into a parent of a child, deferred, and where it
+ * carries copies their foreign key beside it, with no action; its predecessor and its last axes. */
+const expectedForeignKeys = (s: Shape): ReadonlyArray<ForeignKeyShape> => {
+	const copies = copiesOf(s)
+	return Arr.sort(
 		[
+			...(Arr.isArrayNonEmpty(copies)
+				? [
+						{
+							from: "Node",
+							to: "Node",
+							pairs: sortText([
+								"doc → doc",
+								`${parent0} → start`,
+								...Arr.map(copies, (c) => `${c.from} → ${c.to}`)
+							]),
+							onUpdate: "noAction" as const,
+							deferrable: false
+						}
+					]
+				: []),
 			{
 				from: "Node",
 				to: "Node",
-				pairs: sortText([
-					"doc → doc",
-					`${parent0} → start`,
-					"‹copy› → children",
-					...Arr.map(copiesOf(s), (c) => `${c.from} → ${c.to}`)
-				]),
+				pairs: sortText(["doc → ‹generated doc›", `${parent0} → start`]),
 				onUpdate: "noAction" as const,
-				deferrable: false
+				deferrable: true
 			},
 			{
 				from: "Node",
@@ -213,6 +226,7 @@ const expectedForeignKeys = (s: Shape): ReadonlyArray<ForeignKeyShape> =>
 					"doc → doc",
 					`${parent0} → ${parent0}`,
 					"‹generated at› → at",
+					"at → ‹next›",
 					"start → end",
 					...(s.fold ? ["‹before 0.0› → ‹after 0.0›"] : [])
 				]),
@@ -226,6 +240,7 @@ const expectedForeignKeys = (s: Shape): ReadonlyArray<ForeignKeyShape> =>
 					"doc → doc",
 					`start → ${parent0}`,
 					"‹generated children› → at",
+					"‹generated children› → ‹next›",
 					"end → end",
 					...(s.fold ? ["size → ‹after 0.0›"] : [])
 				]),
@@ -235,16 +250,22 @@ const expectedForeignKeys = (s: Shape): ReadonlyArray<ForeignKeyShape> =>
 		],
 		foreignKeyOrder
 	)
+}
 
 /** The primary key, the family key, its successor key (doc, ‹parent₀›, ‹p›), each node the predecessor of at most one
- * sibling, and the superkeys the axes reference. */
+ * sibling, and the superkeys the axes reference: the owner axis's (doc, start, copies…), the holding reference's, a
+ * parent's (‹doc⁺›, start) where it has a child, and the member superkey (doc, ‹parent₀›, at, ‹s›, end) the
+ * predecessor and last axes share. */
 const expectedKeys = (s: Shape): ReadonlyArray<string> =>
 	sortText([
-		setText(["doc", "start"]),
-		setText(["doc", parent0, "at"]),
-		setText(["doc", parent0, "‹generated at›"]),
-		setText(["doc", "start", "children", ...Arr.map(copiesOf(s), (c) => c.to)]),
-		setText(["doc", parent0, "at", "end", ...(s.fold ? ["‹after 0.0›"] : [])])
+		...new Set([
+			setText(["doc", "start"]),
+			setText(["doc", parent0, "at"]),
+			setText(["doc", parent0, "‹generated at›"]),
+			setText(["doc", "start", ...Arr.map(copiesOf(s), (c) => c.to)]),
+			setText(["‹generated doc›", "start"]),
+			setText(["doc", parent0, "at", "‹next›", "end", ...(s.fold ? ["‹after 0.0›"] : [])])
+		])
 	])
 
 /** trees.md's predicates on one row, as the specification states them. */
@@ -254,15 +275,14 @@ const specified = (row: {
 	readonly children: bigint
 	readonly start: bigint
 	readonly end: bigint
-	readonly n: bigint
+	readonly next: bigint
 }): boolean => {
-	const bound = row.start === 0n || row.at < row.n
 	const t2 = (row.parent === row.start) === (row.start === 0n)
 	const rootPin = row.start > 0n || row.at === 0n
-	const rootCount = row.start > 0n || row.n === row.children
+	const rootSuccessor = row.start > 0n || row.next === row.at
 	const t3 = row.start === 0n || row.at > 0n || row.start === row.parent + 1n
 	const t6 = row.end > row.start && (row.children > 0n || row.end === row.start + 1n)
-	return bound && t2 && rootPin && rootCount && t3 && t6
+	return t2 && rootPin && rootSuccessor && t3 && t6
 }
 
 const small = [0n, 1n, 2n, 3n] as const
@@ -273,13 +293,13 @@ const checkConditions = (model: LawModel): void => {
 	const law = familyLaw(model, { owner: "Node", count: "children" })
 	const [check, ...more] = checksOf(model, "Node", law)
 	assert.ok(check !== undefined && more.length === 0, "the tree states one CHECK")
-	const copy = drawnColumn(model, "Node", "copy")
+	const successor = drawnColumn(model, "Node", "next")
 	for (const parent of small) {
 		for (const at of small) {
 			for (const children of small) {
 				for (const start of small) {
 					for (const end of small) {
-						for (const n of small) {
+						for (const next of small) {
 							const row = new Map<string, ModelValue>([
 								["doc", docId],
 								["parent", parent],
@@ -287,12 +307,12 @@ const checkConditions = (model: LawModel): void => {
 								["children", children],
 								["start", start],
 								["end", end],
-								[copy, n]
+								[successor, next]
 							])
 							assert.equal(
 								accepts(check, row),
-								specified({ parent, at, children, start, end, n }),
-								`parent ${parent}, at ${at}, children ${children}, [${start}, ${end}), ‹n› ${n}`
+								specified({ parent, at, children, start, end, next }),
+								`parent ${parent}, at ${at}, children ${children}, [${start}, ${end}), ‹s› ${next}`
 							)
 						}
 					}
@@ -319,9 +339,9 @@ const checkConditions = (model: LawModel): void => {
 /**
  * The owner axis from the guarded group, (doc, ‹parent₀›) into (doc, start): every parent copy rides it, and no root
  * references anything, since the root has no parent: an accumulated copy states its pin, start > 0 or the copy at its
- * start, 0, which holds the root's copy there, a caller's copy none, and the tree's CHECK holds the root's ‹n› at its
- * own count (`checkConditions`). Judged by the host model of the foreign key and of each pin (natives.ts `breaks`,
- * `accepts`) on every root, at start 0, of children 0 or 1 with its parent, each copy and ‹n› at 0 or 1: the axis never
+ * start, 0, which holds the root's copy there, a caller's copy none, and the tree's CHECK holds the root's ‹s› at its
+ * own slot (`checkConditions`). Judged by the host model of the foreign key and of each pin (natives.ts `breaks`,
+ * `accepts`) on every root, at start 0, of children 0 or 1 with its parent, each copy at 0 or 1: the axis never
  * breaks there, and each pin holds exactly where its copy is 0.
  */
 const checkCopies = (model: LawModel, s: Shape): void => {
@@ -334,19 +354,20 @@ const checkCopies = (model: LawModel, s: Shape): void => {
 		Arr.filter(copies, (c) => c.copy === "accumulated").length,
 		"an accumulated parent copy states its pin at the root, a caller's none"
 	)
+	/** The owner axis: its copies' foreign key where it carries any, its holding reference, deferred, where it carries
+	 * none. */
 	const [axis, ...more] = Arr.filter(
 		onRelation(model, "ForeignKey", "Node"),
 		(fk) =>
-			fk.onUpdate === "noAction" &&
-			Arr.some(fk.targetColumns, (c) => c.kind === "field" && c.field.name === "children")
+			fk.deferrable !== Arr.isArrayNonEmpty(copies) &&
+			Arr.some(fk.targetColumns, (c) => c.kind === "field" && c.field.name === "start")
 	)
-	assert.ok(axis !== undefined && more.length === 0, "one owner axis into the parent's count")
-	const n = drawnColumn(model, "Node", "copy")
+	assert.ok(axis !== undefined && more.length === 0, "one owner axis into the parent's start")
 	const bits = [0n, 1n] as const
 	const assignments = (k: number): ReadonlyArray<ReadonlyArray<bigint>> =>
 		k === 0 ? [[]] : Arr.flatMap(assignments(k - 1), (t) => Arr.map(bits, (b) => [...t, b]))
 	for (const children of bits) {
-		for (const [copyN, parent, ...values] of assignments(2 + 2 * copies.length)) {
+		for (const [parent, ...values] of assignments(1 + 2 * copies.length)) {
 			const row = new Map<string, ModelValue>([
 				["doc", docId],
 				["parent", defined(parent)],
@@ -354,13 +375,12 @@ const checkCopies = (model: LawModel, s: Shape): void => {
 				["children", children],
 				["start", 0n],
 				["end", 1n],
-				[n, defined(copyN)],
 				...Arr.flatMap(copies, (c, k) => [
 					[c.from, defined(values[2 * k])] as const,
 					[c.to, defined(values[2 * k + 1])] as const
 				])
 			])
-			const label = `a root of ${children} children, ‹n› ${copyN}, parent ${parent}, copies ${Arr.join(Arr.map(values, String), " ")}`
+			const label = `a root of ${children} children, parent ${parent}, copies ${Arr.join(Arr.map(values, String), " ")}`
 			assert.equal(
 				breaks(model, axis, new Map([["Node", [row]]])),
 				false,

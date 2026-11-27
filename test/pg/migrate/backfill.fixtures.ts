@@ -366,8 +366,8 @@ export const treeAims: ReadonlyArray<Aim<StoredForest, TreeFeature>> = [
 ]
 
 /**
- * A relation's stored rows, each a value per field, a number or a literal's text, or per `‹n›`, its family's copy of
- * its owner's count, the drawn law column a tree's direct writer writes.
+ * A relation's stored rows, each a value per field, a number or a literal's text, or per `‹s›`, its family's successor
+ * of the row, the drawn law column a tree's direct writer writes.
  */
 interface Stored {
 	readonly relation: string
@@ -386,8 +386,8 @@ const namesOf = (schemaName: string) => {
 
 /**
  * Writes stored rows, as the owner, in one SERIALIZABLE transaction, into the first version's tables, `before`'s: each
- * field's column by its name, and `‹n›` the column of the copy of the family whose member the relation is, by the law
- * that names it in `before` compiled.
+ * field's column by its name, and `‹s›` the column of the successor of the family whose member the relation is, by the
+ * law that names it in `before` compiled.
  */
 const inserted = (
 	owner: RawSession,
@@ -399,12 +399,12 @@ const inserted = (
 		const { table, column } = namesOf(schemaName)
 		const families = compile(before, asDrafted).laws.families
 		const columnOf = (relation: string, f: string): string =>
-			f === "‹n›"
+			f === "‹s›"
 				? quoteIdent(
 						defined(
 							Option.getOrUndefined(Arr.findFirst(families, (g) => g.member.name === relation)),
 							`the family whose member is ${relation}`
-						).copy
+						).next
 					)
 				: column(f)
 		yield* owner.query("BEGIN ISOLATION LEVEL SERIALIZABLE", [])
@@ -1590,7 +1590,7 @@ const storedWritten = (owner: RawSession, declared: string, r: Rekey): Effect.Ef
 						column("g"),
 						column("x"),
 						column("at"),
-						quoteIdent(compiled.copy),
+						quoteIdent(compiled.next),
 						...(s.folded ? [column("before"), column("after")] : [])
 					],
 					Arr.map(state.rows, (row) => [
@@ -1598,7 +1598,7 @@ const storedWritten = (owner: RawSession, declared: string, r: Rekey): Effect.Ef
 						String(row.group),
 						String(row.x),
 						String(row.at),
-						String(row.copy),
+						String(row.next),
 						...(s.folded
 							? [String(Arr.headNonEmpty(row.before)), String(Arr.headNonEmpty(row.after))]
 							: [])

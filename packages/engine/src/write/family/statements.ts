@@ -45,7 +45,7 @@ export interface RowColumn {
  * A member relation's rows as every family statement writes them (draw.ts Row): its key fields, in key order; then
  * every other column the host writes, its caller's, drawn and accumulated fields in its field order, and then,
  * for each family it is a member of, in their order as members (`memberFamilies`), its drawn law columns: a counted
- * index ‹i›, ‹n›, a tree's ‹ps›, and each fold's hidden accumulators, by fold and plane, the before then the after. A
+ * index ‹i›, ‹s›, a tree's ‹ps›, and each fold's hidden accumulators, by fold and plane, the before then the after. A
  * generated field is PostgreSQL's, so none is listed.
  */
 export interface RowLayout {
@@ -85,7 +85,7 @@ export const memberFamilies = (
 /**
  * The row layout of `relation` over the law model's `families` (`RowLayout`): its primary key's fields, its other
  * written fields, and each law column its families draw on it, each of the type its family gives it: a counted index
- * and ‹n› the count's, a tree's ‹ps› its start's, a hidden accumulator its plane's end's.
+ * and ‹s› the count's, a tree's ‹ps› its start's, a hidden accumulator its plane's end's.
  */
 export const rowLayout = (relation: RelationInfo, families: ReadonlyArray<Family>): RowLayout => {
 	const mine = memberFamilies(relation.name, families)
@@ -102,7 +102,7 @@ export const rowLayout = (relation: RelationInfo, families: ReadonlyArray<Family
 	)
 	const law = mine.flatMap((f): ReadonlyArray<RowColumn> => [
 		...(f.shape.kind === "counted" ? [of(f.shape.index, f.count.type)] : []),
-		of({ kind: "law", column: f.copy }, f.count.type),
+		of({ kind: "law", column: f.next }, f.count.type),
 		...f.folds.flatMap((fold) =>
 			fold.planes.flatMap((plane) =>
 				[plane.before, plane.after].flatMap((c) =>

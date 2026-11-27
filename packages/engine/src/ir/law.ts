@@ -277,7 +277,7 @@ export interface RelationInfo extends StoredRelationOf<"relation">, TableRelatio
 	 * The fields a write changes in place on a row it keeps, in field order, decided once where the checked schema types
 	 * the relation (analysis/schema.ts): a mutable relation's every field outside its primary key, which a put updates;
 	 * an immutable one's accumulated fields where it is a member of a family, no tree, whose owner is mutable, which the
-	 * family's owner axis rewrites ON UPDATE CASCADE as the owner's columns change; and its generated fields that read
+	 * family's owner axis rewrites ON UPDATE CASCADE as the owner's columns it carries change; and its generated fields that read
 	 * them. Every other field of an immutable relation holds the value its row was inserted with: the premise a unit-local
 	 * rule's judge reads the fields it reads under (analysis/theory/unit.ts wholeRule), and what the relation's
 	 * immutability guard holds against every UPDATE, the owner's included (physical/ddl/immutable.ts).
@@ -711,14 +711,14 @@ export const generatedLaw = (relation: StoredRelationName, field: string): Gener
 	Object.freeze({ kind: "generated", relation, field })
 
 /**
- * What a drawn law column holds, which the host draws from the nested arrays: ‹n›, the owner's count on each member; a
+ * What a drawn law column holds, which the host draws from the nested arrays: ‹s›, each member's successor slot; a
  * counted family's index ‹i›; or a fold's accumulator, before or after the member's step of plane `plane` of the
  * family's fold `fold`, by its position among the family's folds. An after is drawn, never
  * generated, since a count's, a sum's and a max's combine is not total in its carrier: a CHECK proves it in exact
  * arithmetic.
  */
 export type Drawn =
-	| { readonly kind: "copy" | "index"; readonly family: FamilyId }
+	| { readonly kind: "next" | "index"; readonly family: FamilyId }
 	| {
 			readonly kind: "before" | "after"
 			readonly family: FamilyId
@@ -797,7 +797,8 @@ type NativeBody =
 			readonly target: TableRelation
 			readonly targetColumns: NonEmptyReadonlyArray<NativeColumn>
 			readonly deferrable: boolean
-			/** ON UPDATE: cascade on a family's owner axis alone, so an owner's count change reaches its members' copies. */
+			/** ON UPDATE: cascade on a family's owner axis alone, so a change of an owner column it carries reaches its
+			 * members' copies. */
 			readonly onUpdate: OnUpdate
 	  }
 	| {

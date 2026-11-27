@@ -146,7 +146,7 @@ export const copyHolds = (m: Merge, j: 0 | 1): boolean => {
 /** The state of the box: the owner and its members in slot order, every family column at the family's own values and
  * the carried columns the axis's foreign key reads at the box's. */
 export const stateOf = (model: LawModel, m: Merge): State => {
-	const copy = drawnColumn(model, "Member", "copy")
+	const next = drawnColumn(model, "Member", "next")
 	const n = BigInt(m.members.length)
 	return new Map<string, ReadonlyArray<Row>>([
 		["Owner", [new Map<string, ModelValue>([["id", 1n], ["n", n], ...m.owner])]],
@@ -159,7 +159,7 @@ export const stateOf = (model: LawModel, m: Merge): State => {
 						["id", BigInt(10 + k)],
 						["owner", 1n],
 						["at", BigInt(k)],
-						[copy, n],
+						[next, BigInt(k + 1 < m.members.length ? k + 1 : k)],
 						...values
 					])
 			)
@@ -176,7 +176,7 @@ export const axisKey = (model: LawModel, axis: AxisKind): NativeOf<"ForeignKey">
 	const [fk, ...more] = Arr.filter(fks, (k) => {
 		switch (axis) {
 			case "owner":
-				return k.relation.name === "Member" && k.target.name === "Owner"
+				return k.relation.name === "Member" && k.target.name === "Owner" && k.onUpdate === "cascade"
 			case "predecessor":
 				return k.relation.name === "Member" && k.target.name === "Member"
 			case "last":
