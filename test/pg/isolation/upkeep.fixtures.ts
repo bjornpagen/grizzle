@@ -1,4 +1,4 @@
-/** What the property of upkeep.test.ts reads: its shape, its races, and the run of a race against the definitions. */
+/** What the properties of upkeep.test.ts read: their shapes, their races, and the run of a race against the definitions. */
 
 import { defined } from "@bjornpagen/testing/assert"
 import {
@@ -25,7 +25,7 @@ import {
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { contract, natural, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { derived, login, relation, role, schema, unit } from "#compiler/public/schema.ts"
+import { derived, login, mutable, relation, role, schema, unit } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
 import {
 	callStandUps,
@@ -54,16 +54,34 @@ const Answer = relation("Answer", { child: LearnerId, s: natural, n: natural }, 
 const Key = relation("Key", { child: LearnerId, s: natural, n: natural }, ["child", "s", "n"])
 
 /**
- * The upkeep shape: Answer and Key, closed, in the unit Learner(child), and three relations
+ * Who calls each member of a shape (upkeepShape): `oneLearner`, the role `learner`, which inserts both relations, both
+ * members; or `learnerBesideGrader`, the learner `answer`, inserting Answer alone, and the role `grader` `key`, which
+ * states `write` on Key, open in its unit, so it runs SERIALIZABLE by `privileges` whatever it shares with the learner.
+ */
+export type Cast = "oneLearner" | "learnerBesideGrader"
+
+/** The role that calls `member` under `cast`. */
+export const roleOf = (cast: Cast, member: UpkeepCall["member"]): string =>
+	cast === "learnerBesideGrader" && member === "key" ? "grader" : "learner"
+
+/**
+ * The upkeep shape under `name`, as `cast` calls it: Answer and Key in the unit Learner(child), and three relations
  * derived from them at a level above, each stored (analysis/derived/storage.ts), unit-local in the learner's unit at a
  * unit narrower than it, and none distributive over two writers' rows: `Matched`, the items answered and keyed, a join
- * of the two; `Tally`, each sitting's answers counted; and `Unkeyed`, the answers of no key, a negation. The role
- * `learner` inserts both, one member each, `answer` and `key`, at the child, sitting and item its parameters name.
- * Its schemas' names are its own, the base `Upkeep` and the level `Kept`: an installation takes its name from the
- * template's, and a level's identity holds its base's declared name, so one shape is installed under every name.
+ * of the two; `Tally`, each sitting's answers counted; and `Unkeyed`, the answers of no key, a negation. Each member
+ * inserts one row, `answer` of Answer and `key` of Key, at the child, sitting and item its parameters name. The level is
+ * `<name>_1`, the name an installation under `name` gives the level above its root, so the workload a template serves
+ * is compiled against the schema it installs.
  */
-const upkeepShape = (name: string) => {
-	const base = schema(name, [Answer, Key], [unit("Learner", { child: LearnerId })])
+const upkeepShape = (cast: Cast) => (name: string) => {
+	const base = schema(
+		name,
+		[Answer, Key],
+		[
+			unit("Learner", { child: LearnerId }),
+			...(cast === "learnerBesideGrader" ? [mutable(Key)] : [])
+		]
+	)
 	const Matched = derived(
 		"Matched",
 		query(base).rule((r) => {
@@ -89,7 +107,38 @@ const upkeepShape = (name: string) => {
 		})
 	)
 	const kept = schema.extend([base], `${name}_1`, [Matched, Tally, Unkeyed], [])
-	const learner = role(kept, "learner", { Answer, Key }, { insert: ["Answer", "Key"] })
+	const stored = { Matched, Tally, Unkeyed }
+	if (cast === "oneLearner") {
+		const learner = role(kept, "learner", { Answer, Key }, { insert: ["Answer", "Key"] })
+		const answer = ChangeSet.empty(learner).insert(
+			learner.relations.Answer,
+			query(learner).rule((r) =>
+				r.find({
+					child: r.param("child", LearnerId),
+					s: r.param("s", natural),
+					n: r.param("n", natural)
+				})
+			)
+		)
+		const key = ChangeSet.empty(learner).insert(
+			learner.relations.Key,
+			query(learner).rule((r) =>
+				r.find({
+					child: r.param("child", LearnerId),
+					s: r.param("s", natural),
+					n: r.param("n", natural)
+				})
+			)
+		)
+		return {
+			schema: kept,
+			roles: { learner },
+			login: login(kept, "app", [learner], { workload: [workload(learner, { answer, key })] }),
+			stored
+		}
+	}
+	const learner = role(kept, "learner", { Answer }, { insert: ["Answer"] })
+	const grader = role(kept, "grader", { Key }, { write: ["Key"] })
 	const answer = ChangeSet.empty(learner).insert(
 		learner.relations.Answer,
 		query(learner).rule((r) =>
@@ -100,9 +149,9 @@ const upkeepShape = (name: string) => {
 			})
 		)
 	)
-	const key = ChangeSet.empty(learner).insert(
-		learner.relations.Key,
-		query(learner).rule((r) =>
+	const key = ChangeSet.empty(grader).insert(
+		grader.relations.Key,
+		query(grader).rule((r) =>
 			r.find({
 				child: r.param("child", LearnerId),
 				s: r.param("s", natural),
@@ -112,20 +161,33 @@ const upkeepShape = (name: string) => {
 	)
 	return {
 		schema: kept,
-		roles: { learner },
-		login: login(kept, "app", [learner], { workload: [workload(learner, { answer, key })] }),
-		stored: { Matched, Tally, Unkeyed }
+		roles: { learner, grader },
+		login: login(kept, "app", [learner, grader], {
+			workload: [workload(learner, { answer }), workload(grader, { key })]
+		}),
+		stored
 	}
 }
 
 /** The stored relations as the race reads their tables. */
-const { stored } = upkeepShape("UpkeepNames")
+const { stored } = upkeepShape("oneLearner")("UpkeepNames")
 
 /**
- * The shape installed once per member as `grizzle generate` drafts and serves it (race.ts shapeTemplate), each role at
- * the level generate certifies it at: the learner READ COMMITTED is the race's premise (`problemsOf`).
+ * The shape the learner calls both members of, installed once per member as `grizzle generate` drafts and serves it
+ * (race.ts shapeTemplate), each role at the level generate certifies it at: the learner READ COMMITTED is the race's
+ * premise (`problemsOf`).
  */
-export const generatedShape = shapeTemplate(import.meta, "upkeep", upkeepShape)
+export const generatedShape = shapeTemplate(import.meta, "upkeep", upkeepShape("oneLearner"))
+
+/**
+ * The shape the learner and the grader call, installed alike: the grader SERIALIZABLE, and the learner at the level
+ * certification gives a READ COMMITTED writer whose upkeeps a SERIALIZABLE one shares.
+ */
+export const mixedShape = shapeTemplate(
+	import.meta,
+	"upkeep beside a serializable writer",
+	upkeepShape("learnerBesideGrader")
+)
 
 /** The two children a race writes at, the first drawn more often, so calls meet at one child. */
 type Child = 0 | 1
@@ -254,6 +316,28 @@ const aimedRaces: ReadonlyArray<Gen<UpkeepRace>> = [
 ]
 
 /**
+ * The race the mixed shape seldom draws: an answer and its key at child 0, a served write's each, the answer ended
+ * first, beside a call at child 1, its ends in turn; and the same ended together.
+ */
+const mixedRaces: ReadonlyArray<Gen<UpkeepRace>> = [
+	(s) => ({
+		facts: [],
+		calls: [
+			{ member: "answer", child: 0, n: 1, judged: "atCommit", ends: "commit" },
+			{ member: "key", child: 0, n: 1, judged: "atCommit", ends: "commit" },
+			{ member: "key", child: 1, n: 0, judged: "atStatement", ends: "commit" }
+		],
+		starts: s.draw(shuffled([0, 1, 2], { min: 3, max: 3 })),
+		ends: [0, 1, 2],
+		ending: s.draw(element(["inTurn", "together"] as const))
+	})
+]
+
+/** The race a mixed case runs, drawn under its steering, as `aimedUpkeepRaces` draws. */
+export const aimedMixedRaces: Steered<UpkeepRace, UpkeepFeature>["under"] = (steering) =>
+	Option.isSome(steering) ? oneOf([upkeepRaces, ...mixedRaces]) : upkeepRaces
+
+/**
  * The race a case runs, drawn under its steering: while a situation is pending, an aimed race or a drawn one, each
  * alike; otherwise a drawn one, as a rotating case always is.
  */
@@ -269,6 +353,8 @@ export type UpkeepFeature =
 	| "children apart at once"
 	| "a call rolled back"
 	| "a call's judge waited on another call at its child"
+	| "an answer and its key called at once"
+	| "a call refused with 40001"
 
 /** Call `i` of a race. */
 const callOf = (race: UpkeepRace, i: number): UpkeepCall => defined(race.calls[i], `call ${i}`)
@@ -306,8 +392,9 @@ export interface RaceRun {
 type RowsOf = "Answer" | "Key" | "Matched" | "Tally" | "Unkeyed"
 
 /**
- * Runs `race` over `s` (UpkeepRace): the race's facts stored first, as the owner; every session stands up its judge's
- * tables and begins as the learner's served write begins, READ COMMITTED, a session judged at its statements sending
+ * Runs `race` over `s`, called as `cast` says (UpkeepRace): the race's facts stored first, as the owner; every session
+ * logs in as its call's role, stands up its judge's tables and begins as the role's served write begins, at the level
+ * generate certifies it at (race.ts writeBegin), a session judged at its statements sending
  * SET CONSTRAINTS ALL IMMEDIATE first; each in `starts`' order sends its call's statements on a fiber of its own while
  * every session before it holds its transaction open, and each session ends in `ends`' order, the first whose
  * statements are through, committing where its call drew it and its statements succeeded, on a fiber of its own too,
@@ -315,7 +402,7 @@ type RowsOf = "Answer" | "Key" | "Matched" | "Tally" | "Unkeyed"
  * polling its backend's lock wait (substrate/barrier.ts lockWaitOf) against its fiber's end, and every wait is recorded
  * with the sessions it waits on. The observer reads every relation's rows last.
  */
-export const runRace = (s: InstalledShape, race: UpkeepRace) =>
+export const runRace = (s: InstalledShape, cast: Cast, race: UpkeepRace) =>
 	Effect.scoped(
 		Effect.gen(function* () {
 			const substrate = yield* Substrate
@@ -329,21 +416,24 @@ export const runRace = (s: InstalledShape, race: UpkeepRace) =>
 				Substrate,
 				substrate
 			)
-			const learner = defined(s.shape.roles["learner"], "the learner")
 			const sessions = Arr.map(race.calls, (_, i) => `s${i}`)
 			const actors = yield* openActors(
 				substrate,
 				Rec.fromEntries(
-					Arr.map(
-						sessions,
-						(name) => [name, { kind: "raw" as const, as: s.installed.world(learner) }] as const
-					)
+					Arr.map(race.calls, (call, i) => {
+						const by = roleOf(cast, call.member)
+						const world = s.installed.world(defined(s.shape.roles[by], `the role ${by}`))
+						return [`s${i}`, { kind: "raw" as const, as: world }] as const
+					})
 				)
 			)
 			const actorOf = (i: number): DirectActor => defined(actors[`s${i}`], `session s${i}`)
 			const sessionOf = new Map(Arr.map(sessions, (_, i) => [actorOf(i).pid, i] as const))
 			for (const [i, call] of race.calls.entries()) {
-				for (const sql of callStandUps(s, { role: "learner", member: call.member })) {
+				for (const sql of callStandUps(s, {
+					role: roleOf(cast, call.member),
+					member: call.member
+				})) {
 					yield* actorOf(i).perform({ _tag: "Sql", sql })
 				}
 			}
@@ -351,13 +441,13 @@ export const runRace = (s: InstalledShape, race: UpkeepRace) =>
 				callStatements(s, {
 					kind: "change",
 					session: `s${i}`,
-					role: "learner",
+					role: roleOf(cast, c.member),
 					member: c.member,
 					input: { kind: "params", params: { child: c.child, s: 0n, n: BigInt(c.n) } }
 				})
 			)
 			for (const [i, call] of race.calls.entries()) {
-				yield* actorOf(i).perform(writeBegin(s, "learner"))
+				yield* actorOf(i).perform(writeBegin(s, roleOf(cast, call.member)))
 				if (call.judged === "atStatement") {
 					yield* actorOf(i).perform({ _tag: "Sql", sql: "SET CONSTRAINTS ALL IMMEDIATE" })
 				}
@@ -535,28 +625,31 @@ const definitionsOver = (
 }
 
 /**
- * Every difference between what a race's run left and what it should have: the learner's premise, that generate
- * certifies it READ COMMITTED; each call's fate, every call succeeding at READ COMMITTED, its statements and its end;
+ * Every difference between what a race's run left and what it should have, called as `cast` says: under `oneLearner`,
+ * the learner's premise, that generate certifies it READ COMMITTED; each call's fate, its statements and its end, every
+ * call succeeding at READ COMMITTED, and at SERIALIZABLE succeeding or refused with 40001, a serialization failure;
  * each stored relation's rows against its definition's over the base rows the race left, whatever order its calls
  * committed in; and each wait, which only a call of the same child may cause.
  */
 export const problemsOf = (
 	s: InstalledShape,
+	cast: Cast,
 	race: UpkeepRace,
 	run: RaceRun
 ): ReadonlyArray<string> => {
 	const premise =
-		servedLevel(s, "learner") === "readCommitted"
+		cast === "learnerBesideGrader" || servedLevel(s, "learner") === "readCommitted"
 			? []
 			: [`generate certifies the learner ${servedLevel(s, "learner")}, not READ COMMITTED`]
 	const fates = Arr.flatMap(race.calls, (call, i) => {
 		const outcomes = defined(run.outcomes[i], `s${i}'s outcomes`)
 		const failure = failureOf(outcomes)
 		const said = Arr.flatMap(outcomes, (o) => (o._tag === "PgError" ? [o.fields.message] : []))
-		return failure === undefined
+		const level = servedLevel(s, roleOf(cast, call.member))
+		return failure === undefined || (level === "serializable" && failure === "40001")
 			? []
 			: [
-					`s${i}, ${call.member} at child ${call.child} item ${call.n} judged ${call.judged}: ${failure} (${Arr.join(said, "; ")}), where success was due`
+					`s${i}, ${call.member} at child ${call.child} item ${call.n} judged ${call.judged} at ${level}: ${failure} (${Arr.join(said, "; ")}), where success was due`
 				]
 	})
 	const model = definitionsOver(run.rows.Answer, run.rows.Key)
@@ -620,6 +713,17 @@ export const featuresOf = (race: UpkeepRace, run: RaceRun): ReadonlyArray<Upkeep
 		...(Arr.some(race.calls, (c) => c.ends === "rollback") ? ["a call rolled back" as const] : []),
 		...(Arr.some(run.waits, (w) => w.wait.locktype === "advisory")
 			? ["a call's judge waited on another call at its child" as const]
+			: []),
+		...(Arr.some(race.calls, (c, i) =>
+			Arr.some(
+				race.calls,
+				(d, j) => i < j && c.child === d.child && c.n === d.n && c.member !== d.member
+			)
+		)
+			? ["an answer and its key called at once" as const]
+			: []),
+		...(Arr.some(run.outcomes, (o) => failureOf(o) === "40001")
+			? ["a call refused with 40001" as const]
 			: [])
 	]
 }

@@ -62,7 +62,11 @@ import type { Isolation } from "#compiler/core/isolation.ts"
  *   excludes. No role that runs SERIALIZABLE writes a relation the role writes, by a
  *   privilege, a member or a cascade: the installation's guard admits a READ COMMITTED write of a relation only where
  *   every role that writes it runs READ COMMITTED, and refuses any other with 25000 (physical/ddl/isolation.ts
- *   readCommittedRelations), so a role certified past it would have every write refused.
+ *   readCommittedRelations), so a role certified past it would have every write refused. And no role that runs
+ *   SERIALIZABLE keeps a stored relation the role keeps (facts.ts RelationFacts `upkept`): the judge of each borrows
+ *   the units it keeps before its upkeep reads them (physical/ddl/rules.ts judgeBorrow), which orders the two, but a
+ *   SERIALIZABLE upkeep reads at its transaction's snapshot, which no lock moves past a READ COMMITTED writer's commit,
+ *   and SSI never sees a READ COMMITTED write, so it would keep the unit as though that writer's rows were not there.
  *
  * A role is served the form its level chooses, so certification runs in rounds (analysis/isolation/certify.ts certify): a role is judged over its
  * READ COMMITTED form, the one it is served while it runs READ COMMITTED, until a round leaves it SERIALIZABLE; it is

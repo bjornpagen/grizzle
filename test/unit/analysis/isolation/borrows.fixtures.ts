@@ -113,7 +113,8 @@ const relationFacts = (rel: Rel): RelationFacts => ({
 	keys: [rel === "F" ? ["k"] : ["k", "n"]],
 	countedGroups: [],
 	references: [],
-	inserts: { kind: "repeatable" }
+	inserts: { kind: "repeatable" },
+	upkept: []
 })
 
 /** A case's installation: each relation's facts, Learner's members at k, and one role's grants. */

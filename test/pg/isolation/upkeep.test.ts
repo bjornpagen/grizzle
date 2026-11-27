@@ -22,6 +22,13 @@
  * Features: an answer and its key committed by two calls at once, two answers of one sitting committed by two calls at
  * once, a call judged at its statement, one judged at its COMMIT, served calls of one child ended together, children
  * apart at once, a call rolled back, and a call's judge waiting on another call of its child.
+ *
+ * Beside a SERIALIZABLE writer: the same shape and races, but the learner inserts Answer alone and the role `grader`,
+ * which states `write` on Key, open in its unit, and so runs SERIALIZABLE, inserts Key. Both keep Matched and Unkeyed,
+ * whose upkeep a SERIALIZABLE judge runs at its transaction's snapshot, which the judge's borrow orders after a READ
+ * COMMITTED writer's commit but never moves past it, and SSI never sees a READ COMMITTED write: so certification runs
+ * the learner SERIALIZABLE too (README "READ COMMITTED writes" `writers`), and every call succeeds or is refused with
+ * 40001. Oracle: the same law over the committed rows.
  */
 
 import type { Reached } from "@bjornpagen/testing/features"
@@ -29,10 +36,12 @@ import { steered } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import {
+	aimedMixedRaces,
 	aimedUpkeepRaces,
 	featuresOf,
-	problemsOf,
 	generatedShape,
+	mixedShape,
+	problemsOf,
 	runRace,
 	type UpkeepFeature
 } from "#test/pg/isolation/upkeep.fixtures.ts"
@@ -58,14 +67,14 @@ export const eachStoredRelationsRowsAreItsDefinitionsOverTheRowsItsReadCommitted
 				Effect.gen(function* () {
 					const seat = yield* fresh
 					const run = yield* Effect.provideService(
-						runRace(seat.value, race),
+						runRace(seat.value, "oneLearner", race),
 						Substrate,
 						seat.substrate
 					)
 					for (const f of featuresOf(race, run)) {
 						c.note(f)
 					}
-					const problems = problemsOf(seat.value, race, run)
+					const problems = problemsOf(seat.value, "oneLearner", race, run)
 					if (problems.length > 0) {
 						return yield* Effect.die(
 							new Error(`${Formatter.format(race)}\n${Arr.join(problems, "\n")}`)
@@ -101,6 +110,55 @@ export const eachStoredRelationsRowsAreItsDefinitionsOverTheRowsItsReadCommitted
 				original: "\t\t\t\t\t\tunit: lock.unit,\n",
 				replacement: "\t\t\t\t\t\tunit: site.relation,\n",
 				why: "The lock is named by the holder, not by the unit: an answer and a key of one child take two locks, so their upkeeps of Matched and Unkeyed still read past each other."
+			}
+		],
+		show: Formatter.format
+	})
+
+/** A writer of a stored relation's holders that runs SERIALIZABLE makes every writer whose writes keep the same stored relation run SERIALIZABLE too, so each stored relation's rows are still its definition's over the rows its writers committed, each call succeeding or refused with 40001. */
+export const aSerializableKeeperOfAStoredRelationMakesEveryWriterThatKeepsItSerializableSoItsRowsAreStillItsDefinitionsOverTheCommittedRows =
+	property.explore(steered(aimedMixedRaces), {
+		needs: { fresh: Substrate.fresh(mixedShape) },
+		situations: [
+			"an answer and its key called at once",
+			"a call refused with 40001",
+			"a call judged at its statement",
+			"a call judged at its COMMIT",
+			"children apart at once",
+			"a call rolled back"
+		] satisfies ReadonlyArray<Reached<UpkeepFeature>>,
+		check:
+			({ fresh }, c: Case<UpkeepFeature>) =>
+			(race) =>
+				Effect.gen(function* () {
+					const seat = yield* fresh
+					const run = yield* Effect.provideService(
+						runRace(seat.value, "learnerBesideGrader", race),
+						Substrate,
+						seat.substrate
+					)
+					for (const f of featuresOf(race, run)) {
+						c.note(f)
+					}
+					const problems = problemsOf(seat.value, "learnerBesideGrader", race, run)
+					if (problems.length > 0) {
+						return yield* Effect.die(
+							new Error(`${Formatter.format(race)}\n${Arr.join(problems, "\n")}`)
+						)
+					}
+				}),
+		oracle: {
+			kind: "specification",
+			name: 'each stored relation\'s rows its definition\'s over the committed rows at every COMMIT (README "Derived tables"), its writers certified as README "READ COMMITTED writes" `writers` states'
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/analysis/isolation/certify.ts",
+				original:
+					"\t\tupkept: new Set([...written].flatMap((relation) => at.relations.get(relation)?.upkept ?? [])),",
+				replacement: "\t\tupkept: new Set<string>(),",
+				why: "Certification counts no upkeep: the learner runs READ COMMITTED beside the SERIALIZABLE grader, whose upkeep of Matched and Unkeyed reads at its snapshot after the learner's answer committed, so the answer's match is lost and its negation kept."
 			}
 		],
 		show: Formatter.format

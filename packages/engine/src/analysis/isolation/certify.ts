@@ -1579,6 +1579,11 @@ interface RoleView {
 	readonly written: ReadonlySet<string>
 	/** What it writes as another role's judge reads it: everything it writes. */
 	readonly guarded: ReadonlySet<string>
+	/**
+	 * The stored relations its writes keep (facts.ts RelationFacts `upkept`), each re-derived by the judge of its
+	 * transaction at the units it wrote, reading at the transaction's snapshot.
+	 */
+	readonly upkept: ReadonlySet<string>
 	/** What its writes make of each relation it writes (Made), by a privilege, a member or a cascade. */
 	readonly made: ReadonlyMap<string, ReadonlySet<Made>>
 	/**
@@ -1781,6 +1786,7 @@ const roleView = (at: Installation, served: Served): RoleView => {
 		members,
 		written,
 		guarded: written,
+		upkept: new Set([...written].flatMap((relation) => at.relations.get(relation)?.upkept ?? [])),
 		made,
 		probed,
 		cause: pivotCauseOf(at, members, written),
@@ -2194,12 +2200,24 @@ const givenReasons = (
 				]
 			: []
 	)
+	const keepers = [...other.upkept].flatMap((relation) =>
+		view.upkept.has(relation)
+			? [
+					reason(
+						"writers",
+						atRelation(relation),
+						"it runs SERIALIZABLE and its writes keep the stored relation at units the role's writes keep it at, its upkeep reading them at its transaction's snapshot, which misses a READ COMMITTED writer's commit"
+					)
+				]
+			: []
+	)
 	const pivot = other.cause
 	return pivot === undefined
-		? [...readers, ...cowriters]
+		? [...readers, ...cowriters, ...keepers]
 		: [
 				...readers,
 				...cowriters,
+				...keepers,
 				...[...other.guarded].flatMap((relation) =>
 					view.outside.has(relation)
 						? [reason("writers", atRelation(relation), `it writes the relation, and ${pivot}`)]

@@ -20,7 +20,9 @@ import type { OnUpdate } from "#compiler/ir/law.ts"
  * binds whole; its counted groups, each by its key's fields: the members, under one value of the key, of a family whose
  * immutable owner holds their count (a counted, ordered or fin family), a set the count law fixes once the owner is
  * written; every foreign key it holds, native or a rule lowered to one, immediate or deferred, by the columns it
- * references, by the same texts; and what an insertion into it meets at its primary key (InsertsFact).
+ * references, by the same texts; what an insertion into it meets at its primary key (InsertsFact); and the stored
+ * relations a write of it keeps (`upkept`), each the judge's upkeep re-derives at the units the write names: each
+ * stored relation whose definition reads it as a holder, and each stored relation over one of those in turn, by name.
  */
 export interface RelationFacts {
 	readonly triggerLaws: ReadonlyArray<TriggerLaw>
@@ -28,6 +30,7 @@ export interface RelationFacts {
 	readonly countedGroups: ReadonlyArray<ReadonlyArray<string>>
 	readonly references: ReadonlyArray<Reference>
 	readonly inserts: InsertsFact
+	readonly upkept: ReadonlyArray<string>
 }
 
 /**

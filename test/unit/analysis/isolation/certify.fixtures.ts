@@ -2330,7 +2330,8 @@ export const relationsOf = (
 					columns: keyOf(ref.key),
 					onUpdate: ref.onUpdate
 				})),
-				inserts: insertsOf(r)
+				inserts: insertsOf(r),
+				upkept: []
 			}
 		])
 	)

@@ -8,6 +8,7 @@ import type {
 	RoleFacts,
 	TriggerLaw
 } from "#compiler/analysis/isolation/facts.ts"
+import { compareStrings } from "#compiler/core/order.ts"
 import type { TablePrivilege } from "#compiler/core/privilege.ts"
 import { columnKey } from "#compiler/ir/law.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
@@ -149,13 +150,42 @@ const insertsOf = (relation: OwnedRelation): InsertsFact =>
 const derivedInserts: InsertsFact = Object.freeze({ kind: "repeatable" })
 
 /**
+ * The stored relations a write of each relation keeps, by the relation's name (RelationFacts `upkept`): each stored
+ * relation whose upkeep reads its rows (analysis/theory/unit.ts StoredUpkeep `reads`), then each whose upkeep reads one
+ * of those, until none is added, each once, in name order.
+ */
+const upkeptOf = (model: LawModel): ReadonlyMap<string, ReadonlyArray<string>> => {
+	const readers = new Map<string, Set<string>>()
+	for (const u of model.theory.upkeeps) {
+		for (const r of u.reads) {
+			readers.getOrInsertComputed(r.relation, () => new Set()).add(u.relation)
+		}
+	}
+	return new Map(
+		[...readers.keys()].map((relation) => {
+			const kept = new Set<string>()
+			const pending = [...(readers.get(relation) ?? [])]
+			for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
+				if (!kept.has(next)) {
+					kept.add(next)
+					for (const reader of readers.get(next) ?? []) {
+						pending.push(reader)
+					}
+				}
+			}
+			return [relation, [...kept].toSorted(compareStrings)] as const
+		})
+	)
+}
+
+/**
  * The facts of every relation the installation holds, by its name (analysis/isolation/facts.ts RelationFacts): each
  * relation the model's owned schema states, at every level, stored, closed and derived alike, by its declared name, and
  * each stored canonical relation of an import no declaration names (analysis/derived/canonical.ts), `__canonical_
  * <digest>`, whose table a write's upkeep keeps, a rule's witness reads by its name and a role reads through its whole
  * view (program/isolation/member-facts.ts extractNames), as a derived relation's: the laws its rule-over-query triggers
- * still discharge (`triggerLawsOver`), its declared keys, its counted groups, its references, and what an insertion
- * into it meets. The relation half of isolationInput, which the borrow rules' installation reads too
+ * still discharge (`triggerLawsOver`), its declared keys, its counted groups, its references, what an insertion into
+ * it meets, and the stored relations a write of it keeps (`upkeptOf`). The relation half of isolationInput, which the borrow rules' installation reads too
  * (program/isolation/borrows.ts borrowInstallationOf). Before it stated the owned schema's alone, so every role whose
  * writes kept, probed or read an anonymous stored canonical relation failed `facts` by it: edullm's pantry generate at
  * qti-pie 3ab19845, by __canonical_6f6bf243b1e97b31 and __canonical_948062b0814e796f.
@@ -167,6 +197,7 @@ export const relationFacts = (
 	const keys = nativeKeys(model)
 	const counted = countedGroups(model)
 	const references = nativeReferences(model)
+	const upkept = upkeptOf(model)
 	const factsOf = (name: string, inserts: InsertsFact): readonly [string, RelationFacts] => [
 		name,
 		{
@@ -174,7 +205,8 @@ export const relationFacts = (
 			keys: keys.get(name) ?? [],
 			countedGroups: counted.get(name) ?? [],
 			references: references.get(name) ?? [],
-			inserts
+			inserts,
+			upkept: upkept.get(name) ?? []
 		}
 	]
 	return new Map<string, RelationFacts>([

@@ -642,8 +642,8 @@ export const theIsolationCertifierRunsARoleREADCOMMITTEDExactlyWhenEveryConditio
 				},
 				{
 					file: "packages/engine/src/analysis/isolation/certify.ts",
-					original: "\t\t? [...readers, ...cowriters]\n\t\t: [\n\t\t\t\t...readers,",
-					replacement: "\t\t? [...cowriters]\n\t\t: [",
+					original: "\t\t? [...readers, ...cowriters, ...keepers]\n\t\t: [\n\t\t\t\t...readers,",
+					replacement: "\t\t? [...cowriters, ...keepers]\n\t\t: [",
 					why: "Condition `laws` without its second half, a change member of a role that runs SERIALIZABLE reading a relation the role writes (givenReasons); the search fails."
 				},
 				{

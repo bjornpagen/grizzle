@@ -6126,7 +6126,11 @@ statement's. The role is certified READ COMMITTED when all of these hold, and st
   relation or a family's slot is. A
   row the call inserted, read back in a later statement by the key it was inserted at, is its own, when no statement
   up to the insert read other calls' rows.
-- **No SERIALIZABLE role writes what it writes.** The table's guard would refuse every one of its writes.
+- **No SERIALIZABLE role writes what it writes, or keeps a stored relation it keeps.** The table's guard would refuse
+  every one of its writes. A write keeps a stored relation where its definition reads the relation written, directly
+  or through another stored relation ([Derived tables](#derived-tables)): the judge's borrow orders two writers' upkeeps
+  of one unit, but a SERIALIZABLE upkeep reads at its transaction's snapshot, which no lock moves past a READ COMMITTED
+  writer's commit, so it would keep the unit as though that writer's rows were not there.
 - **No SERIALIZABLE writer of what it reads can miss another call's write.** Every role that runs SERIALIZABLE and
   writes a relation the role reads (by a statement, or the judge of a rule over a query its write arms) reads no row
   another call can write, makes no foreign key check but one that finds an immutable row (of a relation every role only
@@ -6167,7 +6171,7 @@ counts of it. Each fence follows the roles. The conditions:
 | `absence`    | a ChangeSet that reads whether rows of a relation it writes are missing, or counts them, or a check of grizzle's own over rows no whole immutable group of its statement brings |
 | `snapshot`   | a read of other calls' rows beside another one in a later statement, or beside a foreign key check                                      |
 | `pivot`      | a read of other calls' rows that is no whole immutable group, a row it writes not joined with such a read, or a foreign key check of a row that can change |
-| `writers`    | a SERIALIZABLE role writing what it writes, or writing what it reads by a statement or a rule's judge while reading other calls' rows or making a check of a row that can change |
+| `writers`    | a SERIALIZABLE role writing what it writes, or keeping a stored relation it keeps, or writing what it reads by a statement or a rule's judge while reading other calls' rows or making a check of a row that can change |
 
 A role's level is in its login's served file, so a change that moves it shows as a stale served file in `grizzle
 check`, like any change to the workload. The served login reads it: `served<typeof Web>(webFile, "web").roles.member.isolation`
