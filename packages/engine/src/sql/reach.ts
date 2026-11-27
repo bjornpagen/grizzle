@@ -118,7 +118,6 @@ export class ReachOf {
 					return name
 				case "type":
 				case "operatorClass":
-				case "statistics":
 					return name
 			}
 		},

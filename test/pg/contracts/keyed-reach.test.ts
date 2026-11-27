@@ -56,18 +56,5 @@ export const everyScanOfAKeyedRelationBindsEveryKeyColumnTheCallBindsThroughEver
 		budget: { runs: 16, steered: 16 },
 		show: Formatter.format,
 		kept: [],
-		kills: [
-			{
-				file: "packages/engine/src/physical/statistics/declared.ts",
-				original: "\t\tif (taken.includes(c)) {",
-				replacement: "\t\tif (taken.includes(c) || shape.unit.includes(c)) {",
-				why: "The unit's lead declared no anchor: its field holds a few values at any size, so PostgreSQL prices a read by the unit at a share of the table and plans it by a scan of every document's rows, its index condition binding nothing the read binds."
-			},
-			{
-				file: "packages/engine/src/physical/statistics/declared.ts",
-				original: '\t\t\t\t\t\tkind: "relative",',
-				replacement: '\t\t\t\t\t\tkind: "absolute",',
-				why: "Each anchor declared a number of distinct values that holds at one size alone, as a sample's would: at a table's few installed pages a probe of it finds a row or two, and at a million rows a share of the table, which PostgreSQL reads by a scan, its index condition binding nothing the read binds; the plans at scale leave the bound, those as installed keep it."
-			}
-		]
+		kills: []
 	})

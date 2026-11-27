@@ -54,7 +54,6 @@ import {
 	together as ordersTogether
 } from "#compiler/physical/indexes/chains.ts"
 import type { Node } from "#compiler/physical/obligations/graph.ts"
-import type { Binding } from "#compiler/physical/statistics/declared.ts"
 import {
 	type DatumBound,
 	datumBound,
@@ -116,11 +115,16 @@ export const keyTermText = (c: KeyTerm): string => {
 /** A native column's text, as an index's key names it (`keyTermText`). */
 export const nativeText = (c: NativeColumn): string => keyTermText(indexColumnOf(c))
 
+/** A set of columns a request binds by equality, each by its text (`keyTermText`), and what binds it. */
+interface Binding {
+	readonly columns: ReadonlyArray<string>
+	readonly by: string
+}
+
 /** The columns a request binds by equality, each by its text (`keyTermText`): a workload path's fixed keys; a law's
  * lookups of a unit, each; or every key of a law's other request but a suffix key, which its seek matches a prefix of.
- * The planner reads them to order a block against PostgreSQL's skip scan (`skipFree`), the declared statistics to rank
- * each binding's access paths (physical/statistics/statistics.ts). */
-export const requestBindings = (r: IndexRequest): ReadonlyArray<Binding> => {
+ * The planner reads them to order a block against PostgreSQL's skip scan (`skipFree`). */
+const requestBindings = (r: IndexRequest): ReadonlyArray<Binding> => {
 	if (r.role === "access") {
 		return [
 			{

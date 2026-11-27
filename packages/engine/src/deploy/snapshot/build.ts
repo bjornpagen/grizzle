@@ -852,7 +852,6 @@ const snapshotTablesOf = (installation: Installation): SnapshotTables => {
 			case "table":
 			case "constant":
 			case "domain":
-			case "statistics":
 			case "isolationTrigger":
 			case "immutableTrigger":
 			case "lawTrigger":
@@ -1076,7 +1075,7 @@ export const derivedFacts = (
 /** The target snapshot's content, built from the compiled installation of the current schema and workload, with the
  * bookkeeping tables' objects added to its manifest (deploy/ledger/ledger.ts bookkeepingTables): each table and its
  * SERIALIZABLE guard trigger in Setup, after the guard's function, the migrations ledger first, then the drift check's
- * proofs, and each one's declared statistics in Indexes; every login's SELECT on the ledger in Publish, and the ledger among the tables of the live source's
+ * proofs; every login's SELECT on the ledger in Publish, and the ledger among the tables of the live source's
  * publication (ledgerPublished), where the installation holds one. */
 export const targetState = (input: TargetInput): Result.Result<SnapshotContent, CompileError> =>
 	catchRefusal(() => {
@@ -1087,8 +1086,7 @@ export const targetState = (input: TargetInput): Result.Result<SnapshotContent, 
 		 * creates the function before them. */
 		const bookkeeping = mapNonEmpty(bookkeepingTables, (b) => ({
 			object: b.object(schema),
-			guard: b.guard(schema),
-			statistics: b.statistics(schema)
+			guard: b.guard(schema)
 		}))
 		const [ledger] = bookkeeping
 		/** The objects this adds to the installation's or rewrites, whose named edges it adds (`edges`). */
@@ -1103,8 +1101,8 @@ export const targetState = (input: TargetInput): Result.Result<SnapshotContent, 
 			}
 			if (o.kind === "isolationFunction") {
 				for (const b of bookkeeping) {
-					objects.push(b.object, b.guard, b.statistics)
-					added.push(b.object, b.guard, b.statistics)
+					objects.push(b.object, b.guard)
+					added.push(b.object, b.guard)
 				}
 			}
 		}
@@ -1122,8 +1120,7 @@ export const targetState = (input: TargetInput): Result.Result<SnapshotContent, 
 			...bookkeeping.flatMap((b) => [
 				{ from: namedIdent("schema", schema), to: b.object.ident },
 				{ from: isolationFunctionIdent(schema), to: b.guard.ident },
-				{ from: b.object.ident, to: b.guard.ident },
-				{ from: b.object.ident, to: b.statistics.ident }
+				{ from: b.object.ident, to: b.guard.ident }
 			]),
 			...installation.manifest.objects.flatMap((o) =>
 				o.kind === "publication" ? [{ from: ledger.object.ident, to: o.ident }] : []

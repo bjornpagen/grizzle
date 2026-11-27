@@ -62,12 +62,6 @@ export const aProbedLawOverADerivedRelationReadAtABindingThatLeavesItsUnitFreeRe
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/physical/statistics/declared.ts",
-				original: "\treturn (shape.unit.length > 0 ? shape.bindings : []).flatMap((binding) => {",
-				replacement: "\treturn ([] as ReadonlyArray<Binding>).flatMap((binding) => {",
-				why: "No index a unit-free binding leads is an anchor: PartByBase's (number, generation) is priced at a share of Part, 765 of its 2,650 rows, and PostgreSQL runs the containment's existence test by a scan of Part, which reads every other unit's rows before the touched unit's, stored last."
-			},
-			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
 				original: '\t\tif (target === undefined || target.kind === "closed") {\n',
 				replacement: '\t\tif (target === undefined || target.kind !== "relation") {\n',

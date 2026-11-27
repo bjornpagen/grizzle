@@ -1981,7 +1981,7 @@ export interface DropPolicy {
 export type DropObject =
 	| {
 			readonly kind: "drop"
-			readonly object: "TABLE" | "VIEW" | "DOMAIN" | "STATISTICS" | "TYPE"
+			readonly object: "TABLE" | "VIEW" | "DOMAIN" | "TYPE"
 			readonly name: ObjectName
 			readonly ifExists: boolean
 	  }
@@ -2325,47 +2325,6 @@ export interface CreateExtension {
 	readonly name: string
 	/** The schema the extension's objects live in: the installation names one for every extension it creates. */
 	readonly schema: string
-}
-
-/**
- * A column's declared number of distinct values (physical/statistics/declared.ts): -1/2^exponent, each value 2^exponent
- * of the table's rows at any size of it (`relative`), or 2^exponent values (`absolute`), each exact in a float4.
- */
-export type DeclaredDistinct =
-	| { readonly kind: "relative"; readonly exponent: number }
-	| { readonly kind: "absolute"; readonly exponent: number }
-
-/**
- * A table's declared statistics, two commands (print.ts commandsOf): ALTER TABLE ... SET (autovacuum_analyze_threshold,
- * autovacuum_analyze_scale_factor) at their maxima, so autovacuum analyzes the table never in practice, and ALTER COLUMN
- * ... SET STATISTICS 0 of every column, so an ANALYZE, a consumer's included, samples nothing of them and keeps what is
- * declared (analyze.c attribute_is_analyzable); each declared dependency's CREATE STATISTICS IF NOT EXISTS ...
- * (dependencies) and ALTER STATISTICS ... SET STATISTICS 0; then one DO block (print.ts declaredStatisticsBlock) that, for each column, clears its
- * statistics and restores its declared number of distinct values (pg_clear_attribute_stats,
- * pg_restore_attribute_stats), and each dependency's (pg_clear_extended_stats, pg_restore_extended_stats, its
- * attributes the columns' numbers read from pg_attribute), a restore answering false raising, so every one is restored
- * or the statement fails. Its
- * null fraction and average width are the restore's own defaults, 0 and unknown, so the planner reads a column of no
- * declared width by its type.
- */
-export interface DeclareStatistics {
-	readonly kind: "declareStatistics"
-	readonly table: ObjectName
-	readonly columns: NonEmptyReadonlyArray<{
-		readonly column: string
-		readonly distinct: DeclaredDistinct
-	}>
-	/**
-	 * Each declared dependency of one anchor on another (physical/statistics/declared.ts DeclaredDependency): a
-	 * statistics object of the dependencies kind in the table's schema, its statistics target 0, so no ANALYZE samples
-	 * it, its degree 1/2^exponent restored.
-	 */
-	readonly dependencies: ReadonlyArray<{
-		readonly name: ObjectName
-		readonly determinant: string
-		readonly dependent: string
-		readonly exponent: number
-	}>
 }
 
 type LockMode = "ACCESS SHARE" | "SHARE" | "SHARE ROW EXCLUSIVE" | "EXCLUSIVE" | "ACCESS EXCLUSIVE"
@@ -2841,14 +2800,14 @@ export interface FillStored {
 }
 
 /**
- * What a COMMENT names: a schema or a role by its bare name; a relation, type, domain, sequence, index or statistics
- * object by its qualified name; a column of a table or view; a table's constraint, trigger or policy, on its table; a
+ * What a COMMENT names: a schema or a role by its bare name; a relation, type, domain, sequence or index by its
+ * qualified name; a column of a table or view; a table's constraint, trigger or policy, on its table; a
  * domain's constraint, on its domain; a function by its signature.
  */
 export type CommentTarget =
 	| { readonly kind: "SCHEMA" | "ROLE"; readonly name: string }
 	| {
-			readonly kind: "TABLE" | "VIEW" | "DOMAIN" | "TYPE" | "INDEX" | "STATISTICS"
+			readonly kind: "TABLE" | "VIEW" | "DOMAIN" | "TYPE" | "INDEX"
 			readonly name: ObjectName
 	  }
 	| { readonly kind: "COLUMN"; readonly relation: ObjectName; readonly column: string }
@@ -2925,7 +2884,6 @@ export type Ddl =
 	| GrantColumns
 	| AlterDefaultPrivileges
 	| CreateExtension
-	| DeclareStatistics
 	| LockTable
 	| Comment
 

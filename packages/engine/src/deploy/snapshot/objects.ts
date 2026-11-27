@@ -28,7 +28,6 @@ import {
 	type CreateRole,
 	type CreateRowType,
 	type CreateSchema,
-	type DeclareStatistics,
 	type CreateTable,
 	type CreateView,
 	type DomainConstraint,
@@ -120,11 +119,6 @@ export type Installed<O extends AnyObject = ManifestObject> =
 			readonly kind: "index" | "uniqueIndex"
 			readonly object: O
 			readonly create: CreateIndex
-	  }
-	| {
-			readonly kind: "statistics"
-			readonly object: O
-			readonly create: DeclareStatistics
 	  }
 	| {
 			readonly kind: "isolationTrigger"
@@ -363,10 +357,6 @@ export const installed = <O extends AnyObject>(o: O): Installed<O> => {
 			return s?.kind === "createIndex"
 				? { kind: o.kind, object: o, create: s }
 				: malformed("a CREATE INDEX")
-		case "statistics":
-			return o.ddl.length === 1 && s?.kind === "declareStatistics"
-				? { kind: o.kind, object: o, create: s }
-				: malformed("a table's declared statistics")
 		case "isolationTrigger":
 			return s?.kind === "createGuardTrigger"
 				? { kind: o.kind, object: o, create: s }
@@ -552,8 +542,7 @@ export const installed = <O extends AnyObject>(o: O): Installed<O> => {
 	}
 }
 
-/** The table an object belongs to, read off its view: a relation's own, the table an index, a
- * table's declared statistics, a law or isolation trigger, a constraint or a law column is on, and the ledger's. Every other kind
+/** The table an object belongs to, read off its view: a relation's own, the table an index, a law or isolation trigger, a constraint or a law column is on, and the ledger's. Every other kind
  * stands outside any table. */
 export const objectTable = (o: AnyObject): ObjectName | undefined => {
 	const v = installed(o)
@@ -567,7 +556,6 @@ export const objectTable = (o: AnyObject): ObjectName | undefined => {
 			return v.create.name
 		case "index":
 		case "uniqueIndex":
-		case "statistics":
 		case "isolationTrigger":
 		case "immutableTrigger":
 		case "lawTrigger":
@@ -662,7 +650,6 @@ export const keyOrCheckDefinition = (
 export type BuiltOverKind =
 	| "index"
 	| "uniqueIndex"
-	| "statistics"
 	| "primaryKey"
 	| "unique"
 	| "check"
@@ -680,8 +667,7 @@ export interface BuiltOver<O extends AnyObject = ManifestObject> {
 
 /** What an object is built over, read for every installed kind in this one place, so every rule asking what a change of
  * a column reaches (a column converted in place by a type change, dropped and added again, or renamed by a declared
- * rename) asks it here: an index reads its keys, INCLUDE columns and predicate; a table's declared statistics every column they declare; a
- * constraint its own, `constraint` giving the definition of one declared inside its table's CREATE TABLE; a law column
+ * rename) asks it here: an index reads its keys, INCLUDE columns and predicate; a constraint its own, `constraint` giving the definition of one declared inside its table's CREATE TABLE; a law column
  * the columns its generation reads, a partial term
  * those of its selection and its term, and a constant none. Nothing
  * else is built over a table's columns: a table holds them, a table's isolation trigger reads none, and every other kind
@@ -694,8 +680,6 @@ export const builtOver = <O extends AnyObject>(
 		case "index":
 		case "uniqueIndex":
 			return { part: v, table: v.create.table, columns: indexColumns(v.create) }
-		case "statistics":
-			return { part: v, table: v.create.table, columns: v.create.columns.map((c) => c.column) }
 		case "primaryKey":
 		case "unique":
 		case "check":
@@ -755,7 +739,7 @@ export const builtOver = <O extends AnyObject>(
 /** The kinds of part a relation owns under a name of its own, in the order a relation's rename takes them: its
  * constraints, its indexes, and the columns it holds beside its declared fields (a law column's). A constraint's and a
  * column's name lies in its table's namespace; an index's in its schema's relations, but it is built over one table and
- * stands or goes with it. A table's declared statistics hold no name of their own. */
+ * stands or goes with it. */
 const partKinds = ["constraint", "index", "column"] as const
 export type PartKind = (typeof partKinds)[number]
 
@@ -788,7 +772,7 @@ export type PartOf<K extends PartKind> = Extract<Part, { readonly kind: K }>
  * relation's parts across a rename, or takes away what one leaves behind, reads one list and no kind of part can be
  * left out of one of them: a key, check or foreign key, by its name, `constraint` giving the definition of one declared
  * inside its table's CREATE TABLE; an index; and a law column. Nothing else is a part: the table itself is the relation,
- * its declared statistics hold no name, and every other kind stands outside any table. */
+ * and every other kind stands outside any table. */
 const objectParts = <O extends AnyObject>(
 	v: Installed<O>,
 	constraint: (c: KeyOrCheckView<O>) => KeyOrCheck
@@ -824,7 +808,6 @@ const objectParts = <O extends AnyObject>(
 		case "lawColumn":
 			return [{ kind: "column", table: v.table, name: v.column, definition: v.definition }]
 		case "table":
-		case "statistics":
 		case "isolationTrigger":
 		case "immutableTrigger":
 		case "lawTrigger":

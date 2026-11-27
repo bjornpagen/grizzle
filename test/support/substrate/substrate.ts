@@ -1287,8 +1287,7 @@ const freshSeeds = (fresh: string, which: "every" | "written"): string =>
  * TOAST `autovacuum_enabled = false`, a storage parameter, so no VACUUM of autovacuum's writes a table's sizes into
  * pg_class in place while a case runs, counting none of its rows in flight, and no case's plan follows when autovacuum
  * happened to visit a table. A rolled-back case leaves its rows dead and counted (pg_stat n_dead_tup, n_ins_since_vacuum),
- * past autovacuum's thresholds within a few cases; its ANALYZE an installation already keeps out of every table whose
- * statistics it declares (sql/print.ts declareStatistics, autovacuum_analyze_threshold). probe-share's judge read 384
+ * past autovacuum's thresholds within a few cases. probe-share's judge read 384
  * rows at two shares against 192 at one under a 16-worker gate, its tables sized by files of every earlier case's dead
  * rows, its replay on a fresh clone green.
  */

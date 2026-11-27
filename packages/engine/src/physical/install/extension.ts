@@ -38,7 +38,7 @@ export const noContribution: InstallContribution = {
 /** What another package installs, plugged into an installation: the tables of stored derived relations and the
  * workload access paths. Each extension runs with the builder after the native objects and the span CHECKs and before
  * the indexes, so its objects join the one obligation graph and order, and its index requests join the one index
- * engine; every table's declared statistics are planned once every index is (physical/statistics/declared.ts).
+ * engine.
  *
  * `contribute` adds the extension's objects to the builder once the native objects exist, each after the objects it
  * reads, named by their handles. */

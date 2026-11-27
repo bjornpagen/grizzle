@@ -95,7 +95,7 @@ const nameOf = (ident: GraphIdent): string => {
 }
 
 /** What a COMMENT names for an object identity: its object's target, or none for an identity no comment names (a
- * table's declared statistics, an extension, a membership, a role's privileges, row security, a replica identity, a
+ * statistics object, an extension, a membership, a role's privileges, row security, a replica identity, a
  * publication, a validation). */
 const commentTarget = (ident: GraphIdent): CommentTarget | undefined => {
 	switch (ident.kind) {

@@ -86,9 +86,7 @@ export const noDeclarations: Declarations = Object.freeze({ renames: [], drops: 
  *   views, world functions and policies created again with their grants, each whose role stands before the migration:
  *   in the one transaction that dropped them, so no committed state lacks one an existing role relies on;
  * - indexes: ordinary CREATE INDEX on relations this migration creates, which hold no row but a new stored table's,
- *   which only its fill writes and the build blocks no read of, and each table's declared statistics
- *   (physical/statistics), every column's statistics target set to 0 and its declared number of distinct values
- *   restored, which no ANALYZE replaces: a migration runs no ANALYZE;
+ *   which only its fill writes and the build blocks no read of;
  * - indexes.concurrent: CREATE INDEX CONCURRENTLY on relations that may hold rows, each after dropping an invalid
  *   index a failed build left;
  * - validate, validate.retrigger: VALIDATE CONSTRAINT of the constraints Structure added NOT VALID, the rule judge's
@@ -105,7 +103,7 @@ export const noDeclarations: Declarations = Object.freeze({ renames: [], drops: 
  *   removed laws' native objects and constraints, the logins and roles, the roles' schemas, the views, world
  *   functions and policies of the roles this migration creates, and row security, the grants and memberships, the
  *   login defaults and PUBLIC revokes, every object the target no longer has, dropped in place: its indexes, roles and schemas of views,
- *   statistics, views, functions, stored tags, columns, tables and types, in that order; then each domain's VALIDATE
+ *   views, functions, stored tags, columns, tables and types, in that order; then each domain's VALIDATE
  *   CONSTRAINT, once every column the target no longer has is gone: PostgreSQL validates a domain over every column it
  *   types, and the rows of a column the migration drops do not outlive it (a removed handle's code in a dropped
  *   relation, which no data step converts), while the CHECK, added NOT VALID in Structure, has held every write since;

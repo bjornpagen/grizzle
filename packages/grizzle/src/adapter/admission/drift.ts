@@ -515,57 +515,6 @@ const relationWithin = (c: C.CatalogSource): C.CatalogExpr => {
 }
 
 /**
- * A column's statistics as pg_stats shows them, the planner's whole input of the column (physical/statistics/declared.ts):
- * its null fraction, average width and number of distinct values, and each sampled statistic it holds, its most common
- * values, histogram and correlation, which a declared column holds none of; none where it holds no statistics. A
- * column's statistics, its statistics target beside these (`columnStatistics`), are a fact of its relation's declared
- * statistics (`statistics:<s>.<t>`) wherever PostgreSQL holds either, and so are a table's storage parameters, which the
- * declaration sets (its automatic ANALYZE's thresholds at their maxima), never the relation's own description: a column
- * whose statistics an ANALYZE sampled, or whose statistics target a consumer set, differs from the snapshot's replay,
- * which restores the declaration, and the declaration, never the column, is what differs, which a migration declares
- * again whole; a column added by hand, of neither, is its own fact alone.
- */
-const declaredStatistics = (
-	n: C.CatalogSource,
-	c: C.CatalogSource,
-	a: C.CatalogSource
-): C.CatalogExpr => {
-	const st = C.from("pg_stats", "st")
-	return C.scalar(
-		C.query(
-			[
-				parts([
-					labelled("null fraction ", C.asText(st.col("null_frac"))),
-					labelled("width ", C.asText(st.col("avg_width"))),
-					labelled("distinct ", C.asText(st.col("n_distinct"))),
-					labelled("common values ", C.asText(st.col("most_common_vals"))),
-					labelled("histogram ", C.asText(st.col("histogram_bounds"))),
-					labelled("correlation ", C.asText(st.col("correlation")))
-				])
-			],
-			[st.item],
-			C.and([
-				C.eq(st.col("schemaname"), n.col("nspname")),
-				C.eq(st.col("tablename"), c.col("relname")),
-				C.eq(st.col("attname"), a.col("attname")),
-				C.not(st.col("inherited"))
-			])
-		)
-	)
-}
-
-/** A column's statistics target and statistics (`declaredStatistics`), empty where PostgreSQL holds neither. */
-const columnStatistics = (
-	n: C.CatalogSource,
-	c: C.CatalogSource,
-	a: C.CatalogSource
-): C.CatalogExpr =>
-	parts([
-		labelled("statistics target ", C.asText(a.col("attstattarget"))),
-		declaredStatistics(n, c, a)
-	])
-
-/**
  * Each fact of a schema's description, four text columns: its key, the identity of the object it describes and of the
  * relation it lies in (the object's own for an object that lies in none), and its description; $1 the schema read, $2
  * the schema the keys and the identities spell. The two identities are the manifest's spellings
@@ -719,57 +668,6 @@ const descriptionSelect = (): C.CatalogSelect => {
 			)
 		)
 	}
-	/** The name of the table a statistics object is on. */
-	const statisticsRelation = (): C.CatalogExpr => {
-		const r = C.from("pg_class", "r")
-		return C.scalar(C.query([r.col("relname")], [r.item], C.eq(r.col("oid"), x.col("stxrelid"))))
-	}
-	/**
-	 * A statistics object's restored functional dependency, its first, as pg_stats_ext holds it, its attributes named by
-	 * their columns, never their numbers, which a table of dropped columns numbers otherwise than the snapshot's replay:
-	 * its determinant, its dependent and its degree; none where it holds none.
-	 */
-	const statisticsDependencies = (): C.CatalogExpr => {
-		const e = C.from("pg_stats_ext", "e")
-		const value = (...path: NonEmptyReadonlyArray<string>): C.CatalogExpr =>
-			C.catalogCall("jsonb_extract_path_text", [
-				C.cast(C.asText(e.col("dependencies")), "jsonb"),
-				...Arr.map(path, C.text)
-			])
-		const column = (attnum: C.CatalogExpr): C.CatalogExpr => {
-			const da = C.from("pg_attribute", "da")
-			return C.scalar(
-				C.query(
-					[quoted(da.col("attname"))],
-					[da.item],
-					C.and([
-						C.eq(da.col("attrelid"), x.col("stxrelid")),
-						C.eq(da.col("attnum"), C.cast(attnum, "smallint"))
-					])
-				)
-			)
-		}
-		return C.scalar(
-			C.query(
-				[
-					C.concat([
-						C.text("dependency of "),
-						column(value("0", "dependency")),
-						C.text(" on "),
-						column(value("0", "attributes", "0")),
-						C.text(" degree "),
-						value("0", "degree")
-					])
-				],
-				[e.item],
-				C.and([
-					C.eq(e.col("statistics_schemaname"), n.col("nspname")),
-					C.eq(e.col("statistics_name"), x.col("stxname")),
-					C.not(e.col("inherited"))
-				])
-			)
-		)
-	}
 	const policyRoles = (): C.CatalogExpr => {
 		const o = C.fromFunction(
 			C.catalogCall("unnest", [policy.col("polroles")]),
@@ -839,10 +737,7 @@ const descriptionSelect = (): C.CatalogSelect => {
 						],
 						undefined
 					),
-					when(
-						C.not(C.inList(c.col("relkind"), C.letters(["r", "p", "m"]))),
-						labelled("options ", C.asText(c.col("reloptions")))
-					),
+					labelled("options ", C.asText(c.col("reloptions"))),
 					C.caseWhen(
 						[
 							{
@@ -937,43 +832,6 @@ const descriptionSelect = (): C.CatalogSelect => {
 				C.inList(c.col("relkind"), C.letters(["r", "p", "f", "c"])),
 				C.gt(a.col("attnum"), C.literal(0n, "smallint")),
 				C.not(a.col("attisdropped")),
-				notExtensionMember("pg_class", c.col("oid"))
-			])
-		),
-		C.catalogCore(
-			[
-				keyOf("storage parameters", [c.col("relname")]),
-				identOf("statistics", [c.col("relname")]),
-				containerIdent(c),
-				parts([labelled("options ", C.asText(c.col("reloptions")))])
-			],
-			[C.inNamespace(c.item, n, c.col("relnamespace"))],
-			C.and([
-				inSchema(n),
-				C.inList(c.col("relkind"), C.letters(["r", "p", "m"])),
-				notExtensionMember("pg_class", c.col("oid"))
-			])
-		),
-		C.catalogCore(
-			[
-				keyOf("column statistics", [c.col("relname"), a.col("attname")]),
-				identOf("statistics", [c.col("relname")]),
-				containerIdent(c),
-				columnStatistics(n, c, a)
-			],
-			[
-				C.inNamespace(
-					C.join(a.item, c.item, C.eq(c.col("oid"), a.col("attrelid"))),
-					n,
-					c.col("relnamespace")
-				)
-			],
-			C.and([
-				inSchema(n),
-				C.inList(c.col("relkind"), C.letters(["r", "p", "m"])),
-				C.gt(a.col("attnum"), C.literal(0n, "smallint")),
-				C.not(a.col("attisdropped")),
-				C.ne(columnStatistics(n, c, a), C.text("")),
 				notExtensionMember("pg_class", c.col("oid"))
 			])
 		),
@@ -1104,15 +962,7 @@ const descriptionSelect = (): C.CatalogSelect => {
 		C.catalogCore(
 			[
 				keyOf("statistics", [x.col("stxname")]),
-				C.caseWhen(
-					[
-						{
-							when: C.eq(C.asText(x.col("stxkind")), C.text("{f}")),
-							result: identOf("statistics", [statisticsRelation()])
-						}
-					],
-					identOf("statistics", [x.col("stxname")])
-				),
+				identOf("statistics", [x.col("stxname")]),
 				containerOf(x.col("stxrelid")),
 				parts([
 					owner(x.col("stxowner")),
@@ -1123,8 +973,7 @@ const descriptionSelect = (): C.CatalogSelect => {
 						C.asText(C.catalogCall("pg_get_statisticsobjdef_expressions", [x.col("oid")]))
 					),
 					statisticsTable(),
-					labelled("statistics target ", C.asText(x.col("stxstattarget"))),
-					statisticsDependencies()
+					labelled("statistics target ", C.asText(x.col("stxstattarget")))
 				])
 			],
 			[C.inNamespace(x.item, n, x.col("stxnamespace"))],
@@ -1460,7 +1309,6 @@ const inScratch = (
 		case "createImmutableGuardTrigger":
 		case "createConstraintTrigger":
 		case "createTransitionTrigger":
-		case "declareStatistics":
 		case "createLiveSecret":
 			return [transformStatement(s, hooks)]
 		case "createPublication":

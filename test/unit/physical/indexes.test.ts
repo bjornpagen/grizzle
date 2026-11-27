@@ -698,14 +698,6 @@ export const aChainedIndexLetsNoSpanningBindingStepAColumnWhereAnOrderOfItsColum
 				why: "Each chained request landed on the first index created that serves it, as before, not its own chain's: a seek grouped with a lookup of (doc, f2) orders its chain's index (f2, doc) and lands on another chain's (f2, f3, f1), leaving (f2, doc) ordered for nothing it serves (the second and third kept cases)."
 			},
 			{
-				file: "packages/engine/src/physical/statistics/declared.ts",
-				original:
-					'\t\treturn { kind: raised.kind, bounds: [defined(first, "a refused bound"), ...rest] }',
-				replacement:
-					'\t\treturn { kind: "unsettled", bounds: [defined(first, "a refused bound"), ...rest] }',
-				why: "A crossing refused as an unsettled raise, a limitation of grizzle's: the author of Part, whose keys and lookups cross, is told to report it and change nothing, where a crossed key given a column, or an index of one set asked for the other's columns, ranks its statements (the kept case)."
-			},
-			{
 				file: "packages/engine/src/physical/indexes/engine.ts",
 				original:
 					"\t\t\t(k) => spanning.scopes.has(text(k)) || reaching.every((binding) => binding.has(text(k)))",

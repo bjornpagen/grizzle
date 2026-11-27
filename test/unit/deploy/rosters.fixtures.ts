@@ -520,34 +520,6 @@ const constantsRule = (
 	]
 }
 
-/**
- * The words of the tables' declared statistics, which the model does not state, as the one rule for a declaration
- * predicts them: a table's declared statistics declared again, in Indexes, where its declaration changed (its roster
- * column's handles crossed one, or the solver's exponents moved with them) or, the model's table's, one of its columns
- * was converted or given its expression again, whose statistics PostgreSQL clears (README "Declared statistics"); the
- * bookkeeping tables' declarations stand.
- */
-const declarationsRule = (
-	previous: DeploySnapshot,
-	target: DeploySnapshot,
-	cleared: boolean
-): ReadonlyArray<readonly [Spoken, string]> => {
-	const declarations = (s: DeploySnapshot): ReadonlyMap<string, string> =>
-		new Map(
-			Arr.flatMap(s.manifest.objects, (o) =>
-				installed(o).kind === "statistics" ? [[o.ident, canonicalTextOf(o.ddl)] as const] : []
-			)
-		)
-	const before = declarations(previous)
-	return Arr.flatMap(
-		[...declarations(target)],
-		([ident, text]): ReadonlyArray<readonly [Spoken, string]> =>
-			(cleared && ident === `statistics:${target.schema}.${table}`) || before.get(ident) !== text
-				? [["indexes", "other declareStatistics"]]
-				: []
-	)
-}
-
 /** The model's prediction of an accepted step's words, by slot, from its states before and after. */
 const predicted = (
 	prepared: Prepared,
@@ -840,17 +812,7 @@ const judged = (
 	)
 	const expected = bySlot([
 		...predicted(prepared, before, after, rowsChanged),
-		...constantsRule(previous, draft.snapshot, named),
-		...declarationsRule(
-			previous,
-			draft.snapshot,
-			Arr.some(draft.plan.steps, (st) =>
-				Arr.some(
-					observedOf(st.draft),
-					(w) => Str.startsWith("convert ")(w) || Str.startsWith("set expression ")(w)
-				)
-			)
-		)
+		...constantsRule(previous, draft.snapshot, named)
 	])
 	assert.deepEqual(sortedSeen(seen), sortedSeen(expected), `${at}: the draft's statements by slot`)
 	holdsOrders(seen, at)

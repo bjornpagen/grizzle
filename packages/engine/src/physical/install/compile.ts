@@ -79,7 +79,6 @@ import {
 import { assertCreatesOwned } from "#compiler/physical/obligations/created.ts"
 import { refinedConstantsExtension } from "#compiler/physical/refined/constants.ts"
 import { addSpanStorage } from "#compiler/physical/span/storage.ts"
-import { planDeclarations } from "#compiler/physical/statistics/statistics.ts"
 import { type Owned, ownedIdentities, rostersOf } from "#compiler/schema/own.ts"
 import type { OperandSelect, SqlStatement } from "#compiler/sql/ast.ts"
 import { seekProgram } from "#compiler/sql/seeks.ts"
@@ -452,7 +451,7 @@ export const installationOfPlan = (
 			...variants.map((v) => v.domain)
 		]
 		const declared = addFunctions(b)
-		const { keyIndexes, lawColumns, tables } = addTables(b)
+		const { keyIndexes, tables } = addTables(b)
 		const stamps = addStamps(b)
 		addClockGuards(b)
 		addImmutableGuards(b)
@@ -516,7 +515,6 @@ export const installationOfPlan = (
 		const indexes = phased(phases, { name: "indexes", of: [] }, () =>
 			unwrap(planIndexes(b, keyIndexes, requests))
 		)
-		planDeclarations(b, keyIndexes, lawColumns, indexes)
 
 		const identities = [...ownedIdentities(owned), ...model.identities, ...b.named()]
 		const census = unwrap(censusOf(identities))

@@ -1891,20 +1891,6 @@ export const identity = Object.freeze({
 			`${method} index ${relation}(${keys.map((k) => `${k.field}${k.dir === "desc" ? " desc" : ""}${k.opclass === "default" ? "" : ` ${k.opclass}`}`).join(", ")})${filtered.length === 0 ? "" : `, ${filtered.join(", ")} filtered beside it, not indexed: no byte bound fits the entry`}`,
 			hashed
 		),
-	/** The declared dependency of one anchor of a relation on another (physical/statistics/declared.ts
-	 * DeclaredDependency), a statistics object of the dependencies kind. */
-	dependencies: (
-		relation: string,
-		determinant: string,
-		dependent: string
-	): Identity<"dependencies"> =>
-		mint(
-			"dependencies",
-			[relation, [determinant, dependent]],
-			[...nameSegments(relation), "dep", ...nameSegments(determinant), ...nameSegments(dependent)],
-			`dependencies ${fieldsOf(relation, [determinant, dependent])}`,
-			hashed
-		),
 	/**
 	 * A derived relation's unique index on a key its definition proves, in the stored table `table` holds its rows in
 	 * (core/identity.ts view, a canonical relation's): minted from the table, so each table's indexes are its own and a

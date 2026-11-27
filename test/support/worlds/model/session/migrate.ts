@@ -12,7 +12,7 @@ import {
 	revokesAnew,
 	sameNames
 } from "#test/support/worlds/model/session/catalog.ts"
-import { declaredStatistics, standingGrants } from "#test/support/worlds/model/session/compiled.ts"
+import { standingGrants } from "#test/support/worlds/model/session/compiled.ts"
 
 import { domainLawKey, lawDomainsOf } from "#test/support/worlds/model/session/domains.ts"
 import {
@@ -288,14 +288,7 @@ export const folderFiles = (from: InstallSpec, to: InstallSpec): ReadonlyArray<F
 	 * this folder attaches, which Publish adds once the key is (intoAttached). */
 	const addedNotValid = Arr.filter(notValid, (law) => !intoAttached(law))
 	const structure = worlds || gains || addedNotValid.length > 0 || rosterChanged
-	/** The declared statistics the target states otherwise than the installation, or anew: a key added on a relation
-	 * that may hold rows binds its table otherwise, which Indexes declares before the key is built concurrently. */
-	const declared = declaredStatistics(from)
-	const redeclares = Arr.some(
-		[...declaredStatistics(to)],
-		([table, statement]) => declared.get(table) !== statement
-	)
-	const indexes = redeclares || Arr.some(native, (law) => uniqueIndexed(law) && !onHeld(law))
+	const indexes = Arr.some(native, (law) => uniqueIndexed(law) && !onHeld(law))
 	/** An index the installation holds on a containment's source fields, which a new key leading with them serves instead. */
 	const servedAnew = Arr.some(
 		native,

@@ -81,19 +81,16 @@ import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * Every request a generated workload plans is served, and every index it creates is needed, each case installing its
- * workload on its own substrate (Substrate.fresh); and every column's statistics stay as declared through two VACUUM
- * ANALYZEs around a change of the load's rows, no other column holding any.
+ * workload on its own substrate (Substrate.fresh).
  *
  * Its pre-conversion budget: runs 10, coverage cases 10 (test/pg/physical/serving.test.ts at fa10bca50).
  */
 export const everyRequestAGeneratedWorkloadPlansIsServedAndEveryIndexItCreatesIsNeeded =
 	property.explore(workloadSpace, {
 		needs: { substrate: Substrate.fresh(baseSubstrate) },
-		situations: [
-			"a workload installed",
-			"equality probe served",
-			"every table's declared statistics installed as declared"
-		] satisfies ReadonlyArray<Reached<ServingFeature | WorkloadFeature>>,
+		situations: ["a workload installed", "equality probe served"] satisfies ReadonlyArray<
+			Reached<ServingFeature | WorkloadFeature>
+		>,
 		check:
 			({ substrate }, c: Case<ServingFeature | WorkloadFeature>) =>
 			(sketch) =>
@@ -104,7 +101,7 @@ export const everyRequestAGeneratedWorkloadPlansIsServedAndEveryIndexItCreatesIs
 				),
 		oracle: {
 			kind: "postgresql",
-			name: "PostgreSQL's serving judge: every planned request's probe runs through an index the installation planned, and every created index is needed; and pg_stats after two VACUUM ANALYZEs, the rows changed between them, against the manifest's declared statistics"
+			name: "PostgreSQL's serving judge: every planned request's probe runs through an index the installation planned, and every created index is needed"
 		},
 		budget: { runs: 10, steered: 10 },
 		show: Formatter.format,
@@ -188,19 +185,6 @@ export const everyRequestAGeneratedWorkloadPlansIsServedAndEveryIndexItCreatesIs
 				original: "\t\t\tdirected: isNonEmpty(order) ? order : undefined",
 				replacement: "\t\t\tdirected: keys",
 				why: "An ordered request's fixed keys directed as its order, as before: two seeks that differ only in a fixed key's direction are apart, and each takes an index of its own on the same columns, one of which PostgreSQL does not need."
-			},
-			{
-				file: "packages/engine/src/physical/ddl/live.ts",
-				original:
-					"\t\t\tddl: [ownTableDeclaration(table, [liveSecretColumn], [liveSecretColumn])],",
-				replacement: "\t\t\tddl: [],",
-				why: "The live secret, a table grizzle installs, declared no statistics, as before: its one column holds its statistics target's default and no declared number of distinct values, which an ANALYZE would sample (the first kept case, under the install `grizzle generate` drafts, CONSUMERFIX's 528f3e7d)."
-			},
-			{
-				file: "packages/engine/src/sql/print.ts",
-				original: "...statement.columns.map((c) => `ALTER COLUMN ",
-				replacement: "...statement.columns.slice(1).map((c) => `ALTER COLUMN ",
-				why: "Each table's first column left at its default statistics target: an ANALYZE samples it, so its statistics follow whatever population the table holds when it runs, where its declaration held them; the property fails, the column's target the default and, after two ANALYZEs around a change of rows, its statistics sampled."
 			}
 		]
 	})

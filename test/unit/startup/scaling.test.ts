@@ -2,10 +2,9 @@
  * The installation's compile does per-relation work linear in the schema: over the compile benchmark's generated
  * schema (bench/compile/schema.ts), shaped as a downstream grammar is, at half, one and twice a scale, every count of
  * which doubles from each to the next, the compile (the checked schema, the theory and the law model lawsOf reads, and
- * the installation with its declared statistics) makes no more than 2.1 times the calls at twice the schema in each
+ * the installation) makes no more than 2.1 times the calls at twice the schema in each
  * module whose work for a relation once scanned the whole schema: analysis/schema.ts, whose writings of a relation read
- * every statement for the families that cascade into it (CheckedSchema #inPlace), and physical/statistics/statistics.ts,
- * whose shape of a relation read every native, key, index and containment of the installation (Grouped); and the
+ * every statement for the families that cascade into it (CheckedSchema #inPlace); and the
  * schema's builders make no more than 2.1 times the calls in public/fields.ts, whose closed id over a roster copied the
  * roster's handles it holds for each field, though it restricted none (closedId); and the installation makes no more than
  * 2.1 times the calls in ir/cells.ts and core/hex.ts, which encode its closed relations' constants: a constant once
@@ -45,7 +44,6 @@ type ScaleFeature = "the base scale" | "twice the base"
 const counted = {
 	fields: "packages/engine/src/public/fields.ts",
 	schema: "packages/engine/src/analysis/schema.ts",
-	statistics: "packages/engine/src/physical/statistics/statistics.ts",
 	cells: "packages/engine/src/ir/cells.ts",
 	hex: "packages/engine/src/core/hex.ts"
 } as const
@@ -85,11 +83,7 @@ const callsAt = (scale: Scale) =>
 					"the generated schema compiles"
 				)
 			),
-			(file) =>
-				file === counted.schema ||
-				file === counted.statistics ||
-				file === counted.cells ||
-				file === counted.hex
+			(file) => file === counted.schema || file === counted.cells || file === counted.hex
 		)
 		const callsIn = (file: string): number =>
 			Arr.reduce(
@@ -100,7 +94,6 @@ const callsAt = (scale: Scale) =>
 		return {
 			fields: Arr.reduce([...fields.values()], 0, (n, k) => n + k),
 			schema: callsIn(counted.schema),
-			statistics: callsIn(counted.statistics),
 			cells: callsIn(counted.cells),
 			hex: callsIn(counted.hex),
 			cascaded: Arr.reduce(
@@ -129,7 +122,7 @@ export const theInstallationsCompileDoesPerRelationWorkLinearInTheSchema = prope
 					cascaded(half) === cascaded(once) && cascaded(once) === cascaded(twice),
 					`the families that cascade into a relation, read once a checked schema at every scale: ${cascaded(half)}, ${cascaded(once)}, ${cascaded(twice)}`
 				)
-				for (const module of ["fields", "schema", "statistics"] as const) {
+				for (const module of ["fields", "schema"] as const) {
 					const at = (calls: typeof once) => defined(calls, "a scale's calls")[module]
 					assert.ok(
 						at(once) <= 2.1 * at(half) && at(twice) <= 2.1 * at(once),
@@ -169,13 +162,6 @@ export const theInstallationsCompileDoesPerRelationWorkLinearInTheSchema = prope
 				original: "\t\tconst cascaded = this.#cascaded.has(r.name)\n",
 				replacement: "\t\tconst cascaded = cascadedMembers(this.owned).has(r.name)\n",
 				why: "Each relation's writings read every statement of the schema again for the families that cascade into it: the checked schema's calls grow with the square of the schema, and the property fails."
-			},
-			{
-				file: "packages/engine/src/physical/statistics/statistics.ts",
-				original: "\tconst planned = groups.indexes.get(relation) ?? []\n",
-				replacement:
-					"\tconst planned = [...groups.indexes.values()].flat().filter((i) => i.relation === relation)\n",
-				why: "Each relation's shape reads every planned index of the installation for its own: the statistics' calls grow with the square of the schema, and the property fails."
 			}
 		]
 	}

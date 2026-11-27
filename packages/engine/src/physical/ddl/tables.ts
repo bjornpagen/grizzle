@@ -363,8 +363,6 @@ const onUpdateOf: Readonly<Record<NativeOf<"ForeignKey">["onUpdate"], "CASCADE" 
 interface PlacedNatives {
 	/** The constraint objects of keys that can serve index requests: name, relation, method, columns, uniqueness. */
 	readonly keyIndexes: ReadonlyArray<KeyIndex>
-	/** Each relation's law column objects, which an object naming every column of its table is created after. */
-	readonly lawColumns: ReadonlyMap<string, ReadonlyArray<Node<"structure">>>
 	/** The tables, in relation name order. */
 	readonly tables: ReadonlyArray<ObjectName>
 }
@@ -824,15 +822,14 @@ const lawColumnDdl = (b: InstallBuilder, o: NativeOf<"LawColumn">): SqlStatement
 }
 
 /**
- * The objects of the natives once every table stands, and each relation's law column objects: each law column after its
- * table; each key and CHECK after its table (a span key with a scalar component after btree_gist too); each key over a
+ * The objects of the natives once every table stands: each law column after its table; each key and CHECK after its table (a span key with a scalar component after btree_gist too); each key over a
  * column a law adds after those columns; then each reference, after its table, its target's table and key, and the law
  * columns it names.
  */
 const addNatives = (
 	b: InstallBuilder,
 	plans: ReadonlyArray<NativePlan>
-): Pick<PlacedNatives, "keyIndexes" | "lawColumns"> => {
+): Pick<PlacedNatives, "keyIndexes"> => {
 	const lawColumns = new Map<string, Map<string, Node<"structure">>>()
 	for (const n of b.natives) {
 		if (n.namespace !== "column") {
@@ -1007,10 +1004,5 @@ const addNatives = (
 				continue
 		}
 	}
-	return {
-		keyIndexes,
-		lawColumns: new Map(
-			[...lawColumns].map(([relation, columns]) => [relation, [...columns.values()]] as const)
-		)
-	}
+	return { keyIndexes }
 }

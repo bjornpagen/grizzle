@@ -1969,9 +1969,7 @@ class Extractor {
  * is fixed within the seek, so its direction is free; it takes the order's first key's direction, so the exact reverse
  * of an order is the exact reverse of its path, which one index serves forward and backward. An attachment's delivery order and a read-back's order are no seek: without a bound
  * every child row is read anyway, so only the correlation's equality path is requested. ApproximateNearest over a
- * cosine distance of a stored vector column and a fixed vector requests HNSW with the cosine operator class.
- *
- * No program asks for statistics: every table's are declared from the schema's facts (physical/statistics/declared.ts). */
+ * cosine distance of a stored vector column and a fixed vector requests HNSW with the cosine operator class. */
 export const extractAccess = (
 	roots: ReadonlyArray<RelNode>,
 	options: ExtractOptions

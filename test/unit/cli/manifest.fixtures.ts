@@ -17,8 +17,8 @@ import { chunked } from "#test/support/chunked.ts"
  * manifest.json sealed under a domain that names no format (`manifest`); a record sealed again over an edit no draft
  * reads, so it reads but is not the record the schemas compile to; that edit under the draft's seal, a hand edit; both
  * files as d76a61066
- * drafted them, qti-pie's pantry among them, its format the number alone and each declared statistic recording no
- * dependencies, sealed under that format (`a d76a61066 draft`); or that record relabelled with this grizzle's format,
+ * drafted them, qti-pie's pantry among them, its format the number alone, sealed under that format
+ * (`a d76a61066 draft`); or that record relabelled with this grizzle's format,
  * sealed as d76a61066 sealed it (`a d76a61066 record under this format`).
  */
 const commits = [
@@ -166,31 +166,8 @@ const formatDraft = (
 	}
 }
 
-/** A manifest.json record with each declared statistic's dependencies left out (sql/ast.ts DeclareStatistics), as a
- * draft before 56851404d recorded it. */
-const withoutDependencies = (members: Members): Members => {
-	const manifest = trustedJson<
-		Members & {
-			readonly objects: ReadonlyArray<Members & { readonly ddl: ReadonlyArray<Members> }>
-		}
-	>(jsonText(defined(members["manifest"], "manifest.json's manifest")))
-	return {
-		...members,
-		manifest: {
-			...manifest,
-			objects: Arr.map(manifest.objects, (o) => ({
-				...o,
-				ddl: Arr.map(o.ddl, (s): Members =>
-					s["kind"] === "declareStatistics" ? Rec.remove(s, "dependencies") : s
-				)
-			}))
-		}
-	}
-}
-
 /**
- * Both files as d76a61066 drafted them, qti-pie's pantry among them, which 8b75446f4's `grizzle check` failed reading
- * (TypeError: Cannot read properties of undefined (reading 'map')): each declared statistic recording no dependencies,
+ * Both files as d76a61066 drafted them, qti-pie's pantry among them, which 8b75446f4's `grizzle check` failed reading:
  * sealed under the domain of this grizzle's format's number, snapshot.json recording that number alone as its format,
  * or, `relabelled`, this grizzle's format.
  */
@@ -204,7 +181,7 @@ export const d76a61066Draft = (
 		manifest,
 		relabelled ? formatOf.snapshot : artifactFormat,
 		artifactFormat,
-		withoutDependencies
+		(record) => record
 	)
 
 /**

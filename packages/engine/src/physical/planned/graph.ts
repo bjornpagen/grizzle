@@ -749,7 +749,6 @@ class Indexed {
 			case "grantColumns":
 			case "alterDefaultPrivileges":
 			case "createExtension":
-			case "declareStatistics":
 			case "lockTable":
 			case "comment":
 			case "beginRead":

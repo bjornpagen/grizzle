@@ -311,7 +311,6 @@ class Planning {
 			case "createTable":
 			case "createTransitionTrigger":
 			case "createView":
-			case "declareStatistics":
 			case "drop":
 			case "dropFunction":
 			case "dropIndex":

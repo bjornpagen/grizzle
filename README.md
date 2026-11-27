@@ -1383,7 +1383,7 @@ The whole map, from what you declare to what PostgreSQL enforces for every write
 | a family: `ordered`, `counted`, `tree`, `fold` | the drawn and accumulated fields grizzle fills on every write, hidden columns beside them, and the keys, CHECKs and foreign keys that prove each value it fills |
 | `role(...)` | a NOLOGIN role, SELECT on the whole view of each table it holds whole (one view of each table, `__<schema>.<table>`, whichever roles hold it), a schema of its own holding its query entries' views, and its grants; on each table some role writes through a query entry that leaves rows out, row-level security and a policy for each role that writes it |
 | `login(...)` | a LOGIN NOINHERIT role that can switch to its roles, holds no privilege on your tables, and pins the session settings grizzle's guarantees rest on |
-| `workload(...)` | the indexes its programs need, and the declared statistics that rank them; the programs compiled by `grizzle generate` into the login's served file |
+| `workload(...)` | the indexes its programs need; the programs compiled by `grizzle generate` into the login's served file |
 | `derived(...)` | where its definition is unit-local in one unit, a table grizzle keeps equal to its definition at every COMMIT, uniquely indexed on the keys it provably has; otherwise nothing, every query and rule over it reading its definition |
 | a query | SQL, usually one statement and one more per attachment, and a decoder for its exact row type |
 
@@ -2803,14 +2803,11 @@ definition too.
   pinned `search_path`, no role may run them but a table's stand-up, which each role that writes the table may, and a
   temporary table another role made under the judge's names is refused.
 - **Statistics.** Each lookup of a judged statement's chain, a probe's after the rows the transaction wrote and a
-  unit-local rule's within its unit, is PostgreSQL's plan, a read of one table at the columns the steps before it bound,
-  so no estimate turns a join the judge reads into a product it filters after; and every table's statistics are
-  declared ([Declared statistics](#declared-statistics)), so PostgreSQL prices a lookup at the table's key at one row
-  and a narrower index of some of its columns at two rows or more, and takes the key's index, empty or full, before any
-  ANALYZE. A unit-local rule's lookup that binds its unit's key reads within that unit through whatever index
+  unit-local rule's within its unit, is a read of one table at the columns the steps before it bound, so no estimate
+  turns a join the judge reads into a product it filters after. A unit-local rule's lookup that binds its unit's key reads within that unit through whatever index
   PostgreSQL takes whose keys it binds all of: grizzle appends the unit's fields to the keys of each index it creates
-  that such a lookup binds whole, so no index the lookup binds entirely reads past its unit. On PostgreSQL 19, before
-  statistics were declared, edullm's element_type_in_node looked a node up by its key, kind and governor through a
+  that such a lookup binds whole, so no index the lookup binds entirely reads past its unit. On PostgreSQL 19,
+  edullm's element_type_in_node looked a node up by its key, kind and governor through a
   law's index of `(package, kind, start)`, estimated at one row as the key is, and read 47 nodes of other documents for
   each of 24,991 lookups, 1.38 s; with path appended to that index it reads the unit's key, 0.36 s.
 - **Outcomes.** A write's `once` fails with `refused` naming the rule, its witness `unreported`: the row that breaks
@@ -6741,62 +6738,6 @@ grizzle fits applications that own their data end to end, with rules worth decla
 - **A containment's target holds a key.** A foreign key references a UNIQUE, so grizzle states a containment as one only into a side a key of its target's relation holds apart: at that key's own UNIQUE, or at one over a superkey of it, which the key implies and which must fit its index entry as above. A containment into a side no key holds apart is judged whole where it is unit-local over immutable relations or one declared unit's, and refused anywhere else ([Rules over queries](#rules-over-queries)).
 - **A containment's reverse index never refuses free text.** Its probe is PostgreSQL's RI trigger's, which states the referencing columns' equalities alone, so grizzle indexes the lookup of referencing rows by a B-tree over the longest leading run of bounded referencing columns whose entry fits, or, with no such run, a hash index on one referencing column, whose entry is a 4-byte hash code. A PERIOD reference's GiST index holds the longest leading run of bounded scalars that fits a GiST page, then the span. Only the referenced UNIQUE must be bounded. With no fitting run and every referencing column of a type no hash index takes (money, a set's `bit(n)`, a vector), the containment is `UnrepresentableKey` when the schema compiles.
 - **A containment's source is one table or a selection of it.** A containment whose source is a join, such as the rows of R that have a matching row in S, is not supported yet.
-
-### Declared statistics
-
-PostgreSQL ranks a statement's access paths by its estimate of the rows each binds, and grizzle declares every table's
-statistics from the schema's facts, so the estimate is grizzle's proof order at any size of the table, never a sample.
-
-- **Every column's statistics are declared, never sampled.** The migration that creates a table or changes its columns
-  sets the table's `autovacuum_analyze_threshold` and `autovacuum_analyze_scale_factor` to their maxima, 2,147,483,647
-  and 100, so autovacuum never analyzes it, sets every column's statistics target to 0
-  (`ALTER TABLE ... ALTER COLUMN ... SET STATISTICS 0`) and restores its declared number of distinct values
-  (`pg_restore_attribute_stats`), each restore checked. An ANALYZE you run keeps every column's declaration (analyze.c),
-  but counts the table's size from its least sample, a hundred rows of a hundred blocks: over a table whose live rows
-  sit among dead pages it can count none, and PostgreSQL then prices every read of the table at one row until its next
-  VACUUM. VACUUM counts the whole table. Run VACUUM, never ANALYZE, after a load, a restore or an upgrade (not `vacuumdb
-  --analyze-in-stages`). grizzle runs no ANALYZE and sets no planner option; autovacuum stays on and vacuums every table,
-  which keeps its size current. grizzle's own tables, the migrations ledger and the drift check's proofs, are declared
-  alike.
-- **What is declared.** PostgreSQL prices a set of equalities as independent: the table's rows times each column's
-  selectivity. So a unit's key's first field of many values, the first column of many values of each key, its scope, and
-  each column of many values a containment proves determines one of those (a column contained with others in another
-  relation at fields holding a key of one field, as metis's assignment.user, contained with child in person_user keyed
-  by number, determines child) is an anchor: it holds 2^y rows a value at any size (`-1/2^y`); so is, in a relation in
-  no unit, which states no scope of its rows' growth, the first column of many values of each index. In a unit's member,
-  so is the first column of many values of each index a read that binds none of the unit's fields and none of the
-  keys' first columns binds whole, a read that spans the units, as a staff read of every learner's sittings at a stage
-  does: its selectivity is no fact of the schema's, and an index scan is then the minimax plan, at worst a constant
-  factor off a scan where a scan is at worst off by the whole table, so PostgreSQL reads it through its index at any
-  size. Such a column is paired with the unit's anchor by a dependency, as below, each of the two declared to bind
-  more rows than the pair, so a read that binds the unit and it is priced through the unit's own index below the
-  spanning one, which never holds the unit's fields its requests leave unbound. No other column of a member is an
-  anchor, however many indexes it leads. Where two anchors stand in one set an index's equalities stop
-  at, a functional dependency of the one on the other (`CREATE STATISTICS ... (dependencies)`, its degree restored by
-  `pg_restore_extended_stats` and its statistics target 0) prices the two at 2^m rows, m ≥ 1 the pair's own exponent,
-  which every set holding the pair bounds as it bounds an anchor's, where PostgreSQL would multiply them below one; an
-  anchor may be in several. So an equality on an anchor binds a number of rows the table's size does not move. A later
-  field of the unit's key holds one value; every other column 2^x values, x ≥ 1, at most its roster's handles, a
-  boolean's 2: no column is declared more values than its type holds. A column of few values is never priced by the
-  table's size. The exponents are integers under which every set an index's equalities stop at short of a statement's
-  binding binds two rows or more, so the index a statement asks for is priced below every index binding less of it, and
-  every key binds one row, but a key whose columns past its anchor's largest such set are all columns of few values at
-  the most values their types hold, as a key (flag, account) beside a set (account, day) asks account for 4 rows a
-  value, which a boolean halves once: it binds more by the declaration, and its own unique index, which PostgreSQL
-  prices at one tuple whatever the statistics, still wins every statement binding it. A key's index wins every tie.
-  They are found by a raise from all ones, in work polynomial in the table's keys, indexes and columns: each key short
-  of its anchor's rows raises one of its columns, round after round, until none is short. A unit's key alone is no key:
-  a unit holds more than one row.
-- **The declaration is the installation's.** `manifest.json` records each table's declaration, `grizzle drift` compares
-  every column's statistics target and pg_stats, each dependency's degree, and the table's storage parameters, with it,
-  so a column whose statistics an ANALYZE sampled after its target was raised is drift. A relation whose keys and indexes cross so that no
-  number of distinct values per column ranks its statements (two keys each covered by sets apart of the other's
-  columns) is refused when it compiles, naming the keys and the sets; so is one whose raise does not settle within its
-  rounds, a limitation of grizzle's, which it says to report.
-- **An empty table is priced as PostgreSQL prices one.** On a table no VACUUM has seen PostgreSQL plans ten pages, and a
-  lookup at a key takes its key's index there; a read of several rows of an empty table may scan it, until the table's
-  next VACUUM replans it. A table VACUUM emptied is planned holding no row until its next VACUUM, which autovacuum runs
-  once the rows inserted since pass its insert threshold.
 
 ### Families and ChangeSets
 

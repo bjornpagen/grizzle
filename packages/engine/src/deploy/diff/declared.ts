@@ -247,7 +247,7 @@ const loginIn = (
  * place, through its own aside name, on its relation under the target's name, and PostgreSQL carries the rename into
  * everything built over the column, so the previous snapshot names it under its new name there too (withColumns). A
  * law column, named by what it holds, its relations, fields, handles and laws among them, is renamed in place the same
- * way when a declaration only renames what it holds (lawColumnRenames). Then each key, index and statistics object of a
+ * way when a declaration only renames what it holds (lawColumnRenames). Then each key and index of a
  * table a declaration touched is paired by definition with the target's, its columns read under
  * their new names, and renamed to the target's name for it (pairedParts); the diff builds again only what the target
  * declares otherwise. A drawn or accumulated field's record of what fills it reads as the target's when a declaration
@@ -1766,7 +1766,7 @@ const columnRenames = (
  * rename, which it does by the column's attribute number into everything built over it: a table's columns and what its
  * CREATE TABLE declares over them (its keys, its CHECKs, a generated column's expression), a constraint or a column an
  * ALTER TABLE adds to it, a foreign key's columns on it and its referenced columns there, an index's keys, INCLUDE
- * columns and predicate, a table's declared statistics' columns, and a column privilege's grant. A column an
+ * columns and predicate, and a column privilege's grant. A column an
  * expression names without a relation is its table's, as every expression over one table's row names it. A
  * statement of any other kind names no column of a table it is built over; the roles' views, policies and functions,
  * and the stored tables, which read columns through a relation of their FROM, the diff builds again whenever
@@ -1898,15 +1898,6 @@ const withColumns = (
 						})),
 						include: s.include.map(nameIn(into)),
 						where: s.where === undefined ? undefined : exprIn(into, s.where)
-					}
-		}
-		case "declareStatistics": {
-			const into = renamed(s.table)
-			return into === undefined
-				? s
-				: {
-						...s,
-						columns: mapNonEmpty(s.columns, (c) => ({ ...c, column: nameIn(into)(c.column) }))
 					}
 		}
 		case "grantColumns": {
@@ -2058,7 +2049,6 @@ const withRoles = (s: WholeStatement, roles: ReadonlyMap<string, string>): Whole
 		case "createTransitionTrigger":
 		case "guardBracket":
 		case "createExtension":
-		case "declareStatistics":
 		case "lockTable":
 		case "beginRead":
 		case "beginWrite":

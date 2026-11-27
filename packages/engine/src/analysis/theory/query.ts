@@ -1127,8 +1127,7 @@ const aggregateUnitFree = (
  *
  * Storage is needed only for these, which are refused. A law over a derived relation that aggregates nothing, read at a
  * binding that leaves its unit free, is judged by keyed probe chains from that binding, each step a lookup of the index
- * its binding requests, its lead declared an anchor of the member (physical/statistics/declared.ts spanningLeads), so
- * it is O(k log n) for the k facts at the binding, live or stored, with no storage of its own: the consumers' 19 such
+ * its binding requests, so it is O(k log n) for the k facts at the binding, live or stored, with no storage of its own: the consumers' 19 such
  * laws (metis's PartByBase, AwardDemanded and Submitted, qti-pie's ledger and pantry value containments), each shape
  * measured beside 2,048 units and more (test/pg/laws/unit-free.test.ts). A native constraint in place of their judge
  * would gain a constant factor, no ceiling.

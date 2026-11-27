@@ -134,7 +134,6 @@ export const kindModel: { readonly [K in PhysicalKind]: KindModel } = {
 	storedTable: onTable("any reason"),
 	uniqueIndex: onTable("a law or a program"),
 	index: onTable("a law or a program"),
-	statistics: onTable("any reason"),
 	validation: onTable("any reason"),
 	ruleJudge: inSchema,
 	lawFunction: onTable("a law or a program"),

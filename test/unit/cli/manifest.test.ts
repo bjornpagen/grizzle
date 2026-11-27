@@ -21,7 +21,7 @@ import { formatOf } from "#compiler/core/format.ts"
  * beside the other: snapshot.json of no format, of the format before this grizzle's or after it; both files as a draft
  * of format 3 left them, its constants recorded with no language, sealed under format 3's domain, which the format
  * check refuses before anything reads its record; both files as d76a61066 drafted them, qti-pie's pantry among them,
- * its declared statistics recording no dependencies, sealed under this format's number, snapshot.json recording the number
+ * sealed under this format's number, snapshot.json recording the number
  * alone or this grizzle's format; manifest.json sealed under the earlier domain `manifest`; the record with an edge
  * left out, an edit no draft reads, sealed again; or that edit under the draft's seal.
  *
@@ -173,7 +173,7 @@ export const aSnapshotOfAnotherFormatIsItsOwnFindingASealNamingNoFormatOrAHandEd
 				file: "packages/engine/src/core/format.ts",
 				original: "\trecorded === formatOf[file]",
 				replacement: "\trecorded === formatOf[file] || recorded === artifactFormat",
-				why: "A file recording the format's number alone accepted, as format 8 recorded it: d76a61066's draft, its declared statistics recording no dependencies, passes the format check, so check meets it as an unreadable record, whose fix restores it from git, where it is a format this grizzle drafts afresh."
+				why: "A file recording the format's number alone accepted, as format 8 recorded it: d76a61066's draft passes the format check, so check meets it as an unreadable record, whose fix restores it from git, where it is a format this grizzle drafts afresh."
 			},
 			{
 				file: "packages/engine/src/deploy/snapshot/build.ts",
@@ -197,7 +197,7 @@ export const aSnapshotOfAnotherFormatIsItsOwnFindingASealNamingNoFormatOrAHandEd
 				file: "packages/engine/src/deploy/snapshot/build.ts",
 				original: `\tdigest(\`manifest-\${formatOf.snapshot}\`, value, everyProperty)`,
 				replacement: '\tdigest("manifest-8", value, everyProperty)',
-				why: "The seal ignoring the record's shape: d76a61066's record relabelled with this grizzle's format seals under this format's number, so check trusts it and fails reading a declared statistic of no dependencies inside grizzle (TypeError: Cannot read properties of undefined (reading 'map'))."
+				why: "The seal ignoring the record's shape: d76a61066's record relabelled with this grizzle's format seals under this format's number, so check trusts it as this format's record."
 			},
 			{
 				file: "packages/engine/src/deploy/snapshot/build.ts",

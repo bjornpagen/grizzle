@@ -1509,7 +1509,6 @@ class ScopeWalk {
 			case "revoke":
 			case "alterDefaultPrivileges":
 			case "createExtension":
-			case "declareStatistics":
 			case "lockTable":
 			case "comment":
 			case "beginRead":
@@ -1630,7 +1629,6 @@ const headOf = (subject: Walked): string => {
 		case "revoke":
 		case "alterDefaultPrivileges":
 		case "createExtension":
-		case "declareStatistics":
 		case "lockTable":
 		case "comment":
 		case "beginRead":

@@ -58,7 +58,7 @@ export interface CatalogColumn {
 	readonly collation: Option.Option<string>
 	readonly generation: CatalogGeneration
 	/**
-	 * Its statistics as the planner reads them (physical/statistics/declared.ts): its statistics target and pg_stats'
+	 * Its statistics as the planner reads them: its statistics target and pg_stats'
 	 * number of distinct values, and `sampled` where it holds a statistic an ANALYZE sampled; none for a column of no
 	 * table.
 	 */

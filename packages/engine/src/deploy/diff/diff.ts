@@ -242,8 +242,7 @@ const ownedAside = (a: Aside): string =>
  *
  * A revalued column keeps what is built over it wherever no state the backfill passes through can break it, and the
  * rest is taken away before the backfill and built again after it, as over a replaced column (takenByReplacement):
- * - PostgreSQL maintains an index and a generated column on each row the backfill writes, and keeps a table's declared
- *   statistics through it: kept.
+ * - PostgreSQL maintains an index and a generated column on each row the backfill writes: kept.
  * - It checks a CHECK on each row it writes, and the backfill writes each row of a table once, with every value it
  *   draws on that table: a CHECK the target keeps as it is reads the row as the backfill leaves it. Kept, but taken
  *   where the target defines it otherwise, since the previous definition would judge the drawn values.
@@ -322,7 +321,6 @@ const dropOrder: { readonly [K in Dropped]: number } = {
 	decoder: 6,
 	publication: 6,
 	viewSchema: 6,
-	statistics: 7,
 	storedTable: 9,
 	lawTrigger: 3,
 	immutableTrigger: 3,
@@ -546,7 +544,7 @@ interface ViewDrop {
 
 /** What takes an object of the previous installation away in Structure, before the target's objects are visited: the
  * drop of the roles' views, world functions and policies (dropWorlds); the drop of a stored table, which takes the
- * indexes and statistics objects on it along (dropViews); or the replacement of a column it is built over
+ * indexes on it along (dropViews); or the replacement of a column it is built over
  * (takenByReplacement), before which its own `drop` takes it away (dropReplaced). */
 type Taken =
 	| { readonly kind: "world" }
@@ -1744,8 +1742,7 @@ class Differ {
 		}
 	}
 
-	/** Drafts the view drops (viewDropsOf), top-down; the indexes and declared statistics on each go with it (Taken
-	 * view), and the target's are created again with a view it keeps. */
+	/** Drafts the view drops (viewDropsOf), top-down; the indexes on each go with it (Taken view), and the target's are created again with a view it keeps. */
 	dropViews(): void {
 		const order = this.topDown(new Set(this.viewDrops.map((d) => d.key)))
 		for (const d of this.viewDrops.toSorted(
@@ -1757,7 +1754,7 @@ class Differ {
 
 	/** The previous objects built over a column this migration replaces (ColumnFate converted or redefined), by identity,
 	 * each with how and its own drop (Replaced): what is built over the column (objects.ts builtOver: a constraint, an
-	 * index, its table's declared statistics, a law column computed from it or a rule trigger fired by its update), and each foreign
+	 * index, a law column computed from it or a rule trigger fired by its update), and each foreign
 	 * key referencing a key over one, which dropReplaced drops before the column is converted or dropped. Over a column
 	 * the backfill revalues in place, what a state the backfill passes through could break (ColumnFate revalued), and
 	 * over a column Structure re-expresses, what its SET EXPRESSION could break (KeptTable reexpressed), each dropped
@@ -1852,7 +1849,6 @@ class Differ {
 			const v = over.part
 			switch (v.kind) {
 				case "index":
-				case "statistics":
 				case "lawColumn":
 					return false
 				case "uniqueIndex":
@@ -1880,8 +1876,7 @@ class Differ {
 		 * column beside the re-expressed one, judges the new values, and PostgreSQL refuses rows the target admits. A
 		 * foreign key, validated there against the key it references, goes too with that key where the re-expression
 		 * takes it, the target defining it otherwise. An index and a rule trigger, which a rewrite does not fire, stand;
-		 * no law column reads a generated column. A table's declared statistics go with the column's, which SET
-		 * EXPRESSION clears (tablecmds.c ATExecSetExpression, RemoveStatistics), and are declared again whole. */
+		 * no law column reads a generated column. */
 		const reexpressionTakes = (
 			o: RecordedObject,
 			over: BuiltOver<RecordedObject>,
@@ -1894,8 +1889,6 @@ class Differ {
 				case "lawColumn":
 				case "lawTrigger":
 					return false
-				case "statistics":
-					return true
 				case "uniqueIndex": {
 					const now = this.next.get(o.ident)
 					return now === undefined || !sameRecord(o, now) || revalued
@@ -2077,9 +2070,6 @@ class Differ {
 			case "uniqueIndex":
 			case "index":
 				this.index(v, before)
-				return
-			case "statistics":
-				this.statistics(v, before)
 				return
 			case "head":
 				if (before === undefined) {
@@ -3554,34 +3544,6 @@ class Differ {
 		])
 	}
 
-	/**
-	 * A table's declared statistics, declared again where they changed: first each declared dependency of the
-	 * declaration before that this one no longer holds dropped, a statistics object of its own, then the declaration
-	 * whole, whose dependencies stand where they stood (CREATE STATISTICS IF NOT EXISTS) and are restored.
-	 */
-	statistics(
-		v: Installed & { readonly kind: "statistics" },
-		before: RecordedObject | undefined
-	): void {
-		const { object: o, create } = v
-		if (before !== undefined && sameRecord(before, o)) {
-			return
-		}
-		const kept = new Set(create.dependencies.map((d) => nameKey(d.name)))
-		const departed = (before?.ddl ?? []).flatMap((s) =>
-			s.kind === "declareStatistics" ? s.dependencies.filter((d) => !kept.has(nameKey(d.name))) : []
-		)
-		this.sql("indexes", [
-			...departed.map((d): SqlStatement => ({
-				kind: "drop",
-				object: "STATISTICS",
-				name: d.name,
-				ifExists: true
-			})),
-			create
-		])
-	}
-
 	/** An object the target no longer has and no step takes away first (Fate removed), dropped in place by a statement
 	 * of its own, whatever else the migration drops: in publish.removed (draftRemovals) at its kind's rank, once nothing
 	 * of the target reads it, so it goes before what it depends on (dropOrder), a rule trigger before its function and
@@ -3770,14 +3732,6 @@ class Differ {
 				drop(v.kind, statement({ kind: "dropIndex", name, concurrently: false, ifExists: false }))
 				return
 			}
-			case "statistics":
-				for (const d of v.create.dependencies) {
-					drop(
-						v.kind,
-						statement({ kind: "drop", object: "STATISTICS", name: d.name, ifExists: true })
-					)
-				}
-				return
 			case "role":
 			case "decoder":
 				dropRole(v.kind, v.create.name)
@@ -4316,9 +4270,7 @@ type Replacement = "converted" | "redefined"
  * drop, which dropReplaced drafts before the replacement. */
 interface Replaced {
 	readonly how: Replacement
-	/** Its drops: one statement for an object the catalog holds, none for a table's declared statistics, whose
-	 * dependencies PostgreSQL rebuilds over a converted column and which are declared again whole where the target keeps
-	 * them. */
+	/** Its drops: one statement for each object the catalog holds. */
 	readonly drops: ReadonlyArray<Drop>
 }
 
@@ -4801,8 +4753,7 @@ const installedReads = (
 
 /** The drops of an object built over a column (objects.ts builtOver), which a replacement of the column takes away, in
  * the drop order (dropOrder): the foreign keys and rule triggers first, then the keys and CHECKs, the indexes and the
- * law columns whose generation reads the column; none for a table's declared statistics, which PostgreSQL clears of a
- * converted or re-expressed column itself (tablecmds.c RemoveStatistics), and which are declared again whole. */
+ * law columns whose generation reads the column. */
 const replacementDrops = (v: BuiltOver<AnyObject>["part"]): ReadonlyArray<Drop> => {
 	switch (v.kind) {
 		case "foreignKey":
@@ -4828,8 +4779,6 @@ const replacementDrops = (v: BuiltOver<AnyObject>["part"]): ReadonlyArray<Drop> 
 					})
 				}
 			]
-		case "statistics":
-			return []
 		case "lawTrigger":
 			return [
 				{
@@ -4909,7 +4858,6 @@ const grantObjectsOf = (v: Installed<AnyObject>): ReadonlyArray<GrantObject> => 
 		}
 		case "index":
 		case "uniqueIndex":
-		case "statistics":
 		case "isolationTrigger":
 		case "immutableTrigger":
 		case "lawTrigger":
@@ -5058,7 +5006,7 @@ const worldChangesOf = (
  *   value, and the new type's CHECK judges each as it runs, refusing a stored value with 23514. A roster's domain holds
  *   only its roster's handles, so a closed id or a set keeps its values only on the roster its own continues as
  *   (snapshot/build.ts rosterFates), and takes the placeholder when it moves to another or to or from an integer. What
- *   is built over the column, a constraint, an index or its table's declared statistics, and the foreign keys referencing a key
+ *   is built over the column, a constraint or an index, and the foreign keys referencing a key
  *   over it, is
  *   dropped first (structure.drop), since PostgreSQL would carry it across the conversion under its old definition or
  *   refuse the conversion under it, and is built again as the target declares it, as on a relation that may hold rows,
@@ -5107,9 +5055,9 @@ const worldChangesOf = (
  * - Adding a stored derived relation: its table WITH NO DATA, its primary key and its unique indexes (structure.views),
  *   filled by an INSERT of its definition's rows once every row it reads is written (structure.stored). Changing what a
  *   definition means, or its primary key, drops and recreates the table and every stored table above it that reads it,
- *   directly or through another, WITH NO DATA, with their indexes and declared statistics, and fills each bottom-up. A
+ *   directly or through another, WITH NO DATA, with their indexes, and fills each bottom-up. A
  *   stored table the target no longer has that reads a recreated one cannot outlive it, so it is dropped first, here.
- * - Workload changes add indexes and declare each table's statistics anew (indexes); an index no law or program
+ * - Workload changes add indexes (indexes); an index no law or program
  *   justifies any longer is dropped.
  * - World changes: a login's or role's PostgreSQL role created, its grants replaced and its memberships granted or
  *   revoked, a removed one's revoked and its role dropped (publish). A whole view, a role's query views, world functions

@@ -702,40 +702,6 @@ export const loadAtVolume = (
 		})
 	})
 
-/**
- * The share of the load's rows a change of them adds (analyzedAroundAChange): a quarter, rows of values none of the
- * load's held, which a sampled column's statistics follow, at a quarter of the load's cost.
- *
- * @formatConstant a quarter of the load's series
- */
-const changedShare = 4
-
-/**
- * Every table of the settled load's schema VACUUMed and ANALYZEd twice, its rows changed between: the load's series
- * continued past its end by a quarter of its rows (fillRows, changedShare), so each loaded table holds rows of values it
- * held none of, and every table, grizzle's own among them, is analyzed over both populations. A
- * column ANALYZE samples leaves its statistics as the second population holds them, where a declared one keeps its
- * declaration (sql/ast.ts DeclareStatistics).
- */
-export const analyzedAroundAChange = (
-	settled: Settled
-): Effect.Effect<void, SqlError | VolumeFillRefused, Substrate> =>
-	Effect.gen(function* () {
-		const { admin } = yield* Substrate
-		const listed = yield* admin.queryValues(
-			"SELECT pg_catalog.string_agg(c.oid::pg_catalog.regclass::pg_catalog.text, ', ' ORDER BY c.oid) FROM pg_catalog.pg_class AS c JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace WHERE n.nspname = $1::text AND c.relkind IN ('r', 'p', 'm')",
-			[settled.installed.schema]
-		)
-		const tables = Arr.flatMap(textsOf(listed), (row) => row.slice(0, 1))
-		yield* Effect.forEach(tables, (list) => admin.query(`VACUUM (ANALYZE) ${list}`, []), {
-			discard: true
-		})
-		yield* fillRows(settled.installed, settled.loads, volumeRows, volumeRows / changedShare)
-		yield* Effect.forEach(tables, (list) => admin.query(`VACUUM (ANALYZE) ${list}`, []), {
-			discard: true
-		})
-	})
-
 /** A relation's load as the fill of the table `into` names (fill.ts VolumeTable): each field's column and its SQL. */
 const volumeTable = (installed: Judged, load: VolumeLoad, into: string): VolumeTable => ({
 	table: into,
@@ -1465,7 +1431,7 @@ type LawState = { readonly kind: "empty" } | { readonly kind: "filled"; readonly
 const stoodUp = (installed: Judged, table: Table, load: VolumeLoad, state: LawState) =>
 	Effect.gen(function* () {
 		const { admin } = yield* Substrate
-		const copy = yield* standCopy(installed.installation, table)
+		const copy = yield* standCopy(table)
 		const rows =
 			state.kind === "empty"
 				? 0

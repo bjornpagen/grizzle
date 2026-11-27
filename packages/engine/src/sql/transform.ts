@@ -79,10 +79,10 @@ import { type Assignments, mapValues } from "#compiler/sql/generation.ts"
 /**
  * The catalog namespace an object name is looked up in: a relation's (tables, views, sequences and indexes share
  * pg_class), a type's (a domain lives in pg_type, where each table's row type also lives, which no grizzle column is
- * of), a function's (a constant is one), an operator class's or an extended statistics object's. A rename in one namespace never renames
- * a name of another.
+ * of), a function's (a constant is one) or an operator class's. A rename in one namespace never renames a name of
+ * another.
  */
-export type NameSpace = "relation" | "type" | "function" | "operatorClass" | "statistics"
+export type NameSpace = "relation" | "type" | "function" | "operatorClass"
 
 /** The namespace of the schema object a RENAME or a DROP names. */
 const objectSpace = (
@@ -96,8 +96,6 @@ const objectSpace = (
 		case "DOMAIN":
 		case "TYPE":
 			return "type"
-		case "STATISTICS":
-			return "statistics"
 		case "FUNCTION":
 			return "function"
 	}
@@ -1467,16 +1465,6 @@ export class Transform {
 			}
 			case "createExtension":
 				return this.#extension(s)
-			case "declareStatistics": {
-				const table = this.name(s.table, "relation")
-				const dependencies = s.dependencies.map((d) => {
-					const name = this.name(d.name, "statistics")
-					return name === d.name ? d : { ...d, name }
-				})
-				return table === s.table && dependencies.every((d, i) => d === s.dependencies[i])
-					? s
-					: { ...s, table, dependencies }
-			}
 			case "lockTable": {
 				const tables = this.names(s.tables, "relation")
 				return tables === s.tables ? s : { ...s, tables }
@@ -1503,10 +1491,6 @@ export class Transform {
 			case "DOMAIN":
 			case "TYPE": {
 				const name = this.name(on.name, "type")
-				return name === on.name ? on : { ...on, name }
-			}
-			case "STATISTICS": {
-				const name = this.name(on.name, "statistics")
 				return name === on.name ? on : { ...on, name }
 			}
 			case "COLUMN": {
@@ -1581,7 +1565,6 @@ export class Transform {
 			case "createPolicy":
 			case "createRole":
 			case "createSchema":
-			case "declareStatistics":
 			case "createTable":
 			case "createView":
 			case "drop":

@@ -63,8 +63,8 @@ import { identityHooks, Transform } from "#compiler/sql/transform.ts"
  *   transient table PostgreSQL copies its rows into, that table's TOAST relations and row types, which outlive their
  *   drop as locks (cluster.c make_new_heap, finish_heap_swap's performDeletion of the transient table).
  * - An object it drops, ACCESS EXCLUSIVE, with every object its drop takes with it (dependency.c AcquireDeletionLock
- *   over findDependentObjects' targets): a table's indexes, TOAST relations, row types, constraints, triggers, policies,
- *   column defaults and statistics, and a foreign key's four triggers, two on the table it references, which is opened
+ *   over findDependentObjects' targets): a table's indexes, TOAST relations, row types, constraints, triggers, policies
+ *   and column defaults, and a foreign key's four triggers, two on the table it references, which is opened
  *   to delete them (trigger.c RemoveTriggerById).
  * - A function it replaces (pg_proc.c ProcedureCreate locks the old one ACCESS EXCLUSIVE), and an object a COMMENT
  *   names (objectaddress.c get_object_address).
@@ -94,8 +94,7 @@ export type LockTarget = string & { readonly [lockTargetBrand]: true }
 /**
  * The kinds of object a migration's transaction locks: a relation (a table, view, materialized view, index or composite
  * type's relation), a table's TOAST table and its index, a type and the array type PostgreSQL makes beside it, a
- * function, a table's or a domain's constraint, a schema, a role, the database, a publication, a statistics object, a
- * trigger, a policy, a column's default, an operator class, an operator, the PL/pgSQL language, an extension, a
+ * function, a table's or a domain's constraint, a schema, a role, the database, a publication, a trigger, a policy, a column's default, an operator class, an operator, the PL/pgSQL language, an extension, a
  * relation a rewrite copies a table into and drops (with its TOAST relations and row types), a system catalog's
  * relation the transaction keeps, its own transaction id, and an advisory lock.
  */
@@ -112,7 +111,6 @@ const lockKinds = [
 	"role",
 	"database",
 	"publication",
-	"statistics",
 	"trigger",
 	"policy",
 	"columnDefault",
@@ -245,18 +243,6 @@ const bracketReads: { readonly [S in GuardBracket["side"]]: ReadonlyArray<LockTa
 	],
 	reguard: [...catalogRead("pg_class"), ...catalogRead("pg_namespace"), ...catalogRead("pg_proc")]
 }
-
-/**
- * What a table's declared statistics keep locked of the catalog where it declares a dependency (sql/print.ts
- * dependencySteps): each restore reads the number of each column of the dependency by a query over pg_attribute,
- * pg_class and pg_namespace, each kept locked with its indexes; the stats functions themselves close what they open
- * with the mode they opened it in, which releases it (attribute_stats.c, extended_stats_funcs.c).
- */
-const dependencyReads: ReadonlyArray<LockTarget> = [
-	...catalogRead("pg_attribute"),
-	...catalogRead("pg_class"),
-	...catalogRead("pg_namespace")
-]
 
 /**
  * A system catalog whose datum a statement may store out of line: the catalog's TOAST table and its index, which the
@@ -455,8 +441,8 @@ const fixedBuiltins: ReadonlySet<string> = new Set([
 
 /** What a migration's statements know of the installation, before and after: each table's indexes, which relations
  * hold a TOAST table, each view's and function's names, each table's triggers' functions and the tables its foreign
- * keys join, each domain's base and the tables whose columns it types, each table's constraints, policies, defaults and
- * statistics, each publication's tables. Built once from every statement the previous and the target installation
+ * keys join, each domain's base and the tables whose columns it types, each table's constraints, policies and
+ * defaults, each publication's tables. Built once from every statement the previous and the target installation
  * hold (lockCatalog), and grown by the statements of the transaction as they are counted. */
 export interface LockCatalog {
 	readonly indexes: Map<string, Set<string>>
@@ -481,7 +467,6 @@ export interface LockCatalog {
 	readonly domainConstraints: Map<string, Set<string>>
 	readonly policies: Map<string, Set<string>>
 	readonly defaults: Map<string, Set<string>>
-	readonly statistics: Map<string, Set<string>>
 	readonly publications: Map<string, Set<string>>
 	readonly names: Map<string, ObjectName>
 }
@@ -503,7 +488,6 @@ const emptyCatalog = (): LockCatalog => ({
 	domainConstraints: new Map(),
 	policies: new Map(),
 	defaults: new Map(),
-	statistics: new Map(),
 	publications: new Map(),
 	names: new Map()
 })
@@ -730,11 +714,6 @@ const learn = (catalogOf: LockCatalog, s: SqlStatement | RecordedStatement): voi
 		case "createPolicy":
 			member(catalogOf.policies, relationKey(catalogOf, s.table)).add(s.name)
 			return
-		case "declareStatistics":
-			for (const d of s.dependencies) {
-				member(catalogOf.statistics, relationKey(catalogOf, s.table)).add(named(d.name))
-			}
-			return
 		case "createPublication":
 			catalogOf.publications.set(
 				s.name,
@@ -853,7 +832,6 @@ const renamedRelation = (catalogOf: LockCatalog, from: ObjectName, to: ObjectNam
 	copy(catalogOf.notNull, (v) => new Set(v))
 	copy(catalogOf.policies, (v) => new Set(v))
 	copy(catalogOf.defaults, (v) => new Set(v))
-	copy(catalogOf.statistics, (v) => new Set(v))
 	if (catalogOf.toasted.has(was)) {
 		catalogOf.toasted.add(now)
 	}
@@ -1191,7 +1169,7 @@ class Locks {
 	/**
 	 * Every object a relation's drop takes with it (dependency.c findDependentObjects): its row type and array type, its
 	 * TOAST relations where it has them (LockCatalog toasted), a view's rule, its indexes, constraints, its columns' NOT
-	 * NULL constraints among them, triggers, policies, column defaults and statistics.
+	 * NULL constraints among them, triggers, policies and column defaults.
 	 */
 	dropTable(table: ObjectName): void {
 		const key = named(table)
@@ -1219,9 +1197,6 @@ class Locks {
 		}
 		for (const d of this.#catalog.defaults.get(key) ?? []) {
 			this.dropped([target("columnDefault", key, d)])
-		}
-		for (const d of this.#catalog.statistics.get(key) ?? []) {
-			this.dropped([target("statistics", d)])
 		}
 	}
 
@@ -1766,9 +1741,6 @@ const lockStatement = (locks: Locks, s: SqlStatement | RecordedStatement): void 
 						locks.dropped([target("domainConstraint", named(s.name), c)])
 					}
 					return
-				case "STATISTICS":
-					locks.dropped([target("statistics", named(s.name))])
-					return
 				case "ROLE":
 					locks.dropped([target("role", s.name)])
 					return
@@ -1941,20 +1913,6 @@ const lockStatement = (locks: Locks, s: SqlStatement | RecordedStatement): void 
 		case "createExtension":
 			locks.add([target("advisory", "database"), target("extension", s.name), namespace(s.schema)])
 			return
-		case "declareStatistics":
-			locks.add([
-				relation(s.table),
-				target("language", "plpgsql"),
-				...(locks.toasted(s.table) ? [target("toast", named(s.table))] : []),
-				...s.dependencies.flatMap((d) => [
-					namespace(d.name.schema),
-					owner,
-					relfilenodeIndex,
-					target("statistics", named(d.name))
-				]),
-				...(isNonEmpty(s.dependencies) ? dependencyReads : [])
-			])
-			return
 		case "lockTable":
 			for (const t of s.tables) {
 				locks.add([relation(t)])
@@ -2080,9 +2038,6 @@ const commentLocks = (
 		case "DOMAIN":
 		case "TYPE":
 			locks.add([typeOf(on.name)])
-			return
-		case "STATISTICS":
-			locks.add([target("statistics", named(on.name))])
 			return
 		case "COLUMN":
 			locks.add([relation(on.relation)])

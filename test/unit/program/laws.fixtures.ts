@@ -825,7 +825,6 @@ export const reportable = (installation: Installation): ReadonlyArray<Identified
 			case "createStoredTable":
 			case "drop":
 			case "revoke":
-			case "declareStatistics":
 			case "dropIndex":
 			case "createFunction":
 			case "createConstant":

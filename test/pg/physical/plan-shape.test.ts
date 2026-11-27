@@ -147,30 +147,6 @@ export const everyStatementReadsThroughTheIndexItsBindingAsksForInEveryState = p
 				why: "A candidate key led by its declared order again, its first column one of the primary key's: a lookup that binds that column reads the candidate key's index, binding one of its columns, where its own index binds two (the kept case's r_0 at 79fd60c3)."
 			},
 			{
-				file: "packages/engine/src/physical/statistics/statistics.ts",
-				original: "\tfor (const relation of relations) {",
-				replacement: "\tfor (const relation of relations.slice(0, 0)) {",
-				why: "No table's statistics declared: without them PostgreSQL prices a key probe and an index on part of its key at one row each and breaks the tie by the latest index, which binds no key."
-			},
-			{
-				file: "packages/engine/src/physical/statistics/declared.ts",
-				original: "\t\tif (taken.includes(c)) {",
-				replacement: "\t\tif (taken.includes(c) || shape.unit.includes(c)) {",
-				why: "The unit's lead declared no anchor: its first field holds a few values at any size, so a member's read by its unit is priced at a share of the table and scans it."
-			},
-			{
-				file: "packages/engine/src/physical/statistics/declared.ts",
-				original: "\tfor (const c of spanningLeads(shape, firstOf)) {",
-				replacement: "\tfor (const c of spanningLeads(shape, firstOf).slice(0, 0)) {",
-				why: "No lead of an index a binding spanning the units asks an anchor, as before: a lookup of a member's own fields without its unit is priced at a share of the table, and PostgreSQL scans the table for it, as edullm's Q05 scanned test_moment 34 times for one submit."
-			},
-			{
-				file: "packages/engine/src/sql/print.ts",
-				original: `...statement.columns.map((c) => \`ALTER COLUMN \${quoteIdent(c.column)} SET STATISTICS 0\`)`,
-				replacement: `...statement.columns.map((c) => \`ALTER COLUMN \${quoteIdent(c.column)} SET STATISTICS -1\`)`,
-				why: "Each column's statistics target left at its default: an ANALYZE at one row in a hundred samples the first units over the declaration, and a read by the unit scans the loaded table."
-			},
-			{
 				file: "packages/engine/src/laws/model/plan.ts",
 				original: "\t\t\tmutableSide(d.from) || mutableSide(d.to)\n\t\t\t\t? whole",
 				replacement: "\t\t\ttrue || mutableSide(d.from) || mutableSide(d.to)\n\t\t\t\t? whole",

@@ -190,19 +190,3 @@ export const standingGrants = (install: InstallSpec, role: string): ReadonlyArra
 	)
 	return Arr.sort(Arr.dedupe(held), Order.String)
 }
-
-/**
- * Each table's declared statistics in an installation, as grizzle prints them, by the table's name: the numbers of
- * distinct values the solver derives from the relation's shape, its columns, keys, indexes and the bindings of every
- * statement that reads it (physical/statistics), which the model has no solver of its own to restate. A migration
- * declares each table whose declaration it changes or makes anew in Indexes (deploy/diff/plan.ts), a key added on a
- * table that holds rows among them.
- */
-export const declaredStatistics = (install: InstallSpec): ReadonlyMap<string, string> =>
-	new Map(
-		Arr.flatMap(compiledOf(install).installation.statements, (s) =>
-			s.kind === "declareStatistics"
-				? [[objectNamed("TABLE", s.table), printStatement(s)] as const]
-				: []
-		)
-	)

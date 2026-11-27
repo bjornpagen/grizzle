@@ -1,7 +1,6 @@
 /**
  * What each statement creates of the catalog the drift check describes, by the manifest identity the obligation graph
- * spells it with (graph.ts identText): a schema; a table, view, domain, type, index, function or statistics object of a
- * schema; a column, constraint, trigger or policy of a relation. The drift check owns every fact PostgreSQL describes by
+ * spells it with (graph.ts identText): a schema; a table, view, domain, type, index or function of a schema; a column, constraint, trigger or policy of a relation. The drift check owns every fact PostgreSQL describes by
  * an object of the manifest, the object the fact describes or the relation it lies in (the shell's
  * adapter/admission/drift.ts factOwner), so a catalog object a manifest object's DDL creates under any other identity
  * is owned by none: a fresh installation of it drifts at once, and its next migrate refuses. Two rules make that no
@@ -101,8 +100,6 @@ const createdIdents = (s: SqlStatement): ReadonlyArray<string> => {
 		case "createConstraintTrigger":
 		case "createTransitionTrigger":
 			return trigger(s)
-		case "declareStatistics":
-			return [qualifiedIdent("statistics", s.table.schema, s.table.name)]
 		case "select":
 		case "insert":
 		case "update":
@@ -265,8 +262,6 @@ const droppedObject = (
 			return [qualifiedIdent("view", s.name.schema, s.name.name)]
 		case "DOMAIN":
 			return [qualifiedIdent("domain", s.name.schema, s.name.name)]
-		case "STATISTICS":
-			return [qualifiedIdent("statistics", s.name.schema, s.name.name)]
 		case "TYPE":
 			return [qualifiedIdent("type", s.name.schema, s.name.name)]
 		case "ROLE":

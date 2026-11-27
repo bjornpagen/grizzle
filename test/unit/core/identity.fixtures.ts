@@ -155,7 +155,6 @@ export const targetName = (on: CommentTarget): string => {
 		case "DOMAIN":
 		case "TYPE":
 		case "INDEX":
-		case "STATISTICS":
 		case "FUNCTION":
 			return on.name.name
 	}

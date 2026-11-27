@@ -1,15 +1,13 @@
 /**
  * Copies of an installation's tables, as the plan-shape law's states read them (test/pg/physical/serving.ts judgeServing,
- * plan-shape.fixtures.ts), and the indexes of a table or a copy as its catalog holds them: a copy holds the table's columns, defaults, constraints and indexes, and its declared
- * statistics as the installation's migration declares them, so PostgreSQL plans a statement over the copy as it plans
- * it over the table at the copy's size. PostgreSQL reads a relation's size off its blocks (tableam.c
+ * plan-shape.fixtures.ts), and the indexes of a table or a copy as its catalog holds them: a copy holds the table's
+ * columns, defaults, constraints and indexes, so PostgreSQL plans a statement over the copy as it plans it over the
+ * table at the copy's size. PostgreSQL reads a relation's size off its blocks (tableam.c
  * table_block_relation_estimate_size, plancat.c get_relation_info), so a state holds its rows, and the table itself is
  * never grown.
  */
 import { Array as Arr, Effect, Option, String as Str } from "effect"
 import { quoteIdent, quoteString } from "#compiler/core/text.ts"
-import type { Installation } from "#compiler/physical/install/compile.ts"
-import { printCommands } from "#compiler/sql/print.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { insertOf } from "#test/support/substrate/fill.ts"
 import { autovacuumOff, Substrate } from "#test/support/substrate/substrate.ts"
@@ -39,18 +37,13 @@ const textsOf = (
 /**
  * Stands up a copy of `table` on the admin session: its columns, defaults, constraints and indexes (CREATE TABLE ...
  * (LIKE ... INCLUDING ALL EXCLUDING STATISTICS), each index in its table's order, so ties PostgreSQL breaks by the
- * latest index fall alike), then the table's declared statistics, the installation's own declaration
- * (physical/statistics/statistics.ts) printed over the copy, each declared dependency a statistics object of the copy's
- * own, none where the installation declares none; and autovacuum kept out of it (substrate.ts autovacuumOff), so each
+ * latest index fall alike); and autovacuum kept out of it (substrate.ts autovacuumOff), so each
  * state a law names by the VACUUMs it ran is the one PostgreSQL plans over, never one an autovacuum visit made of it
  * between them (plan-shape's state loaded over a rolled-back load, never vacuumed: a key probe read through the
  * judge's index on (doc, part) in one run of NOSETTINGS's at 0x928210aa, case 21, and through its key in every replay).
  * In a transaction the caller rolls back, the copy goes with it; outside one, the caller drops it (dropCopy).
  */
-export const standCopy = (
-	installation: Installation,
-	table: CopiedTable
-): Effect.Effect<Copy, SqlError, Substrate> =>
+export const standCopy = (table: CopiedTable): Effect.Effect<Copy, SqlError, Substrate> =>
 	Effect.gen(function* () {
 		const { admin } = yield* Substrate
 		const copy = { quoted: `${quoteIdent(table.schema)}.${quoteIdent(copyName)}`, name: copyName }
@@ -59,31 +52,6 @@ export const standCopy = (
 			[]
 		)
 		yield* admin.query(autovacuumOff(`ARRAY[${quoteString(copy.quoted)}::pg_catalog.regclass]`), [])
-		const declarations = Arr.flatMap(installation.manifest.objects, (o) =>
-			o.kind === "statistics"
-				? Arr.flatMap(o.ddl, (s) =>
-						s.kind === "declareStatistics" &&
-						s.table.schema === table.schema &&
-						s.table.name === table.name
-							? [
-									{
-										...s,
-										table: { schema: table.schema, name: copyName },
-										dependencies: Arr.map(s.dependencies, (d, at) => ({
-											...d,
-											name: { schema: table.schema, name: `${copyName}_dependency_${at}` }
-										}))
-									}
-								]
-							: []
-					)
-				: []
-		)
-		for (const declared of declarations) {
-			for (const command of printCommands(declared)) {
-				yield* admin.query(command, [])
-			}
-		}
 		return copy
 	})
 

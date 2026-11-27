@@ -632,7 +632,7 @@ const lawOver = (r: Judgeable, note: (feature: PlanShapeFeature) => void) =>
 			(p) => p.kind === "lookup" && Arr.some(keyed, (i) => keyIn(i, new Set(p.binding)))
 		)
 		const filled = yield* Effect.acquireUseRelease(
-			standCopy(r.installation, r.table),
+			standCopy(r.table),
 			(copy) =>
 				Effect.gen(function* () {
 					const empty = yield* statePlans(copy, keyProbes, r.scopes, "empty as installed")
@@ -664,7 +664,7 @@ const lawOver = (r: Judgeable, note: (feature: PlanShapeFeature) => void) =>
 			dropCopy
 		)
 		yield* Effect.acquireUseRelease(
-			standCopy(r.installation, r.table),
+			standCopy(r.table),
 			(copy) =>
 				Effect.gen(function* () {
 					yield* fillCopy(copy, r.columns, 0, sampledRows - 1)
@@ -683,7 +683,7 @@ const lawOver = (r: Judgeable, note: (feature: PlanShapeFeature) => void) =>
 			dropCopy
 		)
 		yield* Effect.acquireUseRelease(
-			standCopy(r.installation, r.table),
+			standCopy(r.table),
 			(copy) =>
 				Effect.gen(function* () {
 					yield* admin.query("BEGIN", [])

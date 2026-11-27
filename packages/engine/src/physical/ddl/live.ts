@@ -4,13 +4,7 @@ import { identifierOf, identity, liveSlotLead } from "#compiler/core/identity.ts
 import type { LivePlan, LiveTable } from "#compiler/live/notify.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import { enforcement, type Node } from "#compiler/physical/obligations/graph.ts"
-import { ownTableDeclaration } from "#compiler/physical/statistics/declared.ts"
-import {
-	liveSecretColumn,
-	type ObjectName,
-	type PublishedTable,
-	type Select
-} from "#compiler/sql/ast.ts"
+import type { ObjectName, PublishedTable, Select } from "#compiler/sql/ast.ts"
 import {
 	and,
 	call,
@@ -51,11 +45,8 @@ import {
 
 const why = enforcement("the live source of the installation's live programs")
 
-/**
- * The secret table, created in Structure in the root's schema, and the object that creates it; its declared
- * statistics in Indexes, as every table grizzle installs declares its own (physical/statistics/declared.ts
- * ownTableDeclaration): its one column, whose one row is its key.
- */
+/** The secret table, created in Structure in the root's schema, and the object that creates it: its one column, whose
+ * one row is its key. */
 const addLiveSecret = (
 	b: InstallBuilder
 ): { readonly table: ObjectName; readonly node: Node<"structure"> } => {
@@ -78,16 +69,6 @@ const addLiveSecret = (
 			phase: "structure"
 		},
 		[b.schemaNode]
-	)
-	b.add(
-		{
-			kind: "statistics",
-			ident: b.qualified("statistics", named),
-			ddl: [ownTableDeclaration(table, [liveSecretColumn], [liveSecretColumn])],
-			reasons: [enforcement("the declared statistics of the live secret")],
-			phase: "indexes"
-		},
-		[node]
 	)
 	return { table, node }
 }

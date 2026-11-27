@@ -532,7 +532,6 @@ export const physicalKinds = [
 	"storedTable",
 	"uniqueIndex",
 	"index",
-	"statistics",
 	"validation",
 	"ruleJudge",
 	"lawFunction",

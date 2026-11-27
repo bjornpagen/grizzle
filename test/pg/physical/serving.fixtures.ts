@@ -4,7 +4,6 @@
  */
 import { assert, defined } from "@bjornpagen/testing/assert"
 import {
-	aimed,
 	array,
 	boolean,
 	element,
@@ -14,17 +13,12 @@ import {
 	recorded,
 	weighted
 } from "@bjornpagen/testing/gen"
-import { Array as Arr, Effect, Option, Order, Result } from "effect"
+import { Array as Arr, Effect, Result } from "effect"
 import { isCompileError } from "#compiler/core/errors.ts"
 import type { Direction } from "#compiler/core/order.ts"
-import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { codeOf } from "#compiler/ir/codes.ts"
-import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { AccessUse } from "#compiler/ir/products.ts"
-import type { DeclaredDistinct } from "#compiler/sql/ast.ts"
-import { autovacuumAnalyzeScaleMax, autovacuumAnalyzeThresholdMax } from "#compiler/sql/print.ts"
 import {
-	analyzedAroundAChange,
 	drawnRequests,
 	judgeServing,
 	loadAtVolume,
@@ -50,7 +44,7 @@ import {
 } from "#test/support/fixtures/ir/desc.ts"
 import { installFullWorld } from "#test/support/installed.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
-import { fixedTypmod, valueClasses } from "#test/support/oracle/gen/domain.ts"
+import { fixedTypmod } from "#test/support/oracle/gen/domain.ts"
 import { installRealSchema, type RealInstallPlan } from "#test/support/oracle/install/real.ts"
 import { buildMixed, buildRoot, buildSchema } from "#test/support/oracle/public/build.ts"
 import {
@@ -59,16 +53,8 @@ import {
 	resolveCase
 } from "#test/support/oracle/public/generate.ts"
 import { printCase } from "#test/support/oracle/public/print.ts"
-import {
-	boundRead,
-	type FieldKind,
-	fieldKinds,
-	type ProgramCase,
-	type ProgramField,
-	type Stored
-} from "#test/support/oracle/public/program.ts"
+import type { FieldKind, ProgramCase } from "#test/support/oracle/public/program.ts"
 import { sha256Uuid, spread } from "#test/support/plans.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 /**
@@ -138,125 +124,6 @@ const fieldSql = (
 export type WorkloadFeature =
 	| "a workload installed"
 	| "a workload refused for an unrepresentable key"
-	| "every table's declared statistics installed as declared"
-
-/** A declared number of distinct values as pg_stats reads it back: -1/2^exponent or 2^exponent, exact in a float4. */
-const declaredValue = (d: DeclaredDistinct): number =>
-	d.kind === "relative" ? -1 / 2 ** d.exponent : 2 ** d.exponent
-
-/**
- * Each column the installed snapshot's manifest declares statistics of: `<table>.<column>`, and its declared number of
- * distinct values as pg_stats reads it back (declaredValue).
- */
-const declaredColumns = (snapshot: DeploySnapshot) =>
-	Arr.flatMap(snapshot.manifest.objects, (o) =>
-		Arr.flatMap(o.ddl, (st) =>
-			st.kind === "declareStatistics"
-				? Arr.map(st.columns, (c) => ({
-						column: `${st.table.name}.${c.column}`,
-						distinct: declaredValue(c.distinct)
-					}))
-				: []
-		)
-	)
-
-/**
- * Every statistic pg_stats holds of the schema's relations after `analyzedAroundAChange` (serving.ts) analyzed every
- * table over two populations: exactly the declared ones, each declared column's number of distinct values as declared
- * and no sampled statistic beside it, and none of any other column, an index's expression's among them, which ANALYZE
- * samples by its own statistics target. An ANALYZE writes a table's sizes in pg_class whatever its columns' targets
- * (analyze.c do_analyze_rel), so what a declaration keeps is its columns' statistics; the plans it bounds are the
- * contract tier's (test/pg/contracts).
- */
-const statisticsKeptAsDeclared = (plan: RealInstallPlan, snapshot: DeploySnapshot) =>
-	Effect.gen(function* () {
-		const substrate = yield* Substrate
-		const held = yield* substrate.admin.queryValues(
-			`SELECT st.tablename::text || '.' || st.attname::text || ' ' || coalesce(st.n_distinct::text, '-') || coalesce(CASE WHEN st.most_common_vals IS NOT NULL OR st.histogram_bounds IS NOT NULL OR st.correlation IS NOT NULL THEN ' sampled' END, '') FROM pg_catalog.pg_stats AS st WHERE st.schemaname = $1::text AND NOT st.inherited`,
-			[plan.schema]
-		)
-		assert.deepEqual(
-			Arr.sort(
-				Arr.map(held, (row) => String(row[0])),
-				Order.String
-			),
-			Arr.sort(
-				Arr.map(declaredColumns(snapshot), (c) => `${c.column} ${c.distinct}`),
-				Order.String
-			),
-			"after two VACUUM ANALYZEs, the rows changed between them, every column's statistics are exactly as declared and no other column holds any"
-		)
-	})
-
-/**
- * Every table's declared statistics as the catalog holds them are those the installed snapshot's manifest declares, as
- * `grizzle generate` drafts it: every table grizzle installs declares its own, an authored or a stored derived
- * relation's, each bookkeeping table's (deploy/snapshot/build.ts targetState) and the live secret's alike, each column's
- * statistics target 0, so no ANALYZE samples it, its declared number of distinct values, and no sampled statistic
- * beside it; and every index the manifest creates stands on a law or the workload's access. What each declares is
- * test/unit/statistics's; that it is installed as declared is here.
- */
-const declarationsAsPlanned = (
-	plan: RealInstallPlan,
-	snapshot: DeploySnapshot,
-	note: (feature: ServingFeature | WorkloadFeature) => void
-) =>
-	Effect.gen(function* () {
-		const substrate = yield* Substrate
-		for (const o of plan.installation.manifest.objects) {
-			if (o.kind === "index") {
-				assert.ok(
-					Arr.some(o.reasons, (r) => r.kind === "law" || r.kind === "access"),
-					`${o.ident} stands on a law or the workload's access`
-				)
-			}
-		}
-		const planned = Arr.map(
-			declaredColumns(snapshot),
-			(c) => `${c.column} 0 ${c.distinct}` as const
-		)
-		/** Each column of the schema's tables: its table and name, its statistics target and pg_stats' n_distinct, and
-		 * whether it holds a sampled statistic. */
-		const installed = yield* substrate.admin.queryValues(
-			`SELECT c.relname::text || '.' || a.attname::text || ' ' || coalesce(a.attstattarget::text, '-') || ' ' || coalesce(st.n_distinct::text, '-') || coalesce(CASE WHEN st.most_common_vals IS NOT NULL OR st.histogram_bounds IS NOT NULL OR st.correlation IS NOT NULL THEN ' sampled' END, '') FROM pg_catalog.pg_attribute AS a JOIN pg_catalog.pg_class AS c ON c.oid = a.attrelid JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace LEFT JOIN pg_catalog.pg_stats AS st ON st.schemaname = n.nspname AND st.tablename = c.relname AND st.attname = a.attname AND NOT st.inherited WHERE n.nspname = $1::text AND c.relkind IN ('r', 'p') AND a.attnum > 0 AND NOT a.attisdropped`,
-			[plan.schema]
-		)
-		assert.deepEqual(
-			Arr.sort(
-				Arr.map(installed, (row) => String(row[0])),
-				Order.String
-			),
-			Arr.sort(planned, Order.String),
-			"every column of every table holds its declared statistics, its target 0 and nothing sampled"
-		)
-		const declaredTables = Arr.flatMap(snapshot.manifest.objects, (o) =>
-			Arr.flatMap(o.ddl, (st) => (st.kind === "declareStatistics" ? [st.table.name] : []))
-		)
-		/** Each table's storage parameters, which its declaration sets: its automatic ANALYZE's thresholds at their
-		 * maxima. */
-		const options = yield* substrate.admin.queryValues(
-			`SELECT c.relname::text, pg_catalog.array_to_string(c.reloptions, ',') FROM pg_catalog.pg_class AS c JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace WHERE n.nspname = $1::text AND c.relkind IN ('r', 'p')`,
-			[plan.schema]
-		)
-		assert.deepEqual(
-			Arr.sort(
-				Arr.map(options, (row) => `${String(row[0])} ${String(row[1])}`),
-				Order.String
-			),
-			Arr.sort(
-				Arr.map(
-					declaredTables,
-					(t) =>
-						`${t} autovacuum_analyze_threshold=${autovacuumAnalyzeThresholdMax},autovacuum_analyze_scale_factor=${autovacuumAnalyzeScaleMax}`
-				),
-				Order.String
-			),
-			"every table's automatic ANALYZE waits past its thresholds' maxima"
-		)
-		if (planned.length > 0) {
-			note("every table's declared statistics installed as declared")
-		}
-	})
 
 /** The generated case's reads as a workload, installed, loaded and judged. */
 export const workloadCase = (
@@ -295,7 +162,14 @@ export const workloadCase = (
 		}
 		note("a workload installed")
 		const judged = installed.success.plan
-		yield* declarationsAsPlanned(judged, installed.success.snapshot, note)
+		for (const o of judged.installation.manifest.objects) {
+			if (o.kind === "index") {
+				assert.ok(
+					Arr.some(o.reasons, (r) => r.kind === "law" || r.kind === "access"),
+					`${o.ident} stands on a law or the workload's access`
+				)
+			}
+		}
 		const domain = rosterDomainSql(judged, c.schema.roster.name)
 		const codec = defined(
 			judged.installation.names.codes.rosters.get(parsedName(c.schema.roster.name)),
@@ -331,8 +205,6 @@ export const workloadCase = (
 			[],
 			`PostgreSQL serves every request and needs every created index\n${printCase(c)}`
 		)
-		yield* analyzedAroundAChange(settled)
-		yield* statisticsKeptAsDeclared(judged, installed.success.snapshot)
 	})
 
 /**
@@ -667,18 +539,15 @@ export const requestCase = (sketch: RequestSketch, note: (feature: RequestFeatur
 	})
 
 /**
- * A workload case's sketch: the program its case sketch resolves to, and the reads it installs: the program's drawn
- * ones, or one read constructed to reach a workload's statistics in their place (statisticsCaseGen), which a witness
- * whose turn aims at that feature draws (workloadAims). The property resolves both on the case's own tape
- * (workloadGen), so a kept sketch installs the reads its case ran.
+ * A workload case's sketch: the program its case sketch resolves to, with its drawn reads. The property resolves it on
+ * the case's own tape (workloadGen), so a kept sketch installs the reads its case ran.
  */
 export interface WorkloadSketch {
 	readonly program: CaseSketch
-	readonly reads: "drawn" | "a correlated selection"
 }
 
 /** A workload of `program` with its drawn reads. */
-const drawnReads = (program: CaseSketch): WorkloadSketch => ({ program, reads: "drawn" })
+const drawnReads = (program: CaseSketch): WorkloadSketch => ({ program })
 
 /**
  * The generated workloads kept from failure reports whose fix was the index engine's (physical/indexes/engine.ts),
@@ -9660,104 +9529,12 @@ const workloadRegressions: Arr.NonEmptyReadonlyArray<WorkloadSketch> = [
 	})
 ]
 
-/** A field a constructed read binds a parameter at, and the values its type holds. */
-type Valued = readonly [ProgramField, Arr.NonEmptyReadonlyArray<TypedLiteral>]
-
-/**
- * The field kinds a constructed selection binds a parameter at: every drawn kind but a span's, whose equality is a
- * GiST predicate of its own, and a vector's, which no statistics object covers.
- */
-const selectableKinds: ReadonlySet<FieldKind> = new Set(
-	Arr.filter(fieldKinds, (kind) => kind !== "vector" && kind !== "span4" && kind !== "span8")
-)
-
-/** A relation and two of its fields no key of it is within, each of selectableKinds. */
-interface Correlated {
-	readonly stored: Stored
-	readonly pair: readonly [Valued, Valued]
-}
-
-/**
- * The case's schema read by one read constructed to reach a workload's statistics (program.ts boundRead): a relation's
- * facts whose two fields, drawn among the pairs of selectableKinds no key of the relation is within, are each a
- * parameter, every other field in the head. That is a correlated selection, over which the plan requests extended
- * statistics (physical/access/extract.ts); each parameter's value is drawn among its type's value classes. None where
- * no relation has such a pair. The streams the suite's label fixes held no drawn read the plan requested statistics
- * for.
- */
-const statisticsCaseGen =
-	(c: ProgramCase): Gen<Option.Option<ProgramCase>> =>
-	(source) => {
-		const [first, ...rest] = Arr.flatMap(
-			c.schema.relations,
-			(stored): ReadonlyArray<Correlated> => {
-				const keys = [stored.primaryKey, ...stored.candidates]
-				const valued = Arr.flatMap(stored.fields, (field): ReadonlyArray<Valued> => {
-					const [value, ...values] = valueClasses(field.type, false)
-					return selectableKinds.has(field.kind) && value !== undefined
-						? [[field, [value, ...values]]]
-						: []
-				})
-				return Arr.flatMap(valued, (a, at) =>
-					Arr.flatMap(Arr.drop(valued, at + 1), (b): ReadonlyArray<Correlated> =>
-						Arr.some(keys, (key) =>
-							Arr.every(key, (f) => f.name === a[0].name || f.name === b[0].name)
-						)
-							? []
-							: [{ stored, pair: [a, b] }]
-					)
-				)
-			}
-		)
-		if (first === undefined) {
-			return Option.none()
-		}
-		const { stored, pair } = source.draw(element([first, ...rest]))
-		return Option.some({
-			...c,
-			reads: [
-				boundRead(
-					stored,
-					new Map(
-						Arr.map(pair, ([field, values]) => [field.name, source.draw(element(values))] as const)
-					)
-				)
-			]
-		})
-	}
-
-/**
- * The workload a witness whose turn aims at a workload's statistics draws (aimed): a drawn program, installed with a
- * read constructed to reach them in place of its drawn reads.
- */
-const workloadAims: ReadonlyArray<readonly [WorkloadFeature, Gen<WorkloadSketch>]> = [
-	[
-		"every table's declared statistics installed as declared",
-		map(caseSketchGen, (program): WorkloadSketch => ({ program, reads: "a correlated selection" }))
-	]
-]
-
-/**
- * The case a workload sketch installs, resolved on the case's own tape: its program with its drawn reads, or with
- * statisticsCaseGen's read in their place, its drawn reads where no relation has the pair that read needs.
- */
+/** The case a workload sketch installs, resolved on the case's own tape: its program with its drawn reads. */
 export const workloadGen =
 	(sketch: WorkloadSketch): Gen<ProgramCase> =>
-	(source) => {
-		const c = source.draw(resolveCase(sketch.program))
-		switch (sketch.reads) {
-			case "drawn":
-				return c
-			case "a correlated selection":
-				return Option.getOrElse(source.draw(statisticsCaseGen(c)), () => c)
-		}
-	}
+	(source) =>
+		source.draw(resolveCase(sketch.program))
 
-/**
- * The workloads a case draws: a program with its drawn reads, the regressions recorded beside them (workloadRegressions),
- * and, for a witness whose turn aims at a workload's statistics, one constructed to reach them (workloadAims).
- */
-export const workloadSpace = aimed(
-	recorded(map(caseSketchGen, drawnReads), workloadRegressions),
-	workloadAims
-)
+/** The workloads a case draws: a program with its drawn reads, and the regressions recorded beside them
+ * (workloadRegressions). */
+export const workloadSpace = recorded(map(caseSketchGen, drawnReads), workloadRegressions)

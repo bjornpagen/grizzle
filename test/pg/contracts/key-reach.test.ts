@@ -61,13 +61,6 @@ export const aReadByAKeyAloneCarriesTheKeyIntoEveryScanThroughEveryDerivation = 
 				since: "2026-11-26"
 			}
 		],
-		kills: [
-			{
-				file: "packages/engine/src/physical/statistics/declared.ts",
-				original: "\tfor (const c of spanningLeads(shape, firstOf)) {",
-				replacement: "\tfor (const c of spanningLeads(shape, firstOf).slice(0, 0)) {",
-				why: "No spanning binding's lead an anchor, as before: a member's k0, which a read binds without its document, is priced at a share of the table, and PostgreSQL reads the member's key beside a filter, its index condition binding none of k0 (the kept case, edullm's Q05)."
-			}
-		]
+		kills: []
 	}
 )

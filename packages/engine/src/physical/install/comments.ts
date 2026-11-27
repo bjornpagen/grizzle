@@ -167,11 +167,6 @@ const created = (s: SqlStatement): ReadonlyArray<Created> => {
 			]
 		case "createLiveSecret":
 			return [{ on: { kind: "TABLE", name: s.table }, identifier: s.table.name }]
-		case "declareStatistics":
-			return s.dependencies.map((d) => ({
-				on: { kind: "STATISTICS", name: d.name },
-				identifier: d.name.name
-			}))
 		case "createPublication":
 		case "dropPublication":
 		case "select":
@@ -224,7 +219,6 @@ export const targetKey = (on: CommentTarget): string => {
 		case "DOMAIN":
 		case "TYPE":
 		case "INDEX":
-		case "STATISTICS":
 			return `${on.kind}\u0001${nameKey(on.name)}`
 		case "COLUMN":
 			return `${on.kind}\u0001${storedColumnKey(nameKey(on.relation), on.column)}`
@@ -254,7 +248,6 @@ const targetName = (on: CommentTarget): string => {
 		case "DOMAIN":
 		case "TYPE":
 		case "INDEX":
-		case "STATISTICS":
 		case "FUNCTION":
 			return on.name.name
 		case "COLUMN":
