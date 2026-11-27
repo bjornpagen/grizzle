@@ -234,8 +234,8 @@ export const aChangeSetsReadBackRidesTheStatementMakingItsDeltaOrRunsAfterTheWri
 			},
 			{
 				file: "packages/engine/src/write/program/compile.ts",
-				original: "\t\t\tparts: [...parts.map((p) => p[form]), ...stashes]\n",
-				replacement: "\t\t\tparts: parts.map((p) => p[form])\n",
+				original: "\t\t\tparts: [...placed.map((p) => p.part), ...stashes]\n",
+				replacement: "\t\t\tparts: placed.map((p) => p.part)\n",
 				why: "A carried side's carrier never filled by the statement making it: the read-back after the writes would read it empty."
 			}
 		]

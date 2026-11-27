@@ -383,8 +383,8 @@ export const aReadWhoseAttachmentsReadOneCallAtTheirParentsKeyAnswersWhatEachFie
 		kills: [
 			{
 				file: "packages/engine/src/lower/shapes/index.ts",
-				original: "\t\t}).withEvaluations(evaluations)\n",
-				replacement: "\t\t})\n",
+				original: "\t\tconst child = this.cx.withEvaluations(evaluations)\n",
+				replacement: "\t\tconst child = this.cx\n",
 				why: "No host holds the attachments' call for the sessions' rows: each attachment's child calls machine again, and the attached read plans two calls."
 			},
 			{

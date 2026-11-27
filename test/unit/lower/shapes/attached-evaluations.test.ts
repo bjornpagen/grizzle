@@ -52,8 +52,8 @@ export const aReadWhoseAttachmentsEachReadOneCallAtTheirParentsValuesCallsItOnce
 		kills: [
 			{
 				file: "packages/engine/src/lower/shapes/index.ts",
-				original: "\t\t}).withEvaluations(evaluations)\n",
-				replacement: "\t\t})\n",
+				original: "\t\tconst child = this.cx.withEvaluations(evaluations)\n",
+				replacement: "\t\tconst child = this.cx\n",
 				why: "No host holds an attachment's call for its parent's rows, as before: each attachment's child evaluates it again, so two or three attachments reading one call call machine two or three times."
 			},
 			{
