@@ -14,6 +14,7 @@
  * UnrepresentableKey (physical/indexes/engine.ts refusedUndigested), so the rule of what no entry holds has one place.
  */
 import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import { catchCompileError } from "#compiler/core/canonical.ts"
 import { identifierOf, identity, parseDeclaredName } from "#compiler/core/identity.ts"
 import { compareNumbers, compareStrings } from "#compiler/core/order.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
@@ -150,12 +151,17 @@ const catalogOf = (
 		)
 		const table: BindTable = { relation, columns, keys }
 		tables.set(nameKey(names.relation(relation)), table)
-		views.set(nameKey(names.wholeView(relation)), {
-			kind: "whole",
-			table,
-			alias: aliases.get(relation) ?? defect(`the whole view alias of ${relation}`),
-			columns: viewed
-		})
+		/** A relation whose whole view's name does not fit has none: a role that holds it whole is refused where it is
+		 * named (physical/ddl/names.ts namedRole), so no statement reads one. */
+		const whole = catchCompileError(() => names.wholeView(relation))
+		if (whole.ok) {
+			views.set(nameKey(whole.value), {
+				kind: "whole",
+				table,
+				alias: aliases.get(relation) ?? defect(`the whole view alias of ${relation}`),
+				columns: viewed
+			})
+		}
 	}
 	return {
 		table: (key) => tables.get(key),
