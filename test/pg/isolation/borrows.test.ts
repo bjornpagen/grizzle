@@ -107,9 +107,8 @@ export const aCallTakesItsLocksInTheOrderOfTheirIdsEachOnceAtTheStrongestModeItB
 			},
 			{
 				file: "packages/engine/src/write/borrow/statement.ts",
-				original: '\t\t\t[target(col(each, id)), target(call("bool_or", [col(each, exclusive)]))],',
-				replacement:
-					'\t\t\t[target(col(each, id)), target(call("bool_and", [col(each, exclusive)]))],',
+				original: '\t\t\t\ttarget(call("bool_or", [col(each, exclusive)])),',
+				replacement: '\t\t\t\ttarget(call("bool_and", [col(each, exclusive)])),',
 				why: "A lock a call borrows shared and exclusive is taken at the weaker mode, shared, where its exclusive borrow excludes every other holder."
 			},
 			{
