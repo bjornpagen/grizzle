@@ -28,7 +28,9 @@
  *
  * After every command the real database is read back and must be in the state the model claims: the ledger's latest
  * target, its partial folder and the files it recorded, its rows read strictly from the table as the runner reads them;
- * and after every refusal the model says ran nothing, the ledger and the whole catalog are unchanged. Each step draws a
+ * the snapshot guard's verdict, as a Db's transaction calls it, at the latest target and at another, a call it admits
+ * reading no page of the ledger and of the ledger's head no more pages than it holds, its one keyed read; and after
+ * every refusal the model says ran nothing, the ledger and the whole catalog are unchanged. Each step draws a
  * command the model's state allows, and its parameters in that state, so every drawn program is a sequence of real
  * actions, and a shrunk one is still one.
  *
@@ -106,6 +108,20 @@ export const ledgerMachine = property.explore(
 				original: "\t\t\t...Arr.map(bracket.after, (sql) => ({\n\t\t\t\tstage: lawsChecked,\n",
 				replacement: "\t\t\t...Arr.map(bracket.after, (sql) => ({\n\t\t\t\tstage: recordStage,\n",
 				why: "The bracket's statements after a custom data step's, its deferred laws made immediate, staged as the ledger's rows: the data step that breaks a rule is refused as a record the ledger could not write, at stage record, where its laws refused it as its COMMIT would."
+			},
+			{
+				file: "packages/engine/src/physical/ddl/ledger.ts",
+				original: '\t\t\t\t\t{ kind: "assign", target: verdictName, value: read },\n',
+				replacement:
+					'\t\t\t\t\trefuseWhen(not(exists(simpleSelect([one], [table(schema, ledgerTableName, "r3")], undefined))), raiseAs("no folder", sqlstates.grizzleMigrated)),\n\t\t\t\t\t{ kind: "assign", target: verdictName, value: read },\n',
+				why: "The guard reads the ledger's folders again beside its head, as the rule it stores did: its verdicts stand, and a call it admits reads a page of the ledger in every Db transaction, past its one keyed read of the head."
+			},
+			{
+				file: "packages/grizzle/src/adapter/migrate/apply.ts",
+				original:
+					"\t\toneShotStatement(statements.recordFile.text, fileParams(folder, file)),\n\t\toneShotStatement(statements.recordHead.text, headParams(folder, file.ordinal))\n",
+				replacement: "\t\toneShotStatement(statements.recordFile.text, fileParams(folder, file))\n",
+				why: "A file's transaction records its row and leaves the ledger's head as it stood: a folder's files committed, the guard still reads its head unwritten or the folder before, so it refuses the Db at the target the ledger reached."
 			}
 		]
 	}

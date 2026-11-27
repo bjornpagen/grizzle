@@ -14,7 +14,7 @@ import {
 import { constant, element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { regex } from "arkregex"
-import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order, Result, String as Str } from "effect"
 import { applyLockKey, readLedger, type SchemaApplyReport } from "#adapter/migrate/apply.ts"
 import type {
 	AppliedEdit,
@@ -26,6 +26,7 @@ import type { FolderTexts } from "#adapter/migrate/input.ts"
 import { statementsFor } from "#adapter/migrate/ledger.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { SchemaFingerprint } from "#compiler/core/ids.ts"
+import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import type { AbandonedSchema } from "#compiler/deploy/diff/plan.ts"
 import {
@@ -48,7 +49,7 @@ import { codebookOf, emptyFingerprint } from "#compiler/deploy/snapshot/build.ts
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { codeOf } from "#compiler/ir/codes.ts"
 import { lawsOfConstraint } from "#compiler/ir/products.ts"
-import { folderOrdinal, ledgerTableName } from "#compiler/physical/ddl/ledger.ts"
+import { folderOrdinal, ledgerTableName, snapshotGuardName } from "#compiler/physical/ddl/ledger.ts"
 import { catalogExpr } from "#compiler/sql/print.ts"
 import {
 	apply,
@@ -61,7 +62,7 @@ import {
 	reviewedSource
 } from "#test/pg/migrate/support.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { readCatalog } from "#test/support/catalog/read.ts"
+import { type InstalledCatalog, readCatalog } from "#test/support/catalog/read.ts"
 import { chunked, joined } from "#test/support/chunked.ts"
 import { firstCodes } from "#test/support/compile.ts"
 import { atName, parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
@@ -130,31 +131,139 @@ export type Feature = (typeof commandKinds)[number]
 
 const statements = (schema: string) => succeeded(statementsFor(schema))
 
-/** The ledger the model claims: its latest target, and its partial folder with the files recorded. */
-const expectLedger = (r: System, model: Model, actual: LedgerState) => {
-	const latest =
-		model.recorded === 0
-			? emptyFingerprint(r.schema)
-			: defined(r.gs[model.recorded - 1]).snapshot.fingerprint
-	assert.equal(actual.latest, latest, "the ledger's latest target")
-	assert.deepEqual(
-		actual.partial === undefined
-			? undefined
-			: { folder: actual.partial.folder, done: [...completedFiles(actual.partial)] },
-		Option.getOrUndefined(
-			Option.map(model.partial, (files) => ({
-				folder: defined(r.gs[model.recorded]).folder.name,
-				done: Arr.map(indices(files), (k) => k + 1)
-			}))
-		),
-		"the ledger's partial folder"
+/** The relations a call of the snapshot guard may read, each by its name in the schema: the ledger, its head and their keys. */
+const guardRelations = [
+	identity.ledger(),
+	identity.ledgerKey(),
+	identity.ledgerHead(),
+	identity.ledgerHeadKey()
+] as const
+
+/**
+ * A call of the snapshot guard of the schema at `fingerprint`, as a Db's transaction makes it, by the administrator in a
+ * transaction of its own: refused, its SQLSTATE; or admitted, the pages a call of it reads of each of `guardRelations`,
+ * in their order, which the transaction's own statistics count (pg_stat_get_xact_blocks_fetched), with the pages the
+ * head holds. The pages are a second call's, its statement planned by the first, so what they count is the read alone,
+ * never the planner's look at an index's metapage, as every Db's session calls the guard again under its cached plan.
+ */
+const guardCall = (r: System, fingerprint: string) =>
+	Effect.scoped(
+		Effect.gen(function* () {
+			const admin = yield* (yield* Substrate).admin.pin
+			const qualified = (name: string) => `${quoteIdent(r.schema)}.${quoteIdent(name)}`
+			const fetched = Arr.map(
+				guardRelations,
+				(_, i) =>
+					`pg_catalog.pg_stat_get_xact_blocks_fetched(pg_catalog.to_regclass($${i + 1}::text))`
+			)
+			const headPages = `pg_catalog.pg_relation_size(pg_catalog.to_regclass($${guardRelations.length + 1}::text)) / pg_catalog.current_setting('block_size')::bigint`
+			yield* admin.queryValues("BEGIN", [])
+			const called = yield* Effect.result(
+				admin.queryValues(`SELECT ${qualified(snapshotGuardName)}($1::text)`, [fingerprint])
+			)
+			if (Result.isFailure(called)) {
+				yield* admin.queryValues("ROLLBACK", [])
+				const reason = called.failure.reason
+				return {
+					kind: "refused" as const,
+					sqlstate: reason._tag === "ServerError" ? reason.fields.code : reason.message
+				}
+			}
+			const counted = Effect.map(
+				admin.queryValues(`SELECT ${Arr.join([...fetched, headPages], ", ")}`, [
+					...Arr.map(guardRelations, (n) => qualified(identifierOf(n))),
+					qualified(identifierOf(identity.ledgerHead()))
+				]),
+				([read]) => Arr.map(defined(read, "the guard's pages"), Number)
+			)
+			const before = yield* counted
+			yield* admin.queryValues(`SELECT ${qualified(snapshotGuardName)}($1::text)`, [fingerprint])
+			const after = yield* counted
+			yield* admin.queryValues("ROLLBACK", [])
+			return {
+				kind: "admitted" as const,
+				pages: Arr.zipWith(after.slice(0, -1), before.slice(0, -1), (a, b) => a - b),
+				headPages: defined(after.at(-1), "the head's pages")
+			}
+		})
 	)
-	assert.deepEqual(
-		Arr.map(actual.complete, (f) => f.folder),
-		Arr.map(r.gs.slice(0, model.recorded), (g) => g.folder.name),
-		"the folders the ledger records complete"
-	)
-}
+
+/**
+ * The snapshot guard the model claims, after every command: none before the first folder records a file; refused
+ * (55Z02) at every snapshot while a folder is unfinished; else admitted at the latest target and refused (55Z01) at
+ * another. Admitted, it reads no page of the ledger and of the head's key, and of the head no more pages than it holds,
+ * one where its one row's versions are pruned, whatever the ledger holds: one keyed read of a derived fact, where the
+ * ledger's rule read every folder row and counted each one's files in every Db transaction.
+ */
+const expectGuard = (r: System, model: Model) =>
+	Effect.gen(function* () {
+		if (model.recorded === 0 && Option.isNone(model.partial)) {
+			return
+		}
+		const latest = defined(r.gs[Math.max(model.recorded, 1) - 1]).snapshot.fingerprint
+		const another = r.foreign.snapshot.fingerprint
+		const atLatest = yield* guardCall(r, latest)
+		const atAnother = yield* guardCall(r, another)
+		if (Option.isSome(model.partial)) {
+			assert.deepEqual(
+				atLatest,
+				{ kind: "refused", sqlstate: sqlstates.grizzleMigrating },
+				"the guard refuses a Db while a folder is unfinished"
+			)
+			assert.deepEqual(
+				atAnother,
+				{ kind: "refused", sqlstate: sqlstates.grizzleMigrating },
+				"the guard refuses every Db while a folder is unfinished"
+			)
+			return
+		}
+		assert.deepEqual(
+			atAnother,
+			{ kind: "refused", sqlstate: sqlstates.grizzleMigrated },
+			"the guard refuses a Db at another snapshot"
+		)
+		if (atLatest.kind !== "admitted") {
+			return assert.fail(`the guard admits a Db at the latest target, not ${atLatest.sqlstate}`)
+		}
+		const [ledger, ledgerKey, head, headKey] = atLatest.pages
+		assert.deepEqual(
+			[ledger, ledgerKey, headKey],
+			[0, 0, 0],
+			`the guard reads no page of the ledger, its key or the head's key: a call read ${Arr.join(Arr.map(atLatest.pages, String), ", ")} of the ledger, its key, the head and the head's key`
+		)
+		assert.ok(
+			head !== undefined && head >= 1 && head <= atLatest.headPages,
+			`the guard reads the head's ${atLatest.headPages} page(s) at most, ${head} read`
+		)
+	})
+
+/** The ledger the model claims: its latest target, and its partial folder with the files recorded; and its guard's verdicts (`expectGuard`). */
+const expectLedger = (r: System, model: Model, actual: LedgerState) =>
+	Effect.gen(function* () {
+		const latest =
+			model.recorded === 0
+				? emptyFingerprint(r.schema)
+				: defined(r.gs[model.recorded - 1]).snapshot.fingerprint
+		assert.equal(actual.latest, latest, "the ledger's latest target")
+		assert.deepEqual(
+			actual.partial === undefined
+				? undefined
+				: { folder: actual.partial.folder, done: [...completedFiles(actual.partial)] },
+			Option.getOrUndefined(
+				Option.map(model.partial, (files) => ({
+					folder: defined(r.gs[model.recorded]).folder.name,
+					done: Arr.map(indices(files), (k) => k + 1)
+				}))
+			),
+			"the ledger's partial folder"
+		)
+		assert.deepEqual(
+			Arr.map(actual.complete, (f) => f.folder),
+			Arr.map(r.gs.slice(0, model.recorded), (g) => g.folder.name),
+			"the folders the ledger records complete"
+		)
+		yield* expectGuard(r, model)
+	})
 
 /** The ledger key's columns. */
 const folderColumn: LedgerColumn = "folder"
@@ -247,8 +356,34 @@ const observe = (r: System) =>
 			rows,
 			"the ledger's rows read strictly as the runner reads them"
 		)
-		return { ledger, catalog: yield* readCatalog(substrate.admin, [r.schema]) }
+		const catalog = yield* readCatalog(substrate.admin, [r.schema])
+		return { ledger, catalog: declared(catalog) }
 	})
+
+/**
+ * The catalog as a file of a migration leaves it, each column's statistics its declared target alone: what an ANALYZE
+ * samples (pg_stats' distinct values and its sampled statistics) is autovacuum's to write at any moment, of a table
+ * changed past its threshold, the ledger's head first, which every file's transaction updates, so no comparison of two
+ * reads around a refused file reads it.
+ */
+const declared = (read: InstalledCatalog): InstalledCatalog =>
+	read.kind === "absent"
+		? read
+		: {
+				kind: "present",
+				catalog: {
+					...read.catalog,
+					tables: Arr.map(read.catalog.tables, (t) => ({
+						...t,
+						columns: Arr.map(t.columns, (c) => ({
+							...c,
+							statistics: Option.map(c.statistics, (st) =>
+								Arr.join(Arr.take(Str.split(" ")(st), 2), " ")
+							)
+						}))
+					}))
+				}
+			}
 
 /** Runs an apply the model says is refused before any statement runs: refused at `stage`, the ledger and the catalog
  * unchanged, and the ledger still the model's. */
@@ -265,7 +400,7 @@ const refusedBeforeRunning = (
 		const after = yield* observe(r)
 		assert.deepEqual(after.ledger, before.ledger, "nothing ran: the ledger")
 		assert.deepEqual(after.catalog, before.catalog, "nothing ran: the catalog")
-		expectLedger(r, model, after.ledger)
+		yield* expectLedger(r, model, after.ledger)
 		return e
 	})
 
@@ -663,7 +798,7 @@ const realOf = (
 				const report = yield* apply(r.m, directory(r, k, asReviewed), noFurther)
 				assert.deepEqual(report.applied, expected, "the folders the apply runs")
 				const observed = yield* observe(r)
-				expectLedger(r, after, observed.ledger)
+				yield* expectLedger(r, after, observed.ledger)
 			}),
 			took
 		),
@@ -736,7 +871,7 @@ const realOf = (
 					c.note("apply unreviewed without markers")
 					yield* apply(r.m, unreviewed, noFurther)
 					const observed = yield* observe(r)
-					expectLedger(r, after, observed.ledger)
+					yield* expectLedger(r, after, observed.ledger)
 					return
 				}
 				if (markers.length === 0) {
@@ -800,7 +935,7 @@ const realOf = (
 					"the failing statement's SQLSTATE"
 				)
 				const observed = yield* observe(r)
-				expectLedger(r, after, observed.ledger)
+				yield* expectLedger(r, after, observed.ledger)
 			}),
 			took
 		),
@@ -1061,7 +1196,7 @@ const realOf = (
 				const catalog = yield* readCatalog(substrate.admin, [r.schema])
 				assert.equal(catalog.kind, "absent", "the schema the first file created rolled back")
 				const observed = yield* observe(r)
-				expectLedger(r, model, observed.ledger)
+				yield* expectLedger(r, model, observed.ledger)
 			}),
 			took
 		)

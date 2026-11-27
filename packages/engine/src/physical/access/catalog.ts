@@ -26,6 +26,7 @@ import {
 } from "#compiler/ir/scalar.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import type { InstallBuilder, TargetField } from "#compiler/physical/ddl/context.ts"
+import { ledgerHeadTableName } from "#compiler/physical/ddl/ledger.ts"
 import { type NameKey, nameKey, type ObjectName } from "#compiler/sql/ast.ts"
 import type { BindColumn, BindTable, BindView, ReadCatalog } from "#compiler/sql/bind.ts"
 import { type Alias, wholeViewAlias } from "#compiler/sql/naming.ts"
@@ -116,9 +117,10 @@ const catalogOf = (
 	model: LawModel,
 	names: CatalogNames,
 	world: (key: NameKey, tables: ReadonlyMap<NameKey, BindTable>) => boolean,
-	fired: ReadCatalog["fired"]
+	fired: ReadCatalog["fired"],
+	bookkeeping: ReadonlyMap<NameKey, BindTable>
 ): ReadCatalog => {
-	const tables = new Map<NameKey, BindTable>()
+	const tables = new Map<NameKey, BindTable>(bookkeeping)
 	const views = new Map<NameKey, BindView>()
 	const aliases = wholeViewAliases(model)
 	for (const [relation, r] of Object.entries(model.theory.relations)) {
@@ -163,9 +165,32 @@ const catalogOf = (
 }
 
 /**
+ * The ledger's head of the installation in `schema` as the binding reads it (physical/ddl/ledger.ts
+ * ledgerHeadTableName, deploy/ledger/ledger.ts headTable), the one bookkeeping table an installed routine reads: the
+ * snapshot guard's one read of its one row, whole. Its columns as every table's are (`columnOf`): its key and whether
+ * its folder is complete, booleans, each of few values; the folder's name, a text; its target, a digest's bytes.
+ */
+const ledgerHead = (schema: string): ReadonlyMap<NameKey, BindTable> =>
+	new Map([
+		[
+			nameKey({ schema, name: ledgerHeadTableName }),
+			{
+				relation: ledgerHeadTableName,
+				columns: new Map<string, BindColumn>([
+					["head", { kind: "scalar", field: "head", holds: "few" }],
+					["folder", { kind: "text", field: "folder", holds: "many" }],
+					["target", { kind: "scalar", field: "target", holds: "many" }],
+					["complete", { kind: "scalar", field: "complete", holds: "few" }]
+				]),
+				keys: [["head"]]
+			}
+		]
+	])
+
+/**
  * The catalog of the installation `b` builds (see the header), every other view its statements create one PostgreSQL
  * plans apart, as a world view is, and each trigger function's table's columns, each its type, by the function every trigger the statements create on a table
- * calls.
+ * calls, and the ledger's head its snapshot guard reads (`ledgerHead`).
  */
 export const installCatalog = (b: InstallBuilder): ReadCatalog => {
 	const statements = b.graph.statements()
@@ -198,7 +223,8 @@ export const installCatalog = (b: InstallBuilder): ReadCatalog => {
 		b.model,
 		b.names,
 		(key) => views.has(key),
-		(fn) => fired.get(fn)
+		(fn) => fired.get(fn),
+		ledgerHead(b.schema)
 	)
 }
 
@@ -219,5 +245,6 @@ export const servedCatalog = (model: LawModel, names: CatalogNames): ReadCatalog
 			const schema = key.slice(0, key.indexOf("\u0000"))
 			return !tables.has(key) && !noViews.has(schema)
 		},
-		() => undefined
+		() => undefined,
+		new Map()
 	)

@@ -55,7 +55,8 @@ export const maxIdentifierBytes = namedatalen - 1
  *   closed id's decoded column `<field>_name` beside it in a view, a login's or role's
  *   `<schema>__<name>` (a role's schema and policies take its role's), a level's schema of its relations' whole views,
  *   `__<schema>`, or a name grizzle fixes (`check` for a domain's
- *   CHECK, the per-schema singletons `__ledger` with its key and checks, `__refuse`, `__require_serializable` and
+ *   CHECK, the per-schema singletons `__ledger` with its key and checks, its head `__ledger_head` with its key and check,
+ *   `__refuse`, `__require_serializable` and
  *   `__snapshot_guard`, the per-table trigger `__isolation`). The declaration rules make each one-to-one in its
  *   namespace: declared names are compared by their conversions (`DeclaredNamespace`, every namespace of declared
  *   names: the schema's relations, rosters and contracts, each relation's or view's columns, each table's row checks,
@@ -2091,6 +2092,33 @@ export const identity = Object.freeze({
 			readable(`__ledger_${joined(segments)}_check`)
 		)
 	},
+	/** The migrations ledger's head, the one row the snapshot guard reads (deploy/ledger/ledger.ts headTable). */
+	ledgerHead: (): Identity<"ledgerHead"> =>
+		mint(
+			"ledgerHead",
+			[],
+			["ledger", "head"],
+			"the migrations ledger's head",
+			readable("__ledger_head")
+		),
+	/** The migrations ledger's head's primary key. */
+	ledgerHeadKey: (): Identity<"ledgerHeadKey"> =>
+		mint(
+			"ledgerHeadKey",
+			[],
+			["ledger", "head", "pk"],
+			"the migrations ledger's head's key",
+			readable("__ledger_head_pk")
+		),
+	/** The migrations ledger's head's CHECK, which holds it to its one row. */
+	ledgerHeadCheck: (): Identity<"ledgerHeadCheck"> =>
+		mint(
+			"ledgerHeadCheck",
+			[],
+			["ledger", "head", "row", "check"],
+			"the migrations ledger's head's check of its one row",
+			readable("__ledger_head_row_check")
+		),
 	/** The drift check's proofs, beside the migrations ledger (deploy/ledger/ledger.ts proofsTable). */
 	proofs: (): Identity<"proofs"> =>
 		mint("proofs", [], ["drift", "proofs"], "the drift check's proofs", readable("__drift_proofs")),

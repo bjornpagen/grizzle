@@ -16,6 +16,8 @@ import {
 	digestOfHex,
 	folderOrdinal,
 	hexOfDigest,
+	ledgerHeadColumns,
+	ledgerHeadTableName,
 	ledgerTableName,
 	proofsTableName,
 	snapshotGuardName
@@ -70,6 +72,8 @@ const ledgerName = (schema: string): ObjectName => objectName(schema, ledgerTabl
 
 const proofsName = (schema: string): ObjectName => objectName(schema, proofsTableName)
 
+const headName = (schema: string): ObjectName => objectName(schema, ledgerHeadTableName)
+
 /** The graph identities of the ledger's objects in a snapshot manifest (`InstallBuilder` names the others). */
 const ledgerIdent = (schema: string): string => qualifiedIdent("table", schema, ledgerTableName)
 const ledgerPrivilegesIdent = (schema: string): string =>
@@ -85,6 +89,13 @@ const text = (name: string): ColumnDef => ({
 const integer = (name: string): ColumnDef => ({
 	name,
 	type: types.integer,
+	collation: undefined,
+	generated: undefined
+})
+
+const boolean = (name: string): ColumnDef => ({
+	name,
+	type: types.boolean,
 	collation: undefined,
 	generated: undefined
 })
@@ -335,6 +346,90 @@ const proofsGuardObject = (schema: string): PhysicalObject<SqlStatement> => ({
 	phase: "setup"
 })
 
+/** Each column of the ledger's head (physical/ddl/ledger.ts ledgerHeadColumns) as its CREATE TABLE makes it. */
+const headColumn = (schema: string, c: (typeof ledgerHeadColumns)[number]): ColumnDef => {
+	switch (c) {
+		case "head":
+		case "complete":
+			return boolean(c)
+		case "folder":
+			return text(c)
+		case "target":
+			return digestColumn(schema, c)
+	}
+}
+
+/**
+ * The ledger's head `<schema>.<ledger head>` (identity.ledgerHead), beside the ledger: the derived fact the snapshot
+ * guard reads (physical/ddl/ledger.ts snapshotGuardDdl), the latest folder the ledger records, its target and whether
+ * the ledger records every file of it, one row, every column NOT NULL with a primary key, like every table:
+ *
+ *   CREATE TABLE "<schema>"."<ledger head>" (
+ *     "head" boolean NOT NULL,                               -- true, the one row
+ *     "folder" text COLLATE pg_catalog.pg_c_utf8 NOT NULL,   -- the latest folder the ledger records
+ *     "target" "<schema>"."__sha256" NOT NULL,               -- its target snapshot fingerprint
+ *     "complete" boolean NOT NULL,                           -- whether every file of it is recorded
+ *     CONSTRAINT "<head key>" PRIMARY KEY ("head"),
+ *     CONSTRAINT "<head check>" CHECK (("head") IS TRUE)
+ *   )
+ *
+ * The apply runner writes it in every transaction that records a row of the ledger, the folder's row alone or a file's
+ * (recordHead): the folder that transaction records, its target, and whether the ordinal it records is the folder's
+ * last, so the head is the rule of the rows the transaction commits (ledgerState): only the latest folder can be
+ * partial, since the runner records folders in name order and each whole before the next. So a Db's guard reads one
+ * row of one page, whatever the ledger holds. No Db reads it but through the guard, which reads it as its owner, so no
+ * login holds a privilege on it and no fence takes it, and the live source publishes nothing of it, the ledger's own
+ * rows saying what a migration did. Its PUBLIC privileges are revoked at once.
+ */
+export const headTable = (schema: string): CreateTable => ({
+	kind: "createTable",
+	table: headName(schema),
+	columns: mapNonEmpty(ledgerHeadColumns, (c) => headColumn(schema, c)),
+	primaryKey: {
+		kind: "primaryKey",
+		name: identifierOf(identity.ledgerHeadKey()),
+		columns: [{ column: "head", withoutOverlaps: false }]
+	},
+	secondary: [
+		{
+			kind: "check",
+			name: identifierOf(identity.ledgerHeadCheck()),
+			predicate: tableCol("head")
+		}
+	]
+})
+
+/** The manifest identity of the ledger's head of `schema`. */
+const headIdent = (schema: string): string => qualifiedIdent("table", schema, ledgerHeadTableName)
+
+/** The ledger's head as an object of a snapshot manifest, created in Setup right after the ledger. */
+const headObject = (schema: string): PhysicalObject<SqlStatement> => ({
+	kind: "ledger",
+	ident: headIdent(schema),
+	ddl: [
+		headTable(schema),
+		{
+			kind: "revoke",
+			privileges: ["ALL"],
+			on: { kind: "TABLE", names: [headName(schema)] },
+			from: [{ kind: "PUBLIC" }]
+		}
+	],
+	reasons: [{ kind: "enforcement", of: "the migrations ledger's head" }],
+	state: "needed",
+	phase: "setup"
+})
+
+/** The head's guard trigger, created in Setup right after the head: every table grizzle installs refuses a write below
+ * SERIALIZABLE. */
+const headGuardObject = (schema: string): PhysicalObject<SqlStatement> => ({
+	kind: "isolationTrigger",
+	...isolationTrigger(schema, headName(schema)),
+	reasons: [{ kind: "enforcement", of: "the SERIALIZABLE writes of the migrations ledger's head" }],
+	state: "needed",
+	phase: "setup"
+})
+
 /**
  * One of grizzle's bookkeeping tables: its table's name, in whatever schema the installation is, and in a schema its
  * CREATE TABLE, with its key, its object of a snapshot manifest (the table and its PUBLIC revoke), and its SERIALIZABLE
@@ -349,8 +444,8 @@ export interface BookkeepingTable {
 
 /**
  * grizzle's bookkeeping tables, the deployment's own beside an installation's tables, which no schema declares and only
- * a migration makes: the migrations ledger, then the drift check's proofs, each created in Setup right after the
- * isolation function, under its guard. The one roster of them: the snapshot creates each (snapshot/build.ts
+ * a migration makes: the migrations ledger, its head, then the drift check's proofs, each created in Setup right after
+ * the isolation function, under its guard. The one roster of them: the snapshot creates each (snapshot/build.ts
  * targetState), and whatever reads an installation's catalog sets each aside by it, so a bookkeeping table is one
  * entry here. What the ledger alone is (every login reads it, the live source publishes it) is the ledger's.
  */
@@ -360,6 +455,12 @@ export const bookkeepingTables: NonEmptyReadonlyArray<BookkeepingTable> = [
 		table: ledgerTable,
 		object: ledgerObject,
 		guard: ledgerGuardObject
+	},
+	{
+		name: ledgerHeadTableName,
+		table: headTable,
+		object: headObject,
+		guard: headGuardObject
 	},
 	{
 		name: proofsTableName,
@@ -474,6 +575,12 @@ export interface LedgerStatements {
 	readonly redraftFolder: EmittedSql
 	/** INSERT a file row: $1 folder, $2 ordinal, $3 file, $4 source, $5 target, $6 files, $7 digest of the file. */
 	readonly recordFile: EmittedSql
+	/**
+	 * The ledger's head as the transaction that records a row of the folder $1 leaves it (headTable), its one row
+	 * inserted or replaced: the folder $1, its target $2, complete where $3, the ordinal the transaction records, is $4,
+	 * the folder's file count. Every transaction that records a row of the ledger runs it last.
+	 */
+	readonly recordHead: EmittedSql
 	/** Every row as its seven columns in ledgerColumns order, the integers as text, by folder and ordinal. */
 	readonly rows: EmittedSql
 	/** The fence a Db transaction and admission take first (see `snapshotGuardDdl`): the ledger's ACCESS SHARE lock, NOWAIT. */
@@ -533,16 +640,59 @@ const redraftUpdate = (schema: string): Update => {
 	}
 }
 
+/** The ledger's head's one row inserted or replaced (LedgerStatements.recordHead). */
+const recordHead = (schema: string): Insert => {
+	const head = ledgerHeadTableName
+	const excluded = (column: string): Expr => ({ kind: "excluded", column })
+	return {
+		kind: "insert",
+		with: undefined,
+		table: headName(schema),
+		alias: head,
+		columns: [...ledgerHeadColumns],
+		source: {
+			kind: "values",
+			rows: [
+				[
+					lit.bool(true),
+					param(1, types.text),
+					digestParam(2),
+					eq(param(3, types.integer), param(4, types.integer))
+				]
+			]
+		},
+		onConflict: {
+			kind: "columns",
+			columns: ["head"],
+			action: {
+				kind: "doUpdate",
+				set: assignments(ungenerated, head, [
+					{ column: "folder", value: excluded("folder") },
+					{ column: "target", value: excluded("target") },
+					{ column: "complete", value: excluded("complete") }
+				]),
+				where: undefined
+			}
+		},
+		returning: []
+	}
+}
+
 /**
  * The statements the apply runner sends in a file's transaction besides the file's own (adapter/migrate/apply.ts
  * runFile), as the transaction's locks count them (deploy/locks/demand.ts): the ledger's ACCESS EXCLUSIVE first, then
- * the folder's and the file's rows, and a redraft's re-record of its folder.
+ * the folder's and the file's rows, a redraft's re-record of its folder, and the ledger's head.
  */
 export const runnerStatements = (
 	schema: string
 ): { readonly fence: LockTable; readonly rows: ReadonlyArray<SqlStatement> } => ({
 	fence: ledgerLock(schema, "ACCESS EXCLUSIVE", "wait"),
-	rows: [insertRow(schema, "folder"), insertRow(schema, "file"), redraftUpdate(schema)]
+	rows: [
+		insertRow(schema, "folder"),
+		insertRow(schema, "file"),
+		redraftUpdate(schema),
+		recordHead(schema)
+	]
 })
 
 /** The proofs' rows by object, each column named c1 to c3 in proofColumns order. */
@@ -660,6 +810,7 @@ export const ledgerStatements = (schema: string): Result.Result<LedgerStatements
 			recordFolder: emitted(insertRow(schema, "folder")),
 			redraftFolder: emitted(redraftUpdate(schema)),
 			recordFile: emitted(insertRow(schema, "file")),
+			recordHead: emitted(recordHead(schema)),
 			rows: emitted(rows),
 			fence: emitted(ledgerLock(schema, "ACCESS SHARE", "nowait")),
 			exclusive: emitted(ledgerLock(schema, "ACCESS EXCLUSIVE", "wait")),

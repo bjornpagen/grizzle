@@ -33,6 +33,7 @@ import { SchemaFingerprint } from "#compiler/core/ids.ts"
 import { prepared } from "#compiler/core/prepared.ts"
 import { sha256Hex } from "#compiler/core/sha256.ts"
 import {
+	headTable,
 	type LedgerStatements,
 	ledgerStatements,
 	ledgerTable
@@ -115,9 +116,10 @@ const frameOf = (name: FrameName, prologue: Prologue): Frame => {
 
 /**
  * The statements that install a framed call's fence in `schema`, run by the server check's administrator: the digest
- * domain the ledger's digest columns are typed by, the ledger and its snapshot guard, as an installation's Setup creates
- * them (physical/ddl/ledger.ts digestDomainDdl, deploy/ledger/ledger.ts); one complete folder whose target is
- * `flightSnapshot`, recorded by the apply runner's own statement (ledgerStatements recordFolder); and what `grantee`,
+ * domain the ledger's digest columns are typed by, the ledger, its head and the snapshot guard, as an installation's
+ * Setup creates them (physical/ddl/ledger.ts digestDomainDdl, deploy/ledger/ledger.ts); one complete folder of no file
+ * whose target is `flightSnapshot`, recorded by the apply runner's own statements (ledgerStatements recordFolder,
+ * recordHead); and what `grantee`,
  * the role the checked sessions log in as, needs to take the fence: USAGE on the schema, SELECT on the ledger and
  * EXECUTE on the guard.
  */
@@ -140,6 +142,7 @@ export const fenceSql = (schema: string, grantee: string): ReadonlyArray<PgState
 	return [
 		alone(text(digestDomainDdl(schema))),
 		alone(text(ledgerTable(schema))),
+		alone(text(headTable(schema))),
 		alone(text(guard)),
 		alone(text(revoke)),
 		{
@@ -151,6 +154,10 @@ export const fenceSql = (schema: string, grantee: string): ReadonlyArray<PgState
 				0,
 				digestHexOf("flight")
 			]
+		},
+		{
+			sql: statements.value.recordHead.text,
+			params: ["20261023000000_flight", flightSnapshot, 0, 0]
 		},
 		alone(`GRANT USAGE ON SCHEMA ${quoteIdent(schema)} TO ${role}`),
 		alone(`GRANT SELECT ON ${ledger} TO ${role}`),

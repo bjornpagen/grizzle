@@ -70,6 +70,7 @@ import { AdviceUnloaded } from "#adapter/errors/execution.ts"
 import {
 	fileParams,
 	folderParams,
+	headParams,
 	installedLedger,
 	type LedgerRead,
 	ledgerExistsRead,
@@ -131,6 +132,7 @@ import {
 	dataStepBracket,
 	dataStepRecheckName,
 	type FolderLaws,
+	folderOrdinal,
 	immutableTriggerName,
 	immutableTruncateTriggerName,
 	type InstallationNames,
@@ -941,7 +943,8 @@ const runFile = (
 	const record = [
 		...redraft,
 		oneShotStatement(statements.recordFolder.text, folderParams(folder)),
-		oneShotStatement(statements.recordFile.text, fileParams(folder, file))
+		oneShotStatement(statements.recordFile.text, fileParams(folder, file)),
+		oneShotStatement(statements.recordHead.text, headParams(folder, file.ordinal))
 	]
 	/** What a refusal of a statement of the file's transaction at `stage` is (FileStage). */
 	const refusedAt = (stage: FileStage, refusal: StatementFailure): MigrateError => {
@@ -1233,7 +1236,8 @@ const recordFolderRow = (
 	return Effect.mapError(
 		session.transaction([
 			...fence,
-			oneShotStatement(statements.recordFolder.text, folderParams(folder))
+			oneShotStatement(statements.recordFolder.text, folderParams(folder)),
+			oneShotStatement(statements.recordHead.text, headParams(folder, folderOrdinal))
 		]),
 		(failure: BatchFailure | InputTooLarge) => {
 			switch (failure._tag) {

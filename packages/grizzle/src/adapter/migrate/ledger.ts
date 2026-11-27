@@ -176,6 +176,18 @@ export const redraftParams = (folder: ParsedFolder, record: Redraft): ReadonlyAr
 	textParam(record.meta)
 ]
 
+/**
+ * The ledger's head as the transaction recording the row of `ordinal` of `folder` leaves it (LedgerStatements
+ * `recordHead`): $1 folder, $2 its target, $3 the ordinal, $4 its file count, so its folder is complete exactly when the
+ * ordinal recorded is its last file's, or is the folder row's of a folder of no file.
+ */
+export const headParams = (folder: ParsedFolder, ordinal: number): ReadonlyArray<ParamText> => [
+	textParam(folder.name),
+	textParam(folder.meta.target),
+	countParam(ordinal),
+	countParam(folder.files.length)
+]
+
 /** A file's row: $1 folder, $2 ordinal, $3 file, $4 source, $5 target, $6 files, $7 digest of the applied text. */
 export const fileParams = (folder: ParsedFolder, file: ParsedFile): ReadonlyArray<ParamText> => [
 	textParam(folder.name),

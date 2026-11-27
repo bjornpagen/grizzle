@@ -25,6 +25,7 @@ export {
 	proofStatements
 } from "#compiler/deploy/ledger/ledger.ts"
 export {
+	folderOrdinal,
 	loadedModuleColumns,
 	planAdviceModule,
 	proofsTableName

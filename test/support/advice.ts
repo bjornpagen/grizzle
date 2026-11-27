@@ -10,9 +10,9 @@
  *   every other is a NO_GATHER of a relation at a level PostgreSQL named (a sublink's one item, `"*RESULT*"`). The laws
  *   cover every statement over grizzle's own relations: a read of PostgreSQL's system catalogs (sql/catalog.ts) stays
  *   cost-chosen, with real statistics and no proof of grizzle's, as does a consumer's hand-written migration DML, which
- *   grizzle never binds, and the migration runner's own bookkeeping of its ledger (`__ledger`'s INSERT ... VALUES and its
- *   redraft's UPDATE), bounded by the ledger's size, the count of migrations; a drafted data step is bound and advised
- *   against the indexes in force when its file runs.
+ *   grizzle never binds, and the migration runner's own bookkeeping of its ledger (`__ledger`'s INSERT ... VALUES, its
+ *   redraft's UPDATE and its head's one-row upsert), bounded by the ledger's size, the count of migrations; a drafted
+ *   data step is bound and advised against the indexes in force when its file runs.
  * - **Law 2, binding.** Every column a read binds that its index stores (IndexRef `stores`) is in the index condition
  *   of its occurrence's scan, never in that scan's filter, and no column it binds is in a condition a join pairs its
  *   sides by: advice pins an index and a join, never which clauses become index conditions, so the statement's shape (a
