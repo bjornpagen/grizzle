@@ -12,10 +12,12 @@
  *   filter Law 2 admits (INDEXES' rule: the budget holds the rows it reads); for the probe printed as a plain join, doc in a join's condition (Law 2), the Join Filter's
  *   equality told even where its plan claims the read bound without doc; for a correlated EXISTS PostgreSQL flattens, a
  *   join grizzle never named (Laws 1 and 2); for an alias two statements share, its items conflicting and matched twice
- *   (Laws 1 and 3); for an index advised for a read no index condition serves, its seq scan disabled (Law 1); and for a
- *   flight whose advice reached no transaction, a plan under no advice (Law 1).
- * - **Oracle:** the specification: each plan's problems, stated, from the measurements of e1 to e3 and lane LAWS.
- * - **Box, exhausted:** the twelve plans, the plain join's under two claims.
+ *   (Laws 1 and 3); for an index advised for a read no index condition serves, its seq scan disabled (Law 1); none for a
+ *   whole view read at two levels, its body's one alias at each, each read judged by its own scan's range table entry
+ *   (Laws 2 and 3); and for a flight whose advice reached no transaction, a plan under no advice (Law 1).
+ * - **Oracle:** the specification: each plan's problems, stated, from the measurements of e1 to e3 and lanes LAWS and
+ *   LAWS2.
+ * - **Box, exhausted:** the thirteen plans, the plain join's under two claims.
  */
 
 import { assert } from "@bjornpagen/testing/assert"
@@ -35,7 +37,7 @@ const expected: { readonly [C in AdviceCase]: ReadonlyArray<string> } = {
 	probe: [],
 	dropped: [
 		"the flight, the probe: PostgreSQL planned INDEX_SCAN(n@s public.node_doc_f1), which grizzle does not carry",
-		"the flight: n.f2 is bound, read outside its index condition and in its filter of its Index Scan of n using node_doc_f1"
+		"the flight: n@s.f2 is bound, read outside its index condition and in its filter of its Index Scan of n using node_doc_f1"
 	],
 	sibling: [],
 	plain: [
@@ -51,8 +53,7 @@ const expected: { readonly [C in AdviceCase]: ReadonlyArray<string> } = {
 		"the flight, the EXISTS: PostgreSQL planned INDEX_SCAN(n public.node_doc_f1), which grizzle does not carry",
 		"the flight, the EXISTS: PostgreSQL planned NO_GATHER(n), which grizzle does not carry",
 		"the flight: its Nested Loop filters d.doc = n.doc after joining, a binding of a stored read no index condition holds",
-		"the flight: n.doc is bound, read outside its index condition and in a join's condition of its Index Scan of n using node_doc_f1",
-		"the flight: n.f2 is bound, read outside its index condition and in its filter of its Index Scan of n using node_doc_f1",
+		"the flight: the read n@exists_1 is scanned 0 times",
 		"the flight: INDEX_SCAN(n@exists_1 public.node_pkey) is matched in 0 of its statements",
 		"the flight: NO_GATHER(n@exists_1) is matched in 0 of its statements"
 	],
@@ -83,6 +84,7 @@ const expected: { readonly [C in AdviceCase]: ReadonlyArray<string> } = {
 		"the flight, the read by v: grizzle carries INDEX_SCAN(n public.node_doc_f1), which PostgreSQL did not plan",
 		"the flight, the read by v: its Seq Scan of n is disabled"
 	],
+	views: [],
 	unadvised: [
 		"the flight: its vehicle holds no INDEX_SCAN(r1 public.doc_pkey)",
 		"the flight: its vehicle holds no NO_GATHER(r1)",
@@ -108,7 +110,7 @@ export const theLawsFindExactlyTheFailuresOfEachMeasuredPlan = property.exhaust(
 		kind: "specification",
 		name: "each measured plan's problems under Laws 1 to 3, stated"
 	},
-	box: "the plans PostgreSQL 19.0 made for a probe, its mutants, a scope of two statements, a FROM-less EXISTS, a tuple-id target, a disabled scan and a flight under no advice",
+	box: "the plans PostgreSQL 19.0 made for a probe, its mutants, a scope of two statements, a FROM-less EXISTS, a tuple-id target, a disabled scan, a whole view read at two levels and a flight under no advice",
 	kept: [],
 	kills: [
 		{
@@ -146,6 +148,18 @@ export const theLawsFindExactlyTheFailuresOfEachMeasuredPlan = property.exhaust(
 			original: "const stored = read.stores.includes(column)",
 			replacement: "const stored = true",
 			why: "Every column a read binds held to its index condition, one its index does not store among them: the sibling's f2, a residual filter on the rows (doc, f1) reach, is refused, where Law 2 admits it and the budget holds the rows (INDEXES' rule)."
+		},
+		{
+			file: "test/support/advice.ts",
+			original: "Option.contains(n.target, read.target) &&",
+			replacement: "Option.contains(n.alias, read.alias) &&",
+			why: "A read's scan found by the alias EXPLAIN displays, not its range table entry's target: a whole view read at two levels, displayed v1 and v1_1, has its second read judged by its first's scan, f2 outside an index condition that holds it."
+		},
+		{
+			file: "test/support/advice.ts",
+			original: '\t...repeated(scope.label, "items", scope.targets),',
+			replacement: '\t...repeated(scope.label, "items", scope.aliases),',
+			why: "Two items sharing an alias counted as one target: a whole view read at two levels, v1@r4 and v1@r6, its body's one alias at each, fails Law 3."
 		},
 		{
 			file: "test/support/advice.ts",

@@ -2,9 +2,11 @@ import { defineRunner } from "@bjornpagen/testing/runner"
 import { grizzleCluster } from "#test/support/runner.ts"
 
 /**
- * The CPU a whole run of grizzle's properties may spend, metered: its processes' (the runner, its workers and their
- * reaped children) and its sessions' PostgreSQL backends' (the runner's report.metered). A run past it fails, naming
- * what it spent: a regression to find, never a number to raise. Set from PIN 3's final gate, replaced before landing.
+ * PLACEHOLDER, which PIN 3's final gate's whole run replaces: the CPU a whole run of grizzle's properties may spend
+ * beyond its workers' starts and readyings and its run needs' opens (the runner's report.run, the toolchain's RunBudget
+ * `run`): its parent's, and its cases' with their children's and the PostgreSQL backends their sessions were served. A
+ * run past it fails, naming what it spent: a regression to find, never a number to raise. It is the whole metered
+ * budget it was, every readying and open inside it, so the run part it bounds is at most that.
  *
  * @limitKind provisional
  * @owner grizzle's runner config (test.config.ts)
@@ -20,6 +22,28 @@ import { grizzleCluster } from "#test/support/runner.ts"
  * @recorded 2026-11-27
  */
 const runBudgetMillis = 66_468_133
+
+/**
+ * The CPU one worker may spend importing one property's module as it readies the property (the runner's rows'
+ * `imports`, the toolchain's RunBudget `import`): an import past it fails the run, naming its property, a module whose
+ * import closure grew to find.
+ *
+ * @limitKind measured
+ * @owner grizzle's runner config (test.config.ts)
+ * @unit milliseconds of a process's own CPU, user and system
+ * @scope one import of one test module, the cold import of a worker whose first module it is bounding every later one
+ * @measure each of the repository's 1,213 test modules (test/**, packages/cli-generator/test/**) imported cold in a
+ *   process of its own (node --disable-proto=delete --disable-sigusr1, process.cpuUsage around `await import`), 16
+ *   at once: median 3,002 ms, 99th percentile 5,709, largest 14,764 (test/unit/sql/audit.test.ts), the next
+ *   9,784 (test/unit/laws/union-import.test.ts); none failed to import
+ * @observed 2026-11-27 22:57 to 23:05 UTC
+ * @environment cassowary, Ubuntu 26.04 on arm64 in AWS, 64 cores and 247 GiB, shared (load average 350), grizzle at
+ *   main a09f5f8376 with lane LAWS2's laws stack, toolchain 13a371cdaeeb
+ * @decision twice the largest, as the toolchain's migration states (its README "a run's budget holds two parts")
+ * @revalidate a test module whose import closure grows (a fixture built at import), a toolchain change to readying, a
+ *   whole run's report, whose rows' imports replace this measurement
+ */
+const importBudgetMillis = 29_528
 
 /**
  * The modules that run on workers at about a sixth of Node's default stack (the runner's SMALL_STACK), on that stack
@@ -69,7 +93,7 @@ const smallStackModules: ReadonlyArray<string> = [
  * alone, its grizzle tier on the same cluster.
  */
 export default defineRunner({
-	budget: { kind: "cpu", millis: runBudgetMillis },
+	budget: { kind: "cpu", run: runBudgetMillis, import: importBudgetMillis },
 	include: ["test/**/*.test.ts", "packages/cli-generator/test/**/*.test.ts"],
 	smallStack: smallStackModules,
 	conditions: [],

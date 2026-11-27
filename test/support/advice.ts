@@ -20,9 +20,10 @@
  *   reach, a key bound in full leaving one row, the rows it reads the budget's to hold (INDEXES' rule). A bitmap read (a GIN
  *   search beside its scalar prefix, advised BITMAP_HEAP_SCAN) is a Bitmap Heap Scan over exactly one Bitmap Index Scan,
  *   whose index condition holds every column it binds and its matched one.
- * - **Law 3, scope.** Every name a scope mints is minted once, and every atom of the scope's advice is matched in exactly
- *   one of its statements: PostgreSQL applies one advice string to every statement it plans under it, so an alias two
- *   statements share meets the other's items.
+ * - **Law 3, scope.** Every target of a scope is one item's (an alias, `@` the level it stands in: a role's whole view
+ *   stands under its body's one alias at every level that reads it), every level it names is named once, and every
+ *   atom of the scope's advice is matched in exactly one of its statements: PostgreSQL applies one advice string to
+ *   every statement it plans under it, so an alias two statements share meets the other's items.
  * - **The budget.** On filled data a statement reads within the pages its plan gives: each scan of an index its
  *   descents times the index's height, and two pages a row its index condition selects (its leaf entry and its heap
  *   tuple), an index-only scan one and its heap fetches; a bitmap read's index scan its descents times its GIN's
@@ -30,9 +31,11 @@
  *   block is a bitmap past work_mem, a failure); each whole read its table's pages; and no scan descends more than once
  *   an evaluation. Counted, never timed.
  *
- * Every plan is PostgreSQL's own: EXPLAIN (GENERIC_PLAN, COSTS OFF, PLAN_ADVICE, VERBOSE, FORMAT JSON) of the statement,
- * planned fresh under the advice in force, generic as every session grizzle opens plans (physical/ddl/roles.ts
- * genericPlans), which prints the advice that reproduces its plan and its feedback on each supplied atom. The replan
+ * Every plan is PostgreSQL's own: EXPLAIN (GENERIC_PLAN, COSTS OFF, PLAN_ADVICE, VERBOSE, RANGE_TABLE, FORMAT JSON) of
+ * the statement, planned fresh under the advice in force, generic as every session grizzle opens plans
+ * (physical/ddl/roles.ts genericPlans), which prints the advice that reproduces its plan, its feedback on each supplied
+ * atom, and (pg_overexplain, which every test session preloads and which hooks EXPLAIN alone) each scan's range table
+ * entry, its target. The replan
  * case alone reads a cached plan, which PostgreSQL records advice for only under
  * pg_plan_advice.always_store_advice_details: the harness sets it on its own observing session there, an observation
  * setting that changes no plan (pgpa_planner.c builds no trove unless advice is supplied). No planner setting is set.
@@ -79,7 +82,13 @@ import {
 import type { AnyContext, AnySchema } from "#compiler/public/schema.ts"
 import { printAdvice } from "#compiler/sql/advice.ts"
 import type { EmittedSql, ObjectName } from "#compiler/sql/ast.ts"
-import { joinPlans, levelItems, type ReadPlan, resolvePlan } from "#compiler/sql/plan.ts"
+import {
+	joinPlans,
+	type PlanLevel,
+	type ReadPlan,
+	resolvePlan,
+	scannedItems
+} from "#compiler/sql/plan.ts"
 import type { AnyLoginRole } from "#compiler/types/schema/world.ts"
 import { paramTexts } from "#test/support/compile.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
@@ -581,8 +590,8 @@ const equalitiesIn = (condition: string): ReadonlyArray<readonly [ColumnRef, Col
 }
 
 /**
- * One node of a plan as the laws read it: its type, the alias of the relation occurrence it scans (none where it scans
- * none), the index it reads, whether the planner disabled it (`Disabled: true`, a path advice forbade that nothing
+ * One node of a plan as the laws read it: its type, the alias EXPLAIN displays for the relation occurrence it scans and
+ * the occurrence's target (none where it scans none: see `targetsOf`), the index it reads, whether the planner disabled it (`Disabled: true`, a path advice forbade that nothing
  * could replace), and its conditions' columns: its index condition's (a TID scan's TID condition among them), its
  * filter's, and a join's, the Join Filter, Hash Cond and Merge Cond it pairs its sides by, with each equality its Join
  * Filter states between two columns; and whether it scans a stored relation. A Bitmap Heap Scan's Recheck Cond repeats
@@ -591,6 +600,7 @@ const equalitiesIn = (condition: string): ReadonlyArray<readonly [ColumnRef, Col
 export interface LawNode {
 	readonly nodeType: string
 	readonly alias: Option.Option<string>
+	readonly target: Option.Option<string>
 	readonly index: Option.Option<string>
 	readonly disabled: boolean
 	readonly indexCond: ReadonlyArray<ColumnRef>
@@ -625,19 +635,27 @@ const columnsAt = (o: Json, keys: ReadonlyArray<string>): ReadonlyArray<ColumnRe
 	Arr.flatMap(keys, (k) => Option.match(textAt(o, k), { onNone: () => [], onSome: columnsIn }))
 
 /** A node's children: none where EXPLAIN printed no Plans. */
-const childrenOf = (o: Json): ReadonlyArray<LawNode> => {
+const childrenOf = (targets: ReadonlyMap<number, string>, o: Json): ReadonlyArray<LawNode> => {
 	const plans = o["Plans"]
 	if (plans === undefined) {
 		return []
 	}
 	return Arr.isArray(plans)
-		? Arr.map(plans, (p: unknown) => (isJson(p) ? lawNodeOf(p) : malformed("a child plan")))
+		? Arr.map(plans, (p: unknown) =>
+				isJson(p) ? lawNodeOf(targets, p) : malformed("a child plan")
+			)
 		: malformed("Plans is not a list")
 }
 
-const lawNodeOf = (o: Json): LawNode => ({
+const lawNodeOf = (targets: ReadonlyMap<number, string>, o: Json): LawNode => ({
 	nodeType: Option.getOrElse(textAt(o, "Node Type"), () => malformed("a node with no Node Type")),
 	alias: textAt(o, "Alias"),
+	target: Option.map(
+		integerAt(o, "Scan RTI"),
+		(rti) =>
+			targets.get(rti) ??
+			malformed(`a scan of range table entry ${rti}, which the range table lacks`)
+	),
 	index: textAt(o, "Index Name"),
 	disabled: o["Disabled"] === true,
 	indexCond: columnsAt(o, ["Index Cond", "TID Cond"]),
@@ -645,8 +663,67 @@ const lawNodeOf = (o: Json): LawNode => ({
 	joined: columnsAt(o, ["Join Filter", "Hash Cond", "Merge Cond"]),
 	equated: Option.match(textAt(o, "Join Filter"), { onNone: () => [], onSome: equalitiesIn }),
 	stored: o["Relation Name"] !== undefined,
-	children: childrenOf(o)
+	children: childrenOf(targets, o)
 })
+
+const integerAt = (o: Json, key: string): Option.Option<number> => {
+	const value = o[key]
+	if (value === undefined) {
+		return Option.none()
+	}
+	return typeof value === "number" && Number.isInteger(value)
+		? Option.some(value)
+		: malformed(`${key} is not an integer`)
+}
+
+/** The name an identifier quote_identifier printed spells: its quotes and each doubled quote in it undone. */
+const unquoted = (printed: string): string =>
+	Str.startsWith('"')(printed) ? Str.replaceAll('""', '"')(Str.slice(1, -1)(printed)) : printed
+
+/**
+ * An alias as pg_overexplain prints one (pg_overexplain.c overexplain_alias): its name, quoted where quote_identifier
+ * quotes it, then its column names in parentheses; the name alone.
+ */
+const aliasName = (printed: string): string => {
+	const [, name] = regex('^("(?:[^"]|"")*"|[^ (]+) \\(', "u").exec(printed) ?? []
+	return name === undefined ? malformed(`an alias ${quoteString(printed)}`) : unquoted(name)
+}
+
+/**
+ * Each range table entry's target, by its index, as pg_overexplain's EXPLAIN (RANGE_TABLE) prints the range table
+ * (pg_overexplain.c overexplain_range_table): the entry's alias (its reference name, `Eref`, where it was given none),
+ * `@` the subplan it was planned in where it was planned in one, the name pg_plan_advice targets the occurrence by
+ * (pgpa_identifier.c). A scan node's `Scan RTI` is its entry, so each scan is its target exactly, where EXPLAIN's
+ * display names are made unique past it: a role's whole view stands under its body's one alias at every level that
+ * reads it, `v1@r4` and `v1@r6`, displayed v1_1 and v1_2.
+ */
+const targetsOf = (top: Json): ReadonlyMap<number, string> => {
+	const entries = top["Range Table"]
+	if (!Arr.isArray(entries)) {
+		return malformed("a plan printed with no range table (EXPLAIN (RANGE_TABLE), pg_overexplain)")
+	}
+	return new Map(
+		Arr.map(entries, (entry: unknown) => {
+			if (!isJson(entry)) {
+				return malformed("a range table entry")
+			}
+			const rti = Option.getOrElse(integerAt(entry, "RTI"), () => malformed("an entry with no RTI"))
+			const alias = aliasName(
+				Option.getOrElse(
+					Option.orElse(textAt(entry, "Alias"), () => textAt(entry, "Eref")),
+					() => malformed(`entry ${rti} with no alias`)
+				)
+			)
+			return [
+				rti,
+				Option.match(textAt(entry, "Subplan"), {
+					onNone: () => alias,
+					onSome: (plan) => `${alias}@${plan}`
+				})
+			] as const
+		})
+	)
+}
 
 /** The one object of an EXPLAIN (FORMAT JSON) cell, the json value as the driver returns it, parsed or as text. */
 const topOf = (cell: unknown): Json => {
@@ -661,7 +738,9 @@ export const advisedPlanOf = (cell: unknown): Result.Result<AdvisedPlan, Malform
 		const top = topOf(cell)
 		const plan = top["Plan"]
 		return {
-			root: isJson(plan) ? lawNodeOf(plan) : malformed("an EXPLAIN cell with no Plan"),
+			root: isJson(plan)
+				? lawNodeOf(targetsOf(top), plan)
+				: malformed("an EXPLAIN cell with no Plan"),
 			generated: Result.getOrElse(
 				atomsOf(Option.getOrElse(textAt(top, "Generated Plan Advice"), () => "")),
 				(e) => malformed(e.message)
@@ -690,9 +769,13 @@ export type Vehicle =
 	| { readonly kind: "flight"; readonly advice: string }
 	| { readonly kind: "routine"; readonly routine: ObjectName }
 
-/** A read the binding law judges: the alias of its relation's occurrence and the columns its index condition binds. */
+/**
+ * A read the binding law judges: the alias of its relation's occurrence, its target (the alias, `@` the level the scope
+ * named where the read stands in one), and the columns its index condition binds.
+ */
 export interface BoundRead {
 	readonly alias: string
+	readonly target: string
 	readonly bound: ReadonlyArray<string>
 	/** The columns its index stores as themselves (physical/indexes/ref.ts IndexRef `stores`), the tuple id for a tid read. */
 	readonly stores: ReadonlyArray<string>
@@ -706,39 +789,52 @@ export interface ScopeStatement {
 
 /**
  * An advice scope as the laws read it (CARRY-CONTRACT §4, sql/naming.ts AdviceScope): its label; the advice grizzle
- * carries for it; its plan's names, each item's alias once for each item and each level it named once for each level;
- * its reads, each by its alias with the columns its index condition binds, a TID scan's its ctid; its statements; and
- * its vehicle.
+ * carries for it; its plan's names, each item's alias and its target once for each item it scans (a whole view's alias,
+ * the view body's, stands at each level that reads it, its targets apart by their levels) and each level it named once
+ * for each level; its reads, each by its target with the columns its index condition binds, a TID scan's its ctid; its
+ * statements; and its vehicle.
  */
 export interface LawScope {
 	readonly label: string
 	readonly advice: string
 	readonly aliases: ReadonlyArray<string>
+	readonly targets: ReadonlyArray<string>
 	readonly levels: ReadonlyArray<string>
 	readonly reads: ReadonlyArray<BoundRead>
 	readonly statements: Arr.NonEmptyReadonlyArray<ScopeStatement>
 	readonly vehicle: Vehicle
 }
 
+/** An item's target at `level` (pgpa_identifier.c): its alias, `@` the level's name where the scope named the level. */
+const targetAt = (level: PlanLevel<IndexRef>, alias: string): string =>
+	level.name.kind === "named" ? `${alias}@${level.name.name}` : alias
+
 /**
- * The names and reads of a plan of one scope (sql/plan.ts ReadPlan), as a LawScope holds them: each item's alias, each
- * named level's name, and each read's binding, an index or bitmap read's bound columns and a TID read's ctid.
+ * The names and reads of a plan of one scope (sql/plan.ts ReadPlan), as a LawScope holds them: each scanned item's
+ * alias and target (its join problem's and its append relations' members, sql/plan.ts scannedItems), each named level's
+ * name, and each read's binding, an index or bitmap read's bound columns and a TID read's ctid.
  */
 export const planFacts = (
 	plan: ReadPlan<IndexRef>
-): Pick<LawScope, "aliases" | "levels" | "reads"> => ({
-	aliases: Arr.flatMap(plan.levels, (level) => Arr.map(levelItems(level), (item) => item.alias)),
+): Pick<LawScope, "aliases" | "targets" | "levels" | "reads"> => ({
+	aliases: Arr.flatMap(plan.levels, (level) => Arr.map(scannedItems(level), (item) => item.alias)),
+	targets: Arr.flatMap(plan.levels, (level) =>
+		Arr.map(scannedItems(level), (item) => targetAt(level, item.alias))
+	),
 	levels: Arr.flatMap(plan.levels, (level) =>
 		level.name.kind === "named" ? [level.name.name] : []
 	),
 	reads: Arr.flatMap(plan.levels, (level) =>
-		Arr.flatMap(levelItems(level), (item): ReadonlyArray<BoundRead> => {
+		Arr.flatMap(scannedItems(level), (item): ReadonlyArray<BoundRead> => {
+			const target = targetAt(level, item.alias)
 			switch (item.scan.kind) {
 				case "index":
 				case "bitmap":
-					return [{ alias: item.alias, bound: item.scan.bound, stores: item.scan.index.stores }]
+					return [
+						{ alias: item.alias, target, bound: item.scan.bound, stores: item.scan.index.stores }
+					]
 				case "tid":
-					return [{ alias: item.alias, bound: ["ctid"], stores: ["ctid"] }]
+					return [{ alias: item.alias, target, bound: ["ctid"], stores: ["ctid"] }]
 				case "seq":
 				case "rows":
 					return []
@@ -1029,41 +1125,48 @@ const planIdentity = (scope: LawScope, planned: PlannedScope): ReadonlyArray<str
 
 /**
  * Law 2 over `scope`, `planned`: every column each read binds that its index stores is in the index condition of the one
- * scan of its occurrence among the scope's statements, never in that scan's filter, and none it binds is in a join's
- * condition; and no join's
- * filter equates a column of a stored read with another's, a binding the statement's shape lost to a plain join, which
- * the binder makes a probe (sql/bind.ts: a stored table an earlier item binds is never a set join's inner).
+ * scan of its target among the scope's statements (a scan's target its range table entry's, `targetsOf`, its
+ * conditions naming it by the alias EXPLAIN displays), never in that scan's filter, and none it binds is in a condition
+ * a join of that statement pairs its sides by; and no join's filter equates a column of a stored read with another's, a
+ * binding the statement's shape lost to a plain join, which the binder makes a probe (sql/bind.ts: a stored table an
+ * earlier item binds is never a set join's inner).
  */
 const binding = (scope: LawScope, planned: PlannedScope): ReadonlyArray<string> => {
-	const nodes = Arr.flatMap(planned.plans, (p) => [...lawNodes(p.root)])
+	const statements = Arr.map(planned.plans, (p) => [...lawNodes(p.root)])
 	const names = (refs: ReadonlyArray<ColumnRef>, alias: string, column: string): boolean =>
 		Arr.some(refs, (r) => r.alias === alias && r.column === column)
-	const storedAliases = new Set(
-		Arr.flatMap(nodes, (n) => (n.stored ? Option.toArray(n.alias) : []))
-	)
-	const lost = Arr.flatMap(nodes, (n) =>
-		Arr.flatMap(n.equated, ([a, b]) =>
-			storedAliases.has(a.alias) || storedAliases.has(b.alias)
-				? [
-						`${scope.label}: its ${nodeText(n)} filters ${a.alias}.${a.column} = ${b.alias}.${b.column} after joining, a binding of a stored read no index condition holds`
-					]
-				: []
+	const lost = Arr.flatMap(statements, (nodes) => {
+		const storedAliases = new Set(
+			Arr.flatMap(nodes, (n) => (n.stored ? Option.toArray(n.alias) : []))
 		)
-	)
+		return Arr.flatMap(nodes, (n) =>
+			Arr.flatMap(n.equated, ([a, b]) =>
+				storedAliases.has(a.alias) || storedAliases.has(b.alias)
+					? [
+							`${scope.label}: its ${nodeText(n)} filters ${a.alias}.${a.column} = ${b.alias}.${b.column} after joining, a binding of a stored read no index condition holds`
+						]
+					: []
+			)
+		)
+	})
 	return [
 		...lost,
 		...Arr.flatMap(scope.reads, (read) => {
-			const scans = Arr.filter(
-				nodes,
-				(n) =>
-					Option.contains(n.alias, read.alias) &&
+			const scans = Arr.flatMap(statements, (nodes) =>
+				Arr.flatMap(nodes, (n) =>
+					Option.contains(n.target, read.target) &&
 					Str.endsWith(" Scan")(n.nodeType) &&
 					n.nodeType !== "Subquery Scan"
+						? [{ scan: n, nodes }]
+						: []
+				)
 			)
-			const [scan, ...more] = scans
-			if (scan === undefined || more.length > 0) {
-				return [`${scope.label}: the read ${read.alias} is scanned ${scans.length} times`]
+			const [found, ...more] = scans
+			if (found === undefined || more.length > 0) {
+				return [`${scope.label}: the read ${read.target} is scanned ${scans.length} times`]
 			}
+			const { scan, nodes } = found
+			const shown = Option.getOrElse(scan.alias, () => read.alias)
 			const bitmaps = Arr.filter(scan.children, (c) => c.nodeType === "Bitmap Index Scan")
 			const [bitmap, ...others] = bitmaps
 			if (
@@ -1071,25 +1174,23 @@ const binding = (scope: LawScope, planned: PlannedScope): ReadonlyArray<string> 
 				(bitmap === undefined || others.length > 0 || scan.children.length !== 1)
 			) {
 				return [
-					`${scope.label}: the read ${read.alias} is a ${nodeText(scan)} over ${scan.children.length} nodes, where one Bitmap Index Scan serves it`
+					`${scope.label}: the read ${read.target} is a ${nodeText(scan)} over ${scan.children.length} nodes, where one Bitmap Index Scan serves it`
 				]
 			}
 			const indexCond = bitmap === undefined ? scan.indexCond : bitmap.indexCond
 			return Arr.flatMap(read.bound, (column) => {
 				const stored = read.stores.includes(column)
 				const where = [
-					...(!stored || names(indexCond, read.alias, column)
-						? []
-						: ["outside its index condition"]),
-					...(stored && names(scan.filter, read.alias, column) ? ["in its filter"] : []),
-					...(Arr.some(nodes, (n) => names(n.joined, read.alias, column))
+					...(!stored || names(indexCond, shown, column) ? [] : ["outside its index condition"]),
+					...(stored && names(scan.filter, shown, column) ? ["in its filter"] : []),
+					...(Arr.some(nodes, (n) => names(n.joined, shown, column))
 						? ["in a join's condition"]
 						: [])
 				]
 				return where.length === 0
 					? []
 					: [
-							`${scope.label}: ${read.alias}.${column} is bound, read ${Arr.join(where, " and ")} of its ${nodeText(scan)}`
+							`${scope.label}: ${read.target}.${column} is bound, read ${Arr.join(where, " and ")} of its ${nodeText(scan)}`
 						]
 			})
 		})
@@ -1112,11 +1213,11 @@ const repeated = (
 }
 
 /**
- * Law 3 over `scope`, `planned`: no two items of its plan share an alias and no two of its levels a name, and every atom
+ * Law 3 over `scope`, `planned`: no two items of its plan share a target and no two of its levels a name, and every atom
  * of its advice is matched in exactly one of its statements.
  */
 const scopeLaw = (scope: LawScope, planned: PlannedScope): ReadonlyArray<string> => [
-	...repeated(scope.label, "items", scope.aliases),
+	...repeated(scope.label, "items", scope.targets),
 	...repeated(scope.label, "levels", scope.levels),
 	...Arr.flatMap(Arr.dedupe(Arr.map(carriedAtoms(scope.advice), (a) => a.text)), (t) => {
 		const matchedIn = Arr.flatMap(
@@ -1149,7 +1250,7 @@ export const lawsOver = (scope: LawScope, planned: PlannedScope): ReadonlyArray<
  */
 const lawPlanner =
 	"CREATE OR REPLACE FUNCTION pg_temp.gz_laws_plan(statement text) RETURNS json LANGUAGE plpgsql AS $$ " +
-	"DECLARE plan json; BEGIN EXECUTE 'EXPLAIN (GENERIC_PLAN, COSTS OFF, PLAN_ADVICE, VERBOSE, FORMAT JSON) ' || statement INTO plan; RETURN plan; END $$"
+	"DECLARE plan json; BEGIN EXECUTE 'EXPLAIN (GENERIC_PLAN, COSTS OFF, PLAN_ADVICE, VERBOSE, RANGE_TABLE, FORMAT JSON) ' || statement INTO plan; RETURN plan; END $$"
 
 /** A statement's plan for the laws, through the session's planner function (`lawPlanner`). */
 const lawPlan = (session: BenchSession, sql: string) =>
@@ -1401,7 +1502,7 @@ export const replannedScope = (
 	)
 	const replanned = Effect.forEach(named, (s) =>
 		Effect.flatMap(
-			session.values(`EXPLAIN (PLAN_ADVICE, VERBOSE, FORMAT JSON) ${execute(s)}`, []),
+			session.values(`EXPLAIN (PLAN_ADVICE, VERBOSE, RANGE_TABLE, FORMAT JSON) ${execute(s)}`, []),
 			(rows) => Effect.fromResult(advisedPlanOf(rows[0]?.[0]))
 		)
 	)
