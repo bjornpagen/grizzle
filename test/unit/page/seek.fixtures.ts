@@ -111,6 +111,7 @@ export const evaluate = (
 		case "cast":
 		case "clock":
 		case "coalesce":
+		case "access":
 		case "collate":
 		case "domainValue":
 		case "excluded":

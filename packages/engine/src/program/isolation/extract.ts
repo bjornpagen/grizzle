@@ -450,6 +450,7 @@ const operandsOf = (e: Expr): ReadonlyArray<Expr> => {
 		case "not":
 		case "isTrue":
 		case "cast":
+		case "access":
 		case "collate":
 		case "negate":
 		case "complement":
@@ -685,6 +686,7 @@ const callValue = (e: Expr, own: ReadonlySet<string>): boolean => {
 		case "isTrue":
 		case "cast":
 		case "collate":
+		case "access":
 		case "negate":
 		case "complement":
 		case "lowerAscii":

@@ -127,6 +127,7 @@ class Delivered {
 			case "cast":
 				return e.type
 			case "collate":
+			case "access":
 				return this.#expr(e.expr, active)
 			case "column":
 				return e.table === undefined ? undefined : this.#column(e.table, e.column, active)

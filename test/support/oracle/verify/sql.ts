@@ -668,6 +668,11 @@ class StatementAuditor {
 					this.expr(e.expr, ctx)
 				})
 				return
+			case "access":
+				this.at("expr", () => {
+					this.expr(e.expr, ctx)
+				})
+				return
 			case "binary":
 				if (e.schema !== undefined) {
 					this.ident(e.schema, "operator schema")
@@ -2762,6 +2767,7 @@ const forEachAggregateCall = (e: Expr, f: (call: FunctionCall) => void): void =>
 		case "regclass":
 			return
 		case "cast":
+		case "access":
 		case "collate":
 		case "negate":
 		case "not":

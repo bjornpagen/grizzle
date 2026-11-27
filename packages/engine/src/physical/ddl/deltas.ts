@@ -544,6 +544,7 @@ const overDelta = (
 			case "literal":
 				return x
 			case "cast":
+			case "access":
 			case "collate":
 			case "negate":
 			case "not":

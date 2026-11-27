@@ -1078,6 +1078,8 @@ const evaluate = (e: Expr, scope: Scope): SqlValue => {
 		}
 		case "isTrue":
 			return boolValue(truthOf(evaluate(e.expr, scope)) === true)
+		case "access":
+			return evaluate(e.expr, scope)
 		case "negate": {
 			const v = intOf(evaluate(e.expr, scope), "a negation")
 			return v === undefined ? undefined : { kind: "int", value: -v }
@@ -1129,6 +1131,7 @@ const callsAggregate = (e: Expr): boolean => {
 		case "binary":
 			return callsAggregate(e.left) || callsAggregate(e.right)
 		case "cast":
+		case "access":
 		case "collate":
 		case "complement":
 		case "lowerAscii":

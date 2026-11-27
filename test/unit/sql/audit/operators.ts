@@ -574,6 +574,7 @@ const holdsNullOnEmpty = (e: Expr): boolean => {
 					: any(Arr.map(e.orderBy, (o) => o.expr)))
 			)
 		case "cast":
+		case "access":
 		case "collate":
 		case "negate":
 		case "not":

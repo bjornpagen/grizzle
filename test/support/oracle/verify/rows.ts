@@ -79,6 +79,7 @@ const anyCall = (e: Expr, test: (call: CallExpr) => boolean): boolean => {
 		case "regclass":
 			return false
 		case "cast":
+		case "access":
 		case "collate":
 		case "negate":
 		case "not":

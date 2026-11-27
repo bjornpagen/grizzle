@@ -21,6 +21,7 @@ import type {
 	SetOperation,
 	Target
 } from "#compiler/sql/ast.ts"
+import { readConditions } from "#compiler/sql/ast.ts"
 import { setQueryOf, withArms } from "#compiler/sql/build.ts"
 import { emit, costChosen } from "#compiler/sql/emit.ts"
 
@@ -230,7 +231,8 @@ class Rewriter {
 			case "isTrue":
 			case "complement":
 			case "lowerAscii":
-			case "cast": {
+			case "cast":
+			case "access": {
 				const inner = this.expr(e.expr, ctx)
 				return inner === e.expr ? e : { ...e, expr: inner }
 			}
@@ -337,6 +339,7 @@ export const readsAlias = (e: Expr, alias: string): boolean => {
 		case "lowerAscii":
 		case "cast":
 		case "collate":
+		case "access":
 			return readsAlias(e.expr, alias)
 		case "nullif":
 			return readsAlias(e.expr, alias) || readsAlias(e.absent, alias)
@@ -417,20 +420,11 @@ const fromReads = (f: FromItem, alias: string): boolean => {
 	}
 }
 
-/** Whether a bound read's conditions, its seek's or its tuple id's, read `alias`. */
-const readsOwnAccess = (
-	f: Extract<FromItem, { readonly kind: "read" }>,
-	alias: string
-): boolean => {
-	switch (f.access.kind) {
-		case "whole":
-			return false
-		case "seek":
-			return Arr.some(f.access.bound, (b) => readsAlias(b.condition, alias))
-		case "tid":
-			return readsAlias(f.access.at, alias)
-	}
-}
+/** Whether a bound read's conditions, its access's (readConditions) or its tuple id's, read `alias`. */
+const readsOwnAccess = (f: Extract<FromItem, { readonly kind: "read" }>, alias: string): boolean =>
+	f.access.kind === "tid"
+		? readsAlias(f.access.at, alias)
+		: Arr.some(readConditions(f), (c) => readsAlias(c, alias))
 
 const bodyReads = (b: OperandBody, alias: string): boolean => {
 	switch (b.kind) {

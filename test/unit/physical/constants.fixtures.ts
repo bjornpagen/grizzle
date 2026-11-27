@@ -460,6 +460,7 @@ const evaluate = (e: Expr, value: HostValue, constants: Constants, schema: strin
 		case "returning":
 		case "param":
 		case "attribute":
+		case "access":
 		case "collate":
 		case "negate":
 		case "or":

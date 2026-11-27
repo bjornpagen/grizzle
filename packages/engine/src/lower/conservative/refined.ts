@@ -262,6 +262,8 @@ export class Tracer {
 				]
 			case "subquery":
 				return this.select(e.query, 0, scope, claim)
+			case "access":
+				return this.expr(e.expr, scope, claim)
 			case "excluded":
 			case "returning":
 			case "collate":

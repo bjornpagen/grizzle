@@ -6,7 +6,8 @@ import type { ClockUnit } from "#compiler/core/clock.ts"
 import type { DeclaredLanguage } from "#compiler/core/function.ts"
 import type { IndexMethod } from "#compiler/core/identity.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
-import type { AccessIndexRequest } from "#compiler/ir/products.ts"
+import type { Direction } from "#compiler/core/order.ts"
+import type { AccessIndexRequest, AccessUse } from "#compiler/ir/products.ts"
 import type { Advice } from "#compiler/sql/advice.ts"
 import type { Assignments } from "#compiler/sql/generation.ts"
 import type { NameMap } from "#compiler/sql/naming.ts"
@@ -571,11 +572,31 @@ export type ClockInstant =
 /** The instant the call's transaction began: every reading of a production compile's (ClockInstant `transaction`). */
 export const transactionInstant: ClockInstant = Object.freeze({ kind: "transaction" })
 
+/** The uses of an ordered read (AccessTag and LevelAccess `ordered`): a take's order, or a page's. */
+export type OrderedUse = Extract<AccessUse, "take seek" | "page seek">
+
+/** The uses of a ranged read (LevelAccess `range`): one column bounded, or a text column's prefix. */
+export type RangeUse = Extract<AccessUse, "range" | "prefix search">
+
+/**
+ * An index order a lowering shape states where it builds its level (Expr `access`, on the level's LIMIT), the one fact
+ * of an access the statement's structure does not hold, so nothing reads it back off a printed clause
+ * (CARRY-CONTRACT.md §9): that the level's ORDER BY is read from an index, bounded by that LIMIT, a take's or a page's
+ * completed order (`ordered`, its use), or an approximate search's distance (`nearest`). Every other access, an
+ * equality, a range, a span's, a network's or a search document's predicate, is a conjunct the binding pass classifies
+ * from its operator and its column's kind (sql/bind.ts). The binding pass moves each tag into the read whose order its
+ * level's ORDER BY is (LevelAccess `ordered`, `nearest`), and refuses one anywhere else as an internal compiler error.
+ */
+export type AccessTag =
+	| { readonly kind: "ordered"; readonly use: OrderedUse }
+	| { readonly kind: "nearest" }
+
 /**
  * An expression. A `clock` is a reading of the database's clock, as `of` says (ClockOf): the instant `instant`
  * (ClockInstant), the call's transaction's or that instant moved, counted in `unit` since the Unix epoch and floored,
  * cast to `type` as a placeholder of a parameter would be. It fills no slot of its own: the server reads it, never the
- * call, which states at most a moved instant's offset.
+ * call, which states at most a moved instant's offset. An `access` is a level's LIMIT `expr` with the index order its
+ * shape stated of the level (AccessTag), printed as `expr` alone.
  */
 export type Expr =
 	| { readonly kind: "column"; readonly table: string | undefined; readonly column: string }
@@ -592,6 +613,7 @@ export type Expr =
 	| { readonly kind: "literal"; readonly value: LiteralValue; readonly type: TypeRef }
 	| { readonly kind: "cast"; readonly expr: Expr; readonly type: TypeRef }
 	| { readonly kind: "collate"; readonly expr: Expr; readonly collation: Collation }
+	| { readonly kind: "access"; readonly access: AccessTag; readonly expr: Expr }
 	| {
 			readonly kind: "binary"
 			readonly op: BinaryOperator
@@ -853,15 +875,53 @@ export interface SeekBinding {
 	readonly condition: Expr
 }
 
+/** A column an ordered read reads its index in after its equality prefix, in its direction (LevelAccess `ordered`). */
+export interface OrderedColumn {
+	readonly column: string
+	readonly dir: Direction
+}
+
 /**
  * How a stored table read in its level is reached (FromSource `read`): whole, a scan of every row; by a seek, its
- * `bound` columns bound to values its level fixes; or at the tuple id `at` reads, a column of a probe of the same table
- * that found the row, the target of a write bound by another item of its statement (`tid`).
+ * `bound` columns bound to values its level fixes; at the tuple id `at` reads, a column of a probe of the same table
+ * that found the row, the target of a write bound by another item of its statement (`tid`); or by an index order its
+ * shape stated (AccessTag: `ordered`, `nearest`) or a predicate the binding pass classified by its operator and its
+ * column's kind (`range`, `span`, `network`, `search`), after the equality prefix `bound` it adds:
+ * - `ordered`: its level's ORDER BY read in the index's order, `order` the columns it orders by, bounded by its LIMIT;
+ * - `range`: `column` bounded by `conditions`, fixed values on one side or both, or a text column's prefix;
+ * - `span`: `column`, a span, in the Allen relation `condition` states, GiST, its scalar prefix through btree_gist;
+ * - `network`: `column`, an inet or cidr, in the containment `condition` states, GiST under inet_ops;
+ * - `nearest`: `column`, a vector, read in the order of its distance from the query's, which its level's ORDER BY
+ *   states, HNSW, no prefix;
+ * - `search`: `column`, a search document, matching `condition`'s query, GIN, a bitmap read, no prefix.
+ * Each condition is printed as a conjunct of its level's WHERE, or of the ON of the join step its read is the source
+ * of, the bound ones first (`readConditions`); an order stays its level's ORDER BY.
  */
 export type LevelAccess =
 	| { readonly kind: "whole" }
 	| { readonly kind: "seek"; readonly bound: NonEmptyReadonlyArray<SeekBinding> }
 	| { readonly kind: "tid"; readonly at: Expr }
+	| {
+			readonly kind: "ordered"
+			readonly bound: ReadonlyArray<SeekBinding>
+			readonly order: NonEmptyReadonlyArray<OrderedColumn>
+			readonly use: OrderedUse
+	  }
+	| {
+			readonly kind: "range"
+			readonly bound: ReadonlyArray<SeekBinding>
+			readonly column: string
+			readonly conditions: NonEmptyReadonlyArray<Expr>
+			readonly use: RangeUse
+	  }
+	| {
+			readonly kind: "span" | "network"
+			readonly bound: ReadonlyArray<SeekBinding>
+			readonly column: string
+			readonly condition: Expr
+	  }
+	| { readonly kind: "nearest"; readonly column: string }
+	| { readonly kind: "search"; readonly column: string; readonly condition: Expr }
 
 /**
  * A FROM item that is no join chain: a relation, a CTE reference, a derived table, a function's rows, a relation
@@ -881,9 +941,9 @@ export type FromSource =
 	  }
 	| {
 			/**
-			 * A stored table or a view read in its level, bound (sql/bind.ts): printed `<table> AS "<alias>"`, its seek's
+			 * A stored table or a view read in its level, bound (sql/bind.ts): printed `<table> AS "<alias>"`, its access's
 			 * conditions or its tuple id's equality printed as conjuncts of the WHERE of its level, or of the ON of the join
-			 * step it is the source of (LevelAccess).
+			 * step it is the source of (LevelAccess, readConditions).
 			 */
 			readonly kind: "read"
 			readonly table: ObjectName
@@ -1070,8 +1130,9 @@ export interface JoinChain {
 export type FromItem = FromSource | JoinChain
 
 /**
- * The conditions a bound read states of its level (FromSource `read`): its seek's bindings, each the conjunct it was
- * bound by, or its tuple id's equality, `"<alias>".ctid = <at>`; none for a read of every row, or for any other source.
+ * The conditions a bound read states of its level (FromSource `read`): its access's bindings, each the conjunct it was
+ * bound by, then the conditions its shape stated (LevelAccess), or its tuple id's equality, `"<alias>".ctid = <at>`;
+ * none for a read of every row or by its distance's order, or for any other source.
  * They print as conjuncts of its level's WHERE, or of the ON of the join step it is the source of (`levelConditions`).
  */
 export const readConditions = (source: FromSource): ReadonlyArray<Expr> => {
@@ -1081,9 +1142,18 @@ export const readConditions = (source: FromSource): ReadonlyArray<Expr> => {
 	const access = source.access
 	switch (access.kind) {
 		case "whole":
+		case "nearest":
 			return []
 		case "seek":
+		case "ordered":
 			return access.bound.map((b) => b.condition)
+		case "range":
+			return [...access.bound.map((b) => b.condition), ...access.conditions]
+		case "span":
+		case "network":
+			return [...access.bound.map((b) => b.condition), access.condition]
+		case "search":
+			return [access.condition]
 		case "tid":
 			return [
 				{

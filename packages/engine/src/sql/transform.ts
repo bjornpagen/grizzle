@@ -39,6 +39,7 @@ import type {
 	InsertTarget,
 	JoinChain,
 	LevelAccess,
+	SeekBinding,
 	JoinStep,
 	Merge,
 	MergeInsert,
@@ -269,6 +270,7 @@ export class Transform {
 				const type = this.type(e.type)
 				return expr === e.expr && type === e.type ? e : { ...e, expr, type }
 			}
+			case "access":
 			case "collate":
 			case "negate":
 			case "not":
@@ -550,17 +552,44 @@ export class Transform {
 		return value === c.value ? c : { ...c, value }
 	}
 
+	/** A seek binding with its condition rewritten. */
+	seekBinding(b: SeekBinding): SeekBinding {
+		const condition = this.expr(b.condition)
+		return condition === b.condition ? b : { ...b, condition }
+	}
+
 	/** A bound read's access with its conditions and its tuple id rewritten. */
 	levelAccess(access: LevelAccess): LevelAccess {
 		switch (access.kind) {
 			case "whole":
+			case "nearest":
 				return access
 			case "seek": {
-				const bound = mapNonEmptyKept(access.bound, (b) => {
-					const condition = this.expr(b.condition)
-					return condition === b.condition ? b : { ...b, condition }
-				})
+				const bound = mapNonEmptyKept(access.bound, (b) => this.seekBinding(b))
 				return bound === access.bound ? access : { ...access, bound }
+			}
+			case "ordered": {
+				const bound = mapList(access.bound, (b) => this.seekBinding(b))
+				return bound === access.bound ? access : { ...access, bound }
+			}
+			case "range": {
+				const bound = mapList(access.bound, (b) => this.seekBinding(b))
+				const conditions = mapNonEmptyKept(access.conditions, (c) => this.expr(c))
+				return bound === access.bound && conditions === access.conditions
+					? access
+					: { ...access, bound, conditions }
+			}
+			case "span":
+			case "network": {
+				const bound = mapList(access.bound, (b) => this.seekBinding(b))
+				const condition = this.expr(access.condition)
+				return bound === access.bound && condition === access.condition
+					? access
+					: { ...access, bound, condition }
+			}
+			case "search": {
+				const condition = this.expr(access.condition)
+				return condition === access.condition ? access : { ...access, condition }
 			}
 			case "tid": {
 				const at = this.expr(access.at)
@@ -2009,11 +2038,31 @@ class Visit {
 						() => {
 							switch (access.kind) {
 								case "whole":
+								case "nearest":
 									return
 								case "seek":
+								case "ordered":
 									for (const b of access.bound) {
 										this.expr(b.condition)
 									}
+									return
+								case "range":
+									for (const b of access.bound) {
+										this.expr(b.condition)
+									}
+									for (const c of access.conditions) {
+										this.expr(c)
+									}
+									return
+								case "span":
+								case "network":
+									for (const b of access.bound) {
+										this.expr(b.condition)
+									}
+									this.expr(access.condition)
+									return
+								case "search":
+									this.expr(access.condition)
 									return
 								case "tid":
 									this.expr(access.at)
@@ -2149,6 +2198,7 @@ class Visit {
 		const keys = Object.keys(e)
 		switch (e.kind) {
 			case "cast":
+			case "access":
 			case "collate":
 			case "negate":
 			case "not":

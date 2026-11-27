@@ -20,6 +20,7 @@ import {
 	type PlBlock,
 	type PlFunction,
 	type PlStatement,
+	type SeekBinding,
 	type SelectCore,
 	selectNames,
 	type SqlStatement,
@@ -474,6 +475,7 @@ class ScopeWalk {
 				}
 				return
 			case "cast":
+			case "access":
 			case "collate":
 			case "negate":
 			case "not":
@@ -1000,26 +1002,57 @@ class ScopeWalk {
 		})
 	}
 
-	/** A bound read's conditions, its seek's bindings or its tuple id, read where they print; none of any other source. */
+	/**
+	 * A bound read's conditions, its access's bindings and stated conditions or its tuple id, read where they print; none
+	 * of any other source.
+	 */
 	#readConditions(source: FromSource): void {
 		if (source.kind !== "read") {
 			return
 		}
 		const access = source.access
+		const bound = (bindings: ReadonlyArray<SeekBinding>) => {
+			this.#at("bound", () => {
+				for (const [i, b] of bindings.entries()) {
+					this.#at(i, () => {
+						this.#at("condition", () => {
+							this.#expr(b.condition, query)
+						})
+					})
+				}
+			})
+		}
+		const condition = (e: Expr) => {
+			this.#at("condition", () => {
+				this.#expr(e, query)
+			})
+		}
 		this.#at("access", () => {
 			switch (access.kind) {
 				case "whole":
+				case "nearest":
 					return
 				case "seek":
-					this.#at("bound", () => {
-						for (const [i, b] of access.bound.entries()) {
+				case "ordered":
+					bound(access.bound)
+					return
+				case "range":
+					bound(access.bound)
+					this.#at("conditions", () => {
+						for (const [i, c] of access.conditions.entries()) {
 							this.#at(i, () => {
-								this.#at("condition", () => {
-									this.#expr(b.condition, query)
-								})
+								this.#expr(c, query)
 							})
 						}
 					})
+					return
+				case "span":
+				case "network":
+					bound(access.bound)
+					condition(access.condition)
+					return
+				case "search":
+					condition(access.condition)
 					return
 				case "tid":
 					this.#at("at", () => {

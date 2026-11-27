@@ -857,6 +857,8 @@ const expr = (e: Expr): Printed => {
 				`${wrap(expr(e.expr), "collate")} COLLATE ${printObjectName(e.collation)}`,
 				"collate"
 			)
+		case "access":
+			return expr(e.expr)
 		case "binary": {
 			const qualified = e.schema !== undefined
 			const { self, assoc } = binaryLevels(e.op, qualified)

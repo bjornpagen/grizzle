@@ -119,6 +119,7 @@ const roleOf = (e: Expr): Role => {
 	switch (e.kind) {
 		case "cast":
 		case "collate":
+		case "access":
 			return roleOf(e.expr)
 		case "column":
 		case "excluded":
@@ -279,6 +280,7 @@ const exprFeature = (e: Expr): ReadonlyArray<ShapeFeature> => {
 		case "literal":
 		case "cast":
 		case "collate":
+		case "access":
 		case "negate":
 		case "and":
 		case "or":

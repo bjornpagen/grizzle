@@ -101,6 +101,7 @@ class CoreBinder {
 					? this.#column(e.query)
 					: e
 			case "cast":
+			case "access":
 			case "collate":
 			case "negate":
 			case "not":

@@ -270,6 +270,7 @@ const childrenOf = (e: SubqueryExpr): ReadonlyArray<SubqueryExpr> => {
 		case "regclass":
 			return []
 		case "cast":
+		case "access":
 		case "collate":
 		case "negate":
 		case "not":
