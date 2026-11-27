@@ -64,13 +64,11 @@ import { type NativeOp, nativeOp, operandCarriers } from "#compiler/scalar/compu
 import {
 	type Expr,
 	type FromItem,
-	type JoinStep,
 	type OperandBody,
 	type Select,
 	selectColumns
 } from "#compiler/sql/ast.ts"
 import {
-	and,
 	col,
 	conjunction,
 	core,
@@ -93,24 +91,6 @@ import {
 	transformQuery,
 	visitSelect
 } from "#compiler/sql/transform.ts"
-
-/**
- * PostgreSQL's default join_collapse_limit, which is from_collapse_limit's too: the most FROM items the planner flattens
- * one join problem into, and plans exhaustively, before it plans the rest as separate subproblems in the order written.
- * No grizzle session sets either, so the default is the value every statement is planned under. The docs state it
- * through from_collapse_limit, "By default, this variable is set the same as from_collapse_limit", whose "default is
- * eight" (https://www.postgresql.org/docs/19/runtime-config-query.html).
- *
- * @limitKind published
- * @owner PostgreSQL 19.0's planner
- * @unit FROM items
- * @scope one join problem the planner flattens, under the session default no grizzle session changes
- * @constraint configurable default
- * @source https://github.com/postgres/postgres/blob/REL_19_0/src/backend/utils/misc/guc_parameters.dat#L1538-L1546
- * @quote { name => 'join_collapse_limit', type => 'int', context => 'PGC_USERSET', [...] boot_val => '8',
- * @verified 2026-11-20
- */
-export const collapseLimit = 8
 
 /** The relation aliases a query fragment reads through column references, at any depth. */
 const aliasesRead = (body: OperandBody, within: ReadonlySet<string>): ReadonlySet<string> => {
@@ -437,23 +417,13 @@ const impliedBounds = (
 }
 
 /**
- * The optimized MatchRegion: one flat FROM list within PostgreSQL's collapse limit, an explicit JOIN chain past it.
+ * The optimized MatchRegion: one flat FROM list in its join order, its conditions in WHERE.
  *
- * R01 fuses a rule's matches into one region, so PostgreSQL sees the full relation graph. PostgreSQL plans one FROM
- * list of n relations as one join problem: exhaustively below geqo_threshold (12), by genetic search from it on. A
- * flat list is never split, whatever from_collapse_limit says, because that limit only bounds the merging of a
- * subquery's own FROM list into its parent's. Explicit JOIN syntax is split: PostgreSQL flattens a JOIN tree into its
- * parent's problem only while the problem stays within join_collapse_limit (8), and plans the rest as separate
- * subproblems in the order written. So a region of at most collapseLimit occurrences keeps its flat FROM list under
- * WHERE, the conservative form, and PostgreSQL orders all of it; a larger region is emitted as a left-deep JOIN chain,
- * which PostgreSQL divides into subproblems of at most collapseLimit relations, each planned exhaustively. That is how
- * handwritten SQL of the same join reads (bench/query/planning.bench.ts), and it is PostgreSQL's own mechanism at its
- * default setting: grizzle raises no planner limit and no login's defaults set one,
- * because the only setting that splits a flat list is geqo_threshold, and raising it is the global change R14 rules
- * out.
- *
- * The chain's order decides which relations share a subproblem, so it is chosen from structural evidence, the same
- * for every execution and never from data:
+ * R01 fuses a rule's matches into one region. The order of its FROM is the order its statement is planned in: the
+ * binding pass carries it as written (sql/bind.ts), each occurrence a later one is bound by read as a probe of it, and
+ * nests the level so no join problem PostgreSQL plans holds more than join_collapse_limit's eight items. So the order
+ * is the region's to choose, from structural evidence, the same for every execution and never from data
+ * (`chainOrder`):
  *
  * - It starts at the occurrence the evidence makes most selective: one whose columns fixed by values from outside the
  *   region (constants, parameters, outer correlations) determine a physical key of its source, so it delivers at most
@@ -471,10 +441,9 @@ const impliedBounds = (
  *   its chain instead (heldChain, chainedSelect), each stored relation it binds on a declared-key prefix fenced at the
  *   values of the steps before it; this order is the rest's.
  *
- * Each condition is the ON of the join at which every occurrence it reads is chained; one that reads only the first,
- * or none, stays in WHERE. A join with no condition is a CROSS JOIN, which appears only where the query has one. For
- * inner joins ON and WHERE mean the same, so the chain has the flat list's rows: only the planner's search changes, and
- * the oracle compares it with the conservative flat form.
+ * Its conditions are stated in that order (RegionParts conditionsIn), so each occurrence is equated with the ones
+ * before it at every variable a chained one binds. The order changes no row: the oracle compares it with the
+ * conservative form, its FROM in placement order.
  *
  * Bounds implied across the region's joins, so an index can serve every source a range reaches. A region's reader
  * may bound a variable that several occurrences bind, `v >= $1` for a variable bound to both `work.key` and
@@ -551,11 +520,7 @@ const regionSelect = (
 		)
 	}
 	const [first, ...others] = parts.occurrences
-	if (
-		first === undefined ||
-		parts.occurrences.length <= collapseLimit ||
-		parts.from.length > parts.occurrences.length
-	) {
+	if (first === undefined || !isNonEmpty(others) || parts.from.length > parts.occurrences.length) {
 		return select(cx.setOf(node, parts.targets, parts.from, conjunction(parts.conditions)))
 	}
 	const within = new Set(parts.occurrences.map((o) => o.alias))
@@ -573,30 +538,15 @@ const regionSelect = (
 		within,
 		once
 	)
-	/**
-	 * Each term stands at the step of the chain that brings in the last occurrence it reads: in WHERE when that is
-	 * the first, in the ON of that step's join otherwise.
-	 */
 	const steps = [start, ...rest]
-	const placed = termsIn(steps.map((o) => o.alias)).map((t) => ({
-		expr: t.expr,
-		step: steps.reduce((at, o, i) => (t.reads.has(o.alias) ? i : at), 0)
-	}))
-	const at = (step: number): ReadonlyArray<Expr> =>
-		placed.flatMap((t) => (t.step === step ? [t.expr] : []))
-	const joins: FromItem = isNonEmpty(rest)
-		? {
-				kind: "joins",
-				first: start.item,
-				steps: mapNonEmpty(rest, (o, i): JoinStep => {
-					const on = at(i + 1)
-					return isNonEmpty(on)
-						? { kind: "on", source: o.item, on: and(on) }
-						: { kind: "cross", source: o.item }
-				})
-			}
-		: start.item
-	return select(cx.setOf(node, parts.targets, [joins], conjunction(at(0))))
+	return select(
+		cx.setOf(
+			node,
+			parts.targets,
+			steps.map((o) => o.item),
+			conjunction(termsIn(steps.map((o) => o.alias)).map((t) => t.expr))
+		)
+	)
 }
 
 /**

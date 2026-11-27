@@ -400,8 +400,8 @@ export interface ShapeLog {
  * - the sources, filters, projections, regions, existence tests and feedback scans are the conservative plug-ins with
  *   their outermost SELECT DISTINCT dropped where the placement realized the node `plain`; a semi-join over the
  *   feedback of a recursion keeps it, because there its DISTINCT is the semi-join's own set semantics
- *   (lower/conservative/semi-join/exists.ts); a region past PostgreSQL's collapse limit is the conservative region's
- *   parts as an explicit JOIN chain in an evidence-chosen order, so its planning stays bounded (region/);
+ *   (lower/conservative/semi-join/exists.ts); a region is the conservative region's parts in an
+ *   evidence-chosen order, its statement's join order (region/ chainOrder);
  * - Union, Take, Group and InputSet are the set-boundary shapes (union, take in its one probe form, R20, aggregate
  *   with R24, relparam), each discharging its own input's obligation unless the facts prove it unique;
  * - Window and OrderedSetAggregate are the compile-target catalog's native targets (shapes/catalog);

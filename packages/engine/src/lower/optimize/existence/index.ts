@@ -38,7 +38,6 @@ import {
 	restrictionKept,
 	roots
 } from "#compiler/lower/optimize/demand/restriction.ts"
-import { collapseLimit } from "#compiler/lower/shapes/region/index.ts"
 import { carrierEquality } from "#compiler/scalar/compute/registry.ts"
 
 const semiJoinRule = "R02.semiJoin"
@@ -226,35 +225,6 @@ const groups = (region: Region, occurrences: ReadonlyArray<Occurrence>): number 
 }
 
 /**
- * The relations of the semi- and anti-joins stacked over `region`: the chain of single readers above it through
- * filters, projections and the left side of each semi- or anti-join, each of whose right sides counts its occurrences
- * (one relation when it is no region). It stops at a shared node (two references, from one reader or two;
- * DagEditor.readersIn), a root, or any other reader.
- */
-const stacked = (cx: RewriteCx, region: Cell): number => {
-	const ed = cx.editor
-	const readers = cx.cells.readers
-	let count = 0
-	for (let at = region; !ed.isRoot(at);) {
-		const [above, ...more] = readers(at)
-		if (above === undefined || more.length > 0) {
-			break
-		}
-		const node = above.current
-		const semi = node.kind === "SemiJoin" || node.kind === "AntiJoin"
-		if (semi ? node.left !== at : node.kind !== "Filter" && node.kind !== "ProjectSet") {
-			break
-		}
-		if (semi) {
-			const right = node.right.current
-			count += right.kind === "MatchRegion" ? right.occurrences.length : 1
-		}
-		at = above
-	}
-	return count
-}
-
-/**
  * The filters stacked over `cell`, nearest first, each with the cell it reads: each single reader above it while it is
  * a filter, whose columns are its input's, so each reads the region's columns by their names.
  */
@@ -303,13 +273,6 @@ const joinedAbove = (cx: RewriteCx, cell: Cell, region: Region, o: Occurrence): 
 		return read.some((r) => own.has(r.name)) && read.some((r) => apart.has(r.name))
 	})
 }
-
-/**
- * Whether a region's occurrences and the relations of the semi- and anti-joins stacked over it (stacked) stay within
- * the collapse limit, so one more semi-join keeps one join problem PostgreSQL flattens.
- */
-const withinCollapse = (cx: RewriteCx, cell: Cell, region: Region): boolean =>
-	region.occurrences.length + stacked(cx, cell) <= collapseLimit
 
 /** The existence-only occurrences of `candidates` whose removal joins no two inputs without a condition. */
 const connectedOf = (
@@ -618,7 +581,7 @@ const existenceRule: Rule = {
 			return false
 		}
 		const shaped = shapedOf(cx, cell, node)
-		if (shaped.length === 0 || !withinCollapse(cx, cell, node)) {
+		if (shaped.length === 0) {
 			return false
 		}
 		const candidates = shaped.filter(
@@ -766,15 +729,14 @@ export const existencePotential: Potential = (cx) => {
  * read by the semi-join from the region widened by it, and a projection restores the region's heading.
  *
  * Which occurrence, and whether any. Being existence-only is necessary, not sufficient: the rewrite must yield one
- * witness per parent with the least work and keep the planning problem one PostgreSQL can
- * flatten. Four conditions decide it, each structural and deterministic:
+ * witness per parent with the least work. Three conditions decide it, each structural and deterministic:
  *
  * - No cross join. The occurrence's removal must not split the remaining occurrences into more groups than the region
  *   already has, where two occurrences are joined when they bind one variable (or variables a region equality makes
  *   equal). An occurrence that connects two others, the interior of a chain or the Task between Account and Note, is a
  *   join edge: as a semi-join it would leave its neighbours in one FROM list with no condition between them, joined
- *   only by the EXISTS above, which PostgreSQL reconnects only within its collapse limits. A join without a condition
- *   appears only where the query has one.
+ *   only by the EXISTS above, a filter of their product. A join without a condition appears only where the query has
+ *   one.
  * - Witness multiplicity first. An occurrence whose bound and constant columns determine a physical key of its source
  *   has at most one witness per binding of the others, so a semi-join consumes no fewer rows than the join it replaces;
  *   one without such a key can have many, and is the existence test that saves work. Unkeyed candidates are taken
@@ -798,13 +760,9 @@ export const existencePotential: Potential = (cx) => {
  *   occurrence that binds a root's key stays a join operand, the smaller side the region may be read from: the
  *   expressions among a document's nodes, which bind the node's key, read first in a fill of ExpressionOperand took 1.73M
  *   buffers where every node read and its expression probed took 14.62M.
- * - Bounded nesting. Each rewrite stacks one more semi-join over the region; PostgreSQL flattens a semi-join into its
- *   input's join problem only while their relations number at most join_collapse_limit, and plans the rest as separate
- *   subproblems in the order written, so an EXISTS past the limit is applied only after everything below it has been
- *   joined (a twelve-edge path whose start match became an EXISTS joins the other eleven edges unrestricted). The rewrite
- *   is admitted only while the region's occurrences and the relations of the semi- and anti-joins already stacked over
- *   it stay within that limit; past it the region stays one flat join PostgreSQL orders itself. grizzle never changes the
- *   limit, so the bound is PostgreSQL's default.
+ * No bound on nesting: an EXISTS is a subplan reading its relations through one probe (sql/bind.ts), which PostgreSQL
+ * never flattens into its input's join problem, so stacking one more over a region grows no join problem past
+ * join_collapse_limit, and the binding pass nests every level within it.
  *
  * Potential: the number of existence-only occurrences plus set comparisons, at most the DAG's nodes and occurrences,
  * which each rewrite lowers: a region loses one occurrence and the new right side has a single one, which is never

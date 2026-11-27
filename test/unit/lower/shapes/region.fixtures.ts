@@ -6,14 +6,7 @@ import { Array as Arr, Option, Order } from "effect"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
-import type {
-	Expr,
-	FromItem,
-	FromSource,
-	JoinChain,
-	SelectCore,
-	SqlStatement
-} from "#compiler/sql/ast.ts"
+import type { Expr, FromItem, FromSource, SelectCore, SqlStatement } from "#compiler/sql/ast.ts"
 import { identityHooks, transformExpr, transformStatement } from "#compiler/sql/transform.ts"
 import { decodedQuery, type MatchDesc, type VarDesc } from "#test/support/fixtures/ir/desc.ts"
 import { pickGen } from "#test/support/pick.ts"
@@ -22,7 +15,7 @@ const Edge = relation("Edge", { src: pg.bigint, dst: pg.bigint, w: pg.integer },
 
 export const Plan = schema("Plan", [Edge], [])
 
-/** The most edges a path has; the fewest is one past the collapse limit. */
+/** The most edges a path has; the fewest is one past join_collapse_limit's eight, a region no longer special. */
 export const maxEdges = 14
 
 const minEdges = 9
@@ -146,17 +139,18 @@ export const tablesRead = (e: Expr): ReadonlySet<string> => {
 export const conjuncts = (e: Expr | undefined): ReadonlyArray<Expr> =>
 	e === undefined ? [] : e.kind === "and" ? Arr.flatMap(e.args, conjuncts) : [e]
 
-/** The core whose FROM is the join chain, with the chain. */
-export const chainOf = (
-	statement: SqlStatement
-): Option.Option<{ readonly core: SelectCore; readonly chain: JoinChain }> => {
-	const found: Array<{ readonly core: SelectCore; readonly chain: JoinChain }> = []
+/** The core whose FROM lists `width` items, one for each occurrence of the region, with their aliases in order. */
+export const regionCoreOf = (
+	statement: SqlStatement,
+	width: number
+): Option.Option<{ readonly core: SelectCore; readonly aliases: ReadonlyArray<string> }> => {
+	const found: Array<{ readonly core: SelectCore; readonly aliases: ReadonlyArray<string> }> = []
 	transformStatement(statement, {
 		...identityHooks,
 		core: (c) => {
-			const [first, ...rest] = c.from
-			if (first?.kind === "joins" && rest.length === 0) {
-				found.push({ core: c, chain: first })
+			const aliases = Arr.flatMap(c.from, aliasesOf)
+			if (aliases.length === width) {
+				found.push({ core: c, aliases })
 			}
 			return c
 		}
