@@ -26,6 +26,7 @@ export type AdviceFeature =
 	| "index scan of a covering index that returns nothing"
 	| "sequential scan"
 	| "tid scan"
+	| "bitmap heap scan"
 	| "named level"
 	| "quoted name"
 	| "a tag's name"
@@ -38,6 +39,7 @@ export const adviceFeatures = [
 	"index scan of a covering index that returns nothing",
 	"sequential scan",
 	"tid scan",
+	"bitmap heap scan",
 	"named level",
 	"quoted name",
 	"a tag's name",
@@ -72,13 +74,20 @@ const indexGen: Gen<IndexRef> = (source) =>
 	})
 
 const scanGen: Gen<PlanScan<IndexRef>> = (source) => {
-	switch (source.draw(int(0, 3))) {
+	switch (source.draw(int(0, 4))) {
 		case 0:
 			return { kind: "seq" }
 		case 1:
 			return { kind: "tid" }
 		case 2:
 			return { kind: "rows" }
+		case 3:
+			return {
+				kind: "bitmap",
+				index: source.draw(indexGen),
+				bound: source.draw(someColumns),
+				needs: source.draw(someColumns)
+			}
 		default:
 			return {
 				kind: "index",

@@ -71,6 +71,9 @@ export const aPlansAdviceParsesAsPgPlanAdviceReadsItAndHoldsExactlyTheAtomsThePl
 							case "tid":
 								c.note("tid scan")
 								break
+							case "bitmap":
+								c.note("bitmap heap scan")
+								break
 							case "rows":
 								break
 							case "index": {
@@ -100,6 +103,12 @@ export const aPlansAdviceParsesAsPgPlanAdviceReadsItAndHoldsExactlyTheAtomsThePl
 		},
 		kept: [],
 		kills: [
+			{
+				file: "packages/engine/src/sql/advice.ts",
+				original: '\t\tcase "bitmap":\n\t\t\treturn [`BITMAP_HEAP_SCAN(',
+				replacement: '\t\tcase "bitmap":\n\t\t\treturn [`SEQ_SCAN(',
+				why: "A read through an index's bitmap is advised as a sequential scan: the relation is read whole, and the parsed atoms hold a SEQ_SCAN the plan states no read of."
+			},
 			{
 				file: "packages/engine/src/sql/advice.ts",
 				original: "\t\t...scanned.map((item) => noGather(at(item)))",
