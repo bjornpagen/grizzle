@@ -118,6 +118,7 @@ export const aliasOf = (item: FromSource): string => {
 		case "function":
 		case "arrays":
 		case "table":
+		case "read":
 		case "probe":
 		case "met":
 		case "metRows":

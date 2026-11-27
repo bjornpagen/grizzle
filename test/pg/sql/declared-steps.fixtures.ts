@@ -78,6 +78,7 @@ export const runDeclared = (
 		}
 		const definer: PlFunction = {
 			kind: "createFunction",
+			advice: undefined,
 			language: "plpgsql",
 			name: { schema: "pg_temp", name: `${tableName}_declared` },
 			volatility: "VOLATILE",

@@ -181,6 +181,7 @@ const bound = (clause: "limit" | "offset", e: Expr): ShapeFeature => {
 const fromFeature = (item: FromSource): ReadonlyArray<ShapeFeature> => {
 	switch (item.kind) {
 		case "table":
+		case "read":
 		case "probe":
 		case "met":
 		case "enclosing":

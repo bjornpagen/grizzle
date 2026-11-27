@@ -246,6 +246,7 @@ const guardFunction = (
 ): readonly [PlFunction, ReturnType<typeof revokeOf>] => [
 	{
 		kind: "createFunction",
+		advice: undefined,
 		language: "plpgsql",
 		name,
 		params: [],

@@ -273,6 +273,7 @@ export const addDataStepRecheck = (
 	const ddl: readonly [PlFunction, ReturnType<typeof revokeOf>] = [
 		{
 			kind: "createFunction",
+			advice: undefined,
 			language: "plpgsql",
 			name: fn,
 			params: [],

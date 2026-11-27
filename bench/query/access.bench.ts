@@ -247,6 +247,7 @@ const definedBy = (
 ): { readonly aliases: ReadonlyArray<string>; readonly columns: ReadonlyArray<string> } => {
 	switch (item.kind) {
 		case "table":
+		case "read":
 		case "enclosing":
 		case "transition":
 			return { aliases: [item.alias], columns: [] }

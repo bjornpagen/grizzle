@@ -61,6 +61,7 @@ const isolationFunctionDdl = (schema: string): readonly [PlFunction, Revoke] => 
 	return [
 		{
 			kind: "createFunction",
+			advice: undefined,
 			language: "plpgsql",
 			name,
 			params: [],

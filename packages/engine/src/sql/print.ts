@@ -1,3 +1,4 @@
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	extendNonEmpty,
 	isNonEmpty,
@@ -55,6 +56,9 @@ import {
 	type ForeignKeyColumn,
 	type FrameBound,
 	type FromItem,
+	type FromSource,
+	levelConditions,
+	readConditions,
 	type FunctionCall,
 	type FunctionName,
 	type FunctionParam,
@@ -1125,6 +1129,7 @@ const printSettingRows = (columns: NonEmptyReadonlyArray<CarriedColumn>, alias: 
 const printFromItem = (item: FromItem): string => {
 	switch (item.kind) {
 		case "table":
+		case "read":
 			return `${printObjectName(item.table)} AS ${quoteIdent(item.alias)}`
 		case "probe":
 			return printDriven(
@@ -1204,13 +1209,22 @@ const printFromItem = (item: FromItem): string => {
 const printJoinStep = (step: JoinStep): string => {
 	switch (step.kind) {
 		case "on":
-			return `JOIN ${printFromItem(step.source)} ON ${printExpr(step.on)}`
+			return `JOIN ${printFromItem(step.source)} ON ${printExpr(stepCondition(step.source, step.on))}`
 		case "left":
-			return `LEFT JOIN ${printFromItem(step.source)} ON ${printExpr(step.on)}`
+			return `LEFT JOIN ${printFromItem(step.source)} ON ${printExpr(stepCondition(step.source, step.on))}`
 		case "cross":
 			return `CROSS JOIN ${printFromItem(step.source)}`
 	}
 }
+
+/** The ON of a join step whose source is `source`: a bound read's conditions, then the step's own. */
+const stepCondition = (source: FromSource, on: Expr): Expr =>
+	defined(conjunction([...readConditions(source), on]), "a join step's condition")
+
+/** The WHERE of a level over `from`: its bound reads' conditions its WHERE states (sql/ast.ts levelConditions), then
+ * its own `where`. */
+const levelWhere = (from: ReadonlyArray<FromItem>, where: Expr | undefined): Expr | undefined =>
+	conjunction([...levelConditions(from), ...(where === undefined ? [] : [where])])
 
 /** A probed column bound to its driving row's value: `"<inner>"."<column>" = <value>`, at its operator. */
 const boundColumn = (inner: string, c: ProbeColumn): Expr => ({
@@ -1230,20 +1244,20 @@ const metBound = (inner: string, k: MetKey, rows: string): Expr => ({
 	schema: k.schema
 })
 
-/** What follows a probe's WHERE: a key's LIMIT 1, a group's ORDER BY over its order columns, a group's last row's
+/** What follows a probe's WHERE: a key's LIMIT 1, its bound rows' OFFSET 0, a group's ORDER BY over its order columns, a group's last row's
  * ORDER BY them descending and LIMIT 1. */
 const probeTail = (inner: string, by: ProbeBy): string => {
-	const order = (direction: string) =>
-		by.kind === "key"
-			? ""
-			: `ORDER BY ${by.order.map((c) => `${quoteIdent(inner)}.${quoteIdent(c)}${direction}`).join(", ")}`
+	const order = (columns: NonEmptyReadonlyArray<string>, direction: string) =>
+		`ORDER BY ${columns.map((c) => `${quoteIdent(inner)}.${quoteIdent(c)}${direction}`).join(", ")}`
 	switch (by.kind) {
 		case "key":
 			return "LIMIT 1"
+		case "rows":
+			return "OFFSET 0"
 		case "group":
-			return order("")
+			return order(by.order, "")
 		case "last":
-			return `${order(" DESC")} LIMIT 1`
+			return `${order(by.order, " DESC")} LIMIT 1`
 	}
 }
 
@@ -1437,8 +1451,9 @@ const coreClauses = (
 	if (core.from.length > 0) {
 		out.line(`FROM ${printFrom(core.from)}`)
 	}
-	if (core.where !== undefined) {
-		out.line(`WHERE ${printExpr(core.where)}`)
+	const where = levelWhere(core.from, core.where)
+	if (where !== undefined) {
+		out.line(`WHERE ${printExpr(where)}`)
 	}
 	if (core.groupBy.length > 0) {
 		out.line(`GROUP BY ${core.groupBy.map((e) => clauseItem(e).text).join(", ")}`)
@@ -1685,8 +1700,9 @@ const updateBlock = (out: Lines, update: Update): void => {
 	if (update.from.length > 0) {
 		out.line(`FROM ${printFrom(update.from)}`)
 	}
-	if (update.where !== undefined) {
-		out.line(`WHERE ${printExpr(update.where)}`)
+	const where = levelWhere(update.from, update.where)
+	if (where !== undefined) {
+		out.line(`WHERE ${printExpr(where)}`)
 	}
 	returningLine(out, update.returning)
 }
@@ -1696,8 +1712,9 @@ const deleteBlock = (out: Lines, del: Delete): void => {
 	if (del.using.length > 0) {
 		out.line(`USING ${printFrom(del.using)}`)
 	}
-	if (del.where !== undefined) {
-		out.line(`WHERE ${printExpr(del.where)}`)
+	const where = levelWhere(del.using, del.where)
+	if (where !== undefined) {
+		out.line(`WHERE ${printExpr(where)}`)
 	}
 	returningLine(out, del.returning)
 }
@@ -1727,6 +1744,11 @@ const mergeWhenLine = (when: MergeWhen): string => {
 
 const mergeBlock = (out: Lines, merge: Merge): void => {
 	out.line(`MERGE INTO ${printObjectName(merge.table)} AS ${quoteIdent(merge.alias)}`)
+	if (levelWhere([merge.using], undefined) !== undefined) {
+		defect(
+			"a MERGE's source bound by a seek of its own: the binding pass puts a bound source in a derived table, since an ON condition of the source alone makes its row not matched rather than unread"
+		)
+	}
 	out.line(`USING ${printFromItem(merge.using)} ON ${printExpr(merge.on)}`)
 	for (const when of merge.whens) {
 		out.line(mergeWhenLine(when))

@@ -10,9 +10,11 @@ import {
 	type FromSource,
 	type FunctionCall,
 	type Insert,
+	levelConditions,
 	type ObjectName,
 	type OperandSelect,
 	type PackConstant,
+	readConditions,
 	selectColumns,
 	type Select,
 	type SelectCore,
@@ -23,7 +25,7 @@ import {
 	type TypeRef,
 	type Update
 } from "#compiler/sql/ast.ts"
-import { namedType, types } from "#compiler/sql/build.ts"
+import { conjunction, namedType, types } from "#compiler/sql/build.ts"
 import { printObjectName, printType } from "#compiler/sql/print.ts"
 import {
 	identityHooks,
@@ -2554,7 +2556,8 @@ class Model {
 	/** The rows a FROM source binds, each under its alias: a table of the schema's, a derived table's query, or a CTE's. */
 	#sourceRows(source: FromSource, ctes: Ctes): ReadonlyArray<Map<string, SqlValue>> {
 		switch (source.kind) {
-			case "table": {
+			case "table":
+			case "read": {
 				if (typeof source.table === "string" || !this.#ours(source.table)) {
 					return unevaluable("a table outside the schema")
 				}
@@ -2598,7 +2601,13 @@ class Model {
 			const met = (left: ReadonlyMap<string, SqlValue>): ReadonlyArray<Map<string, SqlValue>> =>
 				Arr.flatMap(right, (r) => {
 					const both = joined(left, r)
-					return step.kind === "cross" || truthOf(evaluate(step.on, this.#scope(both))) === true
+					return step.kind === "cross" ||
+						truthOf(
+							evaluate(
+								conjunction([...readConditions(step.source), step.on]) ?? step.on,
+								this.#scope(both)
+							)
+						) === true
 						? [both]
 						: []
 				})
@@ -2625,6 +2634,7 @@ class Model {
 			)
 		switch (source.kind) {
 			case "table":
+			case "read":
 				return typeof source.table === "string" || !this.#ours(source.table)
 					? unevaluable("a table outside the schema")
 					: nulls(
@@ -2761,7 +2771,10 @@ class Model {
 		if (c.having !== undefined) {
 			return unevaluable("a HAVING")
 		}
-		const where = c.where
+		const where = conjunction([
+			...levelConditions(c.from),
+			...(c.where === undefined ? [] : [c.where])
+		])
 		const rows = Arr.filter(
 			this.#fromRows(c.from, ctes),
 			(row) => where === undefined || truthOf(evaluate(where, this.#scope(row))) === true
@@ -2928,7 +2941,10 @@ class Model {
 			}
 		}
 		const from = this.#fromRows(s.from, ctes)
-		const where = s.where
+		const where = conjunction([
+			...levelConditions(s.from),
+			...(s.where === undefined ? [] : [s.where])
+		])
 		const updated: Array<readonly [Map<string, Cell>, ReadonlyArray<readonly [string, Cell]>]> = []
 		for (const [at, row] of t.rows.entries()) {
 			const target = bound(s.alias, this.#read(t.columns, row, at))

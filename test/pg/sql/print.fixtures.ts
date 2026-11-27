@@ -66,6 +66,7 @@ export const booleanFunction = (
 	body: PlFunction["body"]["body"]
 ): PlFunction => ({
 	kind: "createFunction",
+	advice: undefined,
 	language: "plpgsql",
 	name: objectName(schema, name),
 	params: [],

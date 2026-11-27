@@ -2510,6 +2510,7 @@ export const addRules = (
 		const fn = objectName(b.schema, b.name(call.named))
 		const running: PlFunction = {
 			kind: "createFunction",
+			advice: undefined,
 			language: "plpgsql",
 			name: fn,
 			params: [],
@@ -2560,6 +2561,7 @@ export const addRules = (
 		const ddl: readonly [PlFunction, Revoke] = [
 			{
 				kind: "createFunction",
+				advice: undefined,
 				language: "plpgsql",
 				name: fn,
 				params: [{ name: writtenColumn, type: namesType }],
@@ -2692,6 +2694,7 @@ export const addRules = (
 	const judgeDdl: readonly [PlFunction, Revoke] = [
 		{
 			kind: "createFunction",
+			advice: undefined,
 			language: "plpgsql",
 			name: judge,
 			params: [],
@@ -2754,6 +2757,7 @@ const makerOf = (
 ): readonly [PlFunction, Revoke] => [
 	{
 		kind: "createFunction",
+		advice: undefined,
 		language: "plpgsql",
 		name: fn,
 		params: [],
@@ -3084,6 +3088,7 @@ const addCapture = (
 	const ddl: readonly [PlFunction, Revoke] = [
 		{
 			kind: "createFunction",
+			advice: undefined,
 			language: "plpgsql",
 			name: fn,
 			params: [],

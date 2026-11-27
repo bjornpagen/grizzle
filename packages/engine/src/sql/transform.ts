@@ -38,6 +38,7 @@ import type {
 	Insert,
 	InsertTarget,
 	JoinChain,
+	LevelAccess,
 	JoinStep,
 	Merge,
 	MergeInsert,
@@ -459,6 +460,11 @@ export class Transform {
 				const table = this.table(item.table)
 				return table === item.table ? item : { ...item, table }
 			}
+			case "read": {
+				const table = this.table(item.table)
+				const access = this.levelAccess(item.access)
+				return table === item.table && access === item.access ? item : { ...item, table, access }
+			}
 			case "probe": {
 				const table = this.name(item.table, "relation")
 				const by = this.probeBy(item.by)
@@ -544,6 +550,25 @@ export class Transform {
 	probeColumn(c: ProbeColumn): ProbeColumn {
 		const value = this.expr(c.value)
 		return value === c.value ? c : { ...c, value }
+	}
+
+	/** A bound read's access with its conditions and its tuple id rewritten. */
+	levelAccess(access: LevelAccess): LevelAccess {
+		switch (access.kind) {
+			case "whole":
+				return access
+			case "seek": {
+				const bound = mapNonEmptyKept(access.bound, (b) => {
+					const condition = this.expr(b.condition)
+					return condition === b.condition ? b : { ...b, condition }
+				})
+				return bound === access.bound ? access : { ...access, bound }
+			}
+			case "tid": {
+				const at = this.expr(access.at)
+				return at === access.at ? access : { ...access, at }
+			}
+		}
 	}
 
 	probeBy(by: ProbeBy): ProbeBy {
@@ -1993,6 +2018,29 @@ class Visit {
 			case "transition":
 			case "context":
 				return
+			case "read": {
+				const access = item.access
+				inKeyOrder(keys, [
+					[
+						"access",
+						() => {
+							switch (access.kind) {
+								case "whole":
+									return
+								case "seek":
+									for (const b of access.bound) {
+										this.expr(b.condition)
+									}
+									return
+								case "tid":
+									this.expr(access.at)
+									return
+							}
+						}
+					]
+				])
+				return
+			}
 			case "arrays": {
 				const source = item.source
 				if (source.kind === "carried") {

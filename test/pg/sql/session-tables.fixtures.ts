@@ -102,6 +102,7 @@ const createSql = `CREATE TEMPORARY TABLE pg_temp.${quoteIdent(sessionTable)} (c
 /** The session function that empties the table by its emptying (sql/print.ts sessionTableEmptied). */
 const emptyingSql = printStatement({
 	kind: "createFunction",
+	advice: undefined,
 	language: "plpgsql",
 	name: objectName(temporarySchema, sessionTable),
 	params: [],

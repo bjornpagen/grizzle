@@ -69,6 +69,7 @@ class Delivered {
 			fromItem: (item) => {
 				switch (item.kind) {
 					case "table":
+					case "read":
 					case "probe":
 					case "met":
 					case "metRows":
@@ -171,6 +172,7 @@ class Delivered {
 		const item = this.#items.get(alias)
 		switch (item?.kind) {
 			case "table":
+			case "read":
 				return typeof item.table === "string"
 					? undefined
 					: this.#installed.get(storedColumnKey(nameKey(item.table), column))

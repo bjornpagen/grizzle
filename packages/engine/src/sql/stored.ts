@@ -52,6 +52,7 @@ export const originIn = (from: ReadonlyArray<FromItem>, ref: Expr): StoredColumn
 	}
 	switch (source.kind) {
 		case "table":
+		case "read":
 			return typeof source.table === "string"
 				? undefined
 				: { table: source.table, column: ref.column }

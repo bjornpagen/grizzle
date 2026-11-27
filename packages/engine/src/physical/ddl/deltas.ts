@@ -1226,6 +1226,7 @@ export const addReaders = (
 				const reader: readonly [PlFunction, Revoke] = [
 					{
 						kind: "createFunction",
+						advice: undefined,
 						language: "plpgsql",
 						name: named,
 						params: [],

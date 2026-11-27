@@ -151,6 +151,45 @@ export class NameSupply {
 	}
 }
 
+declare const aliasBrand: unique symbol
+
+/**
+ * An alias an advice scope minted (AdviceScope): `r<n>`, n from 1, the only spelling one takes. So no scope mints `x`,
+ * the alias PostgreSQL's own foreign key queries plan under (ri_triggers.c) whatever advice is in force, nor
+ * `*RESULT*`, `*SELECT*`, `unnamed_subquery`, `ANY_subquery`, nor any `<word>_<n>` the planner names a sublink's or a
+ * set operation's level by (planner.c choose_plan_name): impossible by the spelling, never refused by a check.
+ */
+export type Alias = `r${number}` & { readonly [aliasBrand]: true }
+
+const mintAlias = nominal<`r${number}`, Alias>()
+
+/**
+ * One advice scope (sql/advice.ts): every alias of every statement bound in it, a relation's, a sub-query's, a probe's
+ * and a CTE's, comes from it, so no two relations of the scope share one and every advice item names one relation of
+ * one statement (Law 3). A scope is one transaction's, all it may send under the advice its first flight sets: a served
+ * write's statements, every unit of each parted one, its read-backs, its refused-COMMIT witness and the EXPLAIN of any
+ * of them; a served read's statements; an installed routine's, every statement of its body; or a statement deploy sends
+ * by itself. Its numbering is its own, from r1: local mutable state owned by the one binding of the scope
+ * (sql/bind.ts).
+ */
+export class AdviceScope {
+	#next = 1
+	readonly #entries: Array<NameEntry> = []
+
+	/** A fresh alias of the scope, recorded with where it came from, which diagnostics show beside the SQL. */
+	alias(origin: NameOrigin): Alias {
+		const name = mintAlias(`r${this.#next}`)
+		this.#next += 1
+		this.#entries.push({ name, role: "relation", origin })
+		return name
+	}
+
+	/** Every alias the scope minted, in minting order. */
+	map(): NameMap {
+		return [...this.#entries]
+	}
+}
+
 /** The core's targets aliased by the heading, position by position: the lengths are equal, so every target has its alias. */
 const renameCore = (
 	c: SelectCore,

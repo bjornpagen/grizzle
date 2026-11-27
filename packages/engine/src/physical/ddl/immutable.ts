@@ -224,6 +224,7 @@ export const addImmutableGuards = (b: InstallBuilder): void => {
 		const ddl: readonly [PlFunction, Revoke] = [
 			{
 				kind: "createFunction",
+				advice: undefined,
 				language: "plpgsql",
 				name: fn,
 				params: [],

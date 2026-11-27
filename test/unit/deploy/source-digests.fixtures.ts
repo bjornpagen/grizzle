@@ -82,6 +82,7 @@ const probeOf = (probe: ProbeShape, at: number): PlStatement => ({
 /** The PL/pgSQL function named `name` whose body is `body`, as grizzle's upkeeps and judges are declared. */
 export const plFunction = (name: string, body: ReadonlyArray<PlStatement>): PlFunction => ({
 	kind: "createFunction",
+	advice: undefined,
 	language: "plpgsql",
 	name: { schema: "source_digests", name },
 	volatility: "VOLATILE",

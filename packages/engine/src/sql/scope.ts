@@ -183,6 +183,7 @@ const sourceColumns = (
 ): Columns => {
 	switch (source.kind) {
 		case "table":
+		case "read":
 		case "transition":
 			return undefined
 		case "probe":
@@ -760,6 +761,7 @@ class ScopeWalk {
 				this.#expr(where, query)
 			})
 		}
+		this.#levelReads(core.from, "from")
 		this.#exprs(core.groupBy, query, "groupBy")
 		if (core.having !== undefined) {
 			const having = core.having
@@ -789,12 +791,16 @@ class ScopeWalk {
 					this.#at("source", () => {
 						this.#source(step.source, frame, lo)
 					})
-					if (step.kind !== "cross") {
-						frame.reachFrom(start)
-						this.#at("on", () => {
-							this.#expr(step.on, query)
-						})
+					if (step.kind === "cross") {
+						return
 					}
+					frame.reachFrom(start)
+					this.#at("on", () => {
+						this.#expr(step.on, query)
+					})
+					this.#at("source", () => {
+						this.#readConditions(step.source)
+					})
 				})
 			}
 		})
@@ -807,6 +813,7 @@ class ScopeWalk {
 	#source(source: FromSource, frame: Frame, lo: number): void {
 		switch (source.kind) {
 			case "table":
+			case "read":
 			case "transition":
 			case "context":
 				break
@@ -962,6 +969,67 @@ class ScopeWalk {
 		this.#unbindCtes(ctes)
 	}
 
+	/**
+	 * The conditions of the bound reads of a FROM list its WHERE states (sql/print.ts levelWhere), each read where its
+	 * level's WHERE reads: a FROM list's item's, a join chain's first source's and each cross join's source's.
+	 */
+	#levelReads(from: ReadonlyArray<FromItem>, segment: string): void {
+		this.#at(segment, () => {
+			for (const [i, item] of from.entries()) {
+				this.#at(i, () => {
+					if (item.kind !== "joins") {
+						this.#readConditions(item)
+						return
+					}
+					this.#at("first", () => {
+						this.#readConditions(item.first)
+					})
+					this.#at("steps", () => {
+						for (const [j, step] of item.steps.entries()) {
+							if (step.kind === "cross") {
+								this.#at(j, () => {
+									this.#at("source", () => {
+										this.#readConditions(step.source)
+									})
+								})
+							}
+						}
+					})
+				})
+			}
+		})
+	}
+
+	/** A bound read's conditions, its seek's bindings or its tuple id, read where they print; none of any other source. */
+	#readConditions(source: FromSource): void {
+		if (source.kind !== "read") {
+			return
+		}
+		const access = source.access
+		this.#at("access", () => {
+			switch (access.kind) {
+				case "whole":
+					return
+				case "seek":
+					this.#at("bound", () => {
+						for (const [i, b] of access.bound.entries()) {
+							this.#at(i, () => {
+								this.#at("condition", () => {
+									this.#expr(b.condition, query)
+								})
+							})
+						}
+					})
+					return
+				case "tid":
+					this.#at("at", () => {
+						this.#expr(access.at, query)
+					})
+					return
+			}
+		})
+	}
+
 	/** A write's target, then its FROM or USING, which never reach the target, in one frame. */
 	#writeFrame(alias: string, items: ReadonlyArray<FromItem>, segment: string): Frame {
 		const frame = new Frame()
@@ -987,6 +1055,7 @@ class ScopeWalk {
 				this.#expr(where, query)
 			})
 		}
+		this.#levelReads(update.from, "from")
 		this.#targets(update.returning, "returning")
 		this.#close(frame)
 		this.#unbindCtes(ctes)
@@ -1001,6 +1070,7 @@ class ScopeWalk {
 				this.#expr(where, query)
 			})
 		}
+		this.#levelReads(del.using, "using")
 		this.#targets(del.returning, "returning")
 		this.#close(frame)
 		this.#unbindCtes(ctes)

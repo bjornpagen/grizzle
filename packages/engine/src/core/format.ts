@@ -43,9 +43,9 @@ export type FormattedFile = (typeof formattedFiles)[number]
  * @formatConstant each file's shape: the digest of its type, by test/support/record-shape.ts
  */
 export const recordShapes: { readonly [F in FormattedFile]: string } = {
-	snapshot: "406d622f60ee06c9077a8ce481ba593420548cd772a6da30f9fd4f689d73d2f5",
-	served: "7a11bdb7f960c92da6625a805bdb97c88abace12eea82ec7432929eeb04adfcd",
-	contract: "3ef857542e35c1e2013f2789360e55c0a5d76d21644c81d5d1e2372aa05d8b1b"
+	snapshot: "06a4fae5d8fdfbc63e1a07faac679ffc64c0103cdba09966c9318893bef60e7c",
+	served: "3d454c427ac33578c94f22c884c60deb766647168bf7ce7d363a0520059249c4",
+	contract: "986dcb6a85c77f5b7164d034318dc1e6f463a3473b6ba15f6409163b9b711f06"
 }
 
 /**

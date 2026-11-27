@@ -183,6 +183,7 @@ class Rewriter {
 			case "function":
 			case "arrays":
 			case "table":
+			case "read":
 			case "probe":
 			case "met":
 			case "metRows":
@@ -411,6 +412,23 @@ const fromReads = (f: FromItem, alias: string): boolean => {
 		case "transition":
 		case "table":
 			return false
+		case "read":
+			return readsOwnAccess(f, alias)
+	}
+}
+
+/** Whether a bound read's conditions, its seek's or its tuple id's, read `alias`. */
+const readsOwnAccess = (
+	f: Extract<FromItem, { readonly kind: "read" }>,
+	alias: string
+): boolean => {
+	switch (f.access.kind) {
+		case "whole":
+			return false
+		case "seek":
+			return Arr.some(f.access.bound, (b) => readsAlias(b.condition, alias))
+		case "tid":
+			return readsAlias(f.access.at, alias)
 	}
 }
 

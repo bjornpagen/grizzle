@@ -609,6 +609,7 @@ class SeekWalk {
 	itemOf(s: FromSource): Walked {
 		switch (s.kind) {
 			case "table":
+			case "read":
 				return {
 					alias: s.alias,
 					item:

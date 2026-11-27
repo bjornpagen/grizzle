@@ -329,6 +329,7 @@ const triggerFunction = (
 ): readonly [PlFunction, Revoke] => [
 	{
 		kind: "createFunction",
+		advice: undefined,
 		language: "plpgsql",
 		name,
 		params: [],

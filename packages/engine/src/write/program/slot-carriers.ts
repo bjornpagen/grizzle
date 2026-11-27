@@ -267,6 +267,7 @@ const sourceNames = (source: FromSource): ReadonlyArray<string> => {
 		case "cte":
 			return source.alias === undefined ? [] : [source.alias]
 		case "table":
+		case "read":
 		case "enclosing":
 		case "derived":
 		case "function":

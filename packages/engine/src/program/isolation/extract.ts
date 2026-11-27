@@ -155,6 +155,7 @@ const storedAt = (
 const storedOf = (source: FromSource, names: ExtractNames): Stored => {
 	switch (source.kind) {
 		case "table":
+		case "read":
 		case "probe":
 		case "met":
 			return storedAt(source, source.table, undefined, names)
@@ -754,6 +755,7 @@ const callRow = (q: OperandSelect): boolean => {
 const nameOf = (source: FromSource): readonly [string, "table" | OwnRows["rows"] | MetRows] => {
 	switch (source.kind) {
 		case "table":
+		case "read":
 			return [source.alias, "table"]
 		case "cte":
 			return [source.alias ?? source.name, "many"]
@@ -1532,6 +1534,10 @@ export class Walk<Top extends Arrival> {
 	): ReadonlyArray<RowSource> {
 		const beneath: Context<Top> = { ...here, probe: false }
 		switch (source.kind) {
+			case "read":
+				return defect(
+					"a bound read in a statement the isolation facts read: they read each statement as the lowering states it, before the binding pass (sql/bind.ts)"
+				)
 			case "table":
 				return this.#table({
 					kind: "table",

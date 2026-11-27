@@ -60,6 +60,7 @@ const collectItems = (items: ReadonlyArray<FromItem>, into: Map<string, FromSour
 				into.set(item.alias ?? item.name, item)
 				continue
 			case "table":
+			case "read":
 			case "probe":
 			case "met":
 			case "metRows":
@@ -306,7 +307,8 @@ export class Tracer {
 	/** A CTE of the statement holding this one as a part, which the part does not see. */
 	item(item: FromSource, column: string, scope: Scope, claim: Claim): ReadonlyArray<Verdict> {
 		switch (item.kind) {
-			case "table": {
+			case "table":
+			case "read": {
 				/** A carrier holds no stored column. */
 				const stored =
 					typeof item.table === "string"

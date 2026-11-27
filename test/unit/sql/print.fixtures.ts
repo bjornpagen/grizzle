@@ -357,6 +357,7 @@ export const resolveBlock = (sketch: BlockSketch): PlBlock => {
 /** A trigger function of a block: the function body a block is printed in beside a DO block. */
 export const triggerFunction = (block: PlBlock): PlFunction => ({
 	kind: "createFunction",
+	advice: undefined,
 	language: "plpgsql",
 	name: objectName("audit", "law"),
 	params: [],

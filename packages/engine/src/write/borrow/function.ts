@@ -76,6 +76,7 @@ const lockAt = (lock: "pg_advisory_xact_lock" | "pg_advisory_xact_lock_shared") 
 export const borrowFunctionDdl = (schema: string): readonly [CreateFunction, Revoke] => [
 	{
 		kind: "createFunction",
+		advice: undefined,
 		language: "plpgsql",
 		name: { schema, name: borrowFunctionName },
 		params: [idsParam, exclusiveParam],

@@ -187,6 +187,7 @@ export const snapshotGuardDdl = (schema: string): readonly [PlFunction, Revoke] 
 	return [
 		{
 			kind: "createFunction",
+			advice: undefined,
 			language: "plpgsql",
 			name: { schema, name: snapshotGuardName },
 			params: [{ name: "fingerprint", type: types.text }],

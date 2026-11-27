@@ -357,6 +357,7 @@ const stampFunction = (
 	}
 	return {
 		kind: "createFunction",
+		advice: undefined,
 		language: "plpgsql",
 		name,
 		params,

@@ -6,6 +6,7 @@ import type { ClockUnit } from "#compiler/core/clock.ts"
 import type { DeclaredLanguage } from "#compiler/core/function.ts"
 import type { IndexMethod } from "#compiler/core/identity.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
+import type { Advice } from "#compiler/sql/advice.ts"
 import type { Assignments } from "#compiler/sql/generation.ts"
 import type { NameMap } from "#compiler/sql/naming.ts"
 
@@ -823,11 +824,13 @@ export interface MetKey {
 /**
  * How a probe reaches a stored table's rows from its driving row: at a key, at most one row, its columns of the table,
  * none for a span key whose scalars are none, which its span's overlap in the probe's filter reaches (laws/model/uniques.ts
- * UniqueObject `span`); at a group, the group's rows in `order`, its columns of the table, never none; or at a group's
- * last row in `order`, at most one.
+ * UniqueObject `span`); at its bound columns, every row there in no order (`rows`), fenced by OFFSET 0, never none; at
+ * a group, the group's rows in `order`, its columns of the table, never none; or at a group's last row in `order`, at
+ * most one.
  */
 export type ProbeBy =
 	| { readonly kind: "key"; readonly columns: ReadonlyArray<ProbeColumn> }
+	| { readonly kind: "rows"; readonly columns: NonEmptyReadonlyArray<ProbeColumn> }
 	| {
 			readonly kind: "group" | "last"
 			readonly columns: NonEmptyReadonlyArray<ProbeColumn>
@@ -835,12 +838,54 @@ export type ProbeBy =
 	  }
 
 /**
+ * One column of a stored table a read in its level binds (LevelAccess `seek`): `column`, the column, and `condition`,
+ * the conjunct of its level's WHERE or ON that binds it, as it was written there, an equality of the column with a value
+ * its level fixes, its membership in a list of such values, or its equality with an element of such an array: the
+ * binding pass moved it out of the WHERE or ON into the read (sql/bind.ts), and the printer prints it back as one of
+ * the read's level's conjuncts, where PostgreSQL makes it an index condition of the read's scan.
+ */
+export interface SeekBinding {
+	readonly column: string
+	readonly condition: Expr
+}
+
+/**
+ * How a stored table read in its level is reached (FromSource `read`): whole, a scan of every row; by a seek, its
+ * `bound` columns bound to values its level fixes; or at the tuple id `at` reads, a column of a probe of the same table
+ * that found the row, the target of a write bound by another item of its statement (`tid`).
+ */
+export type LevelAccess =
+	| { readonly kind: "whole" }
+	| { readonly kind: "seek"; readonly bound: NonEmptyReadonlyArray<SeekBinding> }
+	| { readonly kind: "tid"; readonly at: Expr }
+
+/**
  * A FROM item that is no join chain: a relation, a CTE reference, a derived table, a function's rows, a relation
  * input's arrays, a VALUES list, a context source, or a write's read of a stored table driven by its rows, a probe or
  * the row an arbitration met. A join chain joins sources only, so its length is never a depth.
  */
 export type FromSource =
-	| { readonly kind: "table"; readonly table: ObjectName; readonly alias: string }
+	| {
+			/**
+			 * A stored table or a view read in its level as the lowering states it, the logical read: its binding, if any, is
+			 * a conjunct of its level's WHERE or ON. The binding pass (sql/bind.ts) makes every one a `read` or a `probe`, so
+			 * no bound statement holds one.
+			 */
+			readonly kind: "table"
+			readonly table: ObjectName
+			readonly alias: string
+	  }
+	| {
+			/**
+			 * A stored table or a view read in its level, bound (sql/bind.ts): printed `<table> AS "<alias>"`, its seek's
+			 * conditions or its tuple id's equality printed as conjuncts of the WHERE of its level, or of the ON of the join
+			 * step it is the source of (LevelAccess).
+			 */
+			readonly kind: "read"
+			readonly table: ObjectName
+			readonly alias: string
+			readonly access: LevelAccess
+	  }
 	| {
 			/**
 			 * The stored rows of a table that one driving row reaches by a key or a group (ProbeBy), read once per driving
@@ -1019,6 +1064,51 @@ export interface JoinChain {
 }
 
 export type FromItem = FromSource | JoinChain
+
+/**
+ * The conditions a bound read states of its level (FromSource `read`): its seek's bindings, each the conjunct it was
+ * bound by, or its tuple id's equality, `"<alias>".ctid = <at>`; none for a read of every row, or for any other source.
+ * They print as conjuncts of its level's WHERE, or of the ON of the join step it is the source of (`levelConditions`).
+ */
+export const readConditions = (source: FromSource): ReadonlyArray<Expr> => {
+	if (source.kind !== "read") {
+		return []
+	}
+	const access = source.access
+	switch (access.kind) {
+		case "whole":
+			return []
+		case "seek":
+			return access.bound.map((b) => b.condition)
+		case "tid":
+			return [
+				{
+					kind: "binary",
+					op: "=",
+					left: { kind: "column", table: source.alias, column: "ctid" },
+					right: access.at,
+					schema: undefined
+				}
+			]
+	}
+}
+
+/**
+ * The conditions of the bound reads of a FROM list that its level's WHERE states (`readConditions`): a FROM list's
+ * item's, a join chain's first source's and each cross join's source's; a join step on a condition states its source's
+ * in its ON.
+ */
+export const levelConditions = (from: ReadonlyArray<FromItem>): ReadonlyArray<Expr> =>
+	from.flatMap((item) =>
+		item.kind === "joins"
+			? [
+					...readConditions(item.first),
+					...item.steps.flatMap((step) =>
+						step.kind === "cross" ? readConditions(step.source) : []
+					)
+				]
+			: readConditions(item)
+	)
 
 /**
  * A context's one fact, read from the session's claims (sql/print.ts printContextSource): one row when the claims hold
@@ -2481,6 +2571,11 @@ export interface FunctionParam {
  * `parallel` is the function's parallel safety: SAFE prints PARALLEL SAFE; UNSAFE, PostgreSQL's own default, prints no
  * clause. Only the refusal function is SAFE, so a statement that reads the claims still plans in parallel. It declares a
  * property of the function, as its volatility does, never a planner directive.
+ *
+ * `advice` is the plan advice its statements are planned under (sql/advice.ts), every plan and replan of them, printed
+ * `SET pg_plan_advice.advice = '<advice>'` beside its search_path: none where its statements read no relation, and none
+ * as a builder states it, since only the installation knows the indexes it names, once it has planned them
+ * (physical/install/compile.ts).
  */
 export type CreateFunction =
 	| ({
@@ -2491,6 +2586,7 @@ export type CreateFunction =
 			readonly parallel: "SAFE" | "UNSAFE"
 			readonly security: "DEFINER"
 			readonly body: PlBlock
+			readonly advice: Advice | undefined
 	  } & (
 			| { readonly returns: "trigger"; readonly params: readonly [] }
 			| { readonly returns: "boolean"; readonly params: ReadonlyArray<FunctionParam> }
@@ -2507,6 +2603,7 @@ export type CreateFunction =
 			readonly returns: "boolean"
 			readonly params: ReadonlyArray<FunctionParam>
 			readonly body: Expr
+			readonly advice: Advice | undefined
 	  }
 
 /**

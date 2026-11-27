@@ -164,6 +164,7 @@ const blockOf = (shape: BlockShape): PlBlock => {
 /** A function of `block`, whose source functionSource reads. */
 const functionOf = (block: PlBlock): PlFunction => ({
 	kind: "createFunction",
+	advice: undefined,
 	language: "plpgsql",
 	name: { schema: "lines", name: "block" },
 	volatility: "VOLATILE",

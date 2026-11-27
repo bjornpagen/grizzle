@@ -135,7 +135,7 @@ export interface RecordedManifest {
 
 /** A PL/pgSQL function's header, by the form of what it returns. */
 export const functionHeader = (fn: PlFunction): FunctionHeader => {
-	const { kind, language, name, volatility, parallel, security } = fn
+	const { kind, language, name, volatility, parallel, security, advice } = fn
 	if (fn.returns === "trigger") {
 		return {
 			kind,
@@ -144,6 +144,7 @@ export const functionHeader = (fn: PlFunction): FunctionHeader => {
 			volatility,
 			parallel,
 			security,
+			advice,
 			returns: fn.returns,
 			params: fn.params
 		}
@@ -156,6 +157,7 @@ export const functionHeader = (fn: PlFunction): FunctionHeader => {
 			volatility,
 			parallel,
 			security,
+			advice,
 			returns: fn.returns,
 			params: fn.params
 		}
@@ -168,6 +170,7 @@ export const functionHeader = (fn: PlFunction): FunctionHeader => {
 			volatility,
 			parallel,
 			security,
+			advice,
 			returns: fn.returns,
 			params: fn.params
 		}
@@ -179,6 +182,7 @@ export const functionHeader = (fn: PlFunction): FunctionHeader => {
 		volatility,
 		parallel,
 		security,
+		advice,
 		returns: fn.returns,
 		params: fn.params
 	}

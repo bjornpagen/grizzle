@@ -81,6 +81,7 @@ export const refusalFunctionDdl = (schema: string): readonly [CreateFunction, Re
 	return [
 		{
 			kind: "createFunction",
+			advice: undefined,
 			language: "plpgsql",
 			name: { schema, name: refusalFunctionName },
 			params: refusalParams,

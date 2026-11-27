@@ -932,6 +932,7 @@ const writePlan = (
 				ddl: [
 					{
 						kind: "createFunction",
+						advice: undefined,
 						language: "sql",
 						name: objectName(b.schema, probeIdent),
 						volatility: "STABLE",
@@ -984,6 +985,7 @@ const writePlan = (
 		ddl: [
 			{
 				kind: "createFunction",
+				advice: undefined,
 				language: "sql",
 				name: objectName(b.schema, fnIdent),
 				volatility: "STABLE",
