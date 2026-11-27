@@ -81,7 +81,8 @@ export const pagedTemplate = (
 export const pageOf = (read: ReadTemplate): Result.Result<PageTemplate, CompileError> => {
 	const { compiled, artifacts } = read
 	/** The location compileQuery checks the template's Description at (program/compile.ts, label "query"). */
-	return Result.flatMap(statedOrderOf(compiled.desc, SourceLoc("query", [])), (stated) =>
+	const checkedAt = SourceLoc("query", [])
+	return Result.flatMap(statedOrderOf(compiled.desc, checkedAt), (stated) =>
 		compilePageOf(compiled.template.programs, {
 			stated,
 			names: artifacts.reads,

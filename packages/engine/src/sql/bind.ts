@@ -247,6 +247,9 @@ interface Declared {
 	readonly place: number
 }
 
+/** A row's tuple id, the system column a write's target is read at where its condition states it (Binder `written`). */
+const tupleId = "ctid"
+
 /** The relations and CTEs a place sees, by their written names, the innermost binding of a name winning. */
 interface Env {
 	readonly relations: ReadonlyMap<string, Declared>
@@ -2132,6 +2135,36 @@ class Binder {
 			const d = here.relations.get(a)
 			return d?.depth === depth && d.place < place
 		}
+		/**
+		 * The target's tuple id its condition states equal to a value: one its level fixes (a PL variable, a parameter, an
+		 * enclosing level's column) or an earlier item's column, so the target is read at that tid, one heap fetch a row by
+		 * a TID condition of its scan, never through an index or whole: a stale row's DELETE in an upkeep's loop
+		 * (physical/ddl/rules.ts removal), a unit delete's of the rows it removes (write/delete/unit.ts).
+		 */
+		const atTid =
+			catalogTable === undefined
+				? undefined
+				: where.map((c) => bindingOf(c, written)).find((b) => b?.op === "=" && b.column === tupleId)
+		if (atTid !== undefined) {
+			const tidRead: BoundEntry = {
+				source: { kind: "read", table, alias, access: { kind: "whole" } },
+				step: { join: "cross" },
+				item: { alias, scan: { kind: "tid" } },
+				method: "nestedLoop"
+			}
+			here = withRelation(here, written, alias, depth, place)
+			this.#level(
+				name,
+				[...qualifiersOf(atTid.value)].some(earlier) ? [...bound, tidRead] : [tidRead, ...bound]
+			)
+			const rename = this.renamer(here)
+			return {
+				alias,
+				items: fromOf(bound),
+				where: conjunction(where.map((x) => rename.expr(x))),
+				env: here
+			}
+		}
 		const bindings =
 			catalogTable === undefined
 				? []
@@ -2151,7 +2184,7 @@ class Binder {
 				where,
 				here,
 				probeAlias,
-				["ctid"],
+				[tupleId],
 				(conjunct) => {
 					const at = where.indexOf(conjunct)
 					if (at >= 0) {
@@ -2175,7 +2208,7 @@ class Binder {
 				alias,
 				items: fromOf(bound),
 				where: conjunction([
-					eq(col(alias, "ctid"), col(probeAlias, "ctid")),
+					eq(col(alias, tupleId), col(probeAlias, tupleId)),
 					...where.map((x) => rename.expr(x))
 				]),
 				env: here

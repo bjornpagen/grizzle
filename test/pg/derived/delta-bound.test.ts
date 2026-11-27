@@ -152,16 +152,10 @@ export const aLearnersWriteKeepsRelationsStoredByTheirDeltaFormsAtTheSittingItWr
 		kills: [
 			{
 				file: "packages/engine/src/sql/bind.ts",
-				original: "\tkeys: [...bound, ...trailing].map((c) => {\n",
-				replacement: "\tkeys: [...bound].map((c) => {\n",
-				why: "A seek's range left out of its one request: TestSnapshot's index holds the sitting's equalities alone, (stage, child), and SessionSnapshot's statements at a suspension read TestSnapshot by its key at the learner, filtered by the stage, every later snapshot of the learner read for each."
-			},
-			{
-				file: "packages/engine/src/physical/ddl/rules.ts",
-				original: "\t\t\tconst removed = removal(stale)\n",
-				replacement:
-					'\t\t\tconst removed: PlBlock = {\n\t\t\t\tdeclare: [],\n\t\t\t\tbody: [\n\t\t\t\t\t{\n\t\t\t\t\t\tkind: "modify",\n\t\t\t\t\t\tstatement: {\n\t\t\t\t\t\t\tkind: "delete",\n\t\t\t\t\t\t\twith: undefined,\n\t\t\t\t\t\t\ttable,\n\t\t\t\t\t\t\talias: "r1",\n\t\t\t\t\t\t\tusing: [derived(namedQuery(setQueryOf(headed(stale, reads), "the stale ids\' query headed"), ["c1"]), "r" + (unitNames + rowNames + 6), false)],\n\t\t\t\t\t\t\twhere: eq(col("r1", "ctid"), col("r" + (unitNames + rowNames + 6), "c1")),\n\t\t\t\t\t\t\treturning: []\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t]\n\t\t\t}\n',
-				why: "A unit form's removal as one DELETE of its stale rows by a self-join on ctid against their ids: PostgreSQL plans it as a Hash Join over a Seq Scan of the stored table, the unprocessed attempts' canonical relation read whole at an attempt in an ended sitting (MERGE2's tip, 204d1be1)."
+				original:
+					'\t\t\t\t: where.map((c) => bindingOf(c, written)).find((b) => b?.op === "=" && b.column === tupleId)\n',
+				replacement: "\t\t\t\t: undefined\n",
+				why: "A write's target its condition states at a tuple id read whole: ItemSessionOpen's upkeep deletes each stale row of its table by a Seq Scan of it at an end, every learner's open item session read for each, where a TID scan fetches the one row."
 			},
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",

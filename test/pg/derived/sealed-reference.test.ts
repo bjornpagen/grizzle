@@ -142,20 +142,30 @@ export const aLearnersAnswerKeepsStoredRelationsOverSealedContentByItsOwnRowsAnd
 			name: "a bound and invariance: each statement the judge runs at an answer's COMMIT does the same work beside a few packages and attempts and beside many, at tables of a page and of many"
 		},
 		box: "one or four attempts of learner 1 at the item before the first measure, beside no other package and learner or 2,048 of each; sixteen or sixty-four packages, attempts of learner 1 at another package and other learners' attempts at the item added",
-		kept: [],
+		kept: [
+			{
+				token: ReplayToken(
+					"test/pg/derived/sealed-reference.test.ts#aLearnersAnswerKeepsStoredRelationsOverSealedContentByItsOwnRowsAndTheContentItNames:-:0.0.0"
+				),
+				reason:
+					"No background, one attempt, sixteen more: Tried's unit form deletes each stale row of its table by `DELETE … WHERE ctid = __stale`, which the binding read whole, advised SEQ_SCAN, its table read for each stale row, 1 row and then 18, where one heap fetch finds it (main 2dc71d9e, since the binding's cutover 2d024bca)",
+				since: "2026-11-27"
+			}
+		],
 		kills: [
+			{
+				file: "packages/engine/src/sql/bind.ts",
+				original:
+					'\t\t\t\t: where.map((c) => bindingOf(c, written)).find((b) => b?.op === "=" && b.column === tupleId)\n',
+				replacement: "\t\t\t\t: undefined\n",
+				why: "A write's target its condition states at a tuple id read whole: Tried's unit form deletes each stale row by a Seq Scan of its table, every learner's group read for each, where a TID scan fetches the one row."
+			},
 			{
 				file: "packages/engine/src/analysis/theory/unit.ts",
 				original:
 					'\t\t\trestriction.kind === "region" ? unitStep(walkedText, unit, restriction.region) : walkedText,\n',
 				replacement: "\t\t\twalkedText,\n",
 				why: "A unit form's definition read whole, not per written unit: each answer re-derives every learner's attempt counts, the work the result page and the player paid for reading them live (16.8M pages, a 1.4M-attempt rescan)."
-			},
-			{
-				file: "packages/engine/src/physical/ddl/rules.ts",
-				original: "\t\t\tconst seek = fencedRead(\n",
-				replacement: "\t\t\tconst seek = ((t, i, w) => simpleSelect(t, [i], w))(\n",
-				why: "A unit form's DELETE that joins its table to the region as PostgreSQL estimates, not by a lookup of its own: a learner's one answer hashed a scan of the whole stored count, 2,049 rows, beside 2,048 learners (Tried's, Counted's before its import was read by name)."
 			}
 		]
 	})

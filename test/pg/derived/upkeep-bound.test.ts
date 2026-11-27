@@ -27,7 +27,7 @@
  */
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
-import { property } from "@bjornpagen/testing/property"
+import { property, ReplayToken } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import {
 	type FoldFeature,
@@ -68,8 +68,24 @@ export const aOneRowWritesJudgeWorkAtCommitIsBoundedByItsDeltaHoweverManyRowsIts
 			name: "a bound and invariance: each statement the judge runs at a one-row write's COMMIT, a stored relation's upkeep's and a rule's alike, does the same work beside a few rows of its declared unit and beside many"
 		},
 		box: "one or four sessions of the learner before the write, sixteen or sixty-four added, of one or three answers each",
-		kept: [],
+		kept: [
+			{
+				token: ReplayToken(
+					"test/pg/derived/upkeep-bound.test.ts#aOneRowWritesJudgeWorkAtCommitIsBoundedByItsDeltaHoweverManyRowsItsUnitHolds:-:0.0.0"
+				),
+				reason:
+					"One session of one answer, sixteen added: SessionCount's upkeep deletes each stale row of its table by `DELETE … WHERE ctid = __stale`, which the binding read whole, advised SEQ_SCAN, every learner's row read for each stale one, 2,049 and then 2,065 rows, where one heap fetch finds it (main 2dc71d9e, since the binding's cutover 2d024bca)",
+				since: "2026-11-27"
+			}
+		],
 		kills: [
+			{
+				file: "packages/engine/src/sql/bind.ts",
+				original:
+					'\t\t\t\t: where.map((c) => bindingOf(c, written)).find((b) => b?.op === "=" && b.column === tupleId)\n',
+				replacement: "\t\t\t\t: undefined\n",
+				why: "A write's target its condition states at a tuple id read whole: SessionCount's upkeep deletes each stale row of its table by a Seq Scan of it, every learner's row read for each, where a TID scan fetches the one row."
+			},
 			{
 				file: "packages/engine/src/analysis/derived/storage.ts",
 				original:
