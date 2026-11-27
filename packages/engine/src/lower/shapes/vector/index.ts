@@ -43,6 +43,7 @@ import type {
 	Target
 } from "#compiler/sql/ast.ts"
 import {
+	accessed,
 	asc,
 	call,
 	cast,
@@ -197,7 +198,12 @@ const fenceOf = (
 		schema: cx.names.vectorSchema
 	}
 	return {
-		fence: { ...scan, body, orderBy: [asc(distance)], limit: streamBound() },
+		fence: {
+			...scan,
+			body,
+			orderBy: [asc(distance)],
+			limit: accessed({ kind: "nearest" }, streamBound())
+		},
 		distance
 	}
 }

@@ -22,6 +22,7 @@ import {
 	type Expr,
 	type OperandBody,
 	type OperandSelect,
+	type OrderItem,
 	type Select,
 	type SelectCore
 } from "#compiler/sql/ast.ts"
@@ -33,6 +34,7 @@ import {
 	distinctCore,
 	operandSelect,
 	operandUnionAll,
+	orderedLimit,
 	provedCore,
 	select,
 	setBodyOf,
@@ -196,6 +198,15 @@ export const keyedUnion = (
  * the heading completes each arm's order as it completes the take's. `limit` gives k, asked once the arms are lowered, so
  * a parameter bound takes its placeholder after the arms' own, as it does over the plain union.
  */
+/** A level's ORDER BY and its LIMIT `k`, its order read from an index (AccessTag `ordered`, a take's). */
+const orderedBy = (
+	orderBy: ReadonlyArray<OrderItem>,
+	k: Expr
+): { readonly orderBy: ReadonlyArray<OrderItem>; readonly limit: Expr } => ({
+	orderBy,
+	limit: orderedLimit("take seek", orderBy, k)
+})
+
 export const armBoundedUnion = (
 	cx: LowerContext,
 	facts: ShapeFacts,
@@ -224,8 +235,10 @@ export const armBoundedUnion = (
 				? distinctCore(arm.targets, [arm.source.item], undefined)
 				: provedCore("certified", arm.targets, [arm.source.item], undefined)
 		),
-		orderBy: orderItemsOf(order, union.heading, arm.delivered, { leading: [], total, fixed: [] }),
-		limit: k
+		...orderedBy(
+			orderItemsOf(order, union.heading, arm.delivered, { leading: [], total, fixed: [] }),
+			k
+		)
 	})
 	return groupsConcatenated(mapNonEmpty(arms, (group) => chain(form, mapNonEmpty(group, bounded))))
 }

@@ -7,6 +7,7 @@ import {
 import { type DecimalParts, partsText } from "#compiler/core/decimal.ts"
 import type {
 	QualifiedFunctionRef,
+	AccessTag,
 	ArrayCheck,
 	ArraysSource,
 	BinaryOperator,
@@ -31,6 +32,7 @@ import type {
 	OperandBody,
 	OperandCore,
 	OperandSelect,
+	OrderedUse,
 	OrderItem,
 	PlStatement,
 	RowsProof,
@@ -326,6 +328,19 @@ export const and = (args: NonEmptyReadonlyArray<Expr>): Expr =>
 export const or = (args: NonEmptyReadonlyArray<Expr>): Expr =>
 	args.length === 1 ? args[0] : { kind: "or", args }
 export const not = (expr: Expr): Expr => ({ kind: "not", expr })
+
+/** A LIMIT `expr` with the index order its shape states of its level (sql/ast.ts AccessTag), printed as `expr` alone. */
+export const accessed = (access: AccessTag, expr: Expr): Expr => ({ kind: "access", access, expr })
+
+/**
+ * The LIMIT of a level whose ORDER BY a shape reads from an index (AccessTag `ordered`): `limit`, stating so where the
+ * level orders its rows at all.
+ */
+export const orderedLimit = (
+	use: OrderedUse,
+	orderBy: ReadonlyArray<OrderItem>,
+	limit: Expr
+): Expr => (isNonEmpty(orderBy) ? accessed({ kind: "ordered", use }, limit) : limit)
 
 /** The conjunction of the predicates as a WHERE or HAVING clause: none (undefined) when there is no predicate. */
 export const conjunction = (predicates: ReadonlyArray<Expr>): Expr | undefined =>

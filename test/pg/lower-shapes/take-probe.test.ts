@@ -56,7 +56,7 @@ export const aTakeReadsEachParentByOneDescentAndItsKRows = property.explore(prob
 	kills: [
 		{
 			file: "packages/engine/src/lower/shapes/take/index.ts",
-			original: "\t\t\tlimit: cx.boundExpr(node.bound)\n",
+			original: '\t\t\tlimit: orderedLimit("take seek", orderBy, cx.boundExpr(node.bound))\n',
 			replacement: "\t\t\tlimit: undefined\n",
 			why: "The take reads its every input row: each parent's probe reads all of its children, at least k + 2, each on a heap page of its own, past n × (h + k + 1)."
 		}

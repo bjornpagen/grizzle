@@ -25,6 +25,7 @@ import {
 	keyedSet,
 	lit,
 	lt,
+	orderedLimit,
 	provedCore,
 	select,
 	simpleSelect,
@@ -86,7 +87,7 @@ export const pagedRows = (cx: LowerContext, spec: PagedRowsSpec): Select => {
 			keyedSet(headingTargets(spec.heading, source.map), [source.item], where, "a page's rows")
 		),
 		orderBy,
-		limit: spec.limit,
+		limit: orderedLimit("page seek", orderBy, spec.limit),
 		offset: start.kind === "offset" ? start.offset.value() : undefined
 	}
 }

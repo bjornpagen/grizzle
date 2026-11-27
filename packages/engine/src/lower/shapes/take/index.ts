@@ -17,7 +17,7 @@ import { orderIsTotal } from "#compiler/lower/shapes/take/order.ts"
 import { armBoundedUnion } from "#compiler/lower/shapes/union/index.ts"
 import { columnType } from "#compiler/runtime/lower/columns.ts"
 import type { Expr } from "#compiler/sql/ast.ts"
-import { conjunction, distinctCore, provedCore, select } from "#compiler/sql/build.ts"
+import { conjunction, distinctCore, orderedLimit, provedCore, select } from "#compiler/sql/build.ts"
 
 /**
  * A correlation is outer when its expression reads a column of some node; one fixed only by parameters and literals is
@@ -143,7 +143,7 @@ const takeLowerer =
 						)
 			),
 			orderBy,
-			limit: cx.boundExpr(node.bound)
+			limit: orderedLimit("take seek", orderBy, cx.boundExpr(node.bound))
 		}
 	}
 
