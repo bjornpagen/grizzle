@@ -17,8 +17,8 @@ import { servingWith } from "#test/unit/workload/install.fixtures.ts"
  * match of one such query binds the text to; a literal through one over a query that delivers both, as the ledger's
  * reads of a test part's submission mode do; one variable a match of S and a match of two such queries bind; one
  * variable bound to S's text of another type and to the text of a chain of two such queries over one that delivers
- * both, as pantry's law probes of a branch rule's target do; and a negation's correlation of S's text with T's, or
- * with one such query's.
+ * both, as pantry's law probes of a branch rule's target do; a negation's correlation of S's text with T's, or with
+ * one such query's; and an equality with the text of a match of S that binds no column of it from outside.
  */
 const forms = [
 	"a literal",
@@ -36,7 +36,8 @@ const forms = [
 	"a carried join",
 	"a carried join of another text type",
 	"a correlated negation",
-	"a carried negation"
+	"a carried negation",
+	"a joined text of a whole match"
 ] as const
 
 export type Form = (typeof forms)[number]
@@ -230,6 +231,16 @@ const programOf = (
 				const { u } = v(S, "s")
 				return r
 					.match(S, { s: r.param("s", pg.integer), u })
+					.match(T, { k: c.keyed ? r.param("k", pg.integer) : k, g, t })
+					.where(r.eq(t, u))
+					.find({ g })
+			})
+		case "a joined text of a whole match":
+			return reads.rule((r) => {
+				const { k, g, t } = v(T, "t")
+				const { s, u } = v(S, "s")
+				return r
+					.match(S, { s, u })
 					.match(T, { k: c.keyed ? r.param("k", pg.integer) : k, g, t })
 					.where(r.eq(t, u))
 					.find({ g })

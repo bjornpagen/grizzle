@@ -8,8 +8,8 @@
  * the text and its digest; and, by the digest's lineage, through queries that deliver the text and never its digest
  * (check/carry.ts): a parameter through one, a literal through one over a query that delivers both, one variable S's
  * text and two such queries bind, one variable S's text of another type and a chain of two such queries over one that
- * delivers both bind, and a negation's correlation of S's text with T's or with one such query's), binding T's key k
- * besides where a case draws it:
+ * delivers both bind, and a negation's correlation of S's text with T's or with one such query's; and an equality with
+ * the text of a match of S that binds no column of S from outside), binding T's key k besides where a case draws it:
  *
  * - a read that binds k reads one row by T's key, its text rechecked on it: it installs, and no index is created on T;
  * - otherwise, where T declares h, the read binds h wherever it binds t (check/checker.ts RuleCheck `#stateDigests`,
@@ -19,7 +19,12 @@
  *   index created on T holds h and never t,
  *   which its comment names as filtered beside it;
  * - where T declares no digest, the installation is refused as UnrepresentableKey (KeyFault `undigestedText`) naming t
- *   and no digest.
+ *   and no digest;
+ * - S matched at its key by a parameter is read first, at that key, and T at S's text (lower/optimize/existence
+ *   keyedOutside, lower/shapes/region chainOrder), never T whole with S tested at its key and T's text for each row;
+ *   a match of S that binds none of its columns from outside drives where T declares h and T's key stays free, S read
+ *   whole and T sought by its digest at each row of S (`joinedAbove`); where T is read first, its key bound or no
+ *   digest of t declared, S is probed by its own text u, of no byte bound and no digest, and refused naming u.
  *
  * Oracle: the rule restated: no B-tree entry holds a text of no byte bound, a digest of 32 bytes is one any entry holds,
  * and a read by a key reads one row. Kept: the shapes of the consumer reads refused at 710c2d1d3, pantry's law probes
@@ -65,6 +70,7 @@ export const aLookupThatBindsATextOfNoByteBoundByEqualitySeeksByItsDeclaredDiges
 			"a carried join of another text type",
 			"a correlated negation",
 			"a carried negation",
+			"a joined text of a whole match",
 			"sought by its digest",
 			"refused undigested",
 			"read by its key"
@@ -72,6 +78,24 @@ export const aLookupThatBindsATextOfNoByteBoundByEqualitySeeksByItsDeclaredDiges
 		check: (_, c: Case<DigestFeature>) => (s: DigestCase) =>
 			Effect.sync(() => {
 				const installed = installDigestCase(s)
+				if (s.form === "a joined text of a whole match" && (s.keyed || !s.digest)) {
+					const keys = refusedKeys(refused(installed, "UnrepresentableKey"))
+					assert.ok(
+						Arr.some(
+							keys,
+							(k) =>
+								k.fault.kind === "undigestedText" &&
+								k.fault.field === "u" &&
+								k.fault.digest === undefined
+						),
+						`S, read at T's row, is probed by its text u, of no byte bound and no digest, and refused naming u (${Arr.join(
+							Arr.map(keys, (k) => k.fault.kind),
+							", "
+						)})`
+					)
+					c.note("refused undigested")
+					return
+				}
 				if (!s.keyed && !s.digest) {
 					const keys = refusedKeys(refused(installed, "UnrepresentableKey"))
 					assert.ok(
@@ -168,6 +192,34 @@ export const aLookupThatBindsATextOfNoByteBoundByEqualitySeeksByItsDeclaredDiges
 		],
 		kills: [
 			{
+				file: "packages/engine/src/lower/optimize/existence/index.ts",
+				original: "\t\t\t\t\t!keyedOutside(physical, node, o) &&\n",
+				replacement: "",
+				why: "A match the read's parameter binds at its key is an existence test again: S at s = $1 leaves the region for a semi-join, so T is read whole and S probed at its key and T's text for each row, the read binds t nowhere, and the installation refuses nothing though T declares no digest (the joined text and the shared variable)."
+			},
+			{
+				file: "packages/engine/src/lower/optimize/existence/index.ts",
+				original:
+					"\t\tif (more.length === 0 && keeping.length === 1 && !heldOutside(node, only)) {\n",
+				replacement: "\t\tif (more.length === 0 && keeping.length === 1) {\n",
+				why: "A lone existence-only match is taken before its key is read: S at s = $1 relates T's text to no variable another match binds, so its removal keeps every restriction the region states and it becomes a semi-join, T read whole and refused nothing though T declares no digest."
+			},
+			{
+				file: "packages/engine/src/lower/shapes/region/index.ts",
+				original:
+					"\t\treturn t === 0 ? 0 : once(p.placed.occurrence.source) ? 1 : t === 1 ? 2 : 3\n",
+				replacement:
+					"\t\treturn t === 0 ? 3 : once(p.placed.occurrence.source) ? 1 : t === 1 ? 2 : 0\n",
+				why: "The chain leads with an occurrence a join alone binds, before the one a key lookup binds from parameters: T leads, read whole, and S follows at its key and T's text, so the read binds t nowhere and the installation refuses nothing though T declares no digest (the joined text and the shared variable)."
+			},
+			{
+				file: "packages/engine/src/check/checker.ts",
+				original:
+					'\t\t\t\t\t"in",\n\t\t\t\t\t[this.#slotExpr(slot), ...values.map((v) => this.cx.textDigest(v, loc))],\n',
+				replacement: '\t\t\t\t\t"or",\n\t\t\t\t\tvalues.map((v) => eq(slot, v)),\n',
+				why: "A membership's digest is a disjunction of equalities again, which binds no column: the read binds t by its membership alone, so the installation refuses it undigestedText though T declares h (a membership)."
+			},
+			{
 				file: "packages/engine/src/physical/access/catalog.ts",
 				original: '\treturn { kind: carrier === "text" ? "text" : "scalar", field: name, holds }\n',
 				replacement:
@@ -178,7 +230,7 @@ export const aLookupThatBindsATextOfNoByteBoundByEqualitySeeksByItsDeclaredDiges
 				file: "packages/engine/src/lower/optimize/existence/index.ts",
 				original: "\t\t\t(o) => !cx.cells.lateral(o.source) && !joinedAbove(cx, cell, node, o)\n",
 				replacement: "\t\t\t(o) => !cx.cells.lateral(o.source)\n",
-				why: "A match whose text a digest equality joins to T's is an existence test again: the semi-join takes S out of the region and the equality reads T's own text, h = sha256(t), so the read binds t by S's row alone, seeks by no digest and is refused undigestedText, though T declares h (the joined text and the shared variable)."
+				why: "A match whose text a digest equality joins to T's is an existence test again: the semi-join takes S out of the region and the equality reads T's own text, h = sha256(t), so T is read whole and S probed at its own text u, of no byte bound and no digest, for each row: refused undigestedText naming u, though T declares h and S read whole first seeks T by it (the joined text of a whole match)."
 			},
 			{
 				file: "packages/engine/src/check/checker.ts",

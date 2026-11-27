@@ -243,8 +243,8 @@ export const aCheckOfARowTheKeysSingleOutStaysAnExistenceTest = property.exhaust
 		kills: [
 			{
 				file: "packages/engine/src/lower/optimize/existence/index.ts",
-				original: "\t\t\t\t(o) => keeping.includes(o) || onlyFilters(physical, node, o)\n",
-				replacement: "\t\t\t\t(o) => keeping.includes(o)\n",
+				original: "\t\t\t\t\t(keeping.includes(o) || onlyFilters(physical, node, o))\n",
+				replacement: "\t\t\t\t\tkeeping.includes(o)\n",
 				why: "R02 refuses any removal that takes a restriction, as xptrsrzy did: the check stays in the join, and a flat fill of pantry's UnknownOperandBase read 174M buffers where the test read 66.5M."
 			}
 		]

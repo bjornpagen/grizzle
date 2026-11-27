@@ -342,6 +342,30 @@ const onlyFilters = (physical: CellPhysical, region: Region, o: Occurrence): boo
 	)
 }
 
+/**
+ * The columns of `o` the region holds from outside it beside its constants: each it binds to a class the region's
+ * correlation holds.
+ */
+const heldColumns = (region: Region, o: Occurrence): ReadonlyArray<string> => {
+	const classOf = regionVarClasses(region)
+	const held = new Set(region.correlated.map((c) => classOf(c.var)))
+	return o.bindings.flatMap((b) => (held.has(classOf(b.var)) ? [b.column] : []))
+}
+
+/** Whether the region holds a column of `o` from outside it: a constant of it, or a class its correlation holds. */
+const heldOutside = (region: Region, o: Occurrence): boolean =>
+	o.constants.length > 0 || heldColumns(region, o).length > 0
+
+/**
+ * Whether `o` is a key lookup the region binds from outside it: a physical key of its source held by its constants and
+ * the classes the region's correlation holds (heldOutside), so it reads at most one row at each evaluation of the
+ * region, whatever the rest binds. It drives: its join multiplies no row of the rest, so a semi-join removes no product,
+ * and the rest is read at the values its row binds (lower/shapes/region chainOrder leads with it), where a semi-join
+ * would read the rest at every value of them and test each row against it.
+ */
+const keyedOutside = (physical: CellPhysical, region: Region, o: Occurrence): boolean =>
+	heldOutside(region, o) && keyedRead(physical, o, heldColumns(region, o))
+
 /** The first of `connected` whose bound and constant columns key no physical key of its source, or the first. */
 const unkeyedFirst = (
 	physical: CellPhysical,
@@ -596,13 +620,15 @@ const existenceRule: Rule = {
 		}
 		const keeping = connected.filter((o) => keepsRestriction(node, o))
 		const [only, ...more] = connected
-		if (more.length === 0 && keeping.length === 1) {
+		if (more.length === 0 && keeping.length === 1 && !heldOutside(node, only)) {
 			rewrite(cx, cell, node, only)
 			return true
 		}
 		return overPhysical(({ physical }) => {
 			const admitted = connected.filter(
-				(o) => keeping.includes(o) || onlyFilters(physical, node, o)
+				(o) =>
+					!keyedOutside(physical, node, o) &&
+					(keeping.includes(o) || onlyFilters(physical, node, o))
 			)
 			if (!isNonEmpty(admitted)) {
 				return false
@@ -729,7 +755,7 @@ export const existencePotential: Potential = (cx) => {
  * read by the semi-join from the region widened by it, and a projection restores the region's heading.
  *
  * Which occurrence, and whether any. Being existence-only is necessary, not sufficient: the rewrite must yield one
- * witness per parent with the least work. Three conditions decide it, each structural and deterministic:
+ * witness per parent with the least work. Four conditions decide it, each structural and deterministic:
  *
  * - No cross join. The occurrence's removal must not split the remaining occurrences into more groups than the region
  *   already has, where two occurrences are joined when they bind one variable (or variables a region equality makes
@@ -760,6 +786,13 @@ export const existencePotential: Potential = (cx) => {
  *   occurrence that binds a root's key stays a join operand, the smaller side the region may be read from: the
  *   expressions among a document's nodes, which bind the node's key, read first in a fill of ExpressionOperand took 1.73M
  *   buffers where every node read and its expression probed took 14.62M.
+ * - An outside key lookup drives. An occurrence a key of whose source the region holds from outside it, by its constants
+ *   and the classes its correlation holds (keyedOutside), reads at most one row at each evaluation of the region, so its
+ *   join multiplies nothing and a semi-join saves nothing, and every occurrence it binds a column of is read at its row's
+ *   values: it stays a join operand and leads the chain (lower/shapes/region chainOrder). As an existence test it left
+ *   the rest read at every value of those columns, each row tested against it: digest-seeks' joined text read all of T
+ *   and probed S at its key $1 and T's text for each row, where S at $1 read first binds T's text, and the refusal of a
+ *   text of no byte bound bound by equality met it.
  * No bound on nesting: an EXISTS is a subplan reading its relations through one probe (sql/bind.ts), which PostgreSQL
  * never flattens into its input's join problem, so stacking one more over a region grows no join problem past
  * join_collapse_limit, and the binding pass nests every level within it.

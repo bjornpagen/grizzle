@@ -3843,11 +3843,12 @@ export class Checker {
 	}
 
 	/**
-	 * A connective, or an equality of two operands of one type or of a plain integer or money and an exact value of its
-	 * family: the plain one widened into the exact carrier, as the comparison Logic writes is (typing.ts comparison).
+	 * A connective, a membership of operands of one type, or an equality of two operands of one type or of a plain
+	 * integer or money and an exact value of its family: the plain one widened into the exact carrier, as the comparison
+	 * Logic writes is (typing.ts comparison).
 	 */
 	opNamed(
-		fn: "eq" | "and" | "not" | "or",
+		fn: "eq" | "in" | "and" | "not" | "or",
 		given: ReadonlyArray<ScalarExpr>,
 		loc: SourceLoc
 	): ScalarExpr {
@@ -3875,7 +3876,9 @@ export class Checker {
 								})
 					})
 		const carriers =
-			fn === "eq" ? args.map((a) => baseOf(a.type).carrier) : ([bool.carrier] as const)
+			fn === "eq" || fn === "in"
+				? args.map((a) => baseOf(a.type).carrier)
+				: ([bool.carrier] as const)
 		const op = overloadOf(fn, carriers)
 		const id = op === undefined ? undefined : definedIdOf(op)
 		if (id === undefined) {
@@ -5287,9 +5290,9 @@ class RuleCheck {
 	/**
 	 * The digest equality a filter of the region owes (`#stateDigests`), none where it owes none: of an equality of a
 	 * region variable bound to a digested text with a text term that does not read the variable, `D = sha256(X)` for each
-	 * such text it is bound to; of a membership of such a variable in text terms, D equal to one of their digests; of a
-	 * conjunction, the conjunction of what its conjuncts owe; of a disjunction whose every disjunct owes one, their
-	 * disjunction. Each D is the digest's variable at its occurrence (`#digestSlot`), and no other condition owes one.
+	 * such text it is bound to; of a membership of such a variable in text terms, D's membership in their digests, which
+	 * binds D as the membership binds the text (sql/bind.ts bindingOf); of a conjunction, the conjunction of what its
+	 * conjuncts owe; of a disjunction whose every disjunct owes one, their disjunction. Each D is the digest's variable at its occurrence (`#digestSlot`), and no other condition owes one.
 	 */
 	#digestOf(p: ScalarExpr, loc: SourceLoc): ScalarExpr | undefined {
 		if (p.kind !== "op") {
@@ -5325,8 +5328,8 @@ class RuleCheck {
 		if (fn === "in" && x !== undefined && isNonEmpty(values)) {
 			const owed = this.#digestSlots(x, values).map((slot) =>
 				this.cx.opNamed(
-					"or",
-					values.map((v) => eq(slot, v)),
+					"in",
+					[this.#slotExpr(slot), ...values.map((v) => this.cx.textDigest(v, loc))],
 					loc
 				)
 			)
