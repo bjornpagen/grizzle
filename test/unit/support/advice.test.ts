@@ -1,0 +1,141 @@
+/**
+ * The plan laws read PostgreSQL's plans as PostgreSQL 19 prints them (test/support/advice.ts): its generated advice and
+ * its feedback on the supplied, each scan's index condition, filter and join conditions by column, and every node it
+ * disabled, so a law finds exactly the failures each measured mutant of a carried plan makes, and none in a plan that
+ * holds.
+ *
+ * - **Property:** over a box of plans PostgreSQL 19.0 made for grizzle's statement shapes under their scope's advice
+ *   (advice.fixtures.ts), Laws 1 to 3 find, for each, the problems the specification states: none for a probe under its
+ *   whole advice, nor with its key's equality by an extension's operator, nor for a scope of two statements, a
+ *   FROM-less EXISTS over a probe or a write target read by the tuple id a probe found; for the probe's index item
+ *   dropped, the tie's index (Laws 1 and 2); for a sibling index named, f2 a filter (Law 2 alone: the advice is obeyed
+ *   and round-trips); for the probe printed as a plain join, doc in a join's condition (Law 2); for a correlated EXISTS
+ *   PostgreSQL flattens, a join grizzle never named (Laws 1 and 2); for an alias two statements share, its items
+ *   conflicting and matched twice (Laws 1 and 3); for an index advised for a read no index condition serves, its seq
+ *   scan disabled (Law 1); and for a flight whose advice reached no transaction, a plan under no advice (Law 1).
+ * - **Oracle:** the specification: each plan's problems, stated, from the measurements of e1 to e3 and lane LAWS.
+ * - **Box, exhausted:** the twelve plans.
+ */
+
+import { assert } from "@bjornpagen/testing/assert"
+import type { Reached } from "@bjornpagen/testing/features"
+import { finite } from "@bjornpagen/testing/gen"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Effect } from "effect"
+import {
+	type AdviceCase,
+	adviceBox,
+	adviceCases,
+	problemsOf
+} from "#test/unit/support/advice.fixtures.ts"
+
+/** The problems the laws find with each case, by the specification. */
+const expected: { readonly [C in AdviceCase]: ReadonlyArray<string> } = {
+	probe: [],
+	dropped: [
+		"the flight, the probe: PostgreSQL planned INDEX_SCAN(n@s public.node_doc_f1), which grizzle does not carry",
+		"the flight: n.f2 is bound, read outside its index condition and in its filter of its Index Scan of n using node_doc_f1"
+	],
+	sibling: [
+		"the flight: n.f2 is bound, read outside its index condition and in its filter of its Index Scan of n using node_doc_f1"
+	],
+	plain: [
+		"the flight: n.doc is bound, read outside its index condition and in a join's condition of its Index Scan of n using node_pkey"
+	],
+	flattened: [
+		"the flight, the EXISTS: PostgreSQL planned JOIN_ORDER(d n), which grizzle does not carry",
+		"the flight, the EXISTS: PostgreSQL planned NESTED_LOOP_PLAIN(n), which grizzle does not carry",
+		"the flight, the EXISTS: PostgreSQL planned INDEX_SCAN(n public.node_doc_f1), which grizzle does not carry",
+		"the flight, the EXISTS: PostgreSQL planned NO_GATHER(n), which grizzle does not carry",
+		"the flight: n.doc is bound, read outside its index condition and in a join's condition of its Index Scan of n using node_doc_f1",
+		"the flight: n.f2 is bound, read outside its index condition and in its filter of its Index Scan of n using node_doc_f1",
+		"the flight: INDEX_SCAN(n@exists_1 public.node_pkey) is matched in 0 of its statements",
+		"the flight: NO_GATHER(n@exists_1) is matched in 0 of its statements"
+	],
+	qualified: [],
+	reused: [
+		"the flight, the doc read: INDEX_SCAN(r1 public.doc_pkey) matched, conflicting, failed",
+		"the flight, the doc read: INDEX_SCAN(r1 public.node_pkey) matched, conflicting, failed",
+		"the flight, the doc read: PostgreSQL planned SEQ_SCAN(r1), which grizzle does not carry",
+		"the flight, the doc read: grizzle carries INDEX_SCAN(r1 public.doc_pkey), which PostgreSQL did not plan",
+		"the flight, the doc read: grizzle carries INDEX_SCAN(r1 public.node_pkey), which PostgreSQL did not plan",
+		"the flight, the node read: INDEX_SCAN(r1 public.doc_pkey) matched, conflicting, failed",
+		"the flight, the node read: INDEX_SCAN(r1 public.node_pkey) matched, conflicting, failed",
+		"the flight, the node read: PostgreSQL planned INDEX_SCAN(r1 public.node_doc_f1), which grizzle does not carry",
+		"the flight, the node read: grizzle carries INDEX_SCAN(r1 public.doc_pkey), which PostgreSQL did not plan",
+		"the flight, the node read: grizzle carries INDEX_SCAN(r1 public.node_pkey), which PostgreSQL did not plan",
+		"the flight: the read r1 is scanned 2 times",
+		"the flight: it mints r1 2 times",
+		"the flight: INDEX_SCAN(r1 public.doc_pkey) is matched in 2 of its statements (the doc read, the node read)",
+		"the flight: NO_GATHER(r1) is matched in 2 of its statements (the doc read, the node read)",
+		"the flight: INDEX_SCAN(r1 public.node_pkey) is matched in 2 of its statements (the doc read, the node read)"
+	],
+	scope: [],
+	result: [],
+	tid: [],
+	disabled: [
+		"the flight, the read by v: INDEX_SCAN(n public.node_doc_f1) matched, failed",
+		"the flight, the read by v: PostgreSQL planned SEQ_SCAN(n), which grizzle does not carry",
+		"the flight, the read by v: grizzle carries INDEX_SCAN(n public.node_doc_f1), which PostgreSQL did not plan",
+		"the flight, the read by v: its Seq Scan of n is disabled"
+	],
+	unadvised: [
+		"the flight: its vehicle holds no INDEX_SCAN(r1 public.doc_pkey)",
+		"the flight: its vehicle holds no NO_GATHER(r1)",
+		"the flight, the doc read: planned under no advice",
+		"the flight, the doc read: PostgreSQL planned SEQ_SCAN(r1), which grizzle does not carry",
+		"the flight, the doc read: PostgreSQL planned NO_GATHER(r1), which grizzle does not carry",
+		"the flight: r1.doc is bound, read outside its index condition and in its filter of its Seq Scan of r1",
+		"the flight: INDEX_SCAN(r1 public.doc_pkey) is matched in 0 of its statements",
+		"the flight: NO_GATHER(r1) is matched in 0 of its statements"
+	]
+}
+
+/** Each plan's problems are the ones the specification states. */
+export const theLawsFindExactlyTheFailuresOfEachMeasuredPlan = property.exhaust(finite(adviceBox), {
+	needs: {},
+	situations: adviceCases satisfies ReadonlyArray<Reached<AdviceCase>>,
+	check: (_, k: Case<AdviceCase>) => (c) =>
+		Effect.sync(() => {
+			assert.deepEqual(problemsOf(c), expected[c], `the laws over ${c}`)
+			k.note(c)
+		}),
+	oracle: {
+		kind: "specification",
+		name: "each measured plan's problems under Laws 1 to 3, stated"
+	},
+	box: "the plans PostgreSQL 19.0 made for a probe, its mutants, a scope of two statements, a FROM-less EXISTS, a tuple-id target, a disabled scan and a flight under no advice",
+	kept: [],
+	kills: [
+		{
+			file: "test/support/advice.ts",
+			original: '(x.feedback.match === "matched" && x.feedback.flags.length === 0)',
+			replacement: 'x.feedback.match === "matched"',
+			why: "An atom PostgreSQL matched but flagged is taken as applied: an alias two statements share, whose items are conflicting and failed, passes Law 1 (e3 P7, G10)."
+		},
+		{
+			file: "test/support/advice.ts",
+			original: "onSome: (p) => minted.has(p)",
+			replacement: "onSome: () => true",
+			why: "A target at a level PostgreSQL named is read as grizzle's: the NO_GATHER of a probe at its sublink's level, which no carried advice can name, fails Law 1 for a sound EXISTS over a probe."
+		},
+		{
+			file: "test/support/advice.ts",
+			original: 'indexCond: columnsAt(o, ["Index Cond", "TID Cond"]),',
+			replacement: 'indexCond: columnsAt(o, ["Index Cond"]),',
+			why: "A TID scan's condition is no index condition: a write target read by the tuple id its probe found reads its ctid unbound."
+		},
+		{
+			file: "test/support/advice.ts",
+			original: "\t\t\treturn matchedIn.length === 1",
+			replacement: "\t\t\treturn matchedIn.length >= 1",
+			why: "An atom matched in two statements of its scope passes Law 3: an alias two statements share goes unseen there."
+		},
+		{
+			file: "test/support/advice.ts",
+			original: 'disabled: o["Disabled"] === true,',
+			replacement: "disabled: false,",
+			why: "A node the planner disabled, a path the advice forbade that nothing could replace, passes Law 1 unread."
+		}
+	]
+})

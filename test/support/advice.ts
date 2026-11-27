@@ -1,0 +1,1143 @@
+/**
+ * The plan laws' one harness (README "Plan advice"): every statement grizzle emits carries the plan its compiler
+ * proved to PostgreSQL 19 as plan advice (contrib/pg_plan_advice, sql/advice.ts printAdvice), and these are the laws
+ * that hold it, each read off PostgreSQL itself.
+ *
+ * - **Law 1, plan identity.** Planned under its scope's advice, in force as production puts it in force (`Vehicle`), a
+ *   statement's generated advice is the advice grizzle carries for it, atom for atom; every atom it carries is reported
+ *   `matched`, with no flag; and no node is disabled. The comparison is CARRY-CONTRACT §3's: a generated atom whose
+ *   targets grizzle named (an alias the scope minted, at the top level or a level it minted) is one of the carried, and
+ *   every other is a NO_GATHER of a relation at a level PostgreSQL named (a sublink's one item, `"*RESULT*"`).
+ * - **Law 2, binding.** Every column a read binds is in the index condition of its occurrence's scan, never in that
+ *   scan's filter or recheck, and never in a condition a join pairs its sides by: advice pins an index and a join, never
+ *   which clauses become index conditions, so the statement's shape (a probe) must carry the binding.
+ * - **Law 3, scope.** Every name a scope mints is minted once, and every atom of the scope's advice is matched in exactly
+ *   one of its statements: PostgreSQL applies one advice string to every statement it plans under it, so an alias two
+ *   statements share meets the other's items.
+ * - **The budget.** On filled data a statement reads within the pages its plan gives: each scan of an index its
+ *   descents times the index's height, and two pages a row its index condition selects (its leaf entry and its heap
+ *   tuple), an index-only scan one and its heap fetches; each whole read its table's pages; and no scan descends more
+ *   than once an evaluation. Counted, never timed.
+ *
+ * Every plan is PostgreSQL's own: EXPLAIN (GENERIC_PLAN, COSTS OFF, PLAN_ADVICE, VERBOSE, FORMAT JSON) of the statement,
+ * planned fresh under the advice in force, generic as every session grizzle opens plans (physical/ddl/roles.ts
+ * genericPlans), which prints the advice that reproduces its plan and its feedback on each supplied atom. The replan
+ * case alone reads a cached plan, which PostgreSQL records advice for only under
+ * pg_plan_advice.always_store_advice_details: the harness sets it on its own observing session there, an observation
+ * setting that changes no plan (pgpa_planner.c builds no trove unless advice is supplied). No planner setting is set.
+ *
+ * The tables a law reads stand in a pg_class state (`PgClassState`), each reached the way production reaches it:
+ * never vacuumed, counted empty (vacuumed by another session while its filling transaction is open, so pg_class holds
+ * its pages and no row), analyzed, skewed (analyzed over its first rows, then filled), and large (pg_class counting a
+ * million rows on its pages, the scale of edullm's 1x tables).
+ */
+
+import { regex } from "arkregex"
+import { Array as Arr, Data, Effect, Option, Record as Rec, Result, String as Str } from "effect"
+import { type PlanNode, planNodes, underGenericPlans } from "#bench/harness/explain.ts"
+import type { BenchSession } from "#bench/harness/session.ts"
+import { quoteString } from "#compiler/core/text.ts"
+import { trustedJson } from "#compiler/core/trusted.ts"
+import type { SqlError } from "#test/support/pg.ts"
+
+/** Advice or a plan PostgreSQL printed that the harness cannot read: a defect of the reader or of the text. */
+export class MalformedAdvice extends Data.TaggedError("MalformedAdvice")<{
+	readonly message: string
+}> {}
+
+/** The tags whose targets are a relation and an index each (pgpa_parser.y index_target_list). */
+const indexTags = ["INDEX_SCAN", "INDEX_ONLY_SCAN"] as const
+
+/** The tags whose targets are relations (pgpa_parser.y simple_target_list). */
+const scanTags = ["SEQ_SCAN", "TID_SCAN", "BITMAP_HEAP_SCAN", "NO_GATHER", "DO_NOT_SCAN"] as const
+
+/** The tags whose targets are relations or lists of them (pgpa_parser.y generic_target_list). */
+const joinTags = [
+	"FOREIGN_JOIN",
+	"GATHER",
+	"GATHER_MERGE",
+	"HASH_JOIN",
+	"MERGE_JOIN_MATERIALIZE",
+	"MERGE_JOIN_PLAIN",
+	"NESTED_LOOP_MATERIALIZE",
+	"NESTED_LOOP_MEMOIZE",
+	"NESTED_LOOP_PLAIN",
+	"PARTITIONWISE",
+	"SEMIJOIN_NON_UNIQUE",
+	"SEMIJOIN_UNIQUE"
+] as const
+
+type IndexTag = (typeof indexTags)[number]
+type ScanTag = (typeof scanTags)[number]
+type JoinTag = (typeof joinTags)[number]
+
+const isIndexTag = (tag: string): tag is IndexTag => Arr.some(indexTags, (t) => t === tag)
+const isScanTag = (tag: string): tag is ScanTag => Arr.some(scanTags, (t) => t === tag)
+const isJoinTag = (tag: string): tag is JoinTag => Arr.some(joinTags, (t) => t === tag)
+
+/** A schema-qualified name or a bare one: an index as advice names it, a partition. */
+interface QualifiedName {
+	readonly schema: Option.Option<string>
+	readonly name: string
+}
+
+/**
+ * A relation identifier (pgpa_identifier.c): its alias, its occurrence among the relations of its plan sharing the
+ * alias (1 where the text states none), the partition it names, and the plan it is planned in (none: the top one).
+ */
+export interface RelationTarget {
+	readonly alias: string
+	readonly occurrence: number
+	readonly partition: Option.Option<QualifiedName>
+	readonly plan: Option.Option<string>
+}
+
+/** A join's target: one relation, an ordered list of targets, or an unordered set of relations (JOIN_ORDER's `{}`). */
+type JoinTarget =
+	| { readonly kind: "relation"; readonly relation: RelationTarget }
+	| { readonly kind: "ordered"; readonly members: ReadonlyArray<JoinTarget> }
+	| { readonly kind: "unordered"; readonly members: ReadonlyArray<RelationTarget> }
+
+/**
+ * One atom of advice: what PostgreSQL's feedback reports on one at a time (pgpa_trove.c, an entry a target), its tag,
+ * its canonical text and the relations it names. An item of several targets is several atoms; a join order is one.
+ */
+export interface Atom {
+	readonly tag: string
+	readonly text: string
+	readonly relations: ReadonlyArray<RelationTarget>
+}
+
+type Token =
+	| { readonly kind: "ident"; readonly text: string }
+	| { readonly kind: "integer"; readonly value: number }
+	| { readonly kind: "punct"; readonly char: string }
+
+/** The readers below throw MalformedAdvice, which `reading` returns as their failure. */
+const malformed = (what: string): never => {
+	throw new MalformedAdvice({ message: what })
+}
+
+/** Runs a reader, its MalformedAdvice the failure; any other throw is a defect. */
+const reading = <A>(read: () => A): Result.Result<A, MalformedAdvice> => {
+	try {
+		return Result.succeed(read())
+	} catch (error) {
+		if (error instanceof MalformedAdvice) {
+			return Result.fail(error)
+		}
+		throw error
+	}
+}
+
+/**
+ * Every lexeme of `text` by `pattern`, a sticky pattern each of whose matches is one lexeme, in order: a text it cannot
+ * read on from some place is malformed.
+ */
+const lexemes = (pattern: RegExp, text: string): ReadonlyArray<RegExpExecArray> => {
+	const found: Array<RegExpExecArray> = []
+	let at = 0
+	while (at < text.length) {
+		pattern.lastIndex = at
+		const m = pattern.exec(text)
+		if (m === null || m[0] === "") {
+			return malformed(`an unreadable text at ${at} of ${quoteString(text)}`)
+		}
+		found.push(m)
+		at += m[0].length
+	}
+	return found
+}
+
+/**
+ * Advice text's lexemes as pgpa_scanner.l reads them: whitespace and comments, which mean nothing; a double-quoted
+ * identifier (1), each `""` in it one `"`; a bare identifier (2), folded to lower case; a decimal integer (3); and a
+ * punctuation mark (4).
+ */
+const adviceLexeme = () =>
+	regex(
+		'\\s+|/\\*[\\s\\S]*?\\*/|"((?:[^"]|"")*)"|([A-Za-z\\u0080-\\u00ff_][A-Za-z\\u0080-\\u00ff_0-9$]*)|([0-9][0-9_]*)|([(){}#/.@])',
+		"uy"
+	)
+
+/** The tokens of advice text. */
+const tokensOf = (text: string): ReadonlyArray<Token> =>
+	Arr.flatMap(
+		lexemes(adviceLexeme(), text),
+		([, quoted, bare, integer, punct]): ReadonlyArray<Token> => {
+			if (quoted !== undefined) {
+				return [{ kind: "ident", text: Str.replaceAll('""', '"')(quoted) }]
+			}
+			if (bare !== undefined) {
+				return [{ kind: "ident", text: Str.toLowerCase(bare) }]
+			}
+			if (integer !== undefined) {
+				return [{ kind: "integer", value: Number(Str.replaceAll("_", "")(integer)) }]
+			}
+			return punct === undefined ? [] : [{ kind: "punct", char: punct }]
+		}
+	)
+
+/** An identifier as quote_identifier prints one: bare where folding leaves it alone, else double-quoted. */
+const identText = (name: string): string =>
+	regex("^[a-z_][a-z0-9_$]*$", "u").test(name) ? name : `"${Str.replaceAll('"', '""')(name)}"`
+
+const qualifiedText = (q: QualifiedName): string =>
+	Option.match(q.schema, {
+		onNone: () => identText(q.name),
+		onSome: (schema) => `${identText(schema)}.${identText(q.name)}`
+	})
+
+/** A relation identifier's text (pgpa_identifier.c pgpa_identifier_string): occurrence 1 unprinted. */
+const relationText = (r: RelationTarget): string =>
+	`${identText(r.alias)}${r.occurrence === 1 ? "" : `#${r.occurrence}`}${Option.match(r.partition, {
+		onNone: () => "",
+		onSome: (p) => `/${qualifiedText(p)}`
+	})}${Option.match(r.plan, { onNone: () => "", onSome: (p) => `@${identText(p)}` })}`
+
+const joinTargetText = (t: JoinTarget): string => {
+	switch (t.kind) {
+		case "relation":
+			return relationText(t.relation)
+		case "ordered":
+			return `(${Arr.join(Arr.map(t.members, joinTargetText), " ")})`
+		case "unordered":
+			return `{${Arr.join(Arr.map(t.members, relationText), " ")}}`
+	}
+}
+
+const joinRelations = (t: JoinTarget): ReadonlyArray<RelationTarget> => {
+	switch (t.kind) {
+		case "relation":
+			return [t.relation]
+		case "ordered":
+			return Arr.flatMap(t.members, joinRelations)
+		case "unordered":
+			return t.members
+	}
+}
+
+/** A cursor over advice tokens: a recursive descent over pgpa_parser.y, each reader throwing MalformedAdvice. */
+class AdviceReader {
+	#at = 0
+	readonly #tokens: ReadonlyArray<Token>
+	readonly #text: string
+
+	constructor(text: string) {
+		this.#text = text
+		this.#tokens = tokensOf(text)
+	}
+
+	get done(): boolean {
+		return this.#at >= this.#tokens.length
+	}
+
+	#fail(what: string): never {
+		return malformed(`${what} at token ${this.#at} of ${quoteString(this.#text)}`)
+	}
+
+	#peek(char: string): boolean {
+		const t = this.#tokens[this.#at]
+		return t?.kind === "punct" && t.char === char
+	}
+
+	#take(char: string): void {
+		if (!this.#peek(char)) {
+			this.#fail(`expected ${char}`)
+		}
+		this.#at += 1
+	}
+
+	#ident(): string {
+		const t = this.#tokens[this.#at]
+		if (t?.kind !== "ident") {
+			return this.#fail("expected an identifier")
+		}
+		this.#at += 1
+		return t.text
+	}
+
+	#occurrence(): number {
+		const t = this.#tokens[this.#at]
+		if (t?.kind !== "integer" || t.value <= 0) {
+			return this.#fail("expected a positive occurrence")
+		}
+		this.#at += 1
+		return t.value
+	}
+
+	/** relation_identifier: identifier opt_ri_occurrence opt_partition opt_plan_name. */
+	#relation(): RelationTarget {
+		const alias = this.#ident()
+		let occurrence = 1
+		if (this.#peek("#")) {
+			this.#take("#")
+			occurrence = this.#occurrence()
+		}
+		let partition: Option.Option<QualifiedName> = Option.none()
+		if (this.#peek("/")) {
+			this.#take("/")
+			const schema = this.#ident()
+			this.#take(".")
+			partition = Option.some({ schema: Option.some(schema), name: this.#ident() })
+		}
+		let plan: Option.Option<string> = Option.none()
+		if (this.#peek("@")) {
+			this.#take("@")
+			plan = Option.some(this.#ident())
+		}
+		return { alias, occurrence, partition, plan }
+	}
+
+	/** index_name: identifier, or identifier '.' identifier. */
+	#index(): QualifiedName {
+		const first = this.#ident()
+		if (!this.#peek(".")) {
+			return { schema: Option.none(), name: first }
+		}
+		this.#take(".")
+		return { schema: Option.some(first), name: this.#ident() }
+	}
+
+	/** join_order_target_list, up to (not past) `close`. */
+	#orderTargets(close: string): ReadonlyArray<JoinTarget> {
+		const targets: Array<JoinTarget> = []
+		while (!this.#peek(close)) {
+			if (this.#peek("(")) {
+				this.#take("(")
+				targets.push({ kind: "ordered", members: this.#orderTargets(")") })
+				this.#take(")")
+			} else if (this.#peek("{")) {
+				this.#take("{")
+				const members: Array<RelationTarget> = []
+				while (!this.#peek("}")) {
+					members.push(this.#relation())
+				}
+				this.#take("}")
+				targets.push({ kind: "unordered", members })
+			} else {
+				targets.push({ kind: "relation", relation: this.#relation() })
+			}
+		}
+		return targets
+	}
+
+	/** A join tag's one target: a relation, or a parenthesized list of them (pgpa_parser.y generic_sublist). */
+	#joinTarget(): JoinTarget {
+		if (!this.#peek("(")) {
+			return { kind: "relation", relation: this.#relation() }
+		}
+		this.#take("(")
+		const members: Array<JoinTarget> = []
+		while (!this.#peek(")")) {
+			members.push({ kind: "relation", relation: this.#relation() })
+		}
+		this.#take(")")
+		return { kind: "ordered", members }
+	}
+
+	/** One advice item, as its atoms. */
+	item(): ReadonlyArray<Atom> {
+		const tag = Str.toUpperCase(this.#ident())
+		this.#take("(")
+		const atoms: Array<Atom> = []
+		if (tag === "JOIN_ORDER") {
+			const targets = this.#orderTargets(")")
+			atoms.push({
+				tag,
+				text: `JOIN_ORDER(${Arr.join(Arr.map(targets, joinTargetText), " ")})`,
+				relations: Arr.flatMap(targets, joinRelations)
+			})
+		} else if (isIndexTag(tag)) {
+			while (!this.#peek(")")) {
+				const relation = this.#relation()
+				const index = this.#index()
+				atoms.push({
+					tag,
+					text: `${tag}(${relationText(relation)} ${qualifiedText(index)})`,
+					relations: [relation]
+				})
+			}
+		} else if (isScanTag(tag)) {
+			while (!this.#peek(")")) {
+				const relation = this.#relation()
+				atoms.push({ tag, text: `${tag}(${relationText(relation)})`, relations: [relation] })
+			}
+		} else if (isJoinTag(tag)) {
+			while (!this.#peek(")")) {
+				const target = this.#joinTarget()
+				atoms.push({
+					tag,
+					text: `${tag}(${joinTargetText(target)})`,
+					relations: joinRelations(target)
+				})
+			}
+		} else {
+			this.#fail(`an unknown tag ${tag}`)
+		}
+		this.#take(")")
+		return atoms
+	}
+}
+
+/** The atoms of advice text, in its order: what grizzle carries, or what PostgreSQL generated. */
+const atomsOf = (text: string): Result.Result<ReadonlyArray<Atom>, MalformedAdvice> =>
+	reading(() => {
+		const reader = new AdviceReader(text)
+		const atoms: Array<Atom> = []
+		while (!reader.done) {
+			for (const atom of reader.item()) {
+				atoms.push(atom)
+			}
+		}
+		return atoms
+	})
+
+/** A flag of PostgreSQL's feedback on a supplied atom (pgpa_trove.c pgpa_trove_append_flags). */
+type FeedbackFlag = "inapplicable" | "conflicting" | "failed"
+
+const isFlag = (word: string): word is FeedbackFlag =>
+	word === "inapplicable" || word === "conflicting" || word === "failed"
+
+/** How PostgreSQL applied one supplied atom: its match, and each flag it raised. Law 1 admits `matched` with none. */
+export interface Feedback {
+	readonly match: "matched" | "partially matched" | "not matched"
+	readonly flags: ReadonlyArray<FeedbackFlag>
+}
+
+/** A supplied atom and PostgreSQL's feedback on it: one line of "Supplied Plan Advice", `<atom> /* <feedback> *\/`. */
+export interface Supplied {
+	readonly atom: Atom
+	readonly feedback: Feedback
+}
+
+/** Each match PostgreSQL's feedback names, by its text. */
+const matches: ReadonlyMap<string, Feedback["match"]> = new Map([
+	["matched", "matched"],
+	["partially matched", "partially matched"],
+	["not matched", "not matched"]
+])
+
+const feedbackLine = () =>
+	regex(
+		"^(.*) /\\* (matched|partially matched|not matched)((?:, (?:inapplicable|conflicting|failed))*) \\*/$",
+		"u"
+	)
+
+/** Each line of "Supplied Plan Advice": its one atom and its feedback. */
+const suppliedOf = (text: string): ReadonlyArray<Supplied> =>
+	Arr.map(
+		Arr.filter(Str.split("\n")(text), (line) => Str.trim(line) !== ""),
+		(line): Supplied => {
+			const [, item, matchText, flags] = feedbackLine().exec(line) ?? []
+			const match = matches.get(matchText ?? "")
+			if (item === undefined || match === undefined || flags === undefined) {
+				return malformed(`a feedback line ${quoteString(line)}`)
+			}
+			const [atom, ...more] = Result.getOrElse(atomsOf(item), (e) => malformed(e.message))
+			if (atom === undefined || more.length > 0) {
+				return malformed(`a feedback line of one atom ${quoteString(line)}`)
+			}
+			return {
+				atom,
+				feedback: { match, flags: Arr.filter(Str.split(", ")(flags), isFlag) }
+			}
+		}
+	)
+
+/** A column a condition names, as VERBOSE prints it: its relation's alias and its name. */
+export interface ColumnRef {
+	readonly alias: string
+	readonly column: string
+}
+
+/**
+ * A condition's lexemes as VERBOSE prints it: a string literal; a cast's `::`; a double-quoted identifier (1); a bare
+ * identifier (2); a dot (3); an opening parenthesis (4); and any other character, whitespace among them.
+ */
+const conditionLexeme = () =>
+	regex(
+		`'(?:[^']|'')*'|::|"((?:[^"]|"")*)"|([A-Za-z\\u0080-\\u00ff_][A-Za-z\\u0080-\\u00ff_0-9$]*)|(\\.)|(\\()|[\\s\\S]`,
+		"uy"
+	)
+
+/** A condition's lexeme as `columnsIn` reads it: an identifier, a dot, a cast, a call's parenthesis, or another. */
+type ConditionToken =
+	| { readonly kind: "ident"; readonly name: string }
+	| { readonly kind: "dot" | "cast" | "open" | "other" }
+
+const conditionTokens = (condition: string): ReadonlyArray<ConditionToken> =>
+	Arr.flatMap(lexemes(conditionLexeme(), condition), (m): ReadonlyArray<ConditionToken> => {
+		const [whole, quoted, bare, dot, open] = m
+		if (quoted !== undefined) {
+			return [{ kind: "ident", name: Str.replaceAll('""', '"')(quoted) }]
+		}
+		if (bare !== undefined) {
+			return [{ kind: "ident", name: bare }]
+		}
+		if (dot !== undefined) {
+			return [{ kind: "dot" }]
+		}
+		if (open !== undefined) {
+			return [{ kind: "open" }]
+		}
+		if (whole === "::") {
+			return [{ kind: "cast" }]
+		}
+		return Str.trim(whole) === "" ? [] : [{ kind: "other" }]
+	})
+
+/**
+ * Every column a condition PostgreSQL printed under VERBOSE names, each `alias.column`, either part double-quoted where
+ * quote_identifier quotes it: two identifiers a dot joins, outside every string literal, that no `::` types and no `(`
+ * calls.
+ */
+const columnsIn = (condition: string): ReadonlyArray<ColumnRef> => {
+	const tokens = conditionTokens(condition)
+	return Arr.flatMap(tokens, (t, at): ReadonlyArray<ColumnRef> => {
+		const dot = tokens[at + 1]
+		const column = tokens[at + 2]
+		const before = tokens[at - 1]
+		const after = tokens[at + 3]
+		return t.kind === "ident" &&
+			dot?.kind === "dot" &&
+			column?.kind === "ident" &&
+			before?.kind !== "cast" &&
+			before?.kind !== "dot" &&
+			after?.kind !== "open"
+			? [{ alias: t.name, column: column.name }]
+			: []
+	})
+}
+
+/**
+ * One node of a plan as the laws read it: its type, the alias of the relation occurrence it scans (none where it scans
+ * none), the index it reads, whether the planner disabled it (`Disabled: true`, a path advice forbade that nothing
+ * could replace), and its conditions' columns: its index condition's (a TID scan's TID condition among them), its
+ * filter's and recheck's, and a join's, the Join Filter, Hash Cond and Merge Cond it pairs its sides by.
+ */
+export interface LawNode {
+	readonly nodeType: string
+	readonly alias: Option.Option<string>
+	readonly index: Option.Option<string>
+	readonly disabled: boolean
+	readonly indexCond: ReadonlyArray<ColumnRef>
+	readonly filter: ReadonlyArray<ColumnRef>
+	readonly joined: ReadonlyArray<ColumnRef>
+	readonly children: ReadonlyArray<LawNode>
+}
+
+/** A statement's plan under the advice in force: its nodes, PostgreSQL's advice for it, and its feedback on the supplied. */
+export interface AdvisedPlan {
+	readonly root: LawNode
+	readonly generated: ReadonlyArray<Atom>
+	readonly supplied: Option.Option<ReadonlyArray<Supplied>>
+}
+
+type Json = Readonly<Record<string, unknown>>
+
+const isJson = (value: unknown): value is Json =>
+	typeof value === "object" && value !== null && !Arr.isArray(value)
+
+const textAt = (o: Json, key: string): Option.Option<string> => {
+	const value = o[key]
+	if (value === undefined) {
+		return Option.none()
+	}
+	return typeof value === "string" ? Option.some(value) : malformed(`${key} is not text`)
+}
+
+const columnsAt = (o: Json, keys: ReadonlyArray<string>): ReadonlyArray<ColumnRef> =>
+	Arr.flatMap(keys, (k) => Option.match(textAt(o, k), { onNone: () => [], onSome: columnsIn }))
+
+/** A node's children: none where EXPLAIN printed no Plans. */
+const childrenOf = (o: Json): ReadonlyArray<LawNode> => {
+	const plans = o["Plans"]
+	if (plans === undefined) {
+		return []
+	}
+	return Arr.isArray(plans)
+		? Arr.map(plans, (p: unknown) => (isJson(p) ? lawNodeOf(p) : malformed("a child plan")))
+		: malformed("Plans is not a list")
+}
+
+const lawNodeOf = (o: Json): LawNode => ({
+	nodeType: Option.getOrElse(textAt(o, "Node Type"), () => malformed("a node with no Node Type")),
+	alias: textAt(o, "Alias"),
+	index: textAt(o, "Index Name"),
+	disabled: o["Disabled"] === true,
+	indexCond: columnsAt(o, ["Index Cond", "TID Cond"]),
+	filter: columnsAt(o, ["Filter", "Recheck Cond"]),
+	joined: columnsAt(o, ["Join Filter", "Hash Cond", "Merge Cond"]),
+	children: childrenOf(o)
+})
+
+/** The one object of an EXPLAIN (FORMAT JSON) cell, the json value as the driver returns it, parsed or as text. */
+const topOf = (cell: unknown): Json => {
+	const parsed: unknown = typeof cell === "string" ? trustedJson<unknown>(cell) : cell
+	const [top, ...more] = Arr.isArray(parsed) ? parsed : []
+	return isJson(top) && more.length === 0 ? top : malformed("an EXPLAIN cell that is not one plan")
+}
+
+/** A plan as EXPLAIN (PLAN_ADVICE, VERBOSE, FORMAT JSON) printed it, read for the laws. */
+export const advisedPlanOf = (cell: unknown): Result.Result<AdvisedPlan, MalformedAdvice> =>
+	reading(() => {
+		const top = topOf(cell)
+		const plan = top["Plan"]
+		return {
+			root: isJson(plan) ? lawNodeOf(plan) : malformed("an EXPLAIN cell with no Plan"),
+			generated: Result.getOrElse(
+				atomsOf(Option.getOrElse(textAt(top, "Generated Plan Advice"), () => "")),
+				(e) => malformed(e.message)
+			),
+			supplied: Option.map(textAt(top, "Supplied Plan Advice"), suppliedOf)
+		}
+	})
+
+/** Every node of a plan, its root first. */
+function* lawNodes(n: LawNode): Generator<LawNode> {
+	yield n
+	for (const c of n.children) {
+		yield* lawNodes(c)
+	}
+}
+
+/**
+ * How a scope's advice is in force when PostgreSQL plans its statements, as production carries it: a client flight's,
+ * set for its transaction (`set_config('pg_plan_advice.advice', $n, true)`, as the flight's prologue sets it); an
+ * installed routine's, its own SET clause, which the harness reads back from the catalog (pg_proc.proconfig) and puts
+ * in force the same way, so a routine that lost its clause plans under none.
+ */
+export type Vehicle =
+	| { readonly kind: "flight" }
+	| { readonly kind: "routine"; readonly schema: string; readonly name: string }
+
+/** A read the binding law judges: the alias of its relation's occurrence and the columns its index condition binds. */
+export interface BoundRead {
+	readonly alias: string
+	readonly bound: ReadonlyArray<string>
+}
+
+/** One statement of a scope: its label, and its text, every parameter a typed placeholder (`$n::type`). */
+export interface ScopeStatement {
+	readonly label: string
+	readonly sql: string
+}
+
+/**
+ * An advice scope as the laws read it (CARRY-CONTRACT §4, sql/naming.ts AdviceScope): its label; the advice grizzle
+ * carries for it; every name it minted, each alias and each level's, once for each time it minted it; its index
+ * reads, each by its alias with the columns it binds (sql/plan.ts PlanItem `index`); its statements; and its vehicle.
+ */
+export interface LawScope {
+	readonly label: string
+	readonly advice: string
+	readonly minted: ReadonlyArray<string>
+	readonly reads: ReadonlyArray<BoundRead>
+	readonly statements: Arr.NonEmptyReadonlyArray<ScopeStatement>
+	readonly vehicle: Vehicle
+}
+
+/** A scope planned: the advice its vehicle held in force, and each statement's plan under it, in the scope's order. */
+export interface PlannedScope {
+	readonly inForce: string
+	readonly plans: ReadonlyArray<AdvisedPlan>
+}
+
+/** The atoms of `text`, a text the scope's own construction made: one that is no advice is a defect. */
+const carriedAtoms = (text: string): ReadonlyArray<Atom> =>
+	Result.getOrElse(atomsOf(text), (e) => {
+		throw e
+	})
+
+/** A plan's feedback on the supplied atoms: none where it was planned under no advice. */
+const suppliedIn = (plan: AdvisedPlan): ReadonlyArray<Supplied> =>
+	Option.getOrElse(plan.supplied, Arr.empty<Supplied>)
+
+/** Whether grizzle named every relation an atom targets: an alias `minted`, at the top level or a level it minted. */
+const namedBy = (minted: ReadonlySet<string>, atom: Atom): boolean =>
+	Arr.every(
+		atom.relations,
+		(r) =>
+			minted.has(r.alias) &&
+			Option.match(r.plan, { onNone: () => true, onSome: (p) => minted.has(p) })
+	)
+
+/** A node as a failure names it: its type, its occurrence's alias and its index. */
+const nodeText = (n: LawNode): string =>
+	`${n.nodeType}${Option.match(n.alias, { onNone: () => "", onSome: (a) => ` of ${a}` })}${Option.match(
+		n.index,
+		{
+			onNone: () => "",
+			onSome: (i) => ` using ${i}`
+		}
+	)}`
+
+/**
+ * Law 1 over each statement of `scope`, `planned` under the advice its vehicle held (see the header): the vehicle held
+ * the scope's advice; a statement's own atoms (those of the scope's advice it reports `matched`) are its generated
+ * atoms grizzle named, each matched with no flag; every other generated atom is a NO_GATHER; and no node is disabled.
+ */
+const planIdentity = (scope: LawScope, planned: PlannedScope): ReadonlyArray<string> => {
+	const minted = new Set(scope.minted)
+	const carried = new Set(Arr.map(carriedAtoms(scope.advice), (a) => a.text))
+	const held = new Set(Arr.map(carriedAtoms(planned.inForce), (a) => a.text))
+	const vehicle = [
+		...Arr.flatMap([...carried], (t) =>
+			held.has(t) ? [] : [`${scope.label}: its vehicle holds no ${t}`]
+		),
+		...Arr.flatMap([...held], (t) =>
+			carried.has(t) ? [] : [`${scope.label}: its vehicle holds ${t}, which it does not carry`]
+		)
+	]
+	const statements = Arr.flatMap(
+		Arr.zip<ScopeStatement, AdvisedPlan>(scope.statements, planned.plans),
+		([s, plan]) => {
+			const label = `${scope.label}, ${s.label}`
+			const supplied = suppliedIn(plan)
+			const own = new Set(
+				Arr.flatMap(supplied, (x) => (x.feedback.match === "matched" ? [x.atom.text] : []))
+			)
+			const ours = Arr.filter(plan.generated, (a) => namedBy(minted, a))
+			const oursText = new Set(Arr.map(ours, (a) => a.text))
+			return [
+				...(carried.size > 0 && Option.isNone(plan.supplied)
+					? [`${label}: planned under no advice`]
+					: []),
+				...Arr.flatMap(supplied, (x) =>
+					x.feedback.match === "not matched" ||
+					(x.feedback.match === "matched" && x.feedback.flags.length === 0)
+						? []
+						: [
+								`${label}: ${x.atom.text} ${Arr.join([x.feedback.match, ...x.feedback.flags], ", ")}`
+							]
+				),
+				...Arr.flatMap([...oursText], (t) =>
+					own.has(t) ? [] : [`${label}: PostgreSQL planned ${t}, which grizzle does not carry`]
+				),
+				...Arr.flatMap([...own], (t) =>
+					oursText.has(t) ? [] : [`${label}: grizzle carries ${t}, which PostgreSQL did not plan`]
+				),
+				...Arr.flatMap(plan.generated, (a) =>
+					namedBy(minted, a) || a.tag === "NO_GATHER"
+						? []
+						: [`${label}: PostgreSQL planned ${a.text} at a level grizzle did not name`]
+				),
+				...Arr.flatMap([...lawNodes(plan.root)], (n) =>
+					n.disabled ? [`${label}: its ${nodeText(n)} is disabled`] : []
+				)
+			]
+		}
+	)
+	return [...vehicle, ...statements]
+}
+
+/**
+ * Law 2 over `scope`, `planned`: every column each read binds is in the index condition of the one scan of its
+ * occurrence among the scope's statements, never in that scan's filter or recheck, and never in a join's condition.
+ */
+const binding = (scope: LawScope, planned: PlannedScope): ReadonlyArray<string> => {
+	const nodes = Arr.flatMap(planned.plans, (p) => [...lawNodes(p.root)])
+	const names = (refs: ReadonlyArray<ColumnRef>, alias: string, column: string): boolean =>
+		Arr.some(refs, (r) => r.alias === alias && r.column === column)
+	return Arr.flatMap(scope.reads, (read) => {
+		const scans = Arr.filter(
+			nodes,
+			(n) =>
+				Option.contains(n.alias, read.alias) &&
+				Str.endsWith(" Scan")(n.nodeType) &&
+				n.nodeType !== "Subquery Scan"
+		)
+		const [scan, ...more] = scans
+		if (scan === undefined || more.length > 0) {
+			return [`${scope.label}: the read ${read.alias} is scanned ${scans.length} times`]
+		}
+		return Arr.flatMap(read.bound, (column) => {
+			const where = [
+				...(names(scan.indexCond, read.alias, column) ? [] : ["outside its index condition"]),
+				...(names(scan.filter, read.alias, column) ? ["in its filter"] : []),
+				...(Arr.some(nodes, (n) => names(n.joined, read.alias, column))
+					? ["in a join's condition"]
+					: [])
+			]
+			return where.length === 0
+				? []
+				: [
+						`${scope.label}: ${read.alias}.${column} is bound, read ${Arr.join(where, " and ")} of its ${nodeText(scan)}`
+					]
+		})
+	})
+}
+
+/**
+ * Law 3 over `scope`, `planned`: every name it minted is minted once, and every atom of its advice is matched in
+ * exactly one of its statements.
+ */
+const scopeLaw = (scope: LawScope, planned: PlannedScope): ReadonlyArray<string> => {
+	const counts = new Map<string, number>()
+	for (const name of scope.minted) {
+		counts.set(name, (counts.get(name) ?? 0) + 1)
+	}
+	return [
+		...Arr.flatMap([...counts], ([name, n]) =>
+			n > 1 ? [`${scope.label}: it mints ${name} ${n} times`] : []
+		),
+		...Arr.flatMap(Arr.dedupe(Arr.map(carriedAtoms(scope.advice), (a) => a.text)), (t) => {
+			const matchedIn = Arr.flatMap(
+				Arr.zip<ScopeStatement, AdvisedPlan>(scope.statements, planned.plans),
+				([s, p]) =>
+					Arr.some(suppliedIn(p), (x) => x.atom.text === t && x.feedback.match === "matched")
+						? [s.label]
+						: []
+			)
+			return matchedIn.length === 1
+				? []
+				: [
+						`${scope.label}: ${t} is matched in ${matchedIn.length} of its statements${matchedIn.length > 0 ? ` (${Arr.join(matchedIn, ", ")})` : ""}`
+					]
+		})
+	]
+}
+
+/** Laws 1, 2 and 3 over a planned scope: every problem they find. */
+export const lawsOver = (scope: LawScope, planned: PlannedScope): ReadonlyArray<string> => [
+	...planIdentity(scope, planned),
+	...binding(scope, planned),
+	...scopeLaw(scope, planned)
+]
+
+/** The EXPLAIN every law plans a statement by. */
+const lawExplain = (sql: string): string =>
+	`EXPLAIN (GENERIC_PLAN, COSTS OFF, PLAN_ADVICE, VERBOSE, FORMAT JSON) ${sql}`
+
+/** The advice in force for the rest of the transaction `session` holds open: `advice`, or none where it is empty. */
+const holdAdvice = (session: BenchSession, advice: string) =>
+	session.values("SELECT pg_catalog.set_config('pg_plan_advice.advice', $1::text, true)", [advice])
+
+/** The advice a routine's SET clause holds, as the catalog stores it: empty where it holds none. */
+const routineAdvice = (session: BenchSession, schema: string, name: string) =>
+	Effect.map(
+		session.values(
+			"SELECT pg_catalog.substr(c, pg_catalog.length('pg_plan_advice.advice=') + 1) FROM pg_catalog.pg_proc AS p " +
+				"JOIN pg_catalog.pg_namespace AS n ON n.oid = p.pronamespace " +
+				"CROSS JOIN LATERAL pg_catalog.unnest(p.proconfig) AS c " +
+				"WHERE n.nspname = $1::text AND p.proname = $2::text AND pg_catalog.starts_with(c, 'pg_plan_advice.advice=')",
+			[schema, name]
+		),
+		(rows) =>
+			Arr.join(
+				Arr.map(rows, (row) => String(row[0])),
+				" "
+			)
+	)
+
+/**
+ * Every statement of `scope` planned under the advice its vehicle holds, in the transaction `session` holds open, which
+ * the advice stays in force in until it ends or another scope is planned: the advice in force, and each plan. The
+ * library must be loaded on the session: without it EXPLAIN has no PLAN_ADVICE option.
+ */
+export const plannedScope = (
+	session: BenchSession,
+	scope: LawScope
+): Effect.Effect<PlannedScope, SqlError | MalformedAdvice> =>
+	Effect.gen(function* () {
+		const inForce =
+			scope.vehicle.kind === "flight"
+				? scope.advice
+				: yield* routineAdvice(session, scope.vehicle.schema, scope.vehicle.name)
+		yield* holdAdvice(session, inForce)
+		const plans = yield* Effect.forEach(scope.statements, (s) =>
+			Effect.flatMap(session.values(lawExplain(s.sql), []), (rows) =>
+				Effect.fromResult(advisedPlanOf(rows[0]?.[0]))
+			)
+		)
+		return { inForce, plans }
+	})
+
+/**
+ * A pg_class state of a table a law reads, each reached as production reaches it (`standIn`):
+ * - `never vacuumed`: its rows inserted, and nothing since (relpages 0, reltuples -1: the planner reads its size off
+ *   its file);
+ * - `counted empty`: its rows inserted in a transaction another session VACUUMs it while it is open, as autovacuum
+ *   meets a long load (relpages its pages, reltuples 0: every path costs about a row, the tie of e1);
+ * - `analyzed`: ANALYZEd over its rows;
+ * - `skewed`: ANALYZEd over its first hundredth, then filled, its statistics a prefix's;
+ * - `large`: pg_class counting `largeRows` rows on its pages, as at scale.
+ */
+export const pgClassStates = [
+	"never vacuumed",
+	"counted empty",
+	"analyzed",
+	"skewed",
+	"large"
+] as const
+
+export type PgClassState = (typeof pgClassStates)[number]
+
+/**
+ * The rows a table in the `large` state is counted at: a million, past every cost tie a population of a few pages and
+ * one of millions straddle, as the plan contracts sized their tables (test/pg/contracts/observed.ts).
+ *
+ * @limitKind measured
+ * @owner the plan laws (test/support/advice.ts)
+ * @unit rows a table holds, as pg_class records them
+ * @scope every table a law stands in the large state
+ * @evidence a table as installed plans at ten pages of rows (PostgreSQL 19 tableam.c
+ *   table_block_relation_estimate_size), some two thousand narrow rows; a million is five hundred times past it, the
+ *   scale of edullm's 1x tables (PERFBAR), where a scan's price passes a probe's for every table of more than a few pages
+ */
+const largeRows = 1_000_000
+
+/**
+ * A load a law stands in a state: the tables it fills, each quoted and qualified, and how it fills them, in `units`
+ * units (rows, documents, packages: whatever the load counts), units `from` to `to` of 1 to `units` at a call, both
+ * included, each call in the transaction its session holds open.
+ */
+export interface StateLoad {
+	readonly tables: Arr.NonEmptyReadonlyArray<string>
+	readonly units: number
+	readonly load: (from: number, to: number) => Effect.Effect<void, SqlError>
+}
+
+/** Each of `tables`, by the statement `of` makes of it, run on `session`. */
+const eachTable = (
+	session: BenchSession,
+	tables: ReadonlyArray<string>,
+	of: (quoted: string) => string
+): Effect.Effect<void, SqlError> =>
+	Effect.forEach(tables, (t) => session.values(of(t), []), { discard: true })
+
+/** The statement that counts a table at `largeRows` rows on its pages (pg_restore_relation_stats). */
+const countedLarge = (quoted: string): string =>
+	"SELECT pg_catalog.pg_restore_relation_stats('schemaname', n.nspname::pg_catalog.text, 'relname', c.relname::pg_catalog.text, " +
+	"'relpages', (pg_catalog.pg_relation_size(c.oid) / pg_catalog.current_setting('block_size')::pg_catalog.int8)::pg_catalog.int4, " +
+	`'reltuples', ${largeRows}::pg_catalog.float4, 'relallvisible', 0::pg_catalog.int4) ` +
+	"FROM pg_catalog.pg_class AS c JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace " +
+	`WHERE c.oid = ${quoteString(quoted)}::pg_catalog.regclass`
+
+/**
+ * `load` run and its tables stood in `state` (`PgClassState`) on `filling`, whose transaction the case holds open and
+ * never commits before the state is read; a counted-empty table is vacuumed by `apart`, a session outside that
+ * transaction, while its rows are uncommitted, as autovacuum meets a long load.
+ */
+export const standIn = (
+	sessions: { readonly filling: BenchSession; readonly apart: BenchSession },
+	load: StateLoad,
+	state: PgClassState
+): Effect.Effect<void, SqlError> => {
+	const { filling, apart } = sessions
+	const all = load.load(1, load.units)
+	switch (state) {
+		case "never vacuumed":
+			return all
+		case "counted empty":
+			return Effect.andThen(
+				all,
+				eachTable(apart, load.tables, (t) => `VACUUM ${t}`)
+			)
+		case "analyzed":
+			return Effect.andThen(
+				all,
+				eachTable(filling, load.tables, (t) => `ANALYZE ${t}`)
+			)
+		case "skewed": {
+			const prefix = Math.ceil(load.units / 100)
+			return Effect.gen(function* () {
+				yield* load.load(1, prefix)
+				yield* eachTable(filling, load.tables, (t) => `ANALYZE ${t}`)
+				if (prefix < load.units) {
+					yield* load.load(prefix + 1, load.units)
+				}
+			})
+		}
+		case "large":
+			return Effect.andThen(all, eachTable(filling, load.tables, countedLarge))
+	}
+}
+
+/**
+ * The replan case (e2 finding 3): each statement of `scope` PREPAREd and planned, its generic plan cached, in one
+ * transaction `frame` opens as its vehicle would; then `invalidate`, which moves a table's statistics and so every plan
+ * over it; then explained again by EXECUTE in a later transaction `frame` opens, as the next flight's or call's would:
+ * the plan PostgreSQL replanned it by, under the advice that later transaction held. The plans are generic, as every
+ * session grizzle opens plans (bench/harness/explain.ts underGenericPlans), and read with
+ * pg_plan_advice.always_store_advice_details on this session alone, which records a cached plan's advice and changes no
+ * plan (see the header). Every statement and the setting are released before the effect ends.
+ */
+export const replannedScope = (
+	session: BenchSession,
+	scope: LawScope,
+	frame: <A, E>(use: Effect.Effect<A, E>) => Effect.Effect<A, E | SqlError>,
+	invalidate: Effect.Effect<void, SqlError>
+): Effect.Effect<PlannedScope, SqlError | MalformedAdvice> => {
+	const named = Arr.map(scope.statements, (s, at) => ({ sql: s.sql, name: `gz_laws_replan_${at}` }))
+	/** An EXECUTE of a statement: every parameter NULL, which a generic plan never reads. */
+	const execute = (s: { readonly sql: string; readonly name: string }): string => {
+		const highest = Arr.reduce(
+			Array.from(Str.matchAll(regex("\\$([0-9]+)", "gu"))(s.sql)),
+			0,
+			(most, m) => Math.max(most, Number(m[1]))
+		)
+		return highest === 0
+			? `EXECUTE ${s.name}`
+			: `EXECUTE ${s.name}(${Arr.join(
+					Array.from({ length: highest }, () => "NULL"),
+					", "
+				)})`
+	}
+	const planned = Effect.forEach(named, (s) =>
+		Effect.andThen(
+			session.values(`PREPARE ${s.name} AS ${s.sql}`, []),
+			session.values(`EXPLAIN (COSTS OFF) ${execute(s)}`, [])
+		)
+	)
+	const replanned = Effect.forEach(named, (s) =>
+		Effect.flatMap(
+			session.values(`EXPLAIN (PLAN_ADVICE, VERBOSE, FORMAT JSON) ${execute(s)}`, []),
+			(rows) => Effect.fromResult(advisedPlanOf(rows[0]?.[0]))
+		)
+	)
+	return underGenericPlans(
+		session,
+		Effect.acquireUseRelease(
+			session.values("SET pg_plan_advice.always_store_advice_details = on", []),
+			() =>
+				Effect.gen(function* () {
+					yield* frame(planned)
+					yield* invalidate
+					const plans = yield* frame(replanned)
+					return { inForce: scope.advice, plans }
+				}),
+			() =>
+				Effect.orDie(
+					Effect.andThen(
+						Effect.forEach(named, (s) => session.values(`DEALLOCATE ${s.name}`, [])),
+						session.values("RESET pg_plan_advice.always_store_advice_details", [])
+					)
+				)
+		)
+	)
+}
+
+/**
+ * The heights of the B-trees `indexes` names, each qualified and quoted: its levels from root to leaf, the pages one
+ * descent reads (pageinspect bt_metap: the root's level, plus one). The read is the bootstrap superuser's: pageinspect
+ * reads raw pages, which no other role may.
+ */
+export const heightsOf = (
+	read: (sql: string) => Effect.Effect<ReadonlyArray<ReadonlyArray<string>>>,
+	indexes: ReadonlyArray<string>
+): Effect.Effect<ReadonlyMap<string, number>> =>
+	Effect.map(
+		Effect.forEach(indexes, (index) =>
+			Effect.map(
+				read(`SELECT (level + 1)::text FROM bt_metap(${quoteString(index)})`),
+				(rows) => [index, Number(rows[0]?.[0])] as const
+			)
+		),
+		(pairs) => new Map(pairs)
+	)
+
+/** What a node read beyond its children: its own shared buffers. */
+const ownPages = (n: PlanNode): number =>
+	n.buffers.sharedHit +
+	n.buffers.sharedRead -
+	Arr.reduce(n.children, 0, (sum, c) => sum + c.buffers.sharedHit + c.buffers.sharedRead)
+
+/** What a scan's budget reads: the node, each index's height and each table's current pages. */
+interface BudgetFacts {
+	readonly node: PlanNode
+	readonly heights: ReadonlyMap<string, number>
+	readonly pagesOf: (relation: string) => number
+}
+
+/** The rows a scan's index condition or table read selected, over all of its loops: those it returned and filtered. */
+const selectedRows = (n: PlanNode): number => (n.actualRows + n.rowsRemovedByFilter) * n.actualLoops
+
+/** A scan past `bound` pages, the problem it is, after the node's name; none within it. */
+const pastBound = (n: PlanNode, bound: number, what: string): ReadonlyArray<string> => {
+	const read = ownPages(n)
+	return read <= bound ? [] : [` read ${read} pages, past ${bound} (${what})`]
+}
+
+/**
+ * An index scan's budget: at most one descent an evaluation, unless its index condition binds an array (`= ANY`), each
+ * of its index's height; then each row its index condition selected, its leaf entry and its heap tuple for an index
+ * scan, its leaf entry for an index-only scan, beside its heap fetches and a visibility map page a descent.
+ */
+const indexBudget =
+	(leafAndHeap: (n: PlanNode, rows: number, searches: number) => Option.Option<number>) =>
+	(facts: BudgetFacts): ReadonlyArray<string> => {
+		const n = facts.node
+		const rows = selectedRows(n)
+		return Option.match(
+			Option.all({
+				searches: n.indexSearches,
+				height: Option.flatMap(n.index, (index) => Option.fromNullishOr(facts.heights.get(index)))
+			}),
+			{
+				onNone: () => [" read an index of no known height, or printed no Index Searches"],
+				onSome: ({ searches, height }) =>
+					Option.match(leafAndHeap(n, rows, searches), {
+						onNone: () => [" printed no Heap Fetches"],
+						onSome: (pages) => [
+							...(Option.exists(n.indexCond, Str.includes("= ANY (")) || searches <= n.actualLoops
+								? []
+								: [` descended ${searches} times over ${n.actualLoops} evaluations`]),
+							...pastBound(
+								n,
+								searches * height + pages,
+								`${searches} descents of ${height} pages and ${rows} rows`
+							)
+						]
+					})
+			}
+		)
+	}
+
+/** The scans the budget bounds, by node type, each its budget (see the header); any other node reads no table itself. */
+const scanBudgets: Readonly<Record<string, (facts: BudgetFacts) => ReadonlyArray<string>>> = {
+	"Index Scan": indexBudget((_, rows) => Option.some(2 * rows)),
+	"Index Only Scan": indexBudget((n, rows, searches) =>
+		Option.map(n.heapFetches, (fetched) => rows + fetched + searches)
+	),
+	"Seq Scan": (facts) =>
+		Option.match(facts.node.relation, {
+			onNone: () => [" scans no relation"],
+			onSome: (relation) =>
+				pastBound(
+					facts.node,
+					facts.node.actualLoops * facts.pagesOf(relation),
+					`${facts.node.actualLoops} reads of its table`
+				)
+		}),
+	"Tid Scan": (facts) =>
+		pastBound(
+			facts.node,
+			selectedRows(facts.node) + facts.node.actualLoops,
+			`${selectedRows(facts.node)} rows by their ids`
+		)
+}
+
+/**
+ * The budget over one executed plan (EXPLAIN (ANALYZE, BUFFERS) of a statement under its advice, on filled data): each
+ * scan reads within the pages its plan gives (see the header), each index scan descending at most once an evaluation
+ * unless its index condition binds an array (`= ANY`), each descent of `heights[index]` pages; `pagesOf` a table's
+ * current pages. The problems: none where the plan holds its budget.
+ */
+export const budgetOver = (
+	label: string,
+	plan: PlanNode,
+	heights: ReadonlyMap<string, number>,
+	pagesOf: (relation: string) => number
+): ReadonlyArray<string> =>
+	Arr.flatMap([...planNodes(plan)], (n) =>
+		Option.match(Rec.get(scanBudgets, n.nodeType), {
+			onNone: () => [],
+			onSome: (bound) =>
+				Arr.map(
+					bound({ node: n, heights, pagesOf }),
+					(problem) => `${label}: its ${n.nodeType}${problem}`
+				)
+		})
+	)
