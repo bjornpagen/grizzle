@@ -25,6 +25,7 @@ import { blockSize } from "#compiler/core/page.ts"
 import { temporarySchema } from "#compiler/core/temporary.ts"
 import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import { messageMaxBytes } from "#compiler/core/wire.ts"
+import type { Advice } from "#compiler/sql/advice.ts"
 import {
 	type AlterDomainAction,
 	type AlterRoleAction,
@@ -453,6 +454,17 @@ export const textArrayLiteral = (elements: ReadonlyArray<string>): string =>
 
 /** The setting a Db's transactions hold their claims in, which the prologue sets (deploy/ledger/ledger.ts enter). */
 export const claimsSettingName = "grizzle.claims"
+
+/**
+ * The setting the plan advice a statement is planned under is in force by (sql/advice.ts): a routine's, which its
+ * CREATE FUNCTION's SET clause sets for every call of it (createFunctionBlock), and a Db transaction's, which its
+ * prologue sets local to the transaction (deploy/ledger/ledger.ts enter), so every plan and replan of every statement
+ * grizzle sends is made under the advice its scope carries.
+ *
+ * @formatConstant pg_plan_advice's setting of the advice it applies
+ *   (https://github.com/postgres/postgres/blob/REL_19_0/contrib/pg_plan_advice/pg_plan_advice.c#L70)
+ */
+export const adviceSettingName = "pg_plan_advice.advice"
 
 /** `::` and a pg_catalog type, as a cast appends it. */
 const castTo = (name: CatalogTypeName): string => `::${printCatalogType(name)}`
@@ -2491,12 +2503,20 @@ const rowsClause = (
 const parallelClause = (parallel: CreateFunction["parallel"]): string =>
 	parallel === "SAFE" ? " PARALLEL SAFE" : ""
 
+/**
+ * A routine's advice as its SET clause, after its search_path's (sql/ast.ts CreateFunction `advice`): PostgreSQL sets it
+ * on every call and restores the caller's on return, so each plan and replan of the routine's statements, PL/pgSQL's
+ * cached ones included, is made under its own advice and never its caller's. None where it carries none.
+ */
+const adviceClause = (advice: Advice | undefined): string =>
+	advice === undefined ? "" : ` SET ${adviceSettingName} = ${quoteString(advice)}`
+
 const createFunctionBlock = (out: Lines, fn: CreateFunction): void => {
 	out.line(
 		`CREATE OR REPLACE FUNCTION ${printObjectName(fn.name)}(${fn.params.map((p) => `${quoteIdent(p.name)} ${printType(p.type)}`).join(", ")}) RETURNS ${printReturns(fn.returns)}`
 	)
 	out.line(
-		`LANGUAGE ${fn.language} ${fn.volatility}${parallelClause(fn.parallel)}${rowsClause(fn.returns)} SECURITY ${fn.security} SET search_path = ${printedSearchPath}`
+		`LANGUAGE ${fn.language} ${fn.volatility}${parallelClause(fn.parallel)}${rowsClause(fn.returns)} SECURITY ${fn.security} SET search_path = ${printedSearchPath}${adviceClause(fn.advice)}`
 	)
 	switch (fn.language) {
 		case "plpgsql":
