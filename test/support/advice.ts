@@ -38,6 +38,7 @@ import { type PlanNode, planNodes, underGenericPlans } from "#bench/harness/expl
 import type { BenchSession } from "#bench/harness/session.ts"
 import { quoteString } from "#compiler/core/text.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
+import { levelItems, type ReadPlan } from "#compiler/sql/plan.ts"
 import type { SqlError } from "#test/support/pg.ts"
 
 /** Advice or a plan PostgreSQL printed that the harness cannot read: a defect of the reader or of the text. */
@@ -626,17 +627,45 @@ export interface ScopeStatement {
 
 /**
  * An advice scope as the laws read it (CARRY-CONTRACT §4, sql/naming.ts AdviceScope): its label; the advice grizzle
- * carries for it; every name it minted, each alias and each level's, once for each time it minted it; its index
- * reads, each by its alias with the columns it binds (sql/plan.ts PlanItem `index`); its statements; and its vehicle.
+ * carries for it; its plan's names, each item's alias once for each item and each level it named once for each level;
+ * its reads, each by its alias with the columns its index condition binds, a TID scan's its ctid; its statements; and
+ * its vehicle.
  */
 export interface LawScope {
 	readonly label: string
 	readonly advice: string
-	readonly minted: ReadonlyArray<string>
+	readonly aliases: ReadonlyArray<string>
+	readonly levels: ReadonlyArray<string>
 	readonly reads: ReadonlyArray<BoundRead>
 	readonly statements: Arr.NonEmptyReadonlyArray<ScopeStatement>
 	readonly vehicle: Vehicle
 }
+
+/**
+ * The names and reads of a plan of one scope (sql/plan.ts ReadPlan), as a LawScope holds them: each item's alias, each
+ * named level's name, and each read's binding, an index read's bound columns and a TID read's ctid.
+ */
+export const planFacts = <I>(
+	plan: ReadPlan<I>
+): Pick<LawScope, "aliases" | "levels" | "reads"> => ({
+	aliases: Arr.flatMap(plan.levels, (level) => Arr.map(levelItems(level), (item) => item.alias)),
+	levels: Arr.flatMap(plan.levels, (level) =>
+		level.name.kind === "named" ? [level.name.name] : []
+	),
+	reads: Arr.flatMap(plan.levels, (level) =>
+		Arr.flatMap(levelItems(level), (item): ReadonlyArray<BoundRead> => {
+			switch (item.scan.kind) {
+				case "index":
+					return [{ alias: item.alias, bound: item.scan.bound }]
+				case "tid":
+					return [{ alias: item.alias, bound: ["ctid"] }]
+				case "seq":
+				case "rows":
+					return []
+			}
+		})
+	)
+})
 
 /** A scope planned: the advice its vehicle held in force, and each statement's plan under it, in the scope's order. */
 export interface PlannedScope {
@@ -679,7 +708,7 @@ const nodeText = (n: LawNode): string =>
  * atoms grizzle named, each matched with no flag; every other generated atom is a NO_GATHER; and no node is disabled.
  */
 const planIdentity = (scope: LawScope, planned: PlannedScope): ReadonlyArray<string> => {
-	const minted = new Set(scope.minted)
+	const minted = new Set([...scope.aliases, ...scope.levels])
 	const carried = new Set(Arr.map(carriedAtoms(scope.advice), (a) => a.text))
 	const held = new Set(Arr.map(carriedAtoms(planned.inForce), (a) => a.text))
 	const vehicle = [
@@ -769,35 +798,43 @@ const binding = (scope: LawScope, planned: PlannedScope): ReadonlyArray<string> 
 	})
 }
 
-/**
- * Law 3 over `scope`, `planned`: every name it minted is minted once, and every atom of its advice is matched in
- * exactly one of its statements.
- */
-const scopeLaw = (scope: LawScope, planned: PlannedScope): ReadonlyArray<string> => {
+/** Each of `names` that `of` holds more than once, the problem it is in `label`'s scope. */
+const repeated = (
+	label: string,
+	of: string,
+	names: ReadonlyArray<string>
+): ReadonlyArray<string> => {
 	const counts = new Map<string, number>()
-	for (const name of scope.minted) {
+	for (const name of names) {
 		counts.set(name, (counts.get(name) ?? 0) + 1)
 	}
-	return [
-		...Arr.flatMap([...counts], ([name, n]) =>
-			n > 1 ? [`${scope.label}: it mints ${name} ${n} times`] : []
-		),
-		...Arr.flatMap(Arr.dedupe(Arr.map(carriedAtoms(scope.advice), (a) => a.text)), (t) => {
-			const matchedIn = Arr.flatMap(
-				Arr.zip<ScopeStatement, AdvisedPlan>(scope.statements, planned.plans),
-				([s, p]) =>
-					Arr.some(suppliedIn(p), (x) => x.atom.text === t && x.feedback.match === "matched")
-						? [s.label]
-						: []
-			)
-			return matchedIn.length === 1
-				? []
-				: [
-						`${scope.label}: ${t} is matched in ${matchedIn.length} of its statements${matchedIn.length > 0 ? ` (${Arr.join(matchedIn, ", ")})` : ""}`
-					]
-		})
-	]
+	return Arr.flatMap([...counts], ([name, n]) =>
+		n > 1 ? [`${label}: ${n} ${of} are ${name}`] : []
+	)
 }
+
+/**
+ * Law 3 over `scope`, `planned`: no two items of its plan share an alias and no two of its levels a name, and every atom
+ * of its advice is matched in exactly one of its statements.
+ */
+const scopeLaw = (scope: LawScope, planned: PlannedScope): ReadonlyArray<string> => [
+	...repeated(scope.label, "items", scope.aliases),
+	...repeated(scope.label, "levels", scope.levels),
+	...Arr.flatMap(Arr.dedupe(Arr.map(carriedAtoms(scope.advice), (a) => a.text)), (t) => {
+		const matchedIn = Arr.flatMap(
+			Arr.zip<ScopeStatement, AdvisedPlan>(scope.statements, planned.plans),
+			([s, p]) =>
+				Arr.some(suppliedIn(p), (x) => x.atom.text === t && x.feedback.match === "matched")
+					? [s.label]
+					: []
+		)
+		return matchedIn.length === 1
+			? []
+			: [
+					`${scope.label}: ${t} is matched in ${matchedIn.length} of its statements${matchedIn.length > 0 ? ` (${Arr.join(matchedIn, ", ")})` : ""}`
+				]
+	})
+]
 
 /** Laws 1, 2 and 3 over a planned scope: every problem they find. */
 export const lawsOver = (scope: LawScope, planned: PlannedScope): ReadonlyArray<string> => [

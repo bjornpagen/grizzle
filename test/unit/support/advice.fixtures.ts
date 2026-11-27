@@ -494,16 +494,18 @@ const probeStatement: ScopeStatement = {
 }
 const nodeRead: BoundRead = { alias: "n", bound: ["doc", "f1", "f2"] }
 
-/** A flight of one statement, carrying `advice`, minting `minted`, its reads `reads`. */
+/** A flight of one statement, carrying `advice`, its plan's items `aliases` and named levels `levels`, its reads `reads`. */
 const flight = (
 	advice: string,
-	minted: ReadonlyArray<string>,
+	aliases: ReadonlyArray<string>,
+	levels: ReadonlyArray<string>,
 	reads: ReadonlyArray<BoundRead>,
 	statement: ScopeStatement
 ): LawScope => ({
 	label: "the flight",
 	advice,
-	minted,
+	aliases,
+	levels,
 	reads,
 	statements: [statement],
 	vehicle: { kind: "flight" }
@@ -515,13 +517,14 @@ const probeAdvice =
 /** Each case's scope and the plans PostgreSQL made under it. */
 const cases: { readonly [C in AdviceCase]: readonly [LawScope, PlannedScope] } = {
 	probe: [
-		flight(probeAdvice, ["d", "s", "n"], [nodeRead], probeStatement),
+		flight(probeAdvice, ["d", "s", "n"], ["s"], [nodeRead], probeStatement),
 		{ inForce: probeAdvice, plans: [read(probePlan)] }
 	],
 	dropped: [
 		flight(
 			"JOIN_ORDER(d s) NESTED_LOOP_PLAIN(s) SEQ_SCAN(d) NO_GATHER(d s n@s)",
 			["d", "s", "n"],
+			["s"],
 			[nodeRead],
 			probeStatement
 		),
@@ -534,6 +537,7 @@ const cases: { readonly [C in AdviceCase]: readonly [LawScope, PlannedScope] } =
 		flight(
 			"JOIN_ORDER(d s) NESTED_LOOP_PLAIN(s) SEQ_SCAN(d) INDEX_SCAN(n@s public.node_doc_f1) NO_GATHER(d s n@s)",
 			["d", "s", "n"],
+			["s"],
 			[nodeRead],
 			probeStatement
 		),
@@ -547,6 +551,7 @@ const cases: { readonly [C in AdviceCase]: readonly [LawScope, PlannedScope] } =
 		flight(
 			"JOIN_ORDER(d n) NESTED_LOOP_PLAIN(n) SEQ_SCAN(d) INDEX_SCAN(n public.node_pkey) NO_GATHER(d n)",
 			["d", "n"],
+			[],
 			[nodeRead],
 			{
 				label: "the plain join",
@@ -562,7 +567,8 @@ const cases: { readonly [C in AdviceCase]: readonly [LawScope, PlannedScope] } =
 	flattened: [
 		flight(
 			"SEQ_SCAN(d) INDEX_SCAN(n@exists_1 public.node_pkey) NO_GATHER(d n@exists_1)",
-			["d", "n", "exists_1"],
+			["d", "n"],
+			["exists_1"],
 			[{ alias: "n", bound: ["doc", "f1", "f2"] }],
 			{
 				label: "the EXISTS",
@@ -575,7 +581,7 @@ const cases: { readonly [C in AdviceCase]: readonly [LawScope, PlannedScope] } =
 		}
 	],
 	qualified: [
-		flight(probeAdvice, ["d", "s", "n"], [nodeRead], probeStatement),
+		flight(probeAdvice, ["d", "s", "n"], ["s"], [nodeRead], probeStatement),
 		{ inForce: probeAdvice, plans: [read(qualifiedPlan)] }
 	],
 	reused: [
@@ -583,7 +589,8 @@ const cases: { readonly [C in AdviceCase]: readonly [LawScope, PlannedScope] } =
 			label: "the flight",
 			advice:
 				"INDEX_SCAN(r1 public.doc_pkey) NO_GATHER(r1) INDEX_SCAN(r1 public.node_pkey) NO_GATHER(r1)",
-			minted: ["r1", "r1"],
+			aliases: ["r1", "r1"],
+			levels: [],
 			reads: [{ alias: "r1", bound: ["doc"] }],
 			statements: [
 				{
@@ -608,7 +615,8 @@ const cases: { readonly [C in AdviceCase]: readonly [LawScope, PlannedScope] } =
 			label: "the flight",
 			advice:
 				"INDEX_SCAN(r1 public.doc_pkey) NO_GATHER(r1) SEQ_SCAN(r2) INDEX_SCAN(r3@r4 public.node_pkey) NO_GATHER(r2) NO_GATHER(r3@r4)",
-			minted: ["r1", "r2", "r3", "r4"],
+			aliases: ["r1", "r2", "r3", "r4"],
+			levels: ["r4"],
 			reads: [
 				{ alias: "r1", bound: ["doc"] },
 				{ alias: "r3", bound: ["doc", "f1", "f2"] }
@@ -635,6 +643,7 @@ const cases: { readonly [C in AdviceCase]: readonly [LawScope, PlannedScope] } =
 		flight(
 			"INDEX_SCAN(r5@r6 public.node_pkey) NO_GATHER(r5@r6)",
 			["r5", "r6"],
+			["r6"],
 			[{ alias: "r5", bound: ["doc", "f1", "f2"] }],
 			{
 				label: "the EXISTS",
@@ -647,6 +656,7 @@ const cases: { readonly [C in AdviceCase]: readonly [LawScope, PlannedScope] } =
 		flight(
 			"JOIN_ORDER(r7 r8 r9) NESTED_LOOP_PLAIN(r8) NESTED_LOOP_PLAIN(r9) INDEX_SCAN(r10@r8 public.node_pkey) TID_SCAN(r9) NO_GATHER(r7 r8 r9 r10@r8)",
 			["r7", "r8", "r9", "r10"],
+			["r8"],
 			[
 				{ alias: "r10", bound: ["doc", "f1", "f2"] },
 				{ alias: "r9", bound: ["ctid"] }
@@ -663,7 +673,7 @@ const cases: { readonly [C in AdviceCase]: readonly [LawScope, PlannedScope] } =
 		}
 	],
 	disabled: [
-		flight("INDEX_SCAN(n public.node_doc_f1) NO_GATHER(n)", ["n"], [], {
+		flight("INDEX_SCAN(n public.node_doc_f1) NO_GATHER(n)", ["n"], [], [], {
 			label: "the read by v",
 			sql: "SELECT n.f1 FROM node n WHERE n.v = $1::text"
 		}),
@@ -673,6 +683,7 @@ const cases: { readonly [C in AdviceCase]: readonly [LawScope, PlannedScope] } =
 		flight(
 			"INDEX_SCAN(r1 public.doc_pkey) NO_GATHER(r1)",
 			["r1"],
+			[],
 			[{ alias: "r1", bound: ["doc"] }],
 			{
 				label: "the doc read",

@@ -65,7 +65,7 @@ const expected: { readonly [C in AdviceCase]: ReadonlyArray<string> } = {
 		"the flight, the node read: grizzle carries INDEX_SCAN(r1 public.doc_pkey), which PostgreSQL did not plan",
 		"the flight, the node read: grizzle carries INDEX_SCAN(r1 public.node_pkey), which PostgreSQL did not plan",
 		"the flight: the read r1 is scanned 2 times",
-		"the flight: it mints r1 2 times",
+		"the flight: 2 items are r1",
 		"the flight: INDEX_SCAN(r1 public.doc_pkey) is matched in 2 of its statements (the doc read, the node read)",
 		"the flight: NO_GATHER(r1) is matched in 2 of its statements (the doc read, the node read)",
 		"the flight: INDEX_SCAN(r1 public.node_pkey) is matched in 2 of its statements (the doc read, the node read)"
@@ -127,8 +127,8 @@ export const theLawsFindExactlyTheFailuresOfEachMeasuredPlan = property.exhaust(
 		},
 		{
 			file: "test/support/advice.ts",
-			original: "\t\t\treturn matchedIn.length === 1",
-			replacement: "\t\t\treturn matchedIn.length >= 1",
+			original: "\t\treturn matchedIn.length === 1",
+			replacement: "\t\treturn matchedIn.length >= 1",
 			why: "An atom matched in two statements of its scope passes Law 3: an alias two statements share goes unseen there."
 		},
 		{
