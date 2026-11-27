@@ -310,38 +310,7 @@ export const everyDrawnRequestIsServedAndEveryIndexTheEngineCreatesForThemIsNeed
 				reason:
 					"an equality lookup and a range on Rota's worker alone, which Rota's GiST index holds after its shade, a closed id of 8 handles, unbound, so that its scan descends once per value of shade, and a B-tree serves both",
 				since: "2026-11-10"
-			},
-			{
-				token: ReplayToken(
-					"test/pg/physical/serving.test.ts#everyDrawnRequestIsServedAndEveryIndexTheEngineCreatesForThemIsNeeded:-:0.1.0.2.0.0.0.0"
-				),
-				reason:
-					"a key lookup on Shift's standby alone, a boolean, which the declaration prices at half the table: PostgreSQL reads it by a Seq Scan, beside the B-tree on standby the engine created for it, an index no plan reads, red once serving judged under no planner setting (NOSETTINGS's fb774b0e, CONSUMERFIX's 528f3e7d at floor seed 0x1a46e90e, case 2); a workload's equality read of booleans and closed ids alone asks for no index since INDEX-P3's 4b9c45acc",
-				since: "2026-11-27"
-			},
-			{
-				token: ReplayToken(
-					"test/pg/physical/serving.test.ts#everyDrawnRequestIsServedAndEveryIndexTheEngineCreatesForThemIsNeeded:-:0.1.1.2.0.0.0"
-				),
-				reason:
-					"a law's reverse reference on Shift's standby alone, a boolean: the engine created a B-tree on standby for it, which PostgreSQL reads by a Seq Scan of half the table (INDEX-P4's draws at 79fd60c3, steered 108.3); a law's probe of columns of few values alone asks for no index, as a workload's read does",
-				since: "2026-11-27"
 			}
 		],
-		kills: [
-			{
-				file: "packages/engine/src/physical/indexes/engine.ts",
-				original: '\t\t\t\t\tkeys.every((k) => columns.holds(k.column) === "few") &&',
-				replacement:
-					'\t\t\t\t\tr.role === "lawMaintenance" &&\n\t\t\t\t\tkeys.every((k) => columns.holds(k.column) === "few") &&',
-				why: "A workload's read of a boolean alone asks for an index as any read does: the engine creates a B-tree on Shift's standby, which PostgreSQL never reads, a Seq Scan of half the table its plan by the declaration (the last kept case)."
-			},
-			{
-				file: "packages/engine/src/physical/indexes/engine.ts",
-				original: '\t\t\t\t\tkeys.every((k) => columns.holds(k.column) === "few") &&',
-				replacement:
-					'\t\t\t\t\tr.role === "access" &&\n\t\t\t\t\tkeys.every((k) => columns.holds(k.column) === "few") &&',
-				why: "A law's probe of columns of few values alone asks for an index as before: the engine creates a B-tree on Shift's standby for a law's reverse reference, which PostgreSQL reads by a Seq Scan of half the table beside it; the second kept case fails, an index no plan reads."
-			}
-		]
+		kills: []
 	})

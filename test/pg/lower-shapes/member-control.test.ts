@@ -103,13 +103,6 @@ export const aRewriteKeepsTheRestrictionReachingEveryOccurrencesReadSoADerivatio
 				why: "A fold read at its every grouping column ranks by the prefix of its input: the stated attempts of every scope of the test, read at its package and path, lead the member's nearest stated scope, which is derived again for each of them."
 			},
 			{
-				file: "packages/engine/src/physical/indexes/engine.ts",
-				original:
-					'\tconst [lead] = sortNonEmpty(\n\t\tfirst,\n\t\tcombineAll([\n\t\t\tmapInput(compareBooleans, (k: IndexKey) => columns.holds(k.column) !== "many"),\n\t\t\tmapInput(compareBooleans, (k: IndexKey) => leads.has(text(k))),\n\t\t\tmapInput(compareBooleans, (k: IndexKey) => keyed.has(text(k))),\n\t\t\tmapInput(\n\t\t\t\tcompareNumbers,\n\t\t\t\t(k: IndexKey) => others.filter((o) => o.columns.has(text(k))).length\n\t\t\t),\n\t\t\torder\n\t\t])\n\t)\n',
-				replacement: "\tconst [lead] = sortNonEmpty(first, order)\n",
-				why: "A created index of a relation in no unit leads in the heading's order, as before: the session's member index and the fold's lead alike with package and path, and under statistics stating each value its own PostgreSQL reads the member at (package, path, document) through the fold's index, every member of the test for each."
-			},
-			{
 				file: "packages/engine/src/lower/shapes/share/keys.ts",
 				original:
 					"\t\t\t\tfor (const under of postorder([site.occurrence.source], inputsOf)) {\n\t\t\t\t\tbeneath.add(under)\n\t\t\t\t}\n",

@@ -29,13 +29,7 @@ import { trusted } from "#compiler/core/trusted.ts"
 import { defaultOpclass, type LawField } from "#compiler/ir/law.ts"
 import type { AccessIndexRequest, AccessUse, IndexRequest } from "#compiler/ir/products.ts"
 import { noLive } from "#compiler/live/notify.ts"
-import {
-	keyTermText,
-	type Holds,
-	type KeyTerm,
-	type PlannedIndex,
-	requestLeads
-} from "#compiler/physical/indexes/engine.ts"
+import { keyTermText, type KeyTerm, type PlannedIndex } from "#compiler/physical/indexes/engine.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import {
 	type InstallExtension,
@@ -330,7 +324,6 @@ const requestOf = (spec: RequestSpec, at: number, fieldOf: FieldOf): IndexReques
 						opclass: defaultOpclass
 					}))
 				],
-				reads: { kind: "rows" },
 				method: "btree",
 				role: "lawMaintenance",
 				use: "reverse reference",
@@ -1605,10 +1598,9 @@ const upstreamNotes = ["gist-costestimate-column-position"] as const
 type UpstreamNote = (typeof upstreamNotes)[number]
 
 /**
- * Why PostgreSQL swept a planned index where no plan the engine makes avoids the sweep (see judgeServing): another
- * index than the request's own, where no order of its keys serves the probe beside the requests it serves
- * (keyOrdersConflict), through PostgreSQL's cost model, awaiting the upstream note that changes it, or PostgreSQL right,
- * reading the probe in no more buffers than the request's own index alone does.
+ * Why PostgreSQL swept another planned index than the request's own (see judgeServing): through PostgreSQL's cost
+ * model, awaiting the upstream note that changes it, or PostgreSQL right, reading the probe in no more buffers than the
+ * request's own index alone does.
  */
 type Residue =
 	| { readonly kind: "cost model"; readonly awaiting: UpstreamNote }
@@ -1754,19 +1746,8 @@ const leadsExactly = (request: IndexRequest, index: PlannedIndex): boolean => {
  * which finds the 5 rows of its sampled pair and rechecks id on them. No plan the engine makes avoids it: the index on
  * (tenant, account) is needed, and holding id too would serve only a request the primary key serves.
  *
- * A sweep of another planned index than the request's own is excused (residueOf) only where no plan the engine makes
- * avoids it, and only by the PostgreSQL behaviour behind it (Residue); the request's own index alone must still serve
- * the probe. No plan avoids it where no order of that index's keys serves the probe beside the requests its order
- * answers to (keyOrdersConflict), by one rule the engine drafts by and the judgment reads
- * (physical/indexes/engine.ts requestLeads): an index serving a request in one descent leads, among its columns that
- * place an entry, with one of the request's leads, and the index holds a lead of the probe, which PostgreSQL's cost
- * model reads it by, that leads no index serving every request a created index's order answers to (PlannedIndex
- * `answers`: its own and each its draft took), or the index is a key's, whose order no plan chooses. The index need not
- * hold every field the probe fixes: where one it holds selects as few rows as the probe, as a field of a two-field key
- * the load makes unique on its own does, PostgreSQL costs the scan at one row through it as through the probe's own
- * index. A second index for the exposed request avoids none: PostgreSQL chooses between two GiST indexes holding a
- * probe's fields, when their estimates tie, by which was created last (upstream/gist-costestimate-column-position
- * EVIDENCE.txt 2d), and the request a key's index serves needs no index of its own.
+ * A sweep of another planned index than the request's own is excused (residueOf) only by the PostgreSQL behaviour
+ * behind it (Residue); the request's own index alone must still serve the probe.
  *
  * - Through a GiST index, PostgreSQL's cost model, awaiting upstream/gist-costestimate-column-position.
  *   gistcostestimate costs a GiST scan by the selectivity of all its conditions wherever their columns stand
@@ -2129,56 +2110,19 @@ export const judgeServing = (
 		}
 		const stateOf = (relation: string): Filled =>
 			defined(states.get(relation), `the filled state of ${relation}`)
-		/** What each column of `relation` holds, by its type as the catalog holds it (Table): the engine's Holds. */
-		const holdsIn =
-			(relation: string) =>
-			(column: KeyTerm): Holds => {
-				const table = tableFor(relation)
-				const name = keyColumn(installed, relation, { column })
-				return table.spans.has(name) ? "span" : table.closed.has(name) ? "few" : "many"
-			}
-		/**
-		 * Whether no order of `through`'s keys serves `request`'s probe beside the requests its order answers to (see the
-		 * header): `through` holds a column one of which leads every index serving the request in one descent (the
-		 * engine's requestLeads), and none of those leads every index serving each request a created index's order
-		 * answers to (PlannedIndex `answers`); a key's index, whose order is its key's, answers to none the engine chose.
-		 */
-		const keyOrdersConflict = (through: PlannedIndex, request: IndexRequest): boolean => {
-			const holds = holdsIn(through.relation)
-			const holding = (
-				keys: ReadonlyArray<{ readonly column: KeyTerm }>,
-				k: { readonly column: KeyTerm }
-			): boolean => Arr.some(keys, (l) => keyText(l) === keyText(k))
-			const held = Arr.filter(requestLeads(request, holds), (k) => holding(through.keys, k))
-			if (!Arr.isReadonlyArrayNonEmpty(held)) {
-				return false
-			}
-			switch (through.index.kind) {
-				case "installed":
-					return true
-				case "created": {
-					const answered = Arr.map(through.index.answers, (q) => requestLeads(q, holds))
-					return !Arr.some(held, (k) => Arr.every(answered, (leads) => holding(leads, k)))
-				}
-			}
-		}
 		/**
 		 * The residue behind PostgreSQL's sweep of `through`, another planned index than the request's own, `swept` the
 		 * buffers that sweep touched and `alone` those the request's own index alone touched for the probe (see the
-		 * header), when the key orders conflict: through a GiST index, gistcostestimate's blindness to column position,
+		 * header): through a GiST index, gistcostestimate's blindness to column position,
 		 * awaiting upstream/gist-costestimate-column-position; through a B-tree, PostgreSQL right when it read no more
 		 * than the request's own index alone. A hash index holds one column and an HNSW probe fixes none, so neither has a
 		 * key order to conflict.
 		 */
 		const residueOf = (
 			through: PlannedIndex,
-			request: IndexRequest,
 			swept: number,
 			alone: number
 		): Option.Option<Residue> => {
-			if (!keyOrdersConflict(through, request)) {
-				return Option.none()
-			}
 			switch (through.method) {
 				case "gist":
 					return Option.some({ kind: "cost model", awaiting: "gist-costestimate-column-position" })
@@ -2198,7 +2142,6 @@ export const judgeServing = (
 		 */
 		const readOf = (
 			host: PlannedIndex,
-			request: IndexRequest,
 			probe: Probe,
 			verdict: Extract<Verdict, { readonly kind: "served" | "swept" }>
 		) =>
@@ -2237,7 +2180,7 @@ export const judgeServing = (
 				if (verdict.kind === "served") {
 					return Result.succeed(Option.none<Residue>())
 				}
-				const residue = residueOf(verdict.through, request, verdict.touched, claim.touched)
+				const residue = residueOf(verdict.through, verdict.touched, claim.touched)
 				return Option.isSome(residue) ? Result.succeed(residue) : problem(verdict.why)
 			})
 		/**
@@ -2303,7 +2246,7 @@ export const judgeServing = (
 						problems.push(`${probe.label}, planned on ${host.index.name}: ${verdict.why}`)
 						continue
 					}
-					const read = yield* readOf(host, request, probe, verdict)
+					const read = yield* readOf(host, probe, verdict)
 					if (Result.isFailure(read)) {
 						problems.push(read.failure)
 						continue

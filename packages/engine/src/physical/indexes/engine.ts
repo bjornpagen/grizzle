@@ -115,42 +115,6 @@ export const keyTermText = (c: KeyTerm): string => {
 /** A native column's text, as an index's key names it (`keyTermText`). */
 export const nativeText = (c: NativeColumn): string => keyTermText(indexColumnOf(c))
 
-/** A set of columns a request binds by equality, each by its text (`keyTermText`), and what binds it. */
-interface Binding {
-	readonly columns: ReadonlyArray<string>
-	readonly by: string
-}
-
-/** The columns a request binds by equality, each by its text (`keyTermText`): a workload path's fixed keys; a law's
- * lookups of a unit, each; or every key of a law's other request but a suffix key, which its seek matches a prefix of.
- * The planner reads them to order a block against PostgreSQL's skip scan (`skipFree`). */
-const requestBindings = (r: IndexRequest): ReadonlyArray<Binding> => {
-	if (r.role === "access") {
-		return [
-			{
-				columns: r.keys
-					.slice(0, r.fixed)
-					.flatMap((k) => (typeof k.expr === "string" ? [k.expr] : [])),
-				by: `${r.use} of ${r.relation}`
-			}
-		]
-	}
-	if (r.reads.kind === "unit") {
-		return r.reads.lookups.map((lookup) => ({
-			columns: lookup.map(nativeText),
-			by: `${r.use} of ${r.relation}`
-		}))
-	}
-	return [
-		{
-			columns: r.blocks
-				.flat()
-				.flatMap((k) => (k.column.kind === "suffix" ? [] : [nativeText(k.column)])),
-			by: `${r.use} of ${r.relation}`
-		}
-	]
-}
-
 /** Whether two keys hold one thing: one field, one law column, or the suffix key of one, which no equality reads. */
 const sameColumn = (a: KeyTerm, b: KeyTerm): boolean => {
 	if (a.kind === "suffix" || b.kind === "suffix") {
@@ -219,8 +183,8 @@ const keyRoles = (
 }
 
 /**
- * What a column holds, by its field's type: a scalar of few values, a closed id's roster code or a boolean (fewValued),
- * whose fixing bounds no scan; a scalar of many values; or a span. A GiST index names btree_gist's class for a scalar,
+ * What a column holds, by its field's type: a scalar of few values, a closed id's roster code or a boolean (fewValued);
+ * a scalar of many values; or a span. A GiST index names btree_gist's class for a scalar,
  * whose equality and comparison operators search a B-tree's conditions, and the range type's own for a span; it places
  * an entry by its first column of many values, a scalar's or a span's, so a column of few values places none, and a
  * scan descends once per value of one before that column that its condition leaves unbound.
@@ -240,16 +204,10 @@ export interface KeyedIndex {
 }
 
 export interface PlannedIndex extends KeyedIndex {
-	/**
-	 * The index's identifier: one the engine created, with the requests its key order answers to (`draftFor`), or a key
-	 * or enforcement index another object installs, whose order is its key's.
-	 */
+	/** The index's identifier: one the engine created, or a key or enforcement index another object installs, whose order is
+	 * its key's. */
 	readonly index:
-		| {
-				readonly kind: "created"
-				readonly name: IndexName
-				readonly answers: NonEmptyReadonlyArray<IndexRequest>
-		  }
+		| { readonly kind: "created"; readonly name: IndexName }
 		| { readonly kind: "installed"; readonly name: ConstraintName }
 	/** The graph object that realizes it. */
 	readonly object: Node<"structure" | "indexes">
@@ -306,7 +264,6 @@ export const reverseRequests = (b: InstallBuilder): ReadonlyArray<IndexRequest> 
 					opclass: defaultOpclass
 				}))
 			],
-			reads: { kind: "rows" },
 			method: n.method,
 			role: "lawMaintenance",
 			use: "reverse reference",
@@ -624,39 +581,6 @@ const placementsOf = (
 const blocksOf = (request: IndexRequest, keys: Keys): NonEmptyReadonlyArray<Block> =>
 	request.role === "lawMaintenance" ? lawBlocks(request) : [keys]
 
-/**
- * The columns one of which leads every index that serves a request in one descent (see `planIndexes`), among the
- * index's columns that place an entry, of many values or a span: the leads of its led and placed placements, and the
- * columns that place an entry of the first block of its own placement that holds one. A request whose every column holds
- * few values has none. The engine drafts an index's order by these placements, so an index whose order answers to some
- * requests (PlannedIndex `answers`) can lead with a column every one of theirs holds, and the serving judge reads them to
- * tell a sweep no order of an index's keys avoids (test/pg/physical/serving.ts). `holds` says what each column of the
- * request's relation holds, by its type.
- */
-export const requestLeads = (
-	request: IndexRequest,
-	holds: (column: KeyTerm) => Holds
-): ReadonlyArray<IndexKey> => {
-	const keys = statedKeys(request)
-	if (!isNonEmpty(keys)) {
-		return []
-	}
-	const columns: Columns = { holds }
-	const { own, others } = placementsOf(
-		request,
-		keys,
-		blocksOf(request, keys),
-		columns,
-		requestLabel(request)
-	)
-	const ownLeads =
-		own.kind === "placed"
-			? own.lead
-			: (own.blocks.map((block) => placingOf(block, columns)).find(isNonEmpty) ?? [])
-	const leads = [...ownLeads, ...others.flatMap((p) => (p.kind === "placed" ? p.lead : []))]
-	return leads.filter((k, at) => leads.findIndex((l) => sameKey(k, l)) === at)
-}
-
 /** Whether two keys name one column under one class. */
 const sameKey = (a: IndexKey, b: IndexKey): boolean =>
 	sameColumn(a.column, b.column) && sameIndexOpclass(a.opclass, b.opclass)
@@ -906,12 +830,6 @@ const draftOf = (planned: Planned): Draft => {
 	}
 }
 
-/** Another request a draft's look-ahead reads (see `planIndexes`): one no planned index serves yet, which needs an index,
- * or one another index serves, which PostgreSQL may read through this one too. */
-type Ahead =
-	| { readonly kind: "unserved"; readonly planned: Planned }
-	| { readonly kind: "served"; readonly planned: Planned }
-
 /** A draft refined by one placement of another request, or none when no one index holds both: the placement is another
  * method's, or no one order satisfies both. A created index is never unique, so no keyed placement refines it. */
 const refinedBy = (draft: Draft, placement: Placement): Draft | undefined => {
@@ -946,8 +864,8 @@ const refinedBy = (draft: Draft, placement: Placement): Draft | undefined => {
 
 /** A draft refined by another request: by its own placement, else by the first of its others that refines it; none when
  * no placement does. */
-const refined = (draft: Draft, ahead: Ahead): Draft | undefined => {
-	const { own, others } = ahead.planned.placements
+const refined = (draft: Draft, ahead: Planned): Draft | undefined => {
+	const { own, others } = ahead.placements
 	for (const placement of [own, ...others]) {
 		const found = refinedBy(draft, placement)
 		if (found !== undefined) {
@@ -961,22 +879,20 @@ const refined = (draft: Draft, ahead: Ahead): Draft | undefined => {
  * The order of the columns within one block of a draft, which any order of them serves alike (`placed`, `sameSet`), by
  * the index's access method: the relation's heading order (`place`), the key's text breaking a tie between a column and
  * its suffix key, so every index that holds one block holds it in one order whichever order its requests stated it in,
- * and its leading runs are the same sets wherever they stop; but a GiST index's columns of few values after its columns
- * of many values. In the order the creating request stated, two indexes on one block led with different columns, and a
- * binding that stopped short of either read two sets apart (physical/statistics/declared.ts apartSets): pantry's
- * Instance(package, site, siteDocument, document) beside (package, siteDocument, site, assemblyKind). GiST splits a page by its first column (gistsplit.c gistSplitByKey: picksplit runs on it, and
- * a later column only redistributes the entries it ties), and btree_gist's picksplit halves a page in that column's
- * order, so the halves of a split on a column of few values share its middle value and each keeps every value of the
- * columns after it, and a probe follows more of them down. On PostgreSQL 19.0, over the 20,000 rows of
- * serving-workload's kept case (test/pg/physical/serving.test.ts), whose load writes two closed handles of 3 values and
- * a numeric and a span of 141, a probe binding every column touches 7 to 10 buffers of a GiST index on (handle, handle,
- * numeric, span) over twenty builds of the same rows, which differ as gistchoose breaks ties between equally good
- * subtrees at random, and 4 or 5 over twenty builds of one on (numeric, span, handle, handle), this order. It was
- * measured on 19rc2, whose GiST code 19.0 keeps (git diff REL_19_RC2 REL_19_0 -- src/backend/access/gist
+ * and the plan is a function of what its requests ask, never of how each spells its columns; but a GiST index's
+ * columns of few values after its columns of many values. GiST splits a page by its first column (gistsplit.c
+ * gistSplitByKey: picksplit runs on it, and a later column only redistributes the entries it ties), and btree_gist's
+ * picksplit halves a page in that column's order, so the halves of a split on a column of few values share its middle
+ * value and each keeps every value of the columns after it, and a probe follows more of them down. On PostgreSQL 19.0,
+ * over the 20,000 rows of serving-workload's kept case (test/pg/physical/serving.test.ts), whose load writes two closed
+ * handles of 3 values and a numeric and a span of 141, a probe binding every column touches 7 to 10 buffers of a GiST
+ * index on (handle, handle, numeric, span) over twenty builds of the same rows, which differ as gistchoose breaks ties
+ * between equally good subtrees at random, and 4 or 5 over twenty builds of one on (numeric, span, handle, handle), this
+ * order. It was measured on 19rc2, whose GiST code 19.0 keeps (git diff REL_19_RC2 REL_19_0 -- src/backend/access/gist
  * contrib/btree_gist src/backend/utils/adt/rangetypes_gist.c is empty), with the pin's btree_gist patch then, which
- * priced only multibyte text keys and so none of these: the handles are int2 codes. The first
- * column of many values, which places the entries, stays the first by the request's order, so every request the
- * block's order served is served still, and none needs to bind a column of few values to keep its scan in one descent.
+ * priced only multibyte text keys and so none of these: the handles are int2 codes. The first column of many values,
+ * which places the entries, stays the first by the request's order, so every request the block's order served is served
+ * still, and none needs to bind a column of few values to keep its scan in one descent.
  */
 const withinBlock: Readonly<
 	Record<IndexMethod, (place: Place, columns: Columns) => Comparator<IndexKey>>
@@ -994,63 +910,17 @@ const withinBlock: Readonly<
 }
 
 /**
- * The order of a B-tree's first block: its columns that lie in none of its relation's keys (`keyed`) before those that
- * lie in one, each part in the block's own order (`withinBlock`). A probe of a key binds every column of the key, so a
- * B-tree whose leading run is a run of a key's columns serves it too. Where a VACUUM ran while the transaction that
- * filled the table was open, it leaves no live row counted on the table's pages (vacuumlazy.c,
- * HEAPTUPLE_INSERT_IN_PROGRESS), and PostgreSQL then prices every read of the table at one row, the unique key's and
- * the run's alike (selfuncs.c genericcostestimate, btcostestimate). Their quals cost alike, and of two paths of one cost
- * the smaller index wins, by the pages a loop of probes fetches (index_pages_fetched). A B-tree on a key's run and
- * columns of few values beside it, whose repeated entries PostgreSQL deduplicates, is smaller than the key's own:
- * rule-binding's probed Placed, its tables recorded at no row on their pages, read Node at (pkg, path, start) through
- * `(pkg, path, parent)`, 5 pages beside its key's 13, start a filter, 4,410 rows past 10 times the 158 written (INDEX-P4,
- * 2026-11-27). Led by a column of no key, the index serves no probe of a key in one descent, and the key's own index is
- * PostgreSQL's cheaper path: Placed read Node by its key. Measured limits (PostgreSQL 19, rule-binding's tables and a
- * scratch Node of 2,624 rows, at no row counted and at 2,624 and a million rows):
- *
- * - PostgreSQL 19 may still read the index for a key's probe by a skip scan over its lead, which it prices by the
- *   lead's number of distinct values (btcostestimate). With the lead declared absolute (1, 2 or 4 values), the key's
- *   index was the cheaper path at every size, as Node's `(parent, pkg, path)` is, parent declared at 2 values. With
- *   the lead declared as a share of the rows (-0.5), at no row PostgreSQL reads the share of none as no estimate
- *   (get_variable_numdistinct), prices no skip, and the led index won the tie again; at 2,624 rows and past them the
- *   key's won. A key index's lead is such a share, a key's column holding a bounded number of rows a value at any
- *   size, so a candidate key led by a column outside the primary key (physical/ddl/tables.ts candidateOrder) ties a
- *   probe of the primary key so: Named read at its primary key (pkg, path, start) by a skip scan of its candidate key
- *   `(name, pkg)`, pkg its index condition, 62 rows filtered a loop, 4,411 rows, its 10 pages beside the key's 13.
- * - A B-tree whose first block lies within a key holds no column of none to lead with, and ties a probe of the key so
- *   at no row, as a candidate key led by a column of the primary key did, Named read through `(pkg, name)`. A read
- *   ordered by the candidate key's declared order asks an index of its own for that order, led by its declared first
- *   column, one of the primary key's, and that one index can tie a probe bound at the primary key again at no row: the
- *   measured residue of this limit.
- * - A statement that joins a table counted at no row as a plain join, no lookup of its rows parameterized by the rows
- *   before it, is hashed over a scan of the whole table whichever indexes it holds (2,624 rows for 63 probes): no
- *   index's order decides it.
+ * A draft's keys (see `planIndexes`): its first leader, then the rest of its first block, then the rest of its blocks in
+ * order, each block's columns in its method's order (`withinBlock`), in the directions its orders take (`directionsOf`).
  */
-const firstBlockOrder = (
-	order: Comparator<IndexKey>,
-	keyed: (k: IndexKey) => boolean
-): Comparator<IndexKey> => combineAll([mapInput(compareBooleans, keyed), order])
-
-/**
- * A draft's keys (see `planIndexes`): its first leader, then the rest of its first block, in a B-tree's first-block
- * order (`firstBlockOrder`, its columns of no key of `keyed`'s first) and every other method's own (`withinBlock`), then
- * the rest of its blocks in order, each block's columns in its method's order, in the directions its orders take
- * (`directionsOf`).
- */
-const keysOf = (
-	draft: Draft,
-	place: Place,
-	columns: Columns,
-	keyed: (k: IndexKey) => boolean
-): NonEmptyReadonlyArray<IndexKey> => {
+const keysOf = (draft: Draft, place: Place, columns: Columns): NonEmptyReadonlyArray<IndexKey> => {
 	const order = withinBlock[draft.method](place, columns)
-	const first = draft.method === "btree" ? firstBlockOrder(order, keyed) : order
 	const [leading, ...following] = draft.blocks
-	const [leader] = sortNonEmpty(draft.leaders, first)
+	const [leader] = sortNonEmpty(draft.leaders, order)
 	const keys = extendNonEmpty(
 		[leader],
 		[
-			...leading.filter((k) => !sameKey(k, leader)).toSorted(first),
+			...leading.filter((k) => !sameKey(k, leader)).toSorted(order),
 			...following.flatMap((block) => block.toSorted(order))
 		]
 	)
@@ -1125,9 +995,8 @@ const justificationOrder: Comparator<IndexRequest> = (a, b) => {
  * for every foreign key, plain or PERIOD, a family's axes among them, which PostgreSQL does not index on the
  * referencing side (the ReverseIndex natives, over fields and law columns alike, each by its arm); workload access
  * paths arrive from the
- * workload compiler through an installer extension's contribution (`workloadExtension`). A law-maintenance request is
- * always served, because a per-key check without one is a table scan, but one that binds columns of few values alone,
- * whose rows are a share of the table however it is read (below).
+ * workload compiler through an installer extension's contribution (`workloadExtension`). Every request is served: a
+ * per-key check or a keyed read without its index is a table scan.
  *
  * Coverage, one rule (`serves`), over where a request's columns may sit in a serving index, each place owned by the
  * access method whose scan it narrows (Placements), read once from the request's access method, role and use. A B-tree
@@ -1176,9 +1045,9 @@ const justificationOrder: Comparator<IndexRequest> = (a, b) => {
  * - an ordered request, a take or page seek, is served only by a B-tree whose leading columns are the ones its
  *   equalities fix, in any order and any direction, since one value holds each within the seek, then the keys it orders
  *   by, in order and either each in its direction or each in the opposite direction, since a B-tree scanned backward
- *   yields the exact reverse of its order; GiST has no order. A superkey seek, whose equalities bind every key of a unique B-tree, is
- *   served by that index too: at most one row answers it, which is in every order, so it asks for no index leading with
- *   a key's columns beside the key's own, which a lookup binding the key would tie with;
+ *   yields the exact reverse of its order; GiST has no order. A superkey seek, whose equalities bind every key of a
+ *   unique B-tree, is served by that index too: at most one row answers it, which is in every order, so it asks for no
+ *   index of its own beside the key's;
  * - a GiST request (a workload span predicate, GiST key lookup or GiST write target, a law's GiST probe) binds every
  *   requested column, a scalar by equality through btree_gist and a span by overlap or equality, a span among them, and
  *   is served by a GiST index that holds every column it binds and whose first column of many values, and every column
@@ -1223,9 +1092,11 @@ const justificationOrder: Comparator<IndexRequest> = (a, b) => {
  * a law's probe's, its suffix seek's or an order's, that no key serves once every other request of their relation has
  * landed or created its index, are planned together (`chainsOf`): each needs a chain of sets its index must lead with,
  * and they are grouped into the fewest indexes whose groups' sets are each one chain, two orders sharing one only when
- * they direct the keys they both order by alike or each opposite (`together`; indexes/chains.ts fewestSharingGroups), each index ordering its columns along its chain, in a relation in no unit led by a column of its own (`ownLead`); each lands on its own chain's index, whose order answers to it, where an index of another chain
- * that serves it too would leave its own ordered for a request it never serves (a seek ordered by f2 with nothing bound,
- * grouped with a lookup of (doc, f2) beside a chain (f2, f3) ⊂ (f1, f2, f3), led (f2, doc) and landed on (f2, f3, f1)).
+ * they direct the keys they both order by alike or each opposite (`together`; indexes/chains.ts fewestSharingGroups),
+ * each index ordering its columns along its chain, each block's columns in the heading's order (`withinBlock`); each
+ * lands on its own chain's index, where an index of another chain that serves it too would leave its own ordered for a
+ * request it never serves (a seek ordered by f2 with nothing bound, grouped with a lookup of (doc, f2) beside a chain
+ * (f2, f3) ⊂ (f1, f2, f3), led (f2, doc) and landed on (f2, f3, f1)).
  * Every other unserved request, wider requests first, so a narrower one lands on a
  * wider index that serves it, creates an index drafted for it (`draftFor`): it starts as the request's own placement and
  * its method, and is refined, in the plan's
@@ -1238,29 +1109,9 @@ const justificationOrder: Comparator<IndexRequest> = (a, b) => {
  * `leaders`), so a column stays one a later request may lead with until a request refuses it, and the one the request
  * states first among those left leads: a span predicate on `(a, b, c, span)` beside one on `(b, c, span)` and an
  * equality lookup on `(c)` creates `(c, ...)`, which serves all three, where choosing `b` at the second would have
- * refused the third. The requests whose placements the draft took are those its order answers to (PlannedIndex
- * `answers`); the serving judge reads them, by the leads every request's placements state (`requestLeads`), to tell a
- * sweep of the index that no order of its keys avoids from one the engine should have. The draft is refined too, after
- * those, by every other request of its relation it can serve that another index already serves, the requests of its own
- * access method first, since PostgreSQL may read such a request through it. It costs a GiST scan by the selectivity of
- * all its conditions whatever their columns' places (genericcostestimate), so it may read a request through any GiST
- * index that holds its columns, and on PostgreSQL 19 it reads a span predicate on `(span)` through `(fixed, span)`,
- * which it sweeps, rather than through the `(span, other)` it is planned on. Within a block the columns keep the
- * request's own order. Since the draft looks ahead, the plan's order only fixes the outcome: it is canonical, so the
- * plan does not depend on the order requests arrive in. A created B-tree is held to the units of the whole rules that
- * read its relation (`confined`): when a lookup of one unit (ir/law.ts LawIndexRequest `reads`) binds every key of the
- * drafted B-tree by equality, the fields of its unit the keys lack follow them, so PostgreSQL, which may read the
- * lookup through any index whose keys it binds, reads one unit through this one too whatever it estimates. It prices
- * every index whose keys the lookup binds at one row alike (selfuncs.c btcostestimate) and takes the smaller: on
- * PostgreSQL 19, a whole rule's lookup of one node by (package, path, start, kind, governor) read through a law's
- * (package, kind, start), 47 rows of other documents filtered for each of 24,991 lookups, 1.38 s, and with path
- * appended, 0.36 s through the unit's key. Appending never unseats a placement: a created index is never unique, and
- * every placement it took is a run of its leading keys. An index created for a binding that spans its relation's
- * units is held to none (`spansUnits`): its lead is an anchor the declaration pairs with the unit's, so a unit's
- * lookup binding its keys binds more through the unit's own index, priced strictly below it, where the unit appended
- * would bind as much and tie it (test/pg/contracts/key-reach: M0 keyed (doc, k0, k1), read by k0 alone, created
- * (k0, doc) for its stored derivation's upkeep, which reads (doc, k0), and the read scanned M0's key). A B-tree some of whose keys the lookup binds, a prefix, is left
- * to PostgreSQL's estimate of the rows it reads. Its keys are canonical under reversal: the first ascends, and a key
+ * refused the third. Within a block the columns take the heading's order (`withinBlock`). Since the draft looks ahead,
+ * the plan's order only fixes the outcome: it is canonical, so the plan does not depend on the order requests arrive
+ * in. Its keys are canonical under reversal: the first ascends, and a key
  * no ordered request directs takes the direction of the key before it (`directionsOf`), so an order and its exact
  * reverse are one index. Its identity is its columns, the canonical directions and each key's operator class,
  * which serving requires equal, and its access method; the name marks a method other than the B-tree, the descending
@@ -1278,16 +1129,6 @@ const justificationOrder: Comparator<IndexRequest> = (a, b) => {
  * indexes do, and an unserved request becomes an index of the table, created after it, but a lookup that binds by
  * equality only texts of no byte bound, which asks for none. A request on a live derived relation, which stores no
  * table, asks for none.
- *
- * A request whose equalities bind columns of few values alone (Holds `few`, a boolean or a closed id), and nothing it
- * orders or ranges by, a workload's read or a law's probe alike, asks for no index but where it binds a whole key, whose
- * unique index finds its row: the declaration prices it at a share of the table at any size, each such column at most
- * its handles' values and two where no key raised it (physical/statistics/declared.ts), so PostgreSQL reads it by a
- * scan, and an index of its own would be one no plan reads and every write keeps (test/pg/physical/serving: a key lookup
- * on Shift's standby, a boolean, read by a Seq Scan of half the table beside the B-tree on standby the engine had
- * created for it; a law's reverse reference on it, likewise). Its rows are a share of the table whatever index reads
- * them, so it reads through whichever index PostgreSQL takes, a composite led by a selective column or a key, or none.
- * Every other law's request is always served, as above; a seek's or a range's order is what its index gives it.
  *
  * Requests whose keys are expressions, a form the workload compiler does not produce, are refused as
  * UnsupportedOperation. */
@@ -1403,14 +1244,6 @@ export const planIndexes = (
 				) {
 					return []
 				}
-				if (
-					methodOf(placements.own) === "btree" &&
-					roles.every((role) => role === "equality") &&
-					keys.every((k) => columns.holds(k.column) === "few") &&
-					!keyed(r.relation)(keys.map((k) => k.column))
-				) {
-					return []
-				}
 				/** The keys a B-tree of its own leaves out, each a filter beside it: none for another method, or where its
 				 * entry is refused, which creating its index refuses (`createIndex`). */
 				const entry =
@@ -1460,10 +1293,6 @@ export const planIndexes = (
 			planOf.getOrInsertComputed(entry.request.relation, () => []).push(entry)
 		}
 		for (const relationPlan of planOf.values()) {
-			/** The unit reads a created B-tree is held to (`confined`): none for one whose order answers to a binding that
-			 * spans its relation's units (`spansUnits`). */
-			const spans = spansUnits(b, installed, relationPlan)
-			const confining = unitReads(relationPlan)
 			/** Lands `entry` on `host`: whether it serves it. */
 			const landOn = (host: Candidate, entry: Planned): boolean => {
 				if (!serves(host.index, entry)) {
@@ -1479,27 +1308,16 @@ export const planIndexes = (
 				const [host] = own.filter((c) => serves(c.index, entry)).toSorted(hostOrder(entry))
 				return host !== undefined && landOn(host, entry)
 			}
-			/** Creates the index `drafted` holds for `planned`, each key's role read by `roleOf`: the candidate created, or
-			 * none where an index of its relation has its method and keys already (`createIndex`). */
-			const create = (
-				planned: Planned,
-				drafted: Drafted,
-				roleOf: RoleOf
-			): Candidate | undefined => {
+			/** Creates the index `draft` holds for `planned`, each key's role read by `roleOf`: the candidate created, or none
+			 * where an index of its relation has its method and keys already (`createIndex`). */
+			const create = (planned: Planned, draft: Draft, roleOf: RoleOf): Candidate | undefined => {
 				const index = createIndex(
 					b,
 					planned,
-					drafted,
+					draft,
 					roleOf,
-					drafted.answers.some(spans) ? [] : confining,
 					relationPlan,
-					candidatesOf.get(planned.request.relation) ?? [],
-					(k) =>
-						installed.some(
-							(key) =>
-								key.relation === planned.request.relation &&
-								key.columns.some((c) => sameColumn(c, k.column))
-						)
+					candidatesOf.get(planned.request.relation) ?? []
 				)
 				if (index === undefined) {
 					return undefined
@@ -1526,9 +1344,8 @@ export const planIndexes = (
 				invariant(land(entry), `the index created for the ${entry.label} serves it`)
 			}
 			const unserved = chained.filter(({ entry }) => !land(entry))
-			const standing = candidatesOf.get(relationPlan[0]?.request.relation ?? "") ?? []
-			for (const chain of chainsOf(unserved, orderingOf(b, installed, relationPlan, standing))) {
-				const host = create(chain.members[0], chain.drafted, chain.roleOf)
+			for (const chain of chainsOf(unserved)) {
+				const host = create(chain.members[0], chain.draft, chain.roleOf)
 				for (const entry of chain.members) {
 					invariant(
 						host === undefined ? land(entry) : landOn(host, entry),
@@ -1539,137 +1356,6 @@ export const planIndexes = (
 		}
 		return candidates.map((c) => ({ ...c.index, requests: c.requests }))
 	})
-
-/**
- * What spans a unit's member's units, each column by its text (`keyTermText`): the columns the schema scopes its rows
- * by, its unit's fields and each key's first column of many values, and the bindings of its statements that hold none
- * of them, each key's probe and each request's (`requestBindings`). A relation in no unit spans none (Ordering).
- * The declared statistics price a binding that spans by the lead of its own index, an anchor paired with the unit's
- * (physical/statistics/declared.ts spanningLeads), and state every other column no scope at a fixed number of values,
- * a share of the table, so a read that reaches a binding whole by stepping such a column wins at some size
- * (`skipFree`), and a scope at a fixed number of rows a value at any size, its count growing with the table, so PostgreSQL never steps one
- * (selfuncs.c btcostestimate takes no step where the values outnumber the index's pages). Every other binding holds a
- * scope and reads the rows the declaration fixes for it at any size: stepping a column to reach them costs a descent a
- * value where its own index makes one, and never wins; and the first column of many values of each index of a relation
- * in no unit is a scope of the same kind, an anchor, which leads one index alone (`ownLead`). `planned` are the
- * relation's requests, every one, in the plan's order.
- */
-interface Spanning {
-	readonly scopes: ReadonlySet<string>
-	readonly bindings: ReadonlyArray<ReadonlySet<string>>
-}
-
-/**
- * How the chain cover orders the blocks of the B-trees it creates for a relation (`chainsOf`): a unit's member's against
- * PostgreSQL's skip scan, by what spans its units (`skipFree`, Spanning); a relation in no unit's each led by a column of
- * its own (`ownLead`), by the first column of every index standing beside it (`leads`, its keys' and those created
- * before) and every binding its requests make, each with the request it is (`bindings`).
- */
-type Ordering =
-	| { readonly kind: "member"; readonly spanning: Spanning; readonly keyed: ReadonlySet<string> }
-	| {
-			readonly kind: "unitless"
-			readonly keyed: ReadonlySet<string>
-			readonly leads: ReadonlySet<string>
-			readonly bindings: ReadonlyArray<{
-				readonly request: IndexRequest
-				readonly columns: ReadonlySet<string>
-			}>
-	  }
-
-/**
- * How the chain cover orders `planned`'s relation's created B-trees (Ordering): by what spans its unit's members
- * (Spanning), its key indexes among `installed`, where it is a unit's member; else by the first column of each of the
- * indexes `standing` beside them and the bindings of its every request.
- */
-const orderingOf = (
-	b: InstallBuilder,
-	installed: ReadonlyArray<{
-		readonly relation: string
-		readonly columns: ReadonlyArray<IndexColumn>
-	}>,
-	planned: ReadonlyArray<Planned>,
-	standing: ReadonlyArray<Candidate>
-): Ordering => {
-	const [head] = planned
-	const unit = head === undefined ? undefined : b.owned.unitOf.get(head.request.relation)
-	const keyed = new Set(
-		installed.flatMap((k) =>
-			head !== undefined && k.relation === head.request.relation ? k.columns.map(keyTermText) : []
-		)
-	)
-	if (head === undefined || unit === undefined) {
-		return {
-			kind: "unitless",
-			keyed,
-			leads: new Set(
-				standing.flatMap((c) => c.index.keys.slice(0, 1).map((k) => keyTermText(k.column)))
-			),
-			bindings: planned.flatMap(({ request }) =>
-				requestBindings(request).map((binding) => ({ request, columns: new Set(binding.columns) }))
-			)
-		}
-	}
-	return { kind: "member", spanning: spanningOf(head, unit, installed, planned), keyed }
-}
-
-/** What spans the units of `head`'s relation, a member of `unit` (Spanning), its key indexes among `installed`. */
-const spanningOf = (
-	head: Planned,
-	unit: { readonly fields: ReadonlyArray<string> },
-	installed: ReadonlyArray<{
-		readonly relation: string
-		readonly columns: ReadonlyArray<IndexColumn>
-	}>,
-	planned: ReadonlyArray<Planned>
-): Spanning => {
-	const keys = installed.flatMap((k) => (k.relation === head.request.relation ? [k.columns] : []))
-	const scopes = new Set([
-		...unit.fields,
-		...keys.flatMap((k) => {
-			const scope = k.find((c) => head.columns.holds(c) === "many")
-			return scope === undefined ? [] : [keyTermText(scope)]
-		})
-	])
-	return {
-		scopes,
-		bindings: [
-			...keys.map((k) => k.map(keyTermText)),
-			...planned.flatMap(({ request }) =>
-				requestBindings(request).map((binding) => binding.columns)
-			)
-		].flatMap((columns) => (columns.some((c) => scopes.has(c)) ? [] : [new Set(columns)]))
-	}
-}
-
-/**
- * Whether a request of `relationPlan`'s relation binds a set that spans its units: a unit's member's request binding
- * by equality a set of columns that holds none of those that scope its rows (Spanning `scopes`); none of a relation in
- * no unit. The declaration takes the lead of the index that serves such a binding as an anchor paired with the unit's
- * (physical/statistics/declared.ts spanningLeads), which binds more rows than the unit's anchor and the lead together,
- * so a read binding both is priced through the unit's own index below the spanning one, which leaves the unit out: an
- * index created for a spanning binding is what its requests ask, never confined to a unit read (`confined`), whose
- * fields appended would let it bind what the unit's index binds and tie it.
- */
-const spansUnits = (
-	b: InstallBuilder,
-	installed: ReadonlyArray<{
-		readonly relation: string
-		readonly columns: ReadonlyArray<IndexColumn>
-	}>,
-	relationPlan: ReadonlyArray<Planned>
-): ((request: IndexRequest) => boolean) => {
-	const [head] = relationPlan
-	const unit = head === undefined ? undefined : b.owned.unitOf.get(head.request.relation)
-	if (head === undefined || unit === undefined) {
-		return () => false
-	}
-	const { scopes } = spanningOf(head, unit, installed, relationPlan)
-	return (request) =>
-		requestBindings(request).some(
-			(binding) => binding.columns.length > 0 && !binding.columns.some((c) => scopes.has(c))
-		)
-}
 
 /** A planned index and the requests it serves, in the plan's order. */
 interface Candidate {
@@ -1688,9 +1374,8 @@ type Standing = { readonly kind: KeyRole } | { readonly kind: "created"; readonl
 /** The plan's order: by relation, wider requests first, then a fixed order, so the plan does not depend on request
  * order, nor on the order a request states the columns of a block in, which any order of serves alike: each block's
  * keys compared as a set, in keyOrder (`withinBlock`), where comparing them as stated ordered three lookups of
- * Event's (tenant, unrelated), (tenant, account) and (account, unrelated) by their statement, and the chain cover gave
- * each the lead the one before it left (`ownLead`), one plan for each statement of a lookup's columns (INDEX-P4's
- * kept case); each index's requests and reasons are merged in it. */
+ * Event's (tenant, unrelated), (tenant, account) and (account, unrelated) by their statement, one plan for each
+ * statement of a lookup's columns; each index's requests and reasons are merged in it. */
 const canonical: Comparator<Planned> = combineAll([
 	mapInput(compareStrings, (x: Planned) => x.request.relation),
 	mapInput(flip(compareNumbers), (x: Planned) => x.keys.length),
@@ -1719,56 +1404,41 @@ const hostOrder = (entry: Planned): Comparator<Candidate> =>
 	])
 
 /** The requests the draft of the index created for the unserved `plan[at]` reads ahead (see `planIndexes`): the later
- * requests of its relation no planned index serves yet, then every other request of its relation, which another index
- * serves; those of its own access method first. */
+ * requests of its relation no planned index serves yet, those of its own access method first. */
 const ahead = (
 	at: number,
 	relationPlan: ReadonlyArray<Planned>,
 	candidates: ReadonlyArray<Candidate>
-): ReadonlyArray<Ahead> => {
+): ReadonlyArray<Planned> => {
 	const entry = defined(relationPlan[at], "the request read ahead from")
-	const later = relationPlan
+	return relationPlan
 		.slice(at + 1)
 		.filter((q) => !candidates.some((c) => serves(c.index, q)))
-	const unserved = new Set(later)
-	const served = relationPlan.filter((q) => q !== entry && !unserved.has(q))
-	return [
-		...later.map((planned): Ahead => ({ kind: "unserved", planned })),
-		...served.map((planned): Ahead => ({ kind: "served", planned }))
-	].toSorted(mapInput(compareBooleans, (q: Ahead) => ownMethod(q.planned) !== ownMethod(entry)))
-}
-
-/** A created index's draft and the requests its order answers to: its own, then each it read ahead whose placement
- * refined it. */
-interface Drafted {
-	readonly draft: Draft
-	readonly answers: NonEmptyReadonlyArray<IndexRequest>
+		.toSorted(mapInput(compareBooleans, (q: Planned) => ownMethod(q) !== ownMethod(entry)))
 }
 
 /** The draft of the index created for `planned` (see `planIndexes`): its own, refined by each request it reads ahead, in
- * order, that one index can still serve with all before it, each such request one its order answers to. */
-const draftFor = (planned: Planned, reads: ReadonlyArray<Ahead>): Drafted =>
+ * order, that one index can still serve with all before it. */
+const draftFor = (planned: Planned, reads: ReadonlyArray<Planned>): Draft =>
 	reads.reduce(
-		(drafted: Drafted, q): Drafted => {
-			const draft = refined(drafted.draft, q)
-			return draft === undefined
-				? drafted
-				: { draft, answers: extendNonEmpty(drafted.answers, [q.planned.request]) }
-		},
-		{ draft: draftOf(planned), answers: [planned.request] }
+		(draft: Draft, q): Draft => refined(draft, q) ?? draft,
+		draftOf(planned)
 	)
 
 /** What each key of an index under construction is to its entry (core/identity.ts EntryRole). */
 type RoleOf = (k: IndexKey) => EntryRole
 
-/** The roles of the keys of the index created for `planned`: each key's role in it (`keyRoles`), and a unit's field a
- * unit read appended (`confined`) read in its order. */
+/** The roles of the keys of the index created for `planned`, each key's role in it (`keyRoles`): its draft holds its
+ * own keys alone, every placement refining it holding none it lacks (`mergeBlocks`, `leadDraft`). */
 const plannedRoles =
 	(planned: Planned): RoleOf =>
-	(k) => {
-		const at = planned.keys.findIndex((p) => sameColumn(readColumn(p.column), readColumn(k.column)))
-		return at < 0 ? "order" : defined(planned.roles[at], "a role per key")
-	}
+	(k) =>
+		defined(
+			planned.roles[
+				planned.keys.findIndex((p) => sameColumn(readColumn(p.column), readColumn(k.column)))
+			],
+			"a role per key"
+		)
 
 /** A request the chain cover plans (`chainsOf`), with the blocks its own placement leads an index with. */
 interface Chained {
@@ -1821,128 +1491,8 @@ const setsOf = ({ blocks }: Chained): NonEmptyReadonlyArray<ChainSet> =>
  * whose label and relation it bears; its draft; and its keys' roles. */
 interface Chain {
 	readonly members: NonEmptyReadonlyArray<Planned>
-	readonly drafted: Drafted
+	readonly draft: Draft
 	readonly roleOf: RoleOf
-}
-
-/**
- * A chain's blocks (`chainsOf`) in the order its index takes against PostgreSQL 19's B-tree skip scan, each column a
- * block of its own. PostgreSQL reads a binding through an index whose leading columns it leaves unbound by stepping
- * them (selfuncs.c btcostestimate's skip arrays): it prices the read at the rows of the columns it reaches, as the
- * binding's own index prices it, in a descent for each value the declared statistics state of the stepped columns, and
- * prices those repeated descents below one (genericcostestimate's Mackert and Lohman estimate of pages fetched), so a
- * read that reaches the binding whole by stepping a column of a fixed number of values wins once the table is large
- * enough, whatever that number (physical/statistics/declared.ts states every column of a unit's member no fact scopes
- * at a fixed number, a share of the table, which a key's probe joined from two sides needs). The plan-shape law's
- * shape: a member keyed (doc, f0, f1), lookups of (f0, f1), of (f1) and of (doc, f1), on (f0, f1) and (f1, doc); at
- * 16,384 rows PostgreSQL read (f1) through (f0, f1), stepping f0's 2 declared values, every row of the index where
- * (f1, doc) reads f1's. So each block's columns are placed in turn, the next the first in `order`, the heading's (the
- * B-tree's `withinBlock`), of those that are a scope or that every binding that spans the member's units (Spanning)
- * binds which lies within the index's columns, holds every column placed before it, and holds some but not all of the
- * block's rest: no read reaches such a binding by stepping a column, but a scope, which PostgreSQL never steps, and the
- * index leads it where its own index does. Where no column is, as where the index's columns hold a binding of each of
- * two of a block's columns alone, the first in the heading's order is placed. The index's first column is, of those
- * that may be placed first, one no key of the relation holds (`keyed`) where one is (`firstBlockOrder`): a B-tree led by
- * a key's column ties that key's probe at one row, and PostgreSQL takes the smaller. A block's order is its own to
- * choose, every request it serves binding all of it by equality, so no order the chain's sets fix moves: an ordered
- * request's keys, a seek's or a canonical order's, are blocks of their own, each in its place.
- */
-const skipFree = (
-	blocks: NonEmptyReadonlyArray<Block>,
-	spanning: Spanning,
-	keyed: ReadonlySet<string>,
-	order: Comparator<IndexKey>
-): NonEmptyReadonlyArray<Block> => {
-	const text = (k: IndexKey): string => keyTermText(k.column)
-	const held = new Set(blocks.flat().map(text))
-	const within = spanning.bindings.filter((binding) => [...binding].every((c) => held.has(c)))
-	/** Whether `column` may lead the index as no key's column (`firstBlockOrder`): a column of no key that is a scope,
-	 * which PostgreSQL never steps, or that every binding within the index that binds any column binds, so none reaches
-	 * the index by stepping it. */
-	const keylessLead = (column: string): boolean =>
-		!keyed.has(column) &&
-		(spanning.scopes.has(column) ||
-			within.every((binding) => binding.size === 0 || binding.has(column)))
-	/** The keys of `left`, the rest of a block, in the order they are placed after `before`. */
-	const ordered = (left: Block, before: ReadonlyArray<IndexKey>): Keys => {
-		const sorted = sortNonEmpty(left, order)
-		const stood = new Set(before.map(text))
-		const reaching = within.filter(
-			(binding) =>
-				before.every((k) => binding.has(text(k))) &&
-				[...binding].some((c) => !stood.has(c)) &&
-				!left.every((k) => binding.has(text(k)))
-		)
-		const placeable = sorted.filter(
-			(k) => spanning.scopes.has(text(k)) || reaching.every((binding) => binding.has(text(k)))
-		)
-		const next =
-			(isNonEmpty(before) ? undefined : placeable.find((k) => keylessLead(text(k)))) ??
-			placeable[0] ??
-			sorted[0]
-		const rest = sorted.filter((k) => k !== next)
-		return isNonEmpty(rest) ? extendNonEmpty([next], ordered(rest, [...before, next])) : [next]
-	}
-	const [first, ...after] = blocks
-	const keys = after.reduce(
-		(laid: Keys, block): Keys => extendNonEmpty(laid, ordered(block, laid)),
-		ordered(first, [])
-	)
-	return mapNonEmpty(keys, (k): Block => [k])
-}
-
-/**
- * A chain's blocks (`chainsOf`) in the order its index takes in a relation in no unit, each column a block of its own:
- * its first block led by a column of many values (`columns`), where it holds one, since a column of few values is no
- * anchor and a binding steps it; of those one no other index of the relation leads with (`leads`, every index standing
- * beside it and every one the cover placed before), where it holds one; of those one no key of the relation holds
- * (`keyed`), where it holds one; and of those the one the fewest bindings of the relation's other requests bind
- * (`others`), the first by `order` among equals; every other column in `order`, block by block, as a unit's member's
- * columns are where nothing spans its units.
- *
- * The bound the order stands on, the declaration alone (physical/statistics/declared.ts): in a relation in no unit the
- * first column of many values of each index is an anchor, 2^y rows a value at any size, which no statement of the
- * other columns' statistics moves (an ANALYZE keeps it), and PostgreSQL never steps an anchor, whose declared values
- * outnumber the index's pages (selfuncs.c btcostestimate). So a binding reaches an index only where it binds the
- * index's lead: an index led by a column no other request binds is reached by its own requests alone; and where its
- * lead is a column no key holds, every set a key's index stops at short of its binding lacks that anchor, so its own
- * index binds that set and the anchor besides, priced below it by the anchor's declared share whatever the other
- * columns' statistics state. The choice among a binding's indexes then stands on the anchors grizzle declares, where
- * two indexes led alike tied at the anchor's rows whenever the statistics of the columns after it stated one value or
- * each value its own, and PostgreSQL kept the one of fewer pages: a session read at its primary key (child, n), beside
- * the index (child, stage) of a sitting's sessions, was read through it, n filtered after, every session of the
- * learner for each, where (stage, child) leaves it its key's index alone; an item's member read at (package, path,
- * document), beside the index (package, path, start) of a fold's members, was read through its (package, path), every
- * member of the test for each, where (start, package, path) is reached by the fold's binding alone.
- */
-const ownLead = (
-	blocks: NonEmptyReadonlyArray<Block>,
-	columns: Columns,
-	keyed: ReadonlySet<string>,
-	leads: ReadonlySet<string>,
-	others: ReadonlyArray<{ readonly columns: ReadonlySet<string> }>,
-	order: Comparator<IndexKey>
-): NonEmptyReadonlyArray<Block> => {
-	const text = (k: IndexKey): string => keyTermText(k.column)
-	const [first, ...after] = blocks
-	const [lead] = sortNonEmpty(
-		first,
-		combineAll([
-			mapInput(compareBooleans, (k: IndexKey) => columns.holds(k.column) !== "many"),
-			mapInput(compareBooleans, (k: IndexKey) => leads.has(text(k))),
-			mapInput(compareBooleans, (k: IndexKey) => keyed.has(text(k))),
-			mapInput(
-				compareNumbers,
-				(k: IndexKey) => others.filter((o) => o.columns.has(text(k))).length
-			),
-			order
-		])
-	)
-	const keys = extendNonEmpty(
-		[lead],
-		[...first.filter((k) => k !== lead).toSorted(order), ...after.flatMap((b) => b.toSorted(order))]
-	)
-	return mapNonEmpty(keys, (k): Block => [k])
 }
 
 /**
@@ -1952,10 +1502,8 @@ const ownLead = (
  * as blocks of its chain's sets less the set before each, each block's columns in heading order (`keysOf`), every key an
  * equality where any request it holds binds it so.
  */
-const chainsOf = (entries: ReadonlyArray<Chained>, ordering: Ordering): ReadonlyArray<Chain> => {
+const chainsOf = (entries: ReadonlyArray<Chained>): ReadonlyArray<Chain> => {
 	const needed = entries.map(setsOf)
-	/** The first column of every index of the relation so far, each chain's lead added as it is placed (`ownLead`). */
-	const leads = new Set(ordering.kind === "unitless" ? ordering.leads : [])
 	return fewestSharingGroups(
 		needed.map((sets, at) => ({
 			sets: mapNonEmpty(sets, (x) => x.members),
@@ -1989,87 +1537,23 @@ const chainsOf = (entries: ReadonlyArray<Chained>, ordering: Ordering): Readonly
 			)
 			return roles.includes("equality") ? "equality" : (roles[0] ?? "order")
 		}
-		const { target } = holds[0].entry
-		const order = withinBlock.btree(
-			(k) => target.place(readColumn(k.column)),
-			holds[0].entry.columns
-		)
-		const chainBlocks = extendNonEmpty([lowest.keys], following)
-		const blocks =
-			ordering.kind === "member"
-				? skipFree(chainBlocks, ordering.spanning, ordering.keyed, order)
-				: ownLead(
-						chainBlocks,
-						holds[0].entry.columns,
-						ordering.keyed,
-						leads,
-						ordering.bindings.filter(
-							({ request }) => !holds.some(({ entry }) => entry.request === request)
-						),
-						order
-					)
-		leads.add(keyTermText(blocks[0][0].column))
+		const blocks = extendNonEmpty([lowest.keys], following)
 		return {
 			members: mapNonEmpty(holds, ({ entry }) => entry),
-			drafted: {
-				draft: {
-					method: "btree",
-					blocks,
-					leaders: blocks[0],
-					orders: holds.flatMap(({ directed }) => (directed === undefined ? [] : [directed]))
-				},
-				answers: mapNonEmpty(holds, ({ entry }) => entry.request)
+			draft: {
+				method: "btree",
+				blocks,
+				leaders: blocks[0],
+				orders: holds.flatMap(({ directed }) => (directed === undefined ? [] : [directed]))
 			},
 			roleOf
 		}
 	})
 }
 
-/** A lookup of one unit of a whole rule (ir/law.ts LawLookup): its unit's fields, its request's first block, and every
- * column it fixes by equality. */
-interface UnitRead {
-	readonly unit: Block
-	readonly binds: ReadonlyArray<IndexColumn>
-}
-
-/** The lookups of one unit among a relation's requests, in the plan's order. */
-const unitReads = (relationPlan: ReadonlyArray<Planned>): ReadonlyArray<UnitRead> =>
-	relationPlan.flatMap(({ request, blocks }): ReadonlyArray<UnitRead> =>
-		request.role === "lawMaintenance" && request.reads.kind === "unit"
-			? request.reads.lookups.map((lookup) => ({
-					unit: blocks[0],
-					binds: lookup.map(indexColumnOf)
-				}))
-			: []
-	)
-
-/** A created B-tree's keys, each unit read of its relation that binds every one of them by equality holding them to its
- * unit (see `planIndexes`): the fields of that read's unit the keys lack, appended after them in the unit's order, read
- * by read in the plan's order, so a read binds the widened keys whole only when the reads before it appended fields it
- * binds too. A suffix key is bound by no equality, so no read binds the keys of a B-tree that holds one. */
-const confined = (keys: Keys, reads: ReadonlyArray<UnitRead>): Keys =>
-	reads.reduce((held: Keys, read): Keys => {
-		const among = (k: IndexKey, of: ReadonlyArray<IndexColumn>): boolean =>
-			k.column.kind !== "suffix" && of.some((column) => sameColumn(column, readColumn(k.column)))
-		const missing = read.unit.filter(
-			(k) =>
-				!among(
-					k,
-					held.map((h) => readColumn(h.column))
-				)
-		)
-		return held.every((k) => among(k, read.binds)) && isNonEmpty(missing)
-			? extendNonEmpty(
-					held,
-					missing.map((k): IndexKey => ({ column: k.column, dir: held[0].dir, opclass: k.opclass }))
-				)
-			: held
-	}, keys)
-
 /**
  * A new index for an unserved request, as drafted for it (draftFor): the draft's method, and its keys in the order the
- * draft fixes, a B-tree's confined to the units of the whole rules that read its relation (`confined`), its entry
- * judged against the access method's limit: one whose entry no index holds is refused in the installation's ledger (b
+ * draft fixes, its entry judged against the access method's limit: one whose entry no index holds is refused in the installation's ledger (b
  * `keys`) as UnrepresentableKey and created over its proposed keys all the same, so the installation goes on to meet
  * every other such index. None where one of `others`, its relation's planned indexes, has its method and its keys
  * already, as two chains' indexes have once each entry leaves out the widest columns it cannot hold: that one serves
@@ -2078,26 +1562,21 @@ const confined = (keys: Keys, reads: ReadonlyArray<UnitRead>): Keys =>
 const createIndex = (
 	b: InstallBuilder,
 	planned: Planned,
-	drafted: Drafted,
+	draft: Draft,
 	roleOf: RoleOf,
-	reads: ReadonlyArray<UnitRead>,
 	relationPlan: ReadonlyArray<Planned>,
-	others: ReadonlyArray<Candidate>,
-	keyed: (k: IndexKey) => boolean
+	others: ReadonlyArray<Candidate>
 ): PlannedIndex | undefined => {
 	const { request, label, target: o } = planned
-	const { draft, answers } = drafted
 	const method = draft.method
 	const targetField = (column: IndexColumn): TargetField =>
 		o.field(column) ??
 		fail("MalformedDescription", label, `a field ${keyTermText(column)} of ${request.relation}`)
-	const drafts = keysOf(
+	const proposed = keysOf(
 		draft,
 		(k) => planned.target.place(readColumn(k.column)),
-		planned.columns,
-		keyed
+		planned.columns
 	)
-	const proposed = method === "btree" ? confined(drafts, reads) : drafts
 	/** The index refused for `fault`, its keys the proposed ones. */
 	const unrepresentable = (fault: KeyFault): NonEmptyReadonlyArray<IndexKey> => {
 		const fields = proposed.map((k) => keyTermText(k.column))
@@ -2216,7 +1695,7 @@ const createIndex = (
 		]
 	)
 	return {
-		index: { kind: "created", name, answers },
+		index: { kind: "created", name },
 		relation: request.relation,
 		method,
 		keys,

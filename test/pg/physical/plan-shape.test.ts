@@ -141,12 +141,6 @@ export const everyStatementReadsThroughTheIndexItsBindingAsksForInEveryState = p
 		],
 		kills: [
 			{
-				file: "packages/engine/src/physical/ddl/tables.ts",
-				original: "\treturn extendNonEmpty(outside, inside)",
-				replacement: "\treturn columns",
-				why: "A candidate key led by its declared order again, its first column one of the primary key's: a lookup that binds that column reads the candidate key's index, binding one of its columns, where its own index binds two (the kept case's r_0 at 79fd60c3)."
-			},
-			{
 				file: "packages/engine/src/laws/model/plan.ts",
 				original: "\t\t\tmutableSide(d.from) || mutableSide(d.to)\n\t\t\t\t? whole",
 				replacement: "\t\t\ttrue || mutableSide(d.from) || mutableSide(d.to)\n\t\t\t\t? whole",

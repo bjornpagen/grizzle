@@ -638,33 +638,16 @@ export interface LawIndexKey {
 }
 
 /**
- * What the lookups of a law's request read: `unit`, the rows of one unit of a whole rule, the request's first block
- * every field its relation holds that unit's key in, and `lookups` each lookup's columns fixed by equality
- * (physical/access/paths.ts Lookup), its unit's and the others it is by, so the index engine holds that block in every
- * created B-tree all of whose keys one lookup binds (physical/indexes/engine.ts confined); `rows`, any other: a probed
- * rule's, a reverse reference's, or a whole rule's read that binds only some of its unit's fields.
- */
-export type LawLookup =
-	| {
-			readonly kind: "unit"
-			readonly lookups: NonEmptyReadonlyArray<ReadonlyArray<NativeColumn>>
-	  }
-	| { readonly kind: "rows" }
-
-/**
  * An index a law's maintenance needs, over every row of its relation: its keys, each a column of the relation by its arm
  * (a field by its handle, a law column by its identifier), never a name looked up again, as blocks, each a run of
  * columns that lead an index together in any order among themselves, in order; and its use, named for diagnostics
  * (`reverse reference`). A lookup by every column is one block. A read of a unit-local law (physical/ddl/rules.ts
  * requestsOf) binds its unit's key, which its relation's primary key leads with, so its first block is that key: no
  * index another column leads serves it, and a read of that index never leaves the unit.
- *
- * `reads` says what its lookups read (LawLookup).
  */
 export interface LawIndexRequest {
 	readonly relation: string
 	readonly blocks: NonEmptyReadonlyArray<NonEmptyReadonlyArray<LawIndexKey>>
-	readonly reads: LawLookup
 	readonly method: IndexMethod
 	readonly role: "lawMaintenance"
 	readonly use: string

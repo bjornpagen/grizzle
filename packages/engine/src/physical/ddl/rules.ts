@@ -48,8 +48,6 @@ import {
 	defaultOpclass,
 	type LawIndexKey,
 	type LawIndexRequest,
-	type LawLookup,
-	type NativeColumn,
 	type TheoryTable
 } from "#compiler/ir/law.ts"
 import type { IndexRequest, PhysicalReason } from "#compiler/ir/products.ts"
@@ -508,7 +506,6 @@ const seekRequestsOf = (
 			{
 				relation: target.name,
 				blocks: isNonEmpty(fixed) ? [fixed, [suffix]] : [[suffix]],
-				reads: { kind: "rows" },
 				method: "btree",
 				role: "lawMaintenance",
 				use: "rule probe",
@@ -531,7 +528,7 @@ const lookupRequestsOf = (
 	by: Requester,
 	reads: JudgedReads
 ): ReadonlyArray<IndexRequest> =>
-	reads.lookups.flatMap(({ path, binds }): ReadonlyArray<IndexRequest> => {
+	reads.lookups.flatMap(({ path }): ReadonlyArray<IndexRequest> => {
 		const known = b.model.theory.relations[path.relation]
 		const target = known?.kind === "relation" || known?.kind === "stored" ? known : undefined
 		if (
@@ -563,7 +560,7 @@ const lookupRequestsOf = (
 			: [
 					{
 						relation: target.name,
-						...unitLead(by, target, keys, binds),
+						blocks: unitLead(by, target, keys),
 						method: path.method,
 						role: "lawMaintenance",
 						use: "rule probe",
@@ -573,9 +570,8 @@ const lookupRequestsOf = (
 	})
 
 /**
- * The blocks of a judged read's request over `relation` by `keys`, and what each lookup of it reads (ir/law.ts
- * LawIndexRequest), `binds` the columns each lookup through its path fixes by equality (physical/access/paths.ts
- * Lookup): one block of its keys for a probed rule's, which reads rows; for a whole rule's or a unit's upkeep's, first
+ * The blocks of a judged read's request over `relation` by `keys` (ir/law.ts LawIndexRequest): one block of its keys for
+ * a probed rule's, which reads rows; for a whole rule's or a unit's upkeep's, first
  * the fields `relation` holds its unit's key in (ir/unit.ts Unit holders) that the read binds, the longest run of them
  * from the first in the unit key's order, then the rest, so an index the request asks for never reads past the unit and
  * none another column leads serves it, and a lookup that binds every one of those fields reads one unit. A read that
@@ -586,15 +582,14 @@ const lookupRequestsOf = (
 const unitLead = (
 	by: Requester,
 	target: TheoryTable,
-	keys: NonEmptyReadonlyArray<LawIndexKey>,
-	binds: ReadonlyArray<ReadonlyArray<string>>
-): Pick<LawIndexRequest, "blocks" | "reads"> => {
+	keys: NonEmptyReadonlyArray<LawIndexKey>
+): LawIndexRequest["blocks"] => {
 	const relation = target.name
 	const holder = by.references.includes(relation)
 		? undefined
 		: by.unit?.holders.find((h) => h.relation === relation)
 	if (holder === undefined) {
-		return { blocks: [keys], reads: { kind: "rows" } }
+		return [keys]
 	}
 	const keyOf = (field: string): LawIndexKey | undefined =>
 		keys.find((k) => k.column.kind === "field" && k.column.field.name === field)
@@ -607,18 +602,7 @@ const unitLead = (
 		bound.push(key)
 	}
 	const rest = keys.filter((k) => !bound.includes(k))
-	const lookups = binds.map((columns): ReadonlyArray<NativeColumn> =>
-		target.fields.flatMap((field): ReadonlyArray<NativeColumn> =>
-			columns.includes(field.name) ? [{ kind: "field", field }] : []
-		)
-	)
-	const reads: LawLookup =
-		bound.length === holder.fields.length && isNonEmpty(lookups)
-			? { kind: "unit", lookups }
-			: { kind: "rows" }
-	return isNonEmpty(bound)
-		? { blocks: isNonEmpty(rest) ? [bound, rest] : [bound], reads }
-		: { blocks: [keys], reads: { kind: "rows" } }
+	return isNonEmpty(bound) ? (isNonEmpty(rest) ? [bound, rest] : [bound]) : [keys]
 }
 
 /**
@@ -661,9 +645,7 @@ const programRequests = (
 		if (!isNonEmpty(keys)) {
 			return []
 		}
-		const led = unitLead(by, target, keys, [
-			keys.flatMap((k) => (k.column.kind === "field" ? [k.column.field.name] : []))
-		])
+		const led = unitLead(by, target, keys)
 		const ranged = range === undefined ? undefined : table.columns.get(range)
 		const ranges: ReadonlyArray<LawIndexKey> =
 			ranged === undefined || table.holds.get(range ?? "") === "none"
@@ -678,8 +660,7 @@ const programRequests = (
 		return [
 			{
 				relation: target.name,
-				...led,
-				blocks: isNonEmpty(ranges) ? [...led.blocks, ranges] : led.blocks,
+				blocks: isNonEmpty(ranges) ? [...led, ranges] : led,
 				method: "btree",
 				role: "lawMaintenance",
 				use: "rule probe",

@@ -135,8 +135,8 @@ export const aLearnersWriteKeepsRelationsStoredByTheirDeltaFormsAtTheSittingItWr
 		kills: [
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
-				original: "\t\t\t\tblocks: isNonEmpty(ranges) ? [...led.blocks, ranges] : led.blocks,\n",
-				replacement: "\t\t\t\tblocks: led.blocks,\n",
+				original: "\t\t\t\tblocks: isNonEmpty(ranges) ? [...led, ranges] : led,\n",
+				replacement: "\t\t\t\tblocks: led,\n",
 				why: "A seek's range left out of its one request: TestSnapshot's index holds the sitting's equalities alone, (stage, child), and SessionSnapshot's statements at a suspension read TestSnapshot by its key at the learner, filtered by the stage, every later snapshot of the learner read for each."
 			},
 			{

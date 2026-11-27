@@ -84,13 +84,6 @@ export const aNodeAnAttachmentAndOneUnderItReadIsReadAtTheHeadsKey = property.ex
 			original: "\t\t\tr.readers.filter((reader) => lowered.has(reader)).length > 1 &&\n",
 			replacement: "\t\t\tr.readers.length > 1 &&\n",
 			why: "A node reached at several reads under the root is held in the root's query wherever its readers stand: Control, read by the head's control and by left under it, whose attachment reads it in its own query, is held for the control's one read, a CTE of one scan per session."
-		},
-		{
-			file: "packages/engine/src/physical/indexes/engine.ts",
-			original:
-				'\tconst [lead] = sortNonEmpty(\n\t\tfirst,\n\t\tcombineAll([\n\t\t\tmapInput(compareBooleans, (k: IndexKey) => columns.holds(k.column) !== "many"),\n\t\t\tmapInput(compareBooleans, (k: IndexKey) => leads.has(text(k))),\n\t\t\tmapInput(compareBooleans, (k: IndexKey) => keyed.has(text(k))),\n\t\t\tmapInput(\n\t\t\t\tcompareNumbers,\n\t\t\t\t(k: IndexKey) => others.filter((o) => o.columns.has(text(k))).length\n\t\t\t),\n\t\t\torder\n\t\t])\n\t)\n',
-			replacement: "\tconst [lead] = sortNonEmpty(first, order)\n",
-			why: "A created index of a relation in no unit leads in the heading's order, as before: the sitting's sessions' index leads with child, as Session's key does, and under statistics stating every row one value PostgreSQL reads a control's session at its key through it, every session of the learner for each."
 		}
 	]
 })

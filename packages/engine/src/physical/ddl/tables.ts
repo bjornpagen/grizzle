@@ -1,7 +1,6 @@
 import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	appendNonEmpty,
-	extendNonEmpty,
 	isNonEmpty,
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
@@ -24,7 +23,6 @@ import {
 	scalarKeySet,
 	spanKeySet,
 	type TableRelation,
-	columnKey,
 	fieldColumn
 } from "#compiler/ir/law.ts"
 import { fieldColumnType, lawColumnType } from "#compiler/ir/physical.ts"
@@ -458,50 +456,10 @@ export const addTables = (b: InstallBuilder): PlacedNatives => {
 	}
 }
 
-/**
- * A candidate key's columns in the order its UNIQUE's B-tree holds them: where its declared first column lies in its
- * relation's primary key (`primary`, by columnKey), its columns outside the primary key first, then those inside it,
- * each in their declared order; its declared order otherwise. A probe bound at the primary key binds every column of
- * it, so a candidate key led by one of them is a B-tree whose leading run a run of the primary key's columns is, and
- * where a VACUUM ran while the transaction that filled the table was open (no live row on its pages), PostgreSQL prices
- * every read of the table at one row and, of two paths of one price, takes the smaller index (physical/indexes/engine.ts
- * firstBlockOrder): rule-binding's probed Placed read Named at its primary key (pkg, path, start) through its candidate
- * key (pkg, name), pkg its index condition, 62 rows filtered a loop, 4,411 rows past 10 times the 158 written (INDEX-P4,
- * 2026-11-27). Led by name, the candidate key serves no probe of the primary key in one descent. PostgreSQL 19 still
- * reaches it by a skip scan over name, which at no row it prices as none, a key's lead declared as a share of the rows:
- * the same 4,411 rows, the measured limit firstBlockOrder states. A read ordered by the candidate key's declared order
- * asks an index of its own for that order (physical/indexes/engine.ts).
- */
-const candidateOrder = (
-	columns: NonEmptyReadonlyArray<NativeColumn>,
-	primary: ReadonlySet<string>
-): NonEmptyReadonlyArray<NativeColumn> => {
-	const outside = columns.filter((c) => !primary.has(columnKey(c)))
-	const inside = columns.filter((c) => primary.has(columnKey(c)))
-	const [first] = columns
-	if (!primary.has(columnKey(first)) || !isNonEmpty(outside)) {
-		return columns
-	}
-	return extendNonEmpty(outside, inside)
-}
-
 /** Each key and CHECK native's plan, in the law model's order, its inline constraint declared into `inline`. */
 const planNatives = (b: InstallBuilder, inline: Inline): ReadonlyArray<NativePlan> => {
 	const sides = planSides(b)
 	const plans: Array<NativePlan> = []
-	/** Each relation's primary key's columns, by columnKey (`candidateOrder`). */
-	const primaryOf = new Map<string, ReadonlySet<string>>(
-		b.natives.flatMap((n) =>
-			n.namespace === "constraint" && n.object.kind === "PrimaryKey"
-				? [
-						[
-							n.object.relation.name,
-							new Set(n.object.columns.map((f) => columnKey(fieldColumn(f))))
-						] as const
-					]
-				: []
-		)
-	)
 	/** A secondary constraint, declared inline in its table, and its object. */
 	const declare = (
 		relation: string,
@@ -606,11 +564,10 @@ const planNatives = (b: InstallBuilder, inline: Inline): ReadonlyArray<NativePla
 					continue
 				}
 				setUniqueBound(b, o.relation.name, o.columns)
-				const ordered = candidateOrder(o.columns, primaryOf.get(o.relation.name) ?? new Set())
-				const columns = mapNonEmpty(ordered, (c) => nativeColumn(b, o.relation.name, c))
+				const columns = mapNonEmpty(o.columns, (c) => nativeColumn(b, o.relation.name, c))
 				const lawColumns = lawColumnsAmong(o.columns)
 				if (isNonEmpty(lawColumns)) {
-					ownUnique(columns, ordered, lawColumns)
+					ownUnique(columns, o.columns, lawColumns)
 					continue
 				}
 				declare(
@@ -622,7 +579,7 @@ const planNatives = (b: InstallBuilder, inline: Inline): ReadonlyArray<NativePla
 						columns: mapNonEmpty(columns, (column) => ({ column, withoutOverlaps: false }))
 					},
 					o.lawIds,
-					keyShape(scalarKeySet(o.relation.name, ordered), ordered),
+					keyShape(scalarKeySet(o.relation.name, o.columns), o.columns),
 					false
 				)
 				continue
